@@ -18,29 +18,43 @@ import java.util.List;
  * <p>실제 기능이 쓰는 <b>같은 함수</b>(Genetics.breed 등)를 호출해 상황을 만들고 → 실행하고 →
  * 예상값과 대조해 ✅/❌로 판정한다. {@code all}은 전 검증을 한 번에 돌리는 회귀 테스트.
  *
- * <p>사용: {@code ./gradlew run --args="genetics"} 또는 {@code "all"}.
+ * <p>두 가지로 호출된다 — 게임 내 {@code /evotest}(EvoTestCommand)와 헤드리스 CLI(main).
+ * 둘 다 {@link #runReport(String)} 하나를 공유하므로 결과가 일치한다. 이 클래스는 마크에 의존하지
+ * 않는다(설계서 §18) → 순수 실행 가능.
+ *
+ * <p>헤드리스 사용: {@code ./gradlew evotest --args="genetics"} 또는 {@code "all"}.
  */
 public final class EvoTest {
+
+    private EvoTest() {
+    }
 
     public static void main(String[] args) {
         // 리포트에 한글/이모지(✅❌)가 있으므로 로케일과 무관하게 UTF-8로 출력.
         System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
 
         String cmd = args.length > 0 ? args[0].toLowerCase() : "all";
-        Report report = new Report();
-        switch (cmd) {
-            case "genetics" -> genetics(report);
-            case "all" -> all(report);
-            default -> {
-                System.out.println("알 수 없는 검증: " + cmd);
-                System.out.println("사용 가능: genetics · all");
-                return;
-            }
+        Report report = runReport(cmd);
+        for (String line : report.render()) {
+            System.out.println(line);
         }
-        report.print();
         if (report.hasFailures()) {
             System.exit(1);
         }
+    }
+
+    /**
+     * 검증을 실행하고 결과 리포트를 반환한다(출력·종료 없음). 게임 명령어와 CLI가 공유.
+     */
+    public static Report runReport(String cmd) {
+        String kind = cmd == null ? "all" : cmd.toLowerCase();
+        Report report = new Report();
+        switch (kind) {
+            case "genetics" -> genetics(report);
+            case "all" -> all(report);
+            default -> report.add("evotest", false, "genetics | all", "알 수 없는 검증: " + cmd);
+        }
+        return report;
     }
 
     /** 전체 회귀 (설계서 §17 `/evotest all`). 새 페이즈마다 여기에 검증을 추가한다. */
@@ -156,24 +170,26 @@ public final class EvoTest {
     // ──────────────────────────────────────────────────────────────
     // 검증 리포트 — 기대 vs 실제를 나란히 (설계서 §17 기록 형식)
     // ──────────────────────────────────────────────────────────────
-    private static final class Report {
+    public static final class Report {
         private final List<Check> checks = new ArrayList<>();
 
         void add(String id, boolean pass, String expected, String actual) {
             checks.add(new Check(id, pass, expected, actual));
         }
 
-        boolean hasFailures() {
+        public boolean hasFailures() {
             return checks.stream().anyMatch(c -> !c.pass);
         }
 
-        void print() {
+        /** 요약 헤더 + 상세를 줄 단위 리스트로 (CLI·게임 채팅 공용 출력). */
+        public List<String> render() {
+            List<String> out = new ArrayList<>();
             long total = checks.size();
             long passed = checks.stream().filter(c -> c.pass).count();
             long failed = total - passed;
 
-            System.out.println("=== 검증 요약 ===");
-            System.out.println("총 " + total + " · ✅ " + passed + " · ❌ " + failed);
+            out.add("=== 검증 요약 ===");
+            out.add("총 " + total + " · ✅ " + passed + " · ❌ " + failed);
             if (failed > 0) {
                 StringBuilder sb = new StringBuilder("❌: ");
                 boolean first = true;
@@ -186,13 +202,14 @@ public final class EvoTest {
                         first = false;
                     }
                 }
-                System.out.println(sb);
+                out.add(sb.toString());
             }
-            System.out.println("=================");
+            out.add("=================");
             for (Check c : checks) {
-                System.out.println("[" + c.id + "] 기대 " + c.expected
+                out.add("[" + c.id + "] 기대 " + c.expected
                         + " / 실제 " + c.actual + "  " + (c.pass ? "✅" : "❌"));
             }
+            return out;
         }
     }
 

@@ -7,22 +7,43 @@
 > 개발 규칙: **한 페이즈씩.** 각 페이즈 완성 시 그 `/evotest` 검증을 함께 만들고,
 > `/evotest all`로 회귀 확인 후 다음으로 넘어간다.
 
-## 요구 사항
+## 모드 정보
 
-- JDK 21+
-- Gradle 8.x (시스템 설치본 사용; 이 환경에선 네트워크 정책상 gradle wrapper 배포판 검증이 막혀
-  래퍼를 커밋하지 않았다. `gradle` 명령을 그대로 쓰면 된다.)
+- **모드로더**: Forge 1.20.1 (버전 `47.3.0`, `[47,)`)
+- **Minecraft**: 1.20.1
+- **매핑**: official 1.20.1
+- **JDK**: 17 (Forge 1.20.1 요구)
+- 모드 ID: `evosim` — 진입점 `com.evosim.mod.EvoSimMod`
 
-## 검증 실행 (`/evotest`)
+Gradle wrapper(`gradlew`, 8.1.1)가 포함되어 있으니 로컬에 gradle 설치 없이 바로 쓸 수 있다.
 
-게임 내 `/evotest <종류>` 명령어의 헤드리스 대응물. 결과를 복사해 전달하면 된다.
+> ⚠️ 첫 `./gradlew` 실행 시 ForgeGradle 이 Minecraft/Forge/매핑을 인터넷에서 받는다
+> (maven.minecraftforge.net, libraries.minecraft.net). 방화벽으로 막힌 환경에선 셋업이 안 된다.
+
+## 게임에서 실행 (`runClient`)
 
 ```bash
-gradle run --args="genetics"   # Phase 0 유전 검증
-gradle run --args="all"        # 전체 회귀 테스트
+./gradlew runClient      # 개발용 클라이언트 실행 (모드 로드됨)
 ```
 
-출력 예:
+인게임 콘솔/채팅에서(오퍼레이터 권한):
+
+```
+/evotest all         # 전체 회귀
+/evotest genetics    # Phase 0 유전 검증
+```
+
+## 검증 실행 — 헤드리스 (`/evotest`, Minecraft 없이)
+
+Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이언트 없이 CLI 로 검증된다.
+게임 내 `/evotest`와 <b>같은 로직</b>을 호출하므로 결과가 일치한다.
+
+```bash
+./gradlew evotest --args="genetics"   # Phase 0 유전 검증
+./gradlew evotest --args="all"        # 전체 회귀 테스트
+```
+
+출력 예 (게임 채팅과 동일):
 
 ```
 === 검증 요약 ===
@@ -35,11 +56,15 @@ gradle run --args="all"        # 전체 회귀 테스트
 [genetics/결정론] 기대 동일 시드 → 동일 결과 / 실제 재현 일치  ✅
 ```
 
-실패가 있으면 요약 헤더에 `❌:`로 강조되고 프로세스가 종료 코드 1로 끝난다(CI 친화).
+실패가 있으면 요약 헤더에 `❌:`로 강조되고 CLI 는 종료 코드 1로 끝난다(CI 친화).
+게임 내 `/evotest`는 명령 결과값으로 성공 1 / 실패 0을 돌려준다.
 
 ## 현재 구조 (Phase 0 — 뼈대)
 
-마크 의존성 없는 순수 로직 (`com.evosim.core`):
+마크 의존성이 없는 순수 로직(`com.evosim.core`, `com.evosim.test`)과, 그걸 게임에서 호출하는
+얇은 표현층(`com.evosim.mod`)으로 분리돼 있다(§18). 표현층만 Minecraft/Forge 를 임포트한다.
+
+순수 로직 (`com.evosim.core`):
 
 | 파일 | 역할 |
 |---|---|
@@ -53,6 +78,13 @@ gradle run --args="all"        # 전체 회귀 테스트
 | `BreedStats` | breed() 내부 확률 이벤트 누적(검증용) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
+
+Minecraft 표현층 (`com.evosim.mod`):
+
+| 파일 | 역할 |
+|---|---|
+| `EvoSimMod` | `@Mod` 진입점. `/evotest` 명령어 등록. |
+| `EvoTestCommand` | 게임 내 `/evotest` — `EvoTest.runReport()` 를 호출해 채팅 출력(§17). |
 
 ## 페이즈 진행 상황
 

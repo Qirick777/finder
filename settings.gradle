@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+        }
+    }
+}
+
+plugins {
+    // ForgeGradle 6 는 gradle 8.1.1 대상. 래퍼가 배포판을 자동으로 받는다.
+}
+
+rootProject.name = 'evosim'

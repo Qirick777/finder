@@ -2,6 +2,14 @@
 .gradle/
 build/
 
+# Forge / ForgeGradle
+run/
+run-data/
+runs/
+src/generated/
+logs/
+*.log
+
 # IDE
 .idea/
 *.iml

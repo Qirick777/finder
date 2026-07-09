@@ -1,0 +1,50 @@
+package com.evosim.core;
+
+/**
+ * 번식 규칙 (설계서 §6). 밤에 가족 잉여식량이 임계 이상이면 자동 번식. 출산 상한·쿨다운으로 무한번식 방지.
+ *
+ * <p>순수 함수 — 임계치·출산상한 계산. "밤 판정·잉여 확정"의 타이밍은 표현층(엔티티)이 담당.
+ */
+public final class Reproduction {
+
+    /** 기준 임계치(잉여) = 아이 하나 유아+소년기 부양 비용 (설계서 §6, 밸런싱). */
+    public static final double BASE_THRESHOLD = 2.5;
+    /** 출산 상한 기본 (설계서 §6). */
+    public static final int BASE_BIRTH_LIMIT = 5;
+    /** 여성 출산 쿨다운 (게임 3일 ≈ 60분, 설계서 §6). */
+    public static final int FEMALE_COOLDOWN_DAYS = 3;
+
+    private Reproduction() {
+    }
+
+    /**
+     * 번식 임계치 보정 (설계서 §6): 번식선호 한쪽 −1/둘 −2, 번식불호 한쪽 +1/둘 +6(사실상 번식 안 함).
+     */
+    public static double threshold(Individual a, Individual b) {
+        int eager = has(a, Trait.REPRODUCTION_EAGER) + has(b, Trait.REPRODUCTION_EAGER);
+        int averse = has(a, Trait.REPRODUCTION_AVERSE) + has(b, Trait.REPRODUCTION_AVERSE);
+        double adj = 0;
+        adj -= (eager == 2 ? 2 : eager); // 둘 −2 / 한쪽 −1
+        adj += (averse == 2 ? 6 : averse); // 둘 +6 / 한쪽 +1
+        return BASE_THRESHOLD + adj;
+    }
+
+    /**
+     * 출산 상한 (설계서 §6): 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3. (기본 5, 최소 0)
+     */
+    public static int birthLimit(Individual female, Individual male) {
+        int limit = BASE_BIRTH_LIMIT
+                + 2 * has(female, Trait.PROLIFIC) + has(male, Trait.PROLIFIC)
+                - has(female, Trait.INFERTILE) - 2 * has(male, Trait.INFERTILE);
+        return Math.max(0, limit);
+    }
+
+    /** 잉여가 임계 이상이면 번식 (설계서 §6). */
+    public static boolean canReproduce(double surplus, double threshold) {
+        return surplus >= threshold;
+    }
+
+    private static int has(Individual ind, Trait t) {
+        return ExpressionResolver.isExpressed(ind, t) ? 1 : 0;
+    }
+}

@@ -5,11 +5,14 @@ import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Mating;
+import com.evosim.core.Reproduction;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
+import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -58,6 +61,12 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     private BlockPos homePos = null;
     private int matingBaseline = Mating.NORMAL;
+
+    // 번식(§6): 마지막 출산 시각 + 출산 수. 데모 쿨다운(밤 정산·잉여식량 연동은 후속).
+    private long lastBirthTick = -100_000L;
+    private int childrenBorn = 0;
+    private static final int REPRO_COOLDOWN = 1200; // 데모용(1분). 잉여식량 게이트는 밤 정산 연동 후.
+    private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시, 식량 게이트 전)
 
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
     private static final double BASE_SPEED = 0.28D;
@@ -185,7 +194,71 @@ public class MimicEntity extends PathfinderMob {
         if (!level().isClientSide) {
             growthTick();
             observeTooYoung();
+            reproductionTick();
         }
+    }
+
+    /**
+     * 번식 (설계서 §6). 정착한 성년 여성이 같은 거처의 성년 남성과, 쿨다운·출산상한 내에서 자식을 낳는다.
+     * ※ 밤 판정·잉여식량 게이트는 밤 정산 in-world 연동 후 — 지금은 쿨다운+과밀상한으로 임시 유계.
+     */
+    private void reproductionTick() {
+        if (!isFemale() || getStage() != LifeStage.ADULT || homePos == null || individual == null) {
+            return;
+        }
+        long now = level().getGameTime();
+        if ((now + getId()) % 40 != 0) {
+            return; // 스태거(부하 분산)
+        }
+        if (now - lastBirthTick < REPRO_COOLDOWN) {
+            return;
+        }
+        MimicEntity mate = findMate();
+        if (mate == null || mate.getIndividual() == null) {
+            return;
+        }
+        if (childrenBorn >= Reproduction.birthLimit(individual, mate.getIndividual())) {
+            return;
+        }
+        if (!(level() instanceof ServerLevel sl)) {
+            return;
+        }
+        if (sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0)).size() > LOCAL_POP_CAP) {
+            return; // 지역 과밀(임시)
+        }
+
+        DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
+        int gen = Math.max(individual.generation(), mate.getIndividual().generation()) + 1;
+        long childId = Math.abs(getRandom().nextLong() | 1L);
+        Individual childInd = Genetics.breed(childId, individual, mate.getIndividual(), rng, gen, null);
+
+        MimicEntity child = ModEntities.MIMIC.get().create(sl);
+        if (child == null) {
+            return;
+        }
+        child.setIndividual(childInd);
+        child.setStage(LifeStage.INFANT);
+        child.setHomePos(homePos);
+        child.moveTo(homePos.getX() + 0.5, homePos.getY(), homePos.getZ() + 0.5, 0.0F, 0.0F);
+        sl.addFreshEntity(child);
+
+        lastBirthTick = now;
+        childrenBorn++;
+        StageObserver.record(this.getId(), "birth");
+    }
+
+    /** 같은 거처의 성년 남성(짝) 찾기. */
+    @Nullable
+    private MimicEntity findMate() {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(6.0))) {
+            if (m == this || m.getIndividual() == null || m.isFemale()) {
+                continue;
+            }
+            if (m.getStage() == LifeStage.ADULT && homePos.equals(m.getHomePos())) {
+                return m;
+            }
+        }
+        return null;
     }
 
     /**
@@ -248,6 +321,8 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("GrowthTicks", growthTicks);
         tag.putBoolean("FastGrowth", fastGrowth);
         tag.putInt("MatingBaseline", matingBaseline);
+        tag.putLong("LastBirth", lastBirthTick);
+        tag.putInt("ChildrenBorn", childrenBorn);
         if (homePos != null) {
             tag.putInt("HomeX", homePos.getX());
             tag.putInt("HomeY", homePos.getY());
@@ -269,6 +344,10 @@ public class MimicEntity extends PathfinderMob {
         if (tag.contains("MatingBaseline")) {
             matingBaseline = tag.getInt("MatingBaseline");
         }
+        if (tag.contains("LastBirth")) {
+            lastBirthTick = tag.getLong("LastBirth");
+        }
+        childrenBorn = tag.getInt("ChildrenBorn");
         if (tag.contains("HomeX")) {
             homePos = new BlockPos(tag.getInt("HomeX"), tag.getInt("HomeY"), tag.getInt("HomeZ"));
         }

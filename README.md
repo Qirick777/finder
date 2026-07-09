@@ -53,6 +53,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="lifespan"     # Phase 3 세대 수명 + 상속
 ./gradlew evotest --args="mating"       # Phase 4 조우·기준선·매력·근친회피
 ./gradlew evotest --args="settlement"   # Phase 4 거처 배치(거리·비겹침)
+./gradlew evotest --args="reproduction" # Phase 4 번식 임계치·출산 상한
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -101,6 +102,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `Mating` | 조우 판정(매력≥기준선)·기준선 하락·사별녀 하향 (§10) |
 | `Settlement` | 거처 배치 — 이주/애향 거리·비겹침 링 탐색 (§13-D) |
 | `Kinship` | 근친 회피(형제·부모자식, 사촌 허용) (§13-E) |
+| `Reproduction` | 번식 임계치(선호/불호)·출산 상한(다산/난임)·쿨다운 (§6) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
 
@@ -141,6 +143,7 @@ Minecraft 표현층 (`com.evosim.mod`):
 - **`/evostage trait_audit`** — 소환 개체 30마리의 특성 부여 자동 감사(우성비율·발현수·반발위반) → 성공/실패 + 수치.
 - **`/evostage mating`** — 매력 맞는 방랑자 남녀가 실제로 짝 성립(mating:pair)하나.
 - **`/evostage settlement`** — 여러 쌍 정착 시 거처가 겹치지 않나(settlement:ok).
+- **`/evostage reproduction`** — 정착 부부가 자식을 낳나(birth).
 
 ## 페이즈 진행 상황
 
@@ -164,7 +167,8 @@ Minecraft 표현층 (`com.evosim.mod`):
   - [x] 순수: 조우/기준선/매력·거처 배치·근친 회피, `/evotest mating` `settlement`
   - [x] 표현층: 방랑자 짝짓기 goal·거처(homePos)·귀환 goal·이주/애향 비겹침 정착
   - [x] 검사봉 스크롤 4모드(특성/짝/거처/가족인벤토리) + 스크롤 네트워크
-  - [x] 자동검증 `/evostage mating` `settlement` + 관찰 `/evosim village`
-  - [ ] 번식(밤·잉여 임계·쿨다운)·일부다처(상향혼)·경쟁/평화·밤 정산 in-world 연동
+  - [x] 자동검증 `/evostage mating` `settlement` `reproduction` + 관찰 `/evosim village`
+  - [x] 짝 성립 하트 이펙트 + in-world 번식(정착 부부가 자식 출산, 세대 이어짐)
+  - [ ] 일부다처(상향혼)·경쟁/평화·밤 정산 연동(번식 잉여식량 게이트)·수명 in-world 적용
 - [ ] Phase 5 — 관찰 + 밸런싱
 - [ ] Phase 6 — 대규모 검증 + 실험

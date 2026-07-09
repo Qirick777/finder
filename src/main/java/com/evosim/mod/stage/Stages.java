@@ -42,6 +42,7 @@ public final class Stages {
         put(new TraitAuditStage());
         put(new MatingStage());
         put(new SettlementStage());
+        put(new ReproductionStage());
     }
 
     /** 서로 매력 3점(선호↔특성 일치)인 짝짓기 준비 개체 — 신중(여) 기준선도 통과. */
@@ -341,6 +342,29 @@ public final class Stages {
             run.detail("형성된 거처 " + homes.size() + "곳 · 비겹침 " + (nonOverlap ? "O" : "X"));
             if (homes.size() >= 2 && nonOverlap) {
                 run.mark("settlement:ok");
+            }
+        }
+    }
+
+    // ── 시나리오: 번식 — 정착 부부가 자식을 출산(세대 이어짐) ──
+    static final class ReproductionStage implements Stage {
+        @Override public String name() { return "reproduction"; }
+        @Override public String description() { return "정착 부부 → 자식 출산"; }
+        @Override public List<String> expected() { return List.of("birth"); }
+        @Override public int tickBudget() { return 140; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            BlockPos home = BlockPos.containing(anchor);
+            MimicEntity male = spawnMimic(level, anchor, matingReady(Sex.MALE), LifeStage.ADULT);
+            MimicEntity female = spawnMimic(level, anchor.add(1.0, 0, 0), matingReady(Sex.FEMALE), LifeStage.ADULT);
+            if (male != null) {
+                male.setHomePos(home); // 이미 정착(짝짓기 생략) → 바로 번식 관찰
+                run.track(male);
+            }
+            if (female != null) {
+                female.setHomePos(home);
+                run.watch(female);
             }
         }
     }

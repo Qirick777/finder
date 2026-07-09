@@ -14,6 +14,7 @@ import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
 import com.evosim.core.Multipliers;
+import com.evosim.core.Reproduction;
 import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
@@ -86,9 +87,10 @@ public final class EvoTest {
             case "lifespan" -> lifespan(report);
             case "mating" -> mating(report);
             case "settlement" -> settlement(report);
+            case "reproduction" -> reproduction(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -106,6 +108,7 @@ public final class EvoTest {
         lifespan(report);
         mating(report);
         settlement(report);
+        reproduction(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -779,6 +782,46 @@ public final class EvoTest {
         report.add("settlement/비겹침", violations == 0,
                 "거처 " + homes.size() + "개 최소간격≥" + Settlement.MIN_GAP,
                 violations + "건 겹침");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest reproduction — 번식 임계치 + 출산 상한 (설계서 Phase 4, §6)
+    // ──────────────────────────────────────────────────────────────
+    private static void reproduction(Report report) {
+        Individual m = one(Sex.MALE);
+        Individual f = one(Sex.FEMALE);
+
+        // 1) 임계치 보정: 기본 2.5, 번식선호 −1/−2, 번식불호 +1/+6
+        boolean thr = Reproduction.threshold(m, f) == 2.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_EAGER)), f) == 1.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_EAGER)),
+                        one(Sex.FEMALE, TraitInstance.of(Trait.REPRODUCTION_EAGER))) == 0.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)), f) == 3.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)),
+                        one(Sex.FEMALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE))) == 8.5;
+        report.add("reproduction/임계치", thr, "기본2.5·선호−·불호+(둘 +6)",
+                "기본 " + Reproduction.threshold(m, f) + " · 불호둘 "
+                        + Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)),
+                                one(Sex.FEMALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE))));
+
+        // 2) 출산 상한: 기본 5, 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3
+        boolean lim = Reproduction.birthLimit(f, m) == 5
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)), m) == 7
+                && Reproduction.birthLimit(f, one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))) == 6
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)),
+                        one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))) == 8
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.INFERTILE)), m) == 4
+                && Reproduction.birthLimit(f, one(Sex.MALE, TraitInstance.of(Trait.INFERTILE))) == 3
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.INFERTILE)),
+                        one(Sex.MALE, TraitInstance.of(Trait.INFERTILE))) == 2;
+        report.add("reproduction/출산상한", lim, "기본5·다산+·난임−",
+                "기본 " + Reproduction.birthLimit(f, m) + " · 다산둘 "
+                        + Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)),
+                                one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))));
+
+        // 3) 잉여 ≥ 임계 → 번식
+        boolean can = Reproduction.canReproduce(3.0, 2.5) && !Reproduction.canReproduce(2.0, 2.5);
+        report.add("reproduction/잉여판정", can, "잉여≥임계 → 번식", can ? "정상" : "어긋남");
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

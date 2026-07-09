@@ -743,6 +743,45 @@ public final class EvoTest {
                 "거절 누적 → 기준선 0 → 첫 상대와 성립",
                 "기준선 " + sB + " · " + (paired ? "성립" : "실패"));
 
+        // 5-b) 반복 수렴(in-world 알고리즘): 양쪽이 각자 눈을 낮추며 후보를 다시 시도.
+        //   ① 호환쌍(상호 매력 3)은 시작 기준선에서 즉시 성립 → "너무 어렵지 않다".
+        Individual highM = one(Sex.MALE,
+                TraitInstance.of(Trait.PREF_STRENGTH), TraitInstance.of(Trait.PREF_ABILITY),
+                TraitInstance.of(Trait.PREF_VITALITY), TraitInstance.of(Trait.STRONG),
+                TraitInstance.of(Trait.BRIGHT), TraitInstance.of(Trait.NIMBLE));
+        Individual highF = one(Sex.FEMALE,
+                TraitInstance.of(Trait.PREF_STRENGTH), TraitInstance.of(Trait.PREF_ABILITY),
+                TraitInstance.of(Trait.PREF_VITALITY), TraitInstance.of(Trait.STRONG),
+                TraitInstance.of(Trait.BRIGHT), TraitInstance.of(Trait.NIMBLE));
+        boolean easyCompatible = Mating.encounter(highM, Mating.startingBaseline(highM),
+                highF, Mating.startingBaseline(highF)) == Mating.Outcome.PAIR;
+
+        //   ② 비호환쌍(상호 매력 0)은 시작 기준선엔 성립 X(너무 쉽지 않음) → 반복 눈낮춤으로 결국 성립.
+        Individual zm = one(Sex.MALE);
+        Individual zf = one(Sex.FEMALE);
+        int zmB = Mating.startingBaseline(zm);   // 남 널널(1)
+        int zfB = Mating.startingBaseline(zf);   // 여 신중(3)
+        boolean instant = Mating.encounter(zm, zmB, zf, zfB) == Mating.Outcome.PAIR;
+        int rounds = 0;
+        boolean converged = false;
+        for (; rounds < 30; rounds++) {
+            if (Mating.encounter(zm, zmB, zf, zfB) == Mating.Outcome.PAIR) {
+                converged = true;
+                break;
+            }
+            zmB = Mating.lowerBaseline(zmB); // 남 눈낮춤
+            if (Mating.encounter(zf, zfB, zm, zmB) == Mating.Outcome.PAIR) {
+                converged = true;
+                break;
+            }
+            zfB = Mating.lowerBaseline(zfB); // 여 눈낮춤
+        }
+        boolean balanced = easyCompatible && !instant && converged && rounds >= 2 && rounds <= 12;
+        report.add("mating/수렴", balanced,
+                "호환쌍 즉시 성립·비호환쌍은 즉시X·눈낮춤 반복으로 유한 수렴",
+                "호환 " + yn(easyCompatible) + " · 비호환 즉시 " + yn(instant)
+                        + " · " + rounds + "R 성립 " + yn(converged));
+
         // 6) 근친 회피(§13-E): 형제(부모 공유)·부모자식 회피, 사촌 허용, 1세대(부모 미상) 오탐 X
         Individual sibA = new Individual(2, Sex.MALE, 1, 5, 2);
         Individual sibB = new Individual(3, Sex.FEMALE, 1, 6, 2);   // 부모A(1) 공유 → 형제

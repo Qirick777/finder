@@ -8,29 +8,27 @@ import com.evosim.core.SurvivalRules;
 import com.evosim.core.Trait;
 import com.evosim.mod.log.SimEvents;
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.animal.Animal;
-import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
-import java.util.List;
 
 /**
  * 채집·사냥 goal (설계서 §4 §16). <b>노동 시간대</b>에 성년·만혼소년이 실제로 식량을 확보한다.
  *
  * <ul>
  *   <li><b>사냥</b>: 인지 범위 안에 동물이 보이면 <b>즉각</b> 추격·타격 → 잡으면 사냥배율만큼 식량.</li>
- *   <li><b>채집</b>: 주변 풀(잔디·고사리)을 찾아가 부숴 채집배율만큼 식량. 채집 사이 <b>쿨타임</b>으로
- *       한 번에 다 밀어버려 즉각 소멸하는 것을 막는다.</li>
+ *   <li><b>채집</b>: 주변 풀(잔디·고사리)을 찾아가 부숴 채집배율만큼 식량. <b>약초학자</b>는 꽃·버섯도 채집.
+ *       채집 사이 <b>쿨타임</b>으로 한 번에 다 밀어버려 즉각 소멸하는 것을 막는다.</li>
  * </ul>
  *
- * <p>실제로 벌인 채집·사냥량이 그날의 {@code dayHarvest}로 쌓이고, 밤 정산에서 식량으로 쓰인다.
+ * <p>부순 블록은 드랍 없이 제거되고, 벌인 채집·사냥량이 그날의 {@code dayHarvest}로 쌓여 밤 정산에 쓰인다.
  */
 public class MimicForageGoal extends Goal {
 
@@ -38,11 +36,11 @@ public class MimicForageGoal extends Goal {
     private static final int GATHER_COOLDOWN = 100;  // 채집 간 쿨타임(틱) — 즉각 완전소멸 방지
     private static final int ATTACK_COOLDOWN = 20;   // 타격 간격(틱)
     private static final double HUNT_FOOD = 1.5;     // 동물 1마리 = 이 × 사냥배율
-    private static final double GATHER_FOOD = 0.06;  // 풀 1개 = 이 × 채집배율
+    private static final double GATHER_FOOD = 0.06;  // 채집물 1개 = 이 × 채집배율
     private static final double REACH = 1.9;         // 이 거리 안이면 채집(부수기) 가능
 
     private final MimicEntity mob;
-    private Mob huntTarget;
+    private Animal huntTarget;
     private BlockPos gatherTarget;
     private int gatherCooldown;
     private int attackCooldown;
@@ -97,41 +95,37 @@ public class MimicForageGoal extends Goal {
             huntTarget = null;
         }
         if (huntTarget == null) {
-            huntTarget = nearestHuntable(ind);
+            huntTarget = nearestAnimal();
         }
         if (huntTarget != null) {
             mob.getLookControl().setLookAt(huntTarget, 30.0F, 30.0F);
             if (mob.distanceToSqr(huntTarget) > 4.0) {
                 mob.getNavigation().moveTo(huntTarget, 1.2);
             } else if (attackCooldown == 0) {
-                boolean slime = huntTarget instanceof Slime;
                 mob.swing(InteractionHand.MAIN_HAND);
                 mob.doHurtTarget(huntTarget);
                 attackCooldown = ATTACK_COOLDOWN;
                 if (!huntTarget.isAlive()) {
-                    // 동물은 처치 시, 슬라임은 '가장 작은 것'을 처치할 때만 식량(동물과 동일량).
-                    if (givesFood(huntTarget)) {
-                        double food = HUNT_FOOD * Multipliers.hunt(ind);
-                        mob.addHarvest(food);
-                        SimEvents.event(mob, "사냥",
-                                String.format("%s 처치 → 식량 +%.2f", slime ? "슬라임" : "동물", food));
-                    }
+                    double food = HUNT_FOOD * Multipliers.hunt(ind);
+                    mob.addHarvest(food);
+                    SimEvents.event(mob, "사냥", String.format("동물 처치 → 식량 +%.2f", food));
                     huntTarget = null;
                 }
             }
             return;
         }
 
-        // 2) 채집 — 풀을 부숴 식량. 쿨타임 중이면 그냥 배회.
+        // 2) 채집 — 풀(약초학자는 꽃·버섯도)을 부숴 식량. 쿨타임 중이면 그냥 배회.
+        boolean herbalist = ExpressionResolver.isExpressed(ind, Trait.HERBALIST);
         if (gatherCooldown > 0) {
             idleWander();
             return;
         }
-        if (gatherTarget != null && !isForage(mob.level().getBlockState(gatherTarget))) {
+        if (gatherTarget != null && !forageable(mob.level().getBlockState(gatherTarget), herbalist)) {
             gatherTarget = null;
         }
         if (gatherTarget == null) {
-            gatherTarget = findForage();
+            gatherTarget = findForage(herbalist);
         }
         if (gatherTarget != null) {
             if (mob.blockPosition().closerThan(gatherTarget, REACH)) {
@@ -147,7 +141,7 @@ public class MimicForageGoal extends Goal {
             }
             return;
         }
-        idleWander(); // 풀도 동물도 없으면 돌아다니며 탐색
+        idleWander(); // 채집물도 동물도 없으면 돌아다니며 탐색
     }
 
     private void idleWander() {
@@ -159,11 +153,8 @@ public class MimicForageGoal extends Goal {
         }
     }
 
-    /**
-     * 가장 가까운 사냥감. 동물은 누구나, 슬라임은 <b>용감/사냥꾼/도축업자/무모</b> 발현자만 사냥감으로 인식.
-     */
-    private Mob nearestHuntable(Individual ind) {
-        Mob best = null;
+    private Animal nearestAnimal() {
+        Animal best = null;
         double bestDist = Double.MAX_VALUE;
         for (Animal a : mob.level().getEntitiesOfClass(
                 Animal.class, mob.getBoundingBox().inflate(HUNT_RANGE))) {
@@ -176,55 +167,31 @@ public class MimicForageGoal extends Goal {
                 best = a;
             }
         }
-        if (canHuntSlime(ind)) {
-            for (Slime s : mob.level().getEntitiesOfClass(
-                    Slime.class, mob.getBoundingBox().inflate(HUNT_RANGE))) {
-                if (!s.isAlive()) {
-                    continue;
-                }
-                double d = mob.distanceToSqr(s);
-                if (d < bestDist) {
-                    bestDist = d;
-                    best = s;
-                }
-            }
-        }
         return best;
     }
 
-    /** 슬라임 사냥 가능 특성(설계서 확장): 용감·사냥꾼·도축업자·무모 중 하나라도 발현. */
-    private static boolean canHuntSlime(Individual ind) {
-        return ExpressionResolver.isExpressed(ind, Trait.BRAVE)
-                || ExpressionResolver.isExpressed(ind, Trait.HUNTER)
-                || ExpressionResolver.isExpressed(ind, Trait.BUTCHER)
-                || ExpressionResolver.isExpressed(ind, Trait.RECKLESS);
-    }
-
-    /** 식량을 주는 처치인가 — 동물은 항상, 슬라임은 가장 작은 크기(1)만. */
-    private static boolean givesFood(Mob target) {
-        if (target instanceof Slime slime) {
-            return slime.getSize() <= 1;
-        }
-        return true;
-    }
-
-    /** 주변에서 부술 풀 한 칸을 무작위 표본으로 탐색(전체 스캔 회피). */
-    private BlockPos findForage() {
+    /** 주변에서 부술 채집물 한 칸을 무작위 표본으로 탐색(전체 스캔 회피). */
+    private BlockPos findForage(boolean herbalist) {
         BlockPos base = mob.blockPosition();
         for (int i = 0; i < 24; i++) {
             int dx = mob.getRandom().nextInt(11) - 5;
             int dz = mob.getRandom().nextInt(11) - 5;
             int dy = mob.getRandom().nextInt(3) - 1;
             BlockPos p = base.offset(dx, dy, dz);
-            if (isForage(mob.level().getBlockState(p))) {
+            if (forageable(mob.level().getBlockState(p), herbalist)) {
                 return p;
             }
         }
         return null;
     }
 
-    private static boolean isForage(BlockState s) {
-        return s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS)
-                || s.is(Blocks.FERN) || s.is(Blocks.LARGE_FERN);
+    /** 누구나 채집하는 풀(잔디·고사리) + 약초학자만 채집하는 꽃·버섯. */
+    private static boolean forageable(BlockState s, boolean herbalist) {
+        if (s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS)
+                || s.is(Blocks.FERN) || s.is(Blocks.LARGE_FERN)) {
+            return true;
+        }
+        return herbalist && (s.is(BlockTags.FLOWERS)
+                || s.is(Blocks.BROWN_MUSHROOM) || s.is(Blocks.RED_MUSHROOM));
     }
 }

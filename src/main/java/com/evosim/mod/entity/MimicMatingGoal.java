@@ -4,6 +4,7 @@ import com.evosim.core.DeterministicRng;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.Mating;
+import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
 import com.evosim.mod.log.SimEvents;
@@ -20,28 +21,31 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 미믹 짝짓기 goal (설계서 §10 §16). <b>배회 시간대</b>에 방랑자 성년이 돌아다니다 이성 방랑자를 만나
- * 잠시 구애(마주봄)한 뒤 조우 판정을 한다.
+ * 미믹 짝짓기 goal (설계서 §10 §16). 방랑자 성년이 이성 방랑자를 <b>매력 순으로 줄 세워 위에서부터</b>
+ * 구애를 시도한다.
  *
  * <ul>
- *   <li>성립 → 겹치지 않는 새 거처(§13-D)를 잡아 둘 다 정착.</li>
- *   <li>거절당함 → <b>내 기준선을 낮추고</b>(눈낮춤 §10) 그 상대는 잠시 회피, 다른 상대를 찾아 배회.</li>
- *   <li>내가 컷 → 그 상대는 잠시 회피, 다른 상대를 찾아 배회.</li>
+ *   <li><b>배회 시간대</b>: 넓은 범위(48블록)에서 가장 맘에 드는 상대를 찾아 <b>적극적으로 다가가</b> 시도.</li>
+ *   <li><b>노동 시간대</b>: 안 쫓아다니고, 아주 가까이(≈3블록) 있는 상대에게만 스치듯 시도.</li>
+ *   <li>접촉하면 조우 판정 <b>1회</b> → 성립이면 정착, 아니면 그 상대는 포기(쿨타임)하고 다음 후보로.
+ *       <b>졸졸 따라다니지 않는다.</b></li>
+ *   <li>거절/컷이 나면 눈을 낮춘다(간격 제한으로 급락 방지) → 반복될수록 까다로움↓ → 결국 성립.</li>
  * </ul>
- *
- * <p>핵심: 거절/컷이면 그 자리에 붙박이지 않고 <b>딴 짝을 찾아 다시 배회</b>한다. 양쪽이 각자 관점에서
- * 판정하므로(둘 다 거절당하면 둘 다 눈을 낮춤) 척박한 무리도 결국 맺어진다(교착 없음).
  */
 public class MimicMatingGoal extends Goal {
 
-    private static final int COURT_TIME = 25;        // 인접 후 구애 지속(틱) — 눈에 보이는 마주봄
-    private static final int REJECT_COOLDOWN = 160;   // 거절/컷 상대 재구애 금지(틱) → 딴 짝 찾기
-    private static final double SEEK_RANGE = 12.0;
+    private static final double SEEK_RANGE = 48.0;    // 배회: 이 반경까지 이성 찾아 이동
+    private static final double WORK_RANGE = 3.5;      // 노동: 이 안일 때만 시도(안 쫓아감)
+    private static final double CONTACT = 2.5;         // 이 거리면 조우 판정
+    private static final int FAIL_COOLDOWN = 200;      // 실패한 상대 회피(틱)
+    private static final int LOWER_COOLDOWN = 80;      // 눈낮춤 최소 간격(틱) — 급락 방지
+    private static final int APPROACH_TIMEOUT = 80;    // 못 따라잡으면 포기(틱)
 
     private final MimicEntity mob;
     private MimicEntity target;
-    private int courtTimer;
-    private final Map<Integer, Long> avoidUntil = new HashMap<>();
+    private int approachTicks;
+    private long lastLowerTick = Long.MIN_VALUE;
+    private final Map<Integer, Long> failedUntil = new HashMap<>();
 
     public MimicMatingGoal(MimicEntity mob) {
         this.mob = mob;
@@ -50,58 +54,68 @@ public class MimicMatingGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (mob.getIndividual() == null || !mob.isWanderer() || !courtingTime()) {
+        Individual ind = mob.getIndividual();
+        if (ind == null || !mob.isWanderer()) {
             return false;
         }
-        this.courtTimer = 0;
-        this.target = findPartner();
+        double range = seekRange(ind);
+        if (range <= 0) {
+            return false; // 취침·밤엔 구애 안 함
+        }
+        pruneFailed();
+        approachTicks = 0;
+        target = bestCandidate(ind, range);
         return target != null;
     }
 
     @Override
     public boolean canContinueToUse() {
+        Individual ind = mob.getIndividual();
         return target != null && target.isAlive() && target.isWanderer()
-                && mob.isWanderer() && courtingTime();
+                && mob.isWanderer() && ind != null && seekRange(ind) > 0;
     }
 
-    /** 구애 가능 시간대 — 평상시엔 배회 구간만, 무대 검증 중엔 항상(결정론). */
-    private boolean courtingTime() {
+    /** 지금 구애 시도 반경 — 배회는 넓게(적극 탐색), 노동은 근접만, 그 외 0(안 함). */
+    private double seekRange(Individual ind) {
         if (StageObserver.isActive()) {
-            return true;
+            return SEEK_RANGE;
         }
-        Individual ind = mob.getIndividual();
-        return ind != null
-                && Schedule.phaseAt(ind, mob.level().getDayTime()) == Schedule.Phase.WANDER;
+        return switch (Schedule.phaseAt(ind, mob.level().getDayTime())) {
+            case WANDER -> SEEK_RANGE;
+            case WORK -> WORK_RANGE;
+            default -> 0.0;
+        };
     }
 
     @Override
     public void stop() {
-        this.target = null;
-        this.courtTimer = 0;
+        target = null;
+        approachTicks = 0;
     }
 
-    /** 가장 가까운 적격 방랑자(이성·비근친·최근 실패 상대 제외). */
-    private MimicEntity findPartner() {
+    /** 이성 방랑자 후보 중 <b>내가 가장 맘에 드는(매력 높은)</b> 상대. 최근 실패/근친은 제외. */
+    private MimicEntity bestCandidate(Individual ind, double range) {
         long now = mob.level().getGameTime();
         MimicEntity best = null;
+        int bestCharm = Integer.MIN_VALUE;
         double bestDist = Double.MAX_VALUE;
         for (MimicEntity m : mob.level().getEntitiesOfClass(
-                MimicEntity.class, mob.getBoundingBox().inflate(SEEK_RANGE))) {
-            if (m == mob || m.getIndividual() == null || !m.isWanderer()) {
+                MimicEntity.class, mob.getBoundingBox().inflate(range))) {
+            if (m == mob || m.getIndividual() == null || !m.isWanderer()
+                    || m.isFemale() == mob.isFemale()) {
                 continue;
             }
-            if (m.isFemale() == mob.isFemale()) {
-                continue; // 이성만
-            }
-            if (Kinship.isRelated(mob.getIndividual(), m.getIndividual())) {
+            if (Kinship.isRelated(ind, m.getIndividual())) {
                 continue; // 근친 회피 §13-E
             }
-            Long until = avoidUntil.get(m.getId());
+            Long until = failedUntil.get(m.getId());
             if (until != null && now < until) {
-                continue; // 최근 구애 실패 상대는 잠시 회피
+                continue; // 최근 실패한 상대는 잠시 제외
             }
+            int charm = Multipliers.charmScore(ind, m.getIndividual()); // 내가 본 상대 매력
             double d = mob.distanceToSqr(m);
-            if (d < bestDist) {
+            if (charm > bestCharm || (charm == bestCharm && d < bestDist)) {
+                bestCharm = charm;
                 bestDist = d;
                 best = m;
             }
@@ -115,38 +129,52 @@ public class MimicMatingGoal extends Goal {
             return;
         }
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
-        if (mob.distanceToSqr(target) > 4.0) {
-            mob.getNavigation().moveTo(target, 1.0);
-            courtTimer = 0;
+        if (mob.distanceToSqr(target) > CONTACT * CONTACT) {
+            if (++approachTicks > APPROACH_TIMEOUT) {
+                fail(target); // 못 따라잡음 → 포기하고 다음 후보로
+                target = null;
+                return;
+            }
+            mob.getNavigation().moveTo(target, 1.1);
             return;
         }
-        // 인접 → 잠시 마주보며 구애, 그 뒤 조우 판정(§10).
+        // 접촉 → 조우 판정 1회. 성립/실패 무관하게 이 상대는 여기서 끝(안 쫓아다님).
         mob.getNavigation().stop();
-        if (++courtTimer < COURT_TIME) {
-            return;
-        }
-        courtTimer = 0;
+        resolve(target);
+        target = null;
+    }
+
+    private void resolve(MimicEntity other) {
         switch (Mating.encounter(mob.getIndividual(), mob.getMatingBaseline(),
-                target.getIndividual(), target.getMatingBaseline())) {
+                other.getIndividual(), other.getMatingBaseline())) {
             case PAIR -> {
-                if (mob.isWanderer() && target.isWanderer()) {
-                    formPair(target);
+                if (mob.isWanderer() && other.isWanderer()) {
+                    formPair(other);
                 }
             }
-            case REJECTED -> {
-                mob.setMatingBaseline(Mating.lowerBaseline(mob.getMatingBaseline())); // 눈낮춤 §10
-                avoid(target);
-                target = null; // 딴 짝을 찾아 다시 배회
-            }
-            case CUT -> {
-                avoid(target);
-                target = null;
+            case REJECTED, CUT -> {
+                lowerEye();  // 거절당함/내가 컷 → 눈 낮춤(간격 제한)
+                fail(other); // 이 상대는 잠시 회피
             }
         }
     }
 
-    private void avoid(MimicEntity other) {
-        avoidUntil.put(other.getId(), mob.level().getGameTime() + REJECT_COOLDOWN);
+    /** 눈낮춤 — 간격(LOWER_COOLDOWN) 이상 지났을 때만 한 단계. 급락 방지로 "너무 쉬움" 방지. */
+    private void lowerEye() {
+        long now = mob.level().getGameTime();
+        if (now - lastLowerTick >= LOWER_COOLDOWN) {
+            mob.setMatingBaseline(Mating.lowerBaseline(mob.getMatingBaseline()));
+            lastLowerTick = now;
+        }
+    }
+
+    private void fail(MimicEntity other) {
+        failedUntil.put(other.getId(), mob.level().getGameTime() + FAIL_COOLDOWN);
+    }
+
+    private void pruneFailed() {
+        long now = mob.level().getGameTime();
+        failedUntil.values().removeIf(t -> now >= t);
     }
 
     private void formPair(MimicEntity other) {

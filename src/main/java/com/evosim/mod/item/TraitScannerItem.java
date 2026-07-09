@@ -1,8 +1,11 @@
 package com.evosim.mod.item;
 
 import com.evosim.core.Category;
+import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Individual;
 import com.evosim.core.Sex;
+import com.evosim.core.Tag;
+import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
 import net.minecraft.ChatFormatting;
@@ -16,6 +19,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 미믹 검사봉 — 미믹을 우클릭하면 보유 특성 전체를 채팅에 표시(설계서 §14 "개체 클릭 시 특성 목록").
@@ -58,13 +62,17 @@ public class TraitScannerItem extends Item {
         }
 
         Sex sex = ind.sex();
+        Set<Trait> active = ExpressionResolver.expressedTraits(ind); // 최종 발현(성별+반발 반영)
+        player.displayClientMessage(Component.literal(
+                        "발현 " + active.size() + "개 (초록=발현·노랑=우성·회색=흔적·하늘=반발)")
+                .withStyle(ChatFormatting.DARK_GRAY), false);
         for (Category cat : Category.values()) {
-            player.displayClientMessage(categoryLine(cat, ind, sex), false);
+            player.displayClientMessage(categoryLine(cat, ind, sex, active), false);
         }
         return InteractionResult.SUCCESS;
     }
 
-    private static MutableComponent categoryLine(Category cat, Individual ind, Sex sex) {
+    private static MutableComponent categoryLine(Category cat, Individual ind, Sex sex, Set<Trait> active) {
         MutableComponent line = Component.literal("[" + label(cat) + "] ")
                 .withStyle(ChatFormatting.GRAY);
         List<TraitInstance> traits = ind.traitsIn(cat);
@@ -75,36 +83,65 @@ public class TraitScannerItem extends Item {
             if (i > 0) {
                 line.append(Component.literal(" · ").withStyle(ChatFormatting.DARK_GRAY));
             }
-            line.append(traitComponent(traits.get(i), sex));
+            line.append(traitComponent(traits.get(i), ind, sex, active));
         }
         return line;
     }
 
-    private static MutableComponent traitComponent(TraitInstance ti, Sex sex) {
-        StringBuilder text = new StringBuilder(ti.trait().koreanName());
-        if (ti.isAnti()) {
-            text.append("(반발)");
+    private static MutableComponent traitComponent(TraitInstance ti, Individual ind, Sex sex,
+                                                   Set<Trait> active) {
+        StringBuilder s = new StringBuilder(ti.trait().koreanName());
+        // 성별발현 태그 표기.
+        boolean male = ti.hasTag(Tag.MALE_EXPRESSED);
+        boolean female = ti.hasTag(Tag.FEMALE_EXPRESSED);
+        if (male && female) {
+            s.append("(양성발현)");
+        } else if (male) {
+            s.append("(남성발현)");
+        } else if (female) {
+            s.append("(여성발현)");
         }
-        boolean expressed = !ti.isAnti() && ti.expressedFor(sex);
-        boolean vestigial = !ti.isAnti() && !expressed;
-        if (vestigial) {
-            text.append("[흔적]");
-        }
-        if (ti.isDominant()) {
-            text.append("(우성)");
-        }
-        // 색: 반발=하늘 / 흔적=회색 / 발현=초록(우성이면 노랑).
+
         ChatFormatting color;
         if (ti.isAnti()) {
-            color = ChatFormatting.AQUA;
-        } else if (vestigial) {
-            color = ChatFormatting.GRAY;
-        } else if (ti.isDominant()) {
-            color = ChatFormatting.YELLOW;
+            s.append("(반발)");
+            if (!ti.expressedFor(sex)) {
+                s.append("[흔적]"); // 카드 자신이 성별로 발동 안 함
+                color = ChatFormatting.DARK_AQUA;
+            } else if (suppressesActive(ind, ti.trait(), sex)) {
+                s.append("→무력화중"); // 대상 특성을 실제로 끄는 중
+                color = ChatFormatting.AQUA;
+            } else {
+                s.append("[대상없음]"); // 켜졌지만 끌 대상이 발현 안 됨
+                color = ChatFormatting.DARK_AQUA;
+            }
         } else {
-            color = ChatFormatting.GREEN;
+            boolean sexExpressed = ti.expressedFor(sex);
+            boolean fullyActive = sexExpressed && active.contains(ti.trait());
+            if (!sexExpressed) {
+                s.append("[흔적·성별]"); // 성별발현 불일치로 발동 안 함
+                color = ChatFormatting.GRAY;
+            } else if (!fullyActive) {
+                s.append("[흔적·반발]"); // 반발 카드에 무력화됨
+                color = ChatFormatting.GRAY;
+            } else {
+                color = ti.isDominant() ? ChatFormatting.YELLOW : ChatFormatting.GREEN;
+            }
         }
-        return Component.literal(text.toString()).withStyle(color);
+        if (ti.isDominant()) {
+            s.append("(우성)");
+        }
+        return Component.literal(s.toString()).withStyle(color);
+    }
+
+    /** 이 반발 카드가 실제로 무력화 중인가 — 같은 대상의 일반 특성이 성별상 발동하려는 상태인지. */
+    private static boolean suppressesActive(Individual ind, Trait target, Sex sex) {
+        for (TraitInstance ti : ind.allTraits()) {
+            if (!ti.isAnti() && ti.trait() == target && ti.expressedFor(sex)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String label(Category cat) {

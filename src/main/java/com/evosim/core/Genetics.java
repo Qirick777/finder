@@ -24,7 +24,9 @@ public final class Genetics {
     public static final int MAX_ANTI_PER_CATEGORY = 2;
 
     // 1세대 랜덤 부여 시 태그가 붙을 확률 (밸런싱 대상 — 검증엔 영향 없음).
-    private static final double FIRST_GEN_DOMINANT_RATE = 0.50;
+    // 우성은 75% 유지라 매세대 25%씩 감쇠 → 낮은 균형으로 수렴. 시드를 균형 근처(20%)로 잡아
+    // 1세대가 우성 도배로 보이지 않게 한다(설계서 §2: 우성은 전달 우위일 뿐 생존 우위 아님).
+    private static final double FIRST_GEN_DOMINANT_RATE = 0.20;
     private static final double FIRST_GEN_SEX_TAG_RATE = 0.15;
     private static final double FIRST_GEN_ANTI_RATE = 0.20; // 카테고리마다 반발 카드 1장 심을 확률
 
@@ -140,7 +142,9 @@ public final class Genetics {
             (ti.isAnti() ? antiCands : normalCands).add(ti);
         }
 
-        // 1) 일반 특성 최대 3개 — 우성 우선 확정, 반발/중복 회피.
+        // 1) 일반 특성 최대 3개 — 우성 우선 선택(전달 우위) + 반발/중복 회피.
+        //    우성 태그 자체는 inherit()에서 75%만 유전(25%는 열성화) → 도배 상한이 유지율(~75%)에 걸림.
+        //    선택압이 붙으면 나쁜데 우성인 특성이 도태돼 이 비율이 더 내려간다(설계서 §2).
         List<TraitInstance> chosen = new ArrayList<>();
         for (TraitInstance cand : dominantFirst(normalCands, rng)) {
             if (chosen.size() >= MAX_PER_CATEGORY) {
@@ -187,7 +191,7 @@ public final class Genetics {
         return chosen;
     }
 
-    /** 우성 후보를 앞에 두고 각 그룹을 셔플한 후보 순서(우선 확정용). */
+    /** 우성 후보를 앞에 두고 각 그룹을 셔플한 후보 순서(우선 선택용). */
     private static List<TraitInstance> dominantFirst(List<TraitInstance> cands, DeterministicRng rng) {
         List<TraitInstance> dominant = new ArrayList<>();
         List<TraitInstance> other = new ArrayList<>();

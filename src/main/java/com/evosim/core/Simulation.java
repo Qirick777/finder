@@ -22,6 +22,13 @@ public final class Simulation {
         public boolean extinct = false;
         public int peakPopulation = 0;
         public long checksum = 1469598103934665603L;
+        // 최종 세대의 발현 특성 중 우성 비율(우성 감쇠 검증용).
+        public int finalExpressedCount = 0;
+        public int finalDominantExpressed = 0;
+
+        public double finalDominantFraction() {
+            return finalExpressedCount == 0 ? 0.0 : (double) finalDominantExpressed / finalExpressedCount;
+        }
     }
 
     private Simulation() {
@@ -80,10 +87,14 @@ public final class Simulation {
             }
         }
 
-        // 최종 세대 발현 특성 빈도 분포.
+        // 최종 세대 발현 특성 빈도 분포 + 우성 비율.
         for (Individual ind : pop) {
-            for (Trait t : ExpressionResolver.expressedTraits(ind)) {
-                result.finalExpressedFreq.merge(t, 1, Integer::sum);
+            for (TraitInstance ti : ExpressionResolver.expressed(ind)) {
+                result.finalExpressedFreq.merge(ti.trait(), 1, Integer::sum);
+                result.finalExpressedCount++;
+                if (ti.isDominant()) {
+                    result.finalDominantExpressed++;
+                }
             }
         }
         return result;

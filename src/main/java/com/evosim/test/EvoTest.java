@@ -140,6 +140,34 @@ public final class EvoTest {
         report.add("genetics/결정론", again.checksum == run.checksum,
                 "동일 시드 → 동일 결과",
                 run.checksum == again.checksum ? "재현 일치" : "불일치!");
+
+        // 6) 우성 전달우위 (설계서 §2): 우성은 우선 선택돼 전달우위로 세대↑(도배 허용).
+        //    단 태그는 75%만 유전(25% 열성화)이라 상한이 유지율 근처(≤~82%)에 걸림 — 100% 포화 X.
+        //    선택압(굶주림·전투사)이 붙으면 나쁜데 우성인 특성이 도태돼 이 비율이 내려간다.
+        double gen1Dom = gen1DominantFraction(seed, 400);
+        Simulation.Result evolved = Simulation.run(seed, 30, 30, 80);
+        double evolvedDom = evolved.finalDominantFraction();
+        boolean domOk = evolvedDom > gen1Dom && evolvedDom <= 0.82;
+        report.add("genetics/우성전달우위", domOk,
+                "우성 전달우위로 세대↑·상한≤82% (선택압으로 상쇄 예정)",
+                "1세대 " + pct(gen1Dom) + " → 30세대 " + pct(evolvedDom));
+    }
+
+    /** 갓 태어난 1세대 표본의 발현 특성 중 우성 비율(씨앗 우성률 근사). */
+    private static double gen1DominantFraction(long seed, int sample) {
+        DeterministicRng rng = new DeterministicRng(seed ^ 0x5DEECE66DL);
+        int dom = 0;
+        int total = 0;
+        for (int i = 0; i < sample; i++) {
+            Individual ind = Genetics.randomFirstGen(i + 1, rng);
+            for (TraitInstance ti : ExpressionResolver.expressed(ind)) {
+                total++;
+                if (ti.isDominant()) {
+                    dom++;
+                }
+            }
+        }
+        return total == 0 ? 0.0 : (double) dom / total;
     }
 
     /** 랜덤 부모 풀을 만들고 breed()를 N회 호출, 통계·불변식·체크섬을 모아 반환. */

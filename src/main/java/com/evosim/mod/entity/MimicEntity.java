@@ -43,6 +43,9 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     private Individual individual;
 
+    private int growthTicks = 0;
+    private boolean fastGrowth = false; // 무대 검증용 초고속 성장
+
     public MimicEntity(EntityType<? extends MimicEntity> type, Level level) {
         super(type, level);
     }
@@ -57,10 +60,11 @@ public class MimicEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(2, new MimicCombatGoal(this)); // 전투 진입/도망(§13-B)
         this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
-        // BehaviorDecision(시간대·행동 우선순위) 연동 goal 은 Phase 3(실제 채집/사냥·정산)과 함께.
+        // BehaviorDecision(시간대·채집/사냥) 연동은 Phase 3 후속(실제 잔디채집·동물사냥)과 함께.
     }
 
     @Override
@@ -99,6 +103,34 @@ public class MimicEntity extends PathfinderMob {
         setFemale(ind.sex() == Sex.FEMALE);
     }
 
+    public void setFastGrowth(boolean fast) {
+        this.fastGrowth = fast;
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!level().isClientSide) {
+            growthTick();
+        }
+    }
+
+    /** 생애단계 성장 (설계서 §7). 임계 틱 경과 시 다음 단계로 전환하고 무대 검증에 보고. */
+    private void growthTick() {
+        LifeStage stage = getStage();
+        if (stage == LifeStage.ADULT) {
+            return;
+        }
+        growthTicks++;
+        int threshold = fastGrowth ? 40 : (stage == LifeStage.INFANT ? 2 * 24000 : 3 * 24000);
+        if (growthTicks >= threshold) {
+            growthTicks = 0;
+            LifeStage next = stage == LifeStage.INFANT ? LifeStage.BOY : LifeStage.ADULT;
+            setStage(next);
+            com.evosim.mod.stage.StageObserver.record(this.getId(), "grow:" + next.name());
+        }
+    }
+
     /** 생애단계 배율만큼 히트박스도 축소(외형과 대략 일치). */
     @Override
     public EntityDimensions getDimensions(Pose pose) {
@@ -123,6 +155,8 @@ public class MimicEntity extends PathfinderMob {
         super.addAdditionalSaveData(tag);
         tag.putBoolean("Female", isFemale());
         tag.putInt("Stage", this.entityData.get(STAGE));
+        tag.putInt("GrowthTicks", growthTicks);
+        tag.putBoolean("FastGrowth", fastGrowth);
     }
 
     @Override
@@ -134,5 +168,7 @@ public class MimicEntity extends PathfinderMob {
         if (tag.contains("Stage")) {
             this.entityData.set(STAGE, tag.getInt("Stage"));
         }
+        growthTicks = tag.getInt("GrowthTicks");
+        fastGrowth = tag.getBoolean("FastGrowth");
     }
 }

@@ -47,6 +47,8 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="multiplier"   # Phase 1 배율/매력 손계산 대조
 ./gradlew evotest --args="simulate"     # Phase 2 헤드리스 다세대 안정성 + 시간대/행동
 ./gradlew evotest --args="trace"        # Phase 2 하루 행동 타임라인(진단, /evodebug trace)
+./gradlew evotest --args="combat"       # Phase 3 전투 3층위 판정(진입/퇴각/복귀)
+./gradlew evotest --args="feeding"      # Phase 3 밤 배치 정산(분배/굶주림/사망)
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -111,6 +113,16 @@ Minecraft 표현층 (`com.evosim.mod`):
 
 외형: 여성=알렉스(슬림)·남성=스티브, 유아=아기비율(머리 큼)+작게, 소년=키 작게, 성년=기본.
 
+### 표현층 자동 검증 (`/evostage`, 눈으로 안 봐도 성공/실패)
+
+명령 한 번 → 개체 자동 소환 → 실제 행동을 로그로 관측 → **모든 기대 행동 관측 시 성공, 아니면 실패**.
+공간·물리가 필요해 순수 로직으로 못 잡는 표현층(성장·전투)을 명령으로 자동 검증(설계서 §17).
+
+- **`/evostage all`** — 전체 시나리오 순차.
+- **`/evostage growth`** — 유아→소년→성년 성장 전환 관측.
+- **`/evostage combat_brave`** — 용감 개체가 몬스터에 진입(engage).
+- **`/evostage combat_coward`** — 겁쟁이 개체가 몬스터에서 도망(flee).
+
 ## 페이즈 진행 상황
 
 - [x] **Phase 0 — 뼈대**: 데이터 구조, 결정론 난수, 특성 enum + 반발/태그, `/evotest genetics`
@@ -122,7 +134,10 @@ Minecraft 표현층 (`com.evosim.mod`):
   - [x] b. 마크 표현층: 미믹 개체(플레이어 형태)·스폰에그·`/evosim spawn`·기본 배회 AI (runClient 눈 확인)
         · 외형 구분: 여성=알렉스(슬림)/남성=스티브, 유아=아기비율(머리 큼), 소년=키 작게, 성년=기본
   - [ ] c. (Phase 3와 함께) BehaviorDecision→실제 잔디채집·동물사냥 goal 연동
-- [ ] Phase 3 — 생존 루프 (식량·정산·수명·전투)
+- [~] **Phase 3 — 생존 루프 (식량·정산·수명·전투)**
+  - [x] 순수: 전투 3층위 판정·밤 배치 정산, `/evotest combat` `feeding`
+  - [x] 표현층 자동검증: `/evostage`(성장·전투) — 소환→행동관측→성공/실패
+  - [ ] 수명(세대 기반)·상속(1명분)·실제 생애주기 성장 밸런싱·정산 goal 연동
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)
 - [ ] Phase 5 — 관찰 + 밸런싱
 - [ ] Phase 6 — 대규모 검증 + 실험

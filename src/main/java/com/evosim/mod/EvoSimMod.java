@@ -54,5 +54,6 @@ public final class EvoSimMod {
         EvoTestCommand.register(event.getDispatcher());
         EvoDebugCommand.register(event.getDispatcher());
         EvoSimCommand.register(event.getDispatcher());
+        EvoStageCommand.register(event.getDispatcher());
     }
 }

@@ -33,6 +33,7 @@ public final class EvoSimMod {
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         ModEntities.ENTITIES.register(modBus);
         ModItems.ITEMS.register(modBus);
+        com.evosim.mod.reg.ModMenus.MENUS.register(modBus);
         modBus.addListener(this::onAttributes);
         modBus.addListener(this::onBuildTabs);
         modBus.addListener(this::onCommonSetup);
@@ -67,5 +68,6 @@ public final class EvoSimMod {
         EvoSimCommand.register(event.getDispatcher());
         EvoStageCommand.register(event.getDispatcher());
         EvoLogCommand.register(event.getDispatcher());
+        EvoMatchCommand.register(event.getDispatcher());
     }
 }

@@ -2,6 +2,8 @@ package com.evosim.mod.client;
 
 import com.evosim.mod.EvoSimMod;
 import com.evosim.mod.reg.ModEntities;
+import com.evosim.mod.reg.ModMenus;
+import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelLayerLocation;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -11,6 +13,7 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 
 /**
  * 클라이언트 전용 등록 — 렌더러 + 모델 레이어 (서버에서 클라 클래스 로딩 방지 위해 분리).
@@ -24,6 +27,11 @@ public final class MimicClient {
             new ModelLayerLocation(new ResourceLocation(EvoSimMod.MODID, "mimic_slim"), "main");
 
     private MimicClient() {
+    }
+
+    @SubscribeEvent
+    public static void onClientSetup(FMLClientSetupEvent event) {
+        event.enqueueWork(() -> MenuScreens.register(ModMenus.EVOMATCH.get(), EvoMatchScreen::new));
     }
 
     @SubscribeEvent

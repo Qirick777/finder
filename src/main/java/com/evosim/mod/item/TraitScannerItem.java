@@ -124,10 +124,12 @@ public class TraitScannerItem extends Item {
 
     // ── 짝 모드 ──
     private static void showMate(Player player, MimicEntity mimic, Individual ind) {
+        var mc = ind.mateChoice();
         player.displayClientMessage(Component.literal(
-                        "기준선: " + baselineLabel(mimic.getMatingBaseline())
-                                + " · 상태: " + (mimic.isWanderer() ? "방랑자(구애중)"
-                                : mimic.getHomePos() != null ? "정착" : "미성년"))
+                        "까다로움: " + mc.label() + "(k" + mc.k() + "·탐색" + (int) mc.searchSeconds() + "s)"
+                                + " · 상태: " + mimic.getMateState()
+                                + " · 세트 " + ind.mateChoiceMale().label() + "[남]·"
+                                + ind.mateChoiceFemale().label() + "[여]")
                 .withStyle(ChatFormatting.GRAY), false);
 
         List<String> prefs = new ArrayList<>();
@@ -210,16 +212,6 @@ public class TraitScannerItem extends Item {
         return fam;
     }
 
-    private static String baselineLabel(int b) {
-        return switch (b) {
-            case 0 -> "완전개방(0)";
-            case 1 -> "널널(1)";
-            case 2 -> "보통(2)";
-            case 3 -> "신중(3)";
-            case 4 -> "엄격(4)";
-            default -> String.valueOf(b);
-        };
-    }
 
     private static MutableComponent categoryLine(Category cat, Individual ind, Sex sex, Set<Trait> active) {
         MutableComponent line = Component.literal("[" + label(cat) + "] ")

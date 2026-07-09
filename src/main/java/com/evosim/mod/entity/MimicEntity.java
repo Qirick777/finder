@@ -1,20 +1,25 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
+import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
-import com.evosim.core.Mating;
+import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
+import com.evosim.core.Schedule;
+import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
@@ -22,6 +27,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.DifficultyInstance;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
@@ -43,7 +49,11 @@ import net.minecraft.world.level.ServerLevelAccessor;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 미믹 개체 (설계서 §1). 플레이어 형태 엔티티 — 성별(스티브/알렉스)·생애단계로 외형 구분.
@@ -65,10 +75,25 @@ public class MimicEntity extends PathfinderMob {
     private boolean fastGrowth = false; // 무대 검증용 초고속 성장
     private boolean tooYoungObserved = false;
 
-    // 사회(§3, §10): 거처 포인터(null=방랑자) + 짝 기준선.
+    // 사회(§3, §10): 거처 포인터(null=방랑자).
     @Nullable
     private BlockPos homePos = null;
-    private int matingBaseline = Mating.NORMAL;
+
+    // 구애 상태머신 (구애 사양서 v2). 방랑자만 참여. 전부 세션 내 상태(저장 안 함, 리로드 시 재탐색).
+    private MateState mateState = MateState.IDLE;
+    private int searchTimer = 0;                                        // 탐색 누적(틱)
+    private final List<Integer> candidates = new ArrayList<>();         // 후보 id (매력 내림차순)
+    private final Map<Integer, Integer> candidateCharm = new HashMap<>(); // id → 내 기준 매력
+    private final Set<Integer> rejectedBy = new HashSet<>();            // 내가 포기/거절당한 상대 id
+    private int courtTargetId = -1;                                     // 현재 구애 대상(상호구애 특례)
+    private final List<CourtRecord> courtLog = new ArrayList<>();       // GUI 기록(최근 것 유지)
+    private static final int COURT_LOG_MAX = 20;
+    // 인식 범위 = 신중도(엄격할수록 넓음). 노동은 근접 위주, 배회는 넓게(구애 사양서 v2 확장).
+    private static final double WORK_PERCEPT_BASE = 3.0;
+    private static final double WORK_PERCEPT_PER = 2.0;   // 레벨당(0~4)
+    private static final double WANDER_PERCEPT_BASE = 8.0;
+    private static final double WANDER_PERCEPT_PER = 4.0;
+    private static final double COURT_CONTACT = 2.5;      // 이 거리면 구애 요청
 
     // 번식(§6): 마지막 출산 시각 + 출산 수. 실제 발동은 밤 정산의 잉여식량 게이트(settlementTick).
     private long lastBirthTick = -100_000L;
@@ -143,7 +168,7 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
-        this.goalSelector.addGoal(3, new MimicMatingGoal(this));    // 방랑자 짝짓기(§10, 낮 배회)
+        this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
         this.goalSelector.addGoal(6, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
@@ -187,7 +212,6 @@ public class MimicEntity extends PathfinderMob {
     public void setIndividual(Individual ind) {
         this.individual = ind;
         setFemale(ind.sex() == Sex.FEMALE);
-        this.matingBaseline = Mating.startingBaseline(ind);
         refreshStageAttributes();
     }
 
@@ -203,14 +227,6 @@ public class MimicEntity extends PathfinderMob {
     /** 방랑자 = 성년이면서 거처 없음 (짝 구애 대상, §9). */
     public boolean isWanderer() {
         return homePos == null && getStage() == LifeStage.ADULT;
-    }
-
-    public int getMatingBaseline() {
-        return matingBaseline;
-    }
-
-    public void setMatingBaseline(int baseline) {
-        this.matingBaseline = baseline;
     }
 
     public void setFastGrowth(boolean fast) {
@@ -229,9 +245,230 @@ public class MimicEntity extends PathfinderMob {
         if (!level().isClientSide) {
             growthTick();
             observeTooYoung();
+            mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
             infantCareTick();
         }
+    }
+
+    // ── 구애 상태머신 (구애 사양서 v2) ──
+
+    /**
+     * 인식·후보 등록 (§2 SEARCHING). 방랑자는 노동·배회 시간에 인식 범위(신중도 비례)의 이성을 후보로
+     * 모은다 — 실제 구애 시도(이동·요청)는 배회 시간의 {@link MimicCourtshipGoal}가 한다.
+     */
+    private void mateTick() {
+        if (individual == null) {
+            return;
+        }
+        if (!isWanderer()) {
+            mateState = (homePos != null && getStage() == LifeStage.ADULT)
+                    ? MateState.PAIRED : MateState.IDLE;
+            return;
+        }
+        Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
+        boolean active = StageObserver.isActive()
+                || phase == Schedule.Phase.WORK || phase == Schedule.Phase.WANDER;
+        if (active) {
+            perceive(phase);
+            searchTimer++;
+            if (mateState == MateState.IDLE || mateState == MateState.PAIRED) {
+                mateState = MateState.SEARCHING;
+            }
+        }
+    }
+
+    /** 인식 범위 내 이성 방랑자(비근친·비거절)를 후보로 추가하고 매력 내림차순 유지. */
+    private void perceive(Schedule.Phase phase) {
+        int lvl = individual.mateChoice().ordinal();
+        double range = phase == Schedule.Phase.WORK
+                ? WORK_PERCEPT_BASE + lvl * WORK_PERCEPT_PER
+                : WANDER_PERCEPT_BASE + lvl * WANDER_PERCEPT_PER;
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(range))) {
+            if (m == this || m.getIndividual() == null || !m.isWanderer()
+                    || m.isFemale() == isFemale()) {
+                continue;
+            }
+            int id = m.getId();
+            if (rejectedBy.contains(id) || candidateCharm.containsKey(id)) {
+                continue;
+            }
+            if (Kinship.isRelated(individual, m.getIndividual())) {
+                continue; // 근친 회피 §13-E
+            }
+            candidateCharm.put(id, Multipliers.charmScore(individual, m.getIndividual()));
+            candidates.add(id);
+        }
+        candidates.sort((x, y) -> Integer.compare(
+                candidateCharm.getOrDefault(y, 0), candidateCharm.getOrDefault(x, 0)));
+    }
+
+    /**
+     * 구애를 받았을 때의 수락 판정 (§3). PAIRED면 자동 거절, 내가 이 상대를 구애 중이면 상호구애로 즉시
+     * 성사, 아니면 베이지안 확률로 판정. 성사 시 원자적으로 짝을 맺고 양쪽에 기록을 남긴다.
+     */
+    public boolean receiveCourtship(MimicEntity suitor) {
+        Individual si = suitor.getIndividual();
+        if (individual == null || si == null) {
+            return false;
+        }
+        if (mateState == MateState.PAIRED || homePos != null) {
+            return false; // 이미 성사 → 자동 거절
+        }
+        // 상호구애 특례: 내가 이 상대를 구애 중이면 판정 없이 성사.
+        if (mateState == MateState.COURTING && courtTargetId == suitor.getId()) {
+            logCourt(suitor, true, Multipliers.charmScore(individual, si), 1, candidates.size(), 100);
+            pairWith(suitor);
+            return true;
+        }
+        int charm = Multipliers.charmScore(individual, si);
+        int n = candidates.size();
+        int better = 0;
+        for (int c : candidateCharm.values()) {
+            if (c > charm) {
+                better++;
+            }
+        }
+        int k = individual.mateChoice().k();
+        double p = Courtship.acceptProbability(better, n, k);
+        boolean accept = getRandom().nextDouble() < p;
+        logCourt(suitor, accept, charm, better + 1, n, (int) Math.round(p * 100));
+        if (accept) {
+            pairWith(suitor);
+            return true;
+        }
+        return false;
+    }
+
+    /** 수락/거절을 양쪽 기록에 남긴다 (내 RECEIVED + 구애자 COURTED). */
+    private void logCourt(MimicEntity suitor, boolean accepted, int charm, int rank, int pool, int percent) {
+        long now = level().getDayTime();
+        addCourtLog(new CourtRecord(now, CourtRecord.Kind.RECEIVED, suitor.getId(),
+                "미믹#" + suitor.getId(), accepted, charm, rank, pool, percent));
+        suitor.addCourtLog(new CourtRecord(now, CourtRecord.Kind.COURTED, getId(),
+                "미믹#" + getId(), accepted, charm, rank, pool, percent));
+    }
+
+    /** 짝 성사 — 겹치지 않는 새 거처(§13-D)를 잡아 둘 다 정착·PAIRED. */
+    private void pairWith(MimicEntity other) {
+        List<int[]> existing = new ArrayList<>();
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(64.0))) {
+            BlockPos h = m.getHomePos();
+            if (h != null) {
+                existing.add(new int[] {h.getX(), h.getZ()});
+            }
+        }
+        int dist = Settlement.homeDistance(individual, other.getIndividual());
+        int anchorY = blockPosition().getY();
+        int[] anchor = {blockPosition().getX(), blockPosition().getZ()};
+        DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
+        int[] pos = Settlement.placeHome(anchor, dist, existing, Settlement.MIN_GAP, rng);
+        BlockPos home = new BlockPos(pos[0], anchorY, pos[1]);
+
+        setHomePos(home);
+        other.setHomePos(home);
+        mateState = MateState.PAIRED;
+        other.setMateState(MateState.PAIRED);
+        courtTargetId = -1;
+        heartEffect(this);
+        heartEffect(other);
+        StageObserver.record(getId(), "mating:pair");
+        SimEvents.event(this, "짝성립", "상대 #" + other.getId() + " · 거처 @"
+                + home.getX() + "," + home.getY() + "," + home.getZ());
+    }
+
+    private static void heartEffect(MimicEntity m) {
+        if (m.level() instanceof ServerLevel sl) {
+            sl.sendParticles(ParticleTypes.HEART,
+                    m.getX(), m.getY() + m.getBbHeight() * 0.6, m.getZ(),
+                    7, m.getBbWidth() * 0.5, m.getBbHeight() * 0.4, m.getBbWidth() * 0.5, 0.02);
+        }
+    }
+
+    /** 현재 최고 매력 후보(동점 랜덤). 무효 후보(사망·성사)는 정리하며 반환. */
+    public MimicEntity currentBestCandidate() {
+        if (!(level() instanceof ServerLevel sl)) {
+            return null;
+        }
+        List<MimicEntity> topTies = new ArrayList<>();
+        List<Integer> remove = new ArrayList<>();
+        int best = Integer.MIN_VALUE;
+        for (int id : candidates) {
+            Entity e = sl.getEntity(id);
+            if (!(e instanceof MimicEntity m) || !m.isAlive() || !m.isWanderer()
+                    || m.getIndividual() == null) {
+                remove.add(id);
+                continue;
+            }
+            int charm = candidateCharm.getOrDefault(id, 0);
+            if (charm > best) {
+                best = charm;
+                topTies.clear();
+                topTies.add(m);
+            } else if (charm == best) {
+                topTies.add(m);
+            }
+        }
+        for (int id : remove) {
+            candidates.remove((Integer) id);
+            candidateCharm.remove(id);
+        }
+        if (topTies.isEmpty()) {
+            return null;
+        }
+        return topTies.get(getRandom().nextInt(topTies.size()));
+    }
+
+    /** 거절/포기: 상대를 rejectedBy에 넣고 후보에서 제거(재구애 방지). */
+    public void giveUpOn(int id) {
+        rejectedBy.add(id);
+        candidates.remove((Integer) id);
+        candidateCharm.remove(id);
+    }
+
+    public MateState getMateState() {
+        return mateState;
+    }
+
+    public void setMateState(MateState s) {
+        this.mateState = s;
+    }
+
+    public boolean isSearchReady() {
+        return individual != null
+                && (StageObserver.isActive() || searchTimer >= individual.mateChoice().searchTicks());
+    }
+
+    public boolean hasCandidate() {
+        return !candidates.isEmpty();
+    }
+
+    public void resetSearchTimer() {
+        this.searchTimer = 0;
+    }
+
+    public void setCourtTargetId(int id) {
+        this.courtTargetId = id;
+    }
+
+    public void addCourtLog(CourtRecord r) {
+        courtLog.add(r);
+        if (courtLog.size() > COURT_LOG_MAX) {
+            courtLog.remove(0);
+        }
+    }
+
+    /** GUI용: 후보 id 목록(매력 내림차순). */
+    public List<Integer> getCandidateIds() {
+        return candidates;
+    }
+
+    public int candidateCharmOf(int id) {
+        return candidateCharm.getOrDefault(id, 0);
+    }
+
+    public List<CourtRecord> getCourtLog() {
+        return courtLog;
     }
 
     /**
@@ -594,7 +831,6 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("Stage", this.entityData.get(STAGE));
         tag.putInt("GrowthTicks", growthTicks);
         tag.putBoolean("FastGrowth", fastGrowth);
-        tag.putInt("MatingBaseline", matingBaseline);
         tag.putLong("LastBirth", lastBirthTick);
         tag.putInt("ChildrenBorn", childrenBorn);
         tag.putInt("CareHunger", careHunger);
@@ -627,9 +863,6 @@ public class MimicEntity extends PathfinderMob {
         }
         growthTicks = tag.getInt("GrowthTicks");
         fastGrowth = tag.getBoolean("FastGrowth");
-        if (tag.contains("MatingBaseline")) {
-            matingBaseline = tag.getInt("MatingBaseline");
-        }
         if (tag.contains("LastBirth")) {
             lastBirthTick = tag.getLong("LastBirth");
         }

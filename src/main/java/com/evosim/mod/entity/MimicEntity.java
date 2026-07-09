@@ -252,6 +252,39 @@ public class MimicEntity extends PathfinderMob {
                 && (spouseId == 0L || widowed);
     }
 
+    // ── 점검용 디버그 훅 (명령어로 상황을 즉시 세팅) ──
+
+    /** 두 미믹을 즉시 짝지어 거처 귀속 로직 발동(건축/이주/합류 관찰용). */
+    public void debugForcePair(MimicEntity other) {
+        pairWith(other);
+    }
+
+    /** 배우자 링크만 걸기(거처 변화 없음) — 이미 사는 부모 부부 세팅용. */
+    public void debugMarryTo(MimicEntity other) {
+        spouseId = other.getIndividual().id();
+        widowed = false;
+        other.setSpouse(getIndividual().id());
+        mateState = MateState.PAIRED;
+        other.setMateState(MateState.PAIRED);
+    }
+
+    /** 즉시 거처 정착 + 천막·모닥불 완성 배치(홀거처주/가족 사전 세팅용). */
+    public void debugSettleWithTent(BlockPos home, Direction facing) {
+        setHomePos(home);
+        homeFacing = (byte) facing.get2DDataValue();
+        building = false;
+        buildLeader = false;
+        if (level() instanceof ServerLevel sl) {
+            for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
+                var state = p.token() == HomeStructure.TOKEN_FENCE
+                        ? Blocks.OAK_FENCE.defaultBlockState()
+                        : Blocks.WHITE_WOOL.defaultBlockState();
+                sl.setBlockAndUpdate(p.pos(), state);
+            }
+            placeHearth(sl, home, facing, true);
+        }
+    }
+
     /** 거처 상태 — 방랑/단독거처주/가족동거 (재혼 판정용). */
     public MateHome.Status homeStatus() {
         if (homePos == null) {

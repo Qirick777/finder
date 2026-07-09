@@ -10,6 +10,8 @@ import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.reg.ModEntities;
 import com.mojang.brigadier.CommandDispatcher;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.ChatFormatting;
@@ -59,7 +61,13 @@ public final class EvoSimCommand {
                 .then(Commands.literal("wildpairs")
                         .executes(ctx -> wildPairs(ctx, 4))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))
-                                .executes(ctx -> wildPairs(ctx, IntegerArgumentType.getInteger(ctx, "pairs"))))));
+                                .executes(ctx -> wildPairs(ctx, IntegerArgumentType.getInteger(ctx, "pairs")))))
+                // ── 신규 기능 직접 점검(상황 일보직전 세팅) ──
+                .then(Commands.literal("build").executes(EvoSimCommand::stageBuild))
+                .then(Commands.literal("widow").executes(EvoSimCommand::stageWidow))
+                .then(Commands.literal("family").executes(EvoSimCommand::stageFamily))
+                .then(Commands.literal("lonepair").executes(EvoSimCommand::stageLonePair))
+                .then(Commands.literal("abandon").executes(EvoSimCommand::stageAbandon)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -94,6 +102,120 @@ public final class EvoSimCommand {
                                 + " (완전 랜덤 특성) — /evolog on 으로 관찰 권장")
                 .withStyle(ChatFormatting.GREEN), false);
         return pairs * 2;
+    }
+
+    // ── 신규 기능 점검 스테이징 ──
+
+    /** matingReady(서로 매력 매칭) 성년 하나 소환해 반환. */
+    private static MimicEntity spawnAdult(ServerLevel level, Vec3 pos, Sex sex) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            return null;
+        }
+        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        Individual ind = new Individual(id, sex, 0, 0, 1);
+        ind.addTrait(TraitInstance.of(Trait.PREF_STRENGTH));
+        ind.addTrait(TraitInstance.of(Trait.PREF_ABILITY));
+        ind.addTrait(TraitInstance.of(Trait.PREF_VITALITY));
+        ind.addTrait(TraitInstance.of(Trait.STRONG));
+        ind.addTrait(TraitInstance.of(Trait.BRIGHT));
+        ind.addTrait(TraitInstance.of(Trait.NIMBLE));
+        e.setIndividual(ind);
+        e.setStage(LifeStage.ADULT);
+        e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
+        return e;
+    }
+
+    private static void tell(CommandSourceStack src, String msg) {
+        src.sendSuccess(() -> Component.literal(msg).withStyle(ChatFormatting.AQUA), false);
+    }
+
+    /** 건축 연출: 즉시 짝 성사 → 두 미믹이 천막을 직접 지음. */
+    private static int stageBuild(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        MimicEntity m = spawnAdult(level, b, Sex.MALE);
+        MimicEntity f = spawnAdult(level, b.add(1, 0, 0), Sex.FEMALE);
+        if (m != null && f != null) {
+            m.debugForcePair(f);
+        }
+        tell(ctx.getSource(), "건축 점검: 즉시 짝 성사 → 두 미믹이 부지로 가 천막을 한 칸씩 짓습니다(≈20초). "
+                + "완성 시 모닥불 점화. 랜덤 방향 확인.");
+        return 1;
+    }
+
+    /** 재혼(입주): 홀거처주(천막) + 방랑자 → 방랑자가 거처로 입주. */
+    private static int stageWidow(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        level.setDayTime(10000L); // 배회(구애) 시간
+        BlockPos homeA = BlockPos.containing(b.add(-5, 0, 0));
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.FEMALE);
+        if (a != null) {
+            a.debugSettleWithTent(homeA, Direction.NORTH); // 여성 홀거처주(사별 상정)
+        }
+        spawnAdult(level, b.add(2, 0, 0), Sex.MALE); // 남성 방랑자
+        tell(ctx.getSource(), "재혼 점검: 여성 홀거처주(천막·모닥불) + 남성 방랑자. 배회 시간이라 곧 구애 성사 → "
+                + "남성이 여성 거처로 입주(새 집 신축 없음, 모닥불 유지).");
+        return 1;
+    }
+
+    /** 자식 분가: 부모 부부 + 성년 자식(동거) + 방랑자 → 자식이 새 거처로 분가. */
+    private static int stageFamily(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        level.setDayTime(10000L);
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity dad = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity mom = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
+        MimicEntity son = spawnAdult(level, Vec3.atBottomCenterOf(home).add(-0.5, 0, 0), Sex.MALE);
+        if (dad != null && mom != null && son != null) {
+            dad.debugSettleWithTent(home, Direction.NORTH);
+            mom.debugSettleWithTent(home, Direction.NORTH);
+            son.setHomePos(home);           // 성년 자식(부모와 동거 = FAMILY)
+            dad.debugMarryTo(mom);          // 부모 부부(재구애 안 함)
+        }
+        spawnAdult(level, b.add(2, 0, 0), Sex.FEMALE); // 자식이 구애할 방랑 여성
+        tell(ctx.getSource(), "분가 점검: 부모 부부 + 성년 아들(동거) + 방랑 여성. 아들이 구애 성사 시 "
+                + "새 천막 신축(분가). 부모 거처는 유지(모닥불 켜짐).");
+        return 1;
+    }
+
+    /** 둘 다 홀거처주: 짝 성사 시 한쪽 랜덤 폐기·합류. */
+    private static int stageLonePair(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        level.setDayTime(10000L);
+        BlockPos homeA = BlockPos.containing(b.add(-6, 0, -3));
+        BlockPos homeB = BlockPos.containing(b.add(-6, 0, 3));
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+        MimicEntity bb = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.FEMALE);
+        if (a != null) {
+            a.debugSettleWithTent(homeA, Direction.NORTH);
+        }
+        if (bb != null) {
+            bb.debugSettleWithTent(homeB, Direction.SOUTH);
+        }
+        tell(ctx.getSource(), "합류 점검: 각자 홀거처(천막) 둘. 배회 시 구애 성사 → 한쪽 거처 랜덤 폐기"
+                + "(모닥불 꺼짐)·다른쪽으로 합류.");
+        return 1;
+    }
+
+    /** 모닥불 소화: 홀거처주(천막) 소환 → 처치하면 거주자 0 → 모닥불 꺼짐. */
+    private static int stageAbandon(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        BlockPos home = BlockPos.containing(b.add(-4, 0, 0));
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        if (a != null) {
+            a.debugSettleWithTent(home, Direction.NORTH);
+        }
+        tell(ctx.getSource(), "소화 점검: 홀거처주(천막·모닥불 켜짐). 이 미믹을 처치하면 거주자 0 → "
+                + "모닥불이 꺼집니다(건물은 폐허로 남음).");
+        return 1;
     }
 
     private static void spawnWild(ServerLevel level, Vec3 pos, Sex sex) {

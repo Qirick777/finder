@@ -1,5 +1,6 @@
 package com.evosim.test;
 
+import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
 import com.evosim.core.DeterministicRng;
@@ -7,7 +8,9 @@ import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.Multipliers;
+import com.evosim.core.Schedule;
 import com.evosim.core.Sex;
+import com.evosim.core.Simulation;
 import com.evosim.core.Tag;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
@@ -39,6 +42,16 @@ public final class EvoTest {
         System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
 
         String cmd = args.length > 0 ? args[0].toLowerCase() : "all";
+
+        // /evodebug trace — 진단 출력(판정 없음).
+        if (cmd.equals("trace")) {
+            int count = args.length > 1 ? Integer.parseInt(args[1]) : 3;
+            for (String line : EvoDebug.trace(count, 42L)) {
+                System.out.println(line);
+            }
+            return;
+        }
+
         Report report = runReport(cmd);
         for (String line : report.render()) {
             System.out.println(line);
@@ -58,8 +71,10 @@ public final class EvoTest {
             case "genetics" -> genetics(report);
             case "traits" -> traits(report);
             case "multiplier" -> multiplier(report);
+            case "simulate" -> simulate(report);
             case "all" -> all(report);
-            default -> report.add("evotest", false, "genetics | traits | multiplier | all",
+            default -> report.add("evotest", false,
+                    "genetics | traits | multiplier | simulate | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -70,7 +85,8 @@ public final class EvoTest {
         genetics(report);
         traits(report);
         multiplier(report);
-        // Phase 1↑: feeding, combat, lifespan, mating … 를 여기에 누적.
+        simulate(report);
+        // Phase 3↑: feeding, combat, lifespan, mating … 를 여기에 누적.
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -345,6 +361,67 @@ public final class EvoTest {
         int charm2 = Multipliers.charmScore(evalr, tgt2);
         report.add("multiplier/매력흔적", charm2 == 1,
                 "상대 명석이 흔적 → 강함선호만 = 1", charm2 + "점");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest simulate — 헤드리스 다세대 안정성 + 시간대/행동 로직 (설계서 Phase 2, §16 §17)
+    // ──────────────────────────────────────────────────────────────
+    private static void simulate(Report report) {
+        final long seed = 555L;
+        final int pairs = 30, generations = 30, capacity = 80;
+
+        // 1) 안정성: N세대 완주 · 전멸 없음 · 수용력 유계 (크래시/무한루프/즉시전멸 없음)
+        Simulation.Result r = Simulation.run(seed, pairs, generations, capacity);
+        boolean stable = !r.extinct
+                && r.generationsRun == generations
+                && r.peakPopulation <= capacity
+                && r.populationByGen.get(r.populationByGen.size() - 1) > 0;
+        report.add("simulate/안정성", stable,
+                generations + "세대 완주·전멸X·≤" + capacity,
+                "완주 " + r.generationsRun + " · 전멸 " + yn(r.extinct)
+                        + " · 피크 " + r.peakPopulation + " · 최종 "
+                        + r.populationByGen.get(r.populationByGen.size() - 1));
+
+        // 2) 결정론: 같은 시드 → 같은 인구 추이
+        Simulation.Result r2 = Simulation.run(seed, pairs, generations, capacity);
+        report.add("simulate/결정론", r.checksum == r2.checksum,
+                "동일 시드 → 동일 추이", r.checksum == r2.checksum ? "재현 일치" : "불일치!");
+
+        // 3) 분포 산출: 최종 세대에 발현 특성 종류가 다수 존재 (분포 리포트 가능)
+        report.add("simulate/분포", r.finalExpressedFreq.size() > 5,
+                "최종 세대 발현 특성 다양", r.finalExpressedFreq.size() + "종");
+
+        // 4) 시간대 경계 (설계서 §16) — 중립 개체: 기상1000·노동8000·황혼12000·취침14000
+        Individual n = one(Sex.MALE);
+        boolean sched = Schedule.phaseAt(n, 500) == Schedule.Phase.SLEEP
+                && Schedule.phaseAt(n, 4000) == Schedule.Phase.WORK
+                && Schedule.phaseAt(n, 10000) == Schedule.Phase.WANDER
+                && Schedule.phaseAt(n, 13000) == Schedule.Phase.NIGHT
+                && Schedule.phaseAt(n, 20000) == Schedule.Phase.SLEEP;
+        report.add("simulate/시간대", sched,
+                "기상→일→배회→밤→취침 경계", sched ? "정상" : "경계 어긋남");
+
+        // 5) 기상 오프셋 (설계서 §16): 부지런은 일찍 기상(500틱에 이미 노동), 게으름은 늦잠(1500틱 취침)
+        Individual dili = one(Sex.MALE, TraitInstance.of(Trait.DILIGENT));
+        Individual lazy = one(Sex.MALE, TraitInstance.of(Trait.LAZY));
+        boolean diliEarly = Schedule.phaseAt(dili, 500) == Schedule.Phase.WORK
+                && Schedule.phaseAt(n, 500) == Schedule.Phase.SLEEP;
+        boolean lazyLate = Schedule.phaseAt(lazy, 1500) == Schedule.Phase.SLEEP
+                && Schedule.phaseAt(n, 1500) == Schedule.Phase.WORK;
+        report.add("simulate/기상오프셋", diliEarly && lazyLate,
+                "부지런 일찍·게으름 늦잠",
+                "부지런 " + yn(diliEarly) + " · 게으름 " + yn(lazyLate));
+
+        // 6) 행동 결정 (설계서 §18): 노동 구간에 사냥꾼→사냥, 채집꾼→채집, 중립→채집(기본)
+        Individual hunter = one(Sex.MALE, TraitInstance.of(Trait.HUNTER));
+        Individual gath = one(Sex.MALE, TraitInstance.of(Trait.GATHERER));
+        boolean act = BehaviorDecision.decide(hunter, 4000) == BehaviorDecision.Action.HUNT
+                && BehaviorDecision.decide(gath, 4000) == BehaviorDecision.Action.GATHER
+                && BehaviorDecision.decide(n, 4000) == BehaviorDecision.Action.GATHER
+                && BehaviorDecision.decide(n, 13000) == BehaviorDecision.Action.RETURN_HOME
+                && BehaviorDecision.decide(n, 20000) == BehaviorDecision.Action.SLEEP;
+        report.add("simulate/행동", act,
+                "사냥꾼→사냥·채집꾼→채집·밤→귀가", act ? "정상" : "결정 어긋남");
     }
 
     /** 특정 성별 + 지정 특성만 가진 검증용 개체 (무대 세팅). */

@@ -97,8 +97,16 @@ public final class Genetics {
     public static Individual breed(long childId, Individual a, Individual b,
                                    DeterministicRng rng, int generation, BreedStats stats) {
         Sex sex = rng.nextBoolean() ? Sex.MALE : Sex.FEMALE;
-        Individual child = new Individual(childId, sex, a.id(), b.id(), generation);
+        return breed(childId, a, b, rng, generation, stats, sex);
+    }
 
+    /**
+     * 성별을 지정해 자식 생성 — 성비 보정(설계서 §2, 헤드리스 시뮬 교대 배정)에서 사용.
+     * 형질 유전은 성별과 독립(성별은 발현·흔적 보상에만 영향).
+     */
+    public static Individual breed(long childId, Individual a, Individual b,
+                                   DeterministicRng rng, int generation, BreedStats stats, Sex sex) {
+        Individual child = new Individual(childId, sex, a.id(), b.id(), generation);
         for (Category cat : Category.values()) {
             for (TraitInstance ti : selectCategory(cat, a, b, sex, rng, stats)) {
                 child.addTrait(ti);

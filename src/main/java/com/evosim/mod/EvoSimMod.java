@@ -27,5 +27,6 @@ public final class EvoSimMod {
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         EvoTestCommand.register(event.getDispatcher());
+        EvoDebugCommand.register(event.getDispatcher());
     }
 }

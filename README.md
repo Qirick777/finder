@@ -43,8 +43,10 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 
 ```bash
 ./gradlew evotest --args="genetics"     # Phase 0 유전 검증
-./gradlew evotest --args="traits"       # Phase 1 특성 발동(성별발현/흔적)
+./gradlew evotest --args="traits"       # Phase 1 특성 발동(성별발현/흔적/반발)
 ./gradlew evotest --args="multiplier"   # Phase 1 배율/매력 손계산 대조
+./gradlew evotest --args="simulate"     # Phase 2 헤드리스 다세대 안정성 + 시간대/행동
+./gradlew evotest --args="trace"        # Phase 2 하루 행동 타임라인(진단, /evodebug trace)
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -83,6 +85,9 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `BreedStats` | breed() 내부 확률 이벤트 누적(검증용) |
 | `ExpressionResolver` | 발현 판정(성별발현 → 반발 카드 무력화) — 저장 안 하고 성별로 재판정 (§2) |
 | `Multipliers` | `gather/hunt/storage/charmScore` — 발동 특성만 합연산 (§15) |
+| `Schedule` | 하루 시간대(기상→일→배회→밤) — 특성별 기상/취침 오프셋 (§16) |
+| `BehaviorDecision` | 행동 결정 = 우선순위 목록(시간대+특성 → 행동, §18) |
+| `Simulation` | 헤드리스 다세대 시뮬 — 안정성+분포+결정론 (§17) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
 
@@ -90,8 +95,9 @@ Minecraft 표현층 (`com.evosim.mod`):
 
 | 파일 | 역할 |
 |---|---|
-| `EvoSimMod` | `@Mod` 진입점. `/evotest` 명령어 등록. |
+| `EvoSimMod` | `@Mod` 진입점. `/evotest`·`/evodebug` 명령어 등록. |
 | `EvoTestCommand` | 게임 내 `/evotest` — `EvoTest.runReport()` 를 호출해 채팅 출력(§17). |
+| `EvoDebugCommand` | 게임 내 `/evodebug trace` — `EvoDebug.trace()` 하루 행동 타임라인(§17). |
 
 ## 페이즈 진행 상황
 
@@ -99,7 +105,9 @@ Minecraft 표현층 (`com.evosim.mod`):
 - [x] **Phase 1 — 유전 + 특성 발동**
   - [x] ① 발현 판정(성별발현/흔적) + 배율·매력 함수, `/evotest traits` `multiplier`
   - [x] ② 반발 카드(억제유전자) + 흔적 보상 — breed 확장 + 발현 반발 판정, 보유 반발 공존 허용
-- [ ] Phase 2 — 마크 소환 + 기본 행동
+- [~] **Phase 2 — 마크 소환 + 기본 행동**
+  - [x] a. 순수 로직: 시간대 스케줄·행동 우선순위·헤드리스 시뮬, `/evotest simulate` `/evodebug trace`
+  - [ ] b. 마크 표현층: 개체 스폰(스폰에그)·모델 외형·AI goal 연동·잔디채집/동물사냥 (runClient 눈 확인)
 - [ ] Phase 3 — 생존 루프 (식량·정산·수명·전투)
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)
 - [ ] Phase 5 — 관찰 + 밸런싱

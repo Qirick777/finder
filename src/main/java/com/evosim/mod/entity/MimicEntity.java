@@ -330,7 +330,7 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         int k = individual.mateChoice().k();
-        double p = Courtship.acceptProbability(better, n, k);
+        double p = Courtship.acceptChance(better, n, k); // 밸런싱 스케일 적용값(GUI %도 이 값)
         boolean accept = getRandom().nextDouble() < p;
         logCourt(suitor, accept, charm, better + 1, n, (int) Math.round(p * 100));
         if (accept) {

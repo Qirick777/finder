@@ -1091,6 +1091,14 @@ public final class EvoTest {
         boolean clamp = close(Courtship.acceptProbability(10, 10, 0), 0.0);
         report.add("courtship/클램프", clamp, "q̂>1 → P=0",
                 pct(Courtship.acceptProbability(10, 10, 0)));
+
+        // 밸런싱 스케일: 실전 수락 = 공식값 × ACCEPT_SCALE (전체 살짝 하향)
+        boolean scaled = close(Courtship.acceptChance(1, 3, 2),
+                Courtship.acceptProbability(1, 3, 2) * Courtship.ACCEPT_SCALE)
+                && Courtship.acceptChance(1, 3, 2) < Courtship.acceptProbability(1, 3, 2);
+        report.add("courtship/스케일", scaled,
+                "실전 수락 = 공식 × " + Courtship.ACCEPT_SCALE + " (하향)",
+                pct(Courtship.acceptChance(1, 3, 2)) + " (원식 " + pct(Courtship.acceptProbability(1, 3, 2)) + ")");
     }
 
     // ──────────────────────────────────────────────────────────────

@@ -17,6 +17,12 @@ public final class Courtship {
     /** 사전 확률 q0 (전 개체 공통 상수). */
     public static final double Q0 = 0.5;
 
+    /**
+     * 실전 밸런싱 스케일 — 한쪽 구애의 최종 수락 확률에 곱해 <b>전체적으로 살짝 낮춘다</b>(1.0=원식).
+     * 상호구애 자동 성사에는 적용하지 않는다. 값만 바꿔 난이도 조절.
+     */
+    public static final double ACCEPT_SCALE = 0.8;
+
     private Courtship() {
     }
 
@@ -31,6 +37,11 @@ public final class Courtship {
         double qHat = (n + k == 0) ? Q0 : (better + k * Q0) / (n + k);
         double p = 1.0 - qHat;
         return Math.max(0.0, Math.min(1.0, p));
+    }
+
+    /** 실전 수락 확률 = 공식값 × {@link #ACCEPT_SCALE} (밸런싱 하향). 게임 구애 판정은 이걸 쓴다. */
+    public static double acceptChance(int better, int n, int k) {
+        return acceptProbability(better, n, k) * ACCEPT_SCALE;
     }
 
     /** R의 후보 매력 배열에서 C의 매력보다 엄격히 큰 후보 수(better). 동점은 세지 않는다. */

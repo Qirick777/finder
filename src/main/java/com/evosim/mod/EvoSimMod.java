@@ -43,9 +43,12 @@ public final class EvoSimMod {
     }
 
     private void onBuildTabs(BuildCreativeModeTabContentsEvent event) {
-        // 미믹 스폰에그를 "스폰 알" 크리에이티브 탭에 노출.
+        // 미믹 스폰에그 → "스폰 알" 탭, 특성 검사봉 → "도구" 탭.
         if (event.getTabKey() == CreativeModeTabs.SPAWN_EGGS) {
             event.accept(ModItems.MIMIC_SPAWN_EGG.get());
+        }
+        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
+            event.accept(ModItems.TRAIT_SCANNER.get());
         }
     }
 

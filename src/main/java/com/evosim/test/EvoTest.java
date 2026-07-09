@@ -10,6 +10,7 @@ import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
+import com.evosim.core.Lifespan;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
 import com.evosim.core.Sex;
@@ -79,9 +80,10 @@ public final class EvoTest {
             case "combat" -> combat(report);
             case "feeding" -> feeding(report);
             case "lifecycle" -> lifecycle(report);
+            case "lifespan" -> lifespan(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -96,7 +98,8 @@ public final class EvoTest {
         combat(report);
         feeding(report);
         lifecycle(report);
-        // Phase 3↑: lifespan, mating … 를 여기에 누적.
+        lifespan(report);
+        // Phase 4↑: mating, family_lifecycle … 를 여기에 누적.
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -589,6 +592,50 @@ public final class EvoTest {
         report.add("lifecycle/여성페널티", female, "여성 신체 0.6배 (40%↓)",
                 String.format("여 %.2f · 남 %.2f", SurvivalRules.physicalFactor(Sex.FEMALE),
                         SurvivalRules.physicalFactor(Sex.MALE)));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest lifespan — 세대 기반 수명 + 상속 (설계서 Phase 3, §9)
+    // ──────────────────────────────────────────────────────────────
+    private static void lifespan(Report report) {
+        // 부모(1), 자식(2,3), 손자(4) 계보 구성.
+        Lifespan.Being parent = new Lifespan.Being(1, 0, 0, LifeStage.ADULT, true);
+        Lifespan.Being childAdult1 = new Lifespan.Being(2, 1, 0, LifeStage.ADULT, true);
+        Lifespan.Being childAdult2 = new Lifespan.Being(3, 1, 0, LifeStage.ADULT, false);
+        Lifespan.Being childBoy = new Lifespan.Being(3, 1, 0, LifeStage.BOY, false);
+        Lifespan.Being grandchild = new Lifespan.Being(4, 2, 0, LifeStage.INFANT, false);
+
+        // 1) 손자 존재 + 자식 모두 성년 → 사망
+        boolean die = Lifespan.shouldDie(parent,
+                java.util.List.of(parent, childAdult1, childAdult2, grandchild));
+        report.add("lifespan/자연사", die, "손자 존재+자식 성년 → 사망", yn(die));
+
+        // 2) 자식 미성년 → 생존
+        boolean surviveBoy = !Lifespan.shouldDie(parent,
+                java.util.List.of(parent, childAdult1, childBoy, grandchild));
+        report.add("lifespan/미성년생존", surviveBoy, "자식 미성년 → 생존", yn(surviveBoy));
+
+        // 3) 자식 성년이나 손자 없음 → 생존
+        boolean surviveNoGc = !Lifespan.shouldDie(parent,
+                java.util.List.of(parent, childAdult1, childAdult2));
+        report.add("lifespan/손자없음생존", surviveNoGc, "손자 없음 → 생존", yn(surviveNoGc));
+
+        // 4) 번식했으나 자식 전멸 → 부모도 사망 (영생 구멍 차단)
+        boolean dieNoHeir = Lifespan.shouldDie(parent, java.util.List.of(parent));
+        report.add("lifespan/자식전멸", dieNoHeir, "번식 후 자식 전멸 → 부모 사망", yn(dieNoHeir));
+
+        // 5) 번식한 적 없는 방랑자 → 이 판정으로는 생존
+        Lifespan.Being wanderer = new Lifespan.Being(9, 0, 0, LifeStage.ADULT, false);
+        boolean wandererLives = !Lifespan.shouldDie(wanderer, java.util.List.of(wanderer));
+        report.add("lifespan/방랑자생존", wandererLives, "미번식 방랑자 → 생존", yn(wandererLives));
+
+        // 6) 상속: 남은 자 있으면 1명분(2.5)만, 없으면 소멸
+        boolean inherit = Math.abs(Lifespan.inheritAmount(10.0, true) - 2.5) < 1e-9
+                && Math.abs(Lifespan.inheritAmount(1.0, true) - 1.0) < 1e-9
+                && Lifespan.inheritAmount(10.0, false) == 0.0;
+        report.add("lifespan/상속", inherit, "남은 자 1명분만·없으면 소멸",
+                "10→" + Lifespan.inheritAmount(10.0, true) + " · 없음→"
+                        + Lifespan.inheritAmount(10.0, false));
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

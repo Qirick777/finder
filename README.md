@@ -50,6 +50,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="combat"       # Phase 3 전투 3층위 판정(진입/퇴각/복귀)
 ./gradlew evotest --args="feeding"      # Phase 3 밤 배치 정산(분배/굶주림/사망)
 ./gradlew evotest --args="lifecycle"    # Phase 3 생애단계 능력 + 여성 페널티
+./gradlew evotest --args="lifespan"     # Phase 3 세대 수명 + 상속
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -94,6 +95,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `Combat` | 전투 3층위 판정(진입/퇴각/복귀) + 감지 범위 (§13-B) |
 | `Feeding` | 밤 배치 정산 — 분배(남편>자식>아내)/굶주림/사망 (§4) |
 | `SurvivalRules` | 생애단계 능력(전투·채집·이동)·여성 40% 페널티 (§7 §1) |
+| `Lifespan` | 세대 기반 수명(손자+자식성년→사망) + 상속(1명분) (§9) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
 
@@ -112,7 +114,8 @@ Minecraft 표현층 (`com.evosim.mod`):
 ### 게임에서 개체 소환 (Phase 2b, `runClient` 눈 확인)
 
 - **미믹 스폰 알**: 크리에이티브 "스폰 알" 탭 → 성년 랜덤 성별 소환.
-- **`/evosim spawn <male|female> <infant|boy|adult> [수]`**: 지정 성별·단계 소환.
+- **미믹 특성 검사봉**("도구" 탭): 미믹 우클릭 → 보유 특성 전체 표시(발현/흔적/반발/우성 색 구분, §14).
+- **`/evosim spawn <male|female> [infant|boy|adult] [수]`**: 지정 소환(단계 생략 시 성년).
 - **`/evosim gallery`**: 남/여 × 유아/소년/성년 6종을 한 줄로 → 외형 비교.
 
 외형: 여성=알렉스(슬림)·남성=스티브, 유아=아기비율(머리 큼)+작게, 소년=키 작게, 성년=기본.
@@ -140,11 +143,13 @@ Minecraft 표현층 (`com.evosim.mod`):
   - [x] b. 마크 표현층: 미믹 개체(플레이어 형태)·스폰에그·`/evosim spawn`·기본 배회 AI (runClient 눈 확인)
         · 외형 구분: 여성=알렉스(슬림)/남성=스티브, 유아=아기비율(머리 큼), 소년=키 작게, 성년=기본
   - [ ] c. (Phase 3와 함께) BehaviorDecision→실제 잔디채집·동물사냥 goal 연동
-- [~] **Phase 3 — 생존 루프 (식량·정산·수명·전투)**
-  - [x] 순수: 전투 3층위·밤 정산·생애단계 능력·여성 페널티, `/evotest combat` `feeding` `lifecycle`
-  - [x] 표현층: 생애단계별 이동속도(유아 거의 정지)·전투 성년만·여성 40% 약함(힘/체력)
+- [x] **Phase 3 — 생존 루프 (식량·정산·수명·전투)**
+  - [x] 순수: 전투 3층위·밤 정산·생애단계 능력·여성 페널티·세대 수명·상속
+        (`/evotest combat` `feeding` `lifecycle` `lifespan`)
+  - [x] 표현층: 생애단계별 이동속도·전투 성년만·여성 40% 약함·전투 상호교전
   - [x] 자동검증 `/evostage`: growth·combat(진입/도망/퇴각)·infant(전투불가+느림)
-  - [ ] 수명(세대 기반)·상속(1명분)·실제 성장 밸런싱·밤 정산 goal 연동·근친 회피
+  - [x] 특성 검사봉(§14) — 미믹 우클릭으로 특성 확인
+  - [ ] (Phase 4와 함께) 밤 정산·수명·상속 in-world goal 연동, 몬스터 야간 사냥, 근친 회피
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)
 - [ ] Phase 5 — 관찰 + 밸런싱
 - [ ] Phase 6 — 대규모 검증 + 실험

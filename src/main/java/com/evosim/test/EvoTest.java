@@ -3,10 +3,13 @@ package com.evosim.test;
 import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
+import com.evosim.core.Combat;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.ExpressionResolver;
+import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
+import com.evosim.core.LifeStage;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
 import com.evosim.core.Sex;
@@ -72,9 +75,11 @@ public final class EvoTest {
             case "traits" -> traits(report);
             case "multiplier" -> multiplier(report);
             case "simulate" -> simulate(report);
+            case "combat" -> combat(report);
+            case "feeding" -> feeding(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -86,7 +91,9 @@ public final class EvoTest {
         traits(report);
         multiplier(report);
         simulate(report);
-        // Phase 3↑: feeding, combat, lifespan, mating … 를 여기에 누적.
+        combat(report);
+        feeding(report);
+        // Phase 3↑: lifespan, family_lifecycle, mating … 를 여기에 누적.
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -422,6 +429,120 @@ public final class EvoTest {
                 && BehaviorDecision.decide(n, 20000) == BehaviorDecision.Action.SLEEP;
         report.add("simulate/행동", act,
                 "사냥꾼→사냥·채집꾼→채집·밤→귀가", act ? "정상" : "결정 어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest combat — 전투 3층위 판정 (설계서 Phase 3, §13-B)
+    // ──────────────────────────────────────────────────────────────
+    private static void combat(Report report) {
+        Individual brave = one(Sex.MALE, TraitInstance.of(Trait.BRAVE));
+        Individual coward = one(Sex.MALE, TraitInstance.of(Trait.COWARD));
+        Individual neutral = one(Sex.MALE);
+        Individual reckless = one(Sex.MALE, TraitInstance.of(Trait.RECKLESS));
+        Individual prudent = one(Sex.MALE, TraitInstance.of(Trait.PRUDENT));
+
+        // ① 진입: 용감(감지 내)→ENGAGE, 용감(밖)→IGNORE, 겁쟁이→FLEE, 중립(인접)→ENGAGE, 중립(원거리)→IGNORE
+        boolean entry = Combat.entry(brave, false, true) == Combat.Entry.ENGAGE
+                && Combat.entry(brave, false, false) == Combat.Entry.IGNORE
+                && Combat.entry(coward, true, true) == Combat.Entry.FLEE
+                && Combat.entry(neutral, true, true) == Combat.Entry.ENGAGE
+                && Combat.entry(neutral, false, true) == Combat.Entry.IGNORE;
+        report.add("combat/진입", entry,
+                "용감 적극·겁쟁이 회피·중립 온것만", entry ? "정상" : "어긋남");
+
+        // ② 퇴각: 무모 HOLD, 중립 하한→RETREAT, 신중 하한+가족→HOLD, 신중 하한+비가족→RETREAT
+        boolean retreat = Combat.retreat(reckless, 0.1, false) == Combat.Retreat.HOLD
+                && Combat.retreat(neutral, 0.1, false) == Combat.Retreat.RETREAT
+                && Combat.retreat(neutral, 0.5, false) == Combat.Retreat.HOLD
+                && Combat.retreat(prudent, 0.1, true) == Combat.Retreat.HOLD
+                && Combat.retreat(prudent, 0.1, false) == Combat.Retreat.RETREAT;
+        report.add("combat/퇴각", retreat,
+                "무모 안물러남·신중 가족앞 버팀", retreat ? "정상" : "어긋남");
+
+        // ③ 복귀: 신중 상한 회복→복귀, 중립→X, 신중 미회복→X
+        boolean ret = Combat.returnsToCombat(prudent, 0.8)
+                && !Combat.returnsToCombat(neutral, 0.8)
+                && !Combat.returnsToCombat(prudent, 0.5);
+        report.add("combat/복귀", ret, "신중만 회복 후 복귀", ret ? "정상" : "어긋남");
+
+        // 조합: 겁쟁이+무모 → 겁쟁이가 진입을 막아 FLEE (무모 발동 안 함 — 모순 없음)
+        Individual cowReck = one(Sex.MALE, TraitInstance.of(Trait.COWARD), TraitInstance.of(Trait.RECKLESS));
+        report.add("combat/조합", Combat.entry(cowReck, true, true) == Combat.Entry.FLEE,
+                "겁쟁이+무모 → 진입 막힘(FLEE)",
+                Combat.entry(cowReck, true, true).toString());
+
+        // 성별발현 연동: 용감[여성발현]을 남성이 가지면 흔적 → 중립처럼 행동(감지 밖 IGNORE)
+        Individual braveVest = one(Sex.MALE, TraitInstance.of(Trait.BRAVE, Tag.FEMALE_EXPRESSED));
+        report.add("combat/발현연동", Combat.entry(braveVest, false, true) == Combat.Entry.IGNORE,
+                "흔적 용감 → 중립 행동", Combat.entry(braveVest, false, true).toString());
+
+        // 감지 범위: 용감 > 중립 > 겁쟁이
+        boolean range = Combat.detectionRange(brave) > Combat.detectionRange(neutral)
+                && Combat.detectionRange(neutral) > Combat.detectionRange(coward);
+        report.add("combat/감지범위", range, "용감>중립>겁쟁이",
+                String.format("%.0f/%.0f/%.0f", Combat.detectionRange(brave),
+                        Combat.detectionRange(neutral), Combat.detectionRange(coward)));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest feeding — 밤 배치 정산 (설계서 Phase 3, §4)
+    // ──────────────────────────────────────────────────────────────
+    private static void feeding(Report report) {
+        // 1) 분배 순서: 창고가 남편+자식만 감당 → 아내가 먼저 굶음 (남편→자식→아내)
+        Feeding.Household h = new Feeding.Household();
+        h.father = member(Sex.MALE, LifeStage.ADULT, 1.5, 0.0);   // 소모 1.0
+        h.children.add(member(Sex.MALE, LifeStage.BOY, 0.0, 0.0)); // 소모 0.5
+        h.wives.add(member(Sex.FEMALE, LifeStage.ADULT, 0.0, 0.0)); // 소모 1.0
+        // 창고 = 1.5 → 남편1.0 먹고 0.5 남음 → 자식0.5 먹고 0 → 아내 굶음
+        Feeding.Result r = Feeding.settle(h);
+        boolean order = r.fed.contains(h.father) && r.fed.contains(h.children.get(0))
+                && r.starved.contains(h.wives.get(0))
+                && h.wives.get(0).ind.hungerCount() == 1
+                && h.father.ind.hungerCount() == 0;
+        report.add("feeding/분배순서", order,
+                "남편·자식 먹고 아내 굶음",
+                "남편 " + fedStr(r, h.father) + " · 자식 " + fedStr(r, h.children.get(0))
+                        + " · 아내 " + fedStr(r, h.wives.get(0)));
+
+        // 2) 요리 배율: 요리사 남편이면 창고 유입 ×1.2 → 아내까지 먹임
+        Feeding.Household h2 = new Feeding.Household();
+        h2.father = member(Sex.MALE, LifeStage.ADULT, 2.1, 0.0,
+                TraitInstance.of(Trait.COOK)); // 2.1×1.2=2.52 ≥ 1.0+1.0
+        h2.wives.add(member(Sex.FEMALE, LifeStage.ADULT, 0.0, 0.0));
+        Feeding.Result r2 = Feeding.settle(h2);
+        report.add("feeding/요리배율", r2.fed.contains(h2.wives.get(0)),
+                "요리사 유입 ×1.2 → 아내 먹임(2.1→2.52)",
+                "아내 " + fedStr(r2, h2.wives.get(0)) + " · 잔량 " + String.format("%.2f", r2.storageLeft));
+
+        // 3) 굶주림 누적 → 사망: 아내 굶주림 2에서 또 굶으면 3 → 사망
+        Feeding.Household h3 = new Feeding.Household();
+        h3.father = member(Sex.MALE, LifeStage.ADULT, 1.0, 0.0);
+        Feeding.Member wife = member(Sex.FEMALE, LifeStage.ADULT, 0.0, 0.0);
+        wife.ind.setHungerCount(2); // 이미 이틀 굶음
+        h3.wives.add(wife);
+        Feeding.Result r3 = Feeding.settle(h3); // 남편만 먹고 아내 굶음 → 3
+        boolean death = r3.died.contains(wife) && wife.dead && wife.ind.hungerCount() == 3;
+        report.add("feeding/굶주림사망", death,
+                "굶주림 3일 연속 → 사망",
+                "아내 굶주림 " + wife.ind.hungerCount() + " · 사망 " + yn(wife.dead));
+
+        // 4) 굶주림 리셋: 먹으면 카운트 0으로
+        Feeding.Household h4 = new Feeding.Household();
+        Feeding.Member m = member(Sex.MALE, LifeStage.ADULT, 2.0, 0.0);
+        m.ind.setHungerCount(2);
+        h4.father = m;
+        Feeding.settle(h4);
+        report.add("feeding/리셋", m.ind.hungerCount() == 0,
+                "먹으면 굶주림 0 리셋", "굶주림 " + m.ind.hungerCount());
+    }
+
+    private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,
+                                         TraitInstance... traits) {
+        return new Feeding.Member(one(sex, traits), stage, harvest, activity);
+    }
+
+    private static String fedStr(Feeding.Result r, Feeding.Member m) {
+        return r.fed.contains(m) ? "먹음" : "굶음";
     }
 
     /** 특정 성별 + 지정 특성만 가진 검증용 개체 (무대 세팅). */

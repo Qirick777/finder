@@ -3,8 +3,13 @@ package com.evosim.test;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
+import com.evosim.core.Multipliers;
+import com.evosim.core.Sex;
+import com.evosim.core.Tag;
+import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 
 import java.io.PrintStream;
@@ -51,8 +56,11 @@ public final class EvoTest {
         Report report = new Report();
         switch (kind) {
             case "genetics" -> genetics(report);
+            case "traits" -> traits(report);
+            case "multiplier" -> multiplier(report);
             case "all" -> all(report);
-            default -> report.add("evotest", false, "genetics | all", "알 수 없는 검증: " + cmd);
+            default -> report.add("evotest", false, "genetics | traits | multiplier | all",
+                    "알 수 없는 검증: " + cmd);
         }
         return report;
     }
@@ -60,7 +68,9 @@ public final class EvoTest {
     /** 전체 회귀 (설계서 §17 `/evotest all`). 새 페이즈마다 여기에 검증을 추가한다. */
     private static void all(Report report) {
         genetics(report);
-        // Phase 1↑: traits, multiplier, feeding, combat, lifespan, mating … 를 여기에 누적.
+        traits(report);
+        multiplier(report);
+        // Phase 1↑: feeding, combat, lifespan, mating … 를 여기에 누적.
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -150,6 +160,139 @@ public final class EvoTest {
         run.maxTotal = Math.max(run.maxTotal, total);
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // /evotest traits — 특성 발동 판정 (설계서 Phase 1 ①, §2)
+    //   성별발현/흔적 활성화 + 발현 반발 없음(불변식)
+    // ──────────────────────────────────────────────────────────────
+    private static void traits(Report report) {
+        // 1) 남성발현: 남성에서 발동, 여성에서 흔적(발동 X, 보유는 O)
+        Individual male = one(Sex.MALE, TraitInstance.of(Trait.BRAVE, Tag.MALE_EXPRESSED));
+        Individual female = one(Sex.FEMALE, TraitInstance.of(Trait.BRAVE, Tag.MALE_EXPRESSED));
+        boolean maleOn = ExpressionResolver.isExpressed(male, Trait.BRAVE);
+        boolean femaleOff = !ExpressionResolver.isExpressed(female, Trait.BRAVE);
+        boolean stillHeld = female.allTraits().stream().anyMatch(t -> t.trait() == Trait.BRAVE);
+        report.add("traits/남성발현", maleOn && femaleOff && stillHeld,
+                "남♂발동·여♀흔적(보유 유지)",
+                "남 " + onOff(maleOn) + " · 여 " + onOff(!femaleOff) + " · 여보유 " + yn(stillHeld));
+
+        // 2) 여성발현: 여성에서 발동, 남성에서 흔적
+        Individual m2 = one(Sex.MALE, TraitInstance.of(Trait.STRONG_MATERNAL, Tag.FEMALE_EXPRESSED));
+        Individual f2 = one(Sex.FEMALE, TraitInstance.of(Trait.STRONG_MATERNAL, Tag.FEMALE_EXPRESSED));
+        boolean femOn = ExpressionResolver.isExpressed(f2, Trait.STRONG_MATERNAL);
+        boolean malOff = !ExpressionResolver.isExpressed(m2, Trait.STRONG_MATERNAL);
+        report.add("traits/여성발현", femOn && malOff,
+                "여♀발동·남♂흔적", "여 " + onOff(femOn) + " · 남 " + onOff(!malOff));
+
+        // 3) 상쇄(남성발현+여성발현 동시) → 성별 무관 항상 발동
+        Individual cm = one(Sex.MALE, TraitInstance.of(Trait.DILIGENT, Tag.MALE_EXPRESSED, Tag.FEMALE_EXPRESSED));
+        Individual cf = one(Sex.FEMALE, TraitInstance.of(Trait.DILIGENT, Tag.MALE_EXPRESSED, Tag.FEMALE_EXPRESSED));
+        boolean bothOn = ExpressionResolver.isExpressed(cm, Trait.DILIGENT)
+                && ExpressionResolver.isExpressed(cf, Trait.DILIGENT);
+        report.add("traits/상쇄", bothOn,
+                "남녀발현 동시 → 항상 발동", "남·여 모두 " + onOff(bothOn));
+
+        // 4) 태그 없음 → 성별 무관 항상 발동
+        Individual pm = one(Sex.MALE, TraitInstance.of(Trait.HERBALIST));
+        Individual pf = one(Sex.FEMALE, TraitInstance.of(Trait.HERBALIST));
+        boolean plainOn = ExpressionResolver.isExpressed(pm, Trait.HERBALIST)
+                && ExpressionResolver.isExpressed(pf, Trait.HERBALIST);
+        report.add("traits/무태그", plainOn,
+                "태그없음 → 항상 발동", "남·여 모두 " + onOff(plainOn));
+
+        // 5) 불변식(속성 검증): 랜덤 개체 다수 → 발동 중인 특성끼리 반발쌍 0
+        DeterministicRng rng = new DeterministicRng(24680L);
+        int violations = 0;
+        int samples = 3000;
+        for (int i = 0; i < samples; i++) {
+            Individual ind = Genetics.randomFirstGen(i + 1, rng);
+            List<TraitInstance> exp = ExpressionResolver.expressed(ind);
+            for (int a = 0; a < exp.size(); a++) {
+                for (int b = a + 1; b < exp.size(); b++) {
+                    if (exp.get(a).trait().conflictsWith(exp.get(b).trait())) {
+                        violations++;
+                    }
+                }
+            }
+        }
+        report.add("traits/발현반발", violations == 0,
+                "발현 특성 반발쌍 0 (" + samples + "개체)", violations + "건");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest multiplier — 배율/매력 손계산 대조 (설계서 Phase 1 ①, §15)
+    // ──────────────────────────────────────────────────────────────
+    private static void multiplier(Report report) {
+        // 1) 채집: 약초학자(+0.5) + 손재주(+0.2) = 1.7
+        Individual g = one(Sex.MALE,
+                TraitInstance.of(Trait.HERBALIST), TraitInstance.of(Trait.DEXTEROUS));
+        checkNum(report, "multiplier/채집", 1.7, Multipliers.gather(g),
+                "약초학자+손재주 = 1.0+0.5+0.2");
+
+        // 2) 채집: 식물혼동(-0.5) = 0.5
+        Individual g2 = one(Sex.MALE, TraitInstance.of(Trait.PLANT_CONFUSED));
+        checkNum(report, "multiplier/채집저하", 0.5, Multipliers.gather(g2), "식물혼동 = 1.0-0.5");
+
+        // 3) 사냥: 도축업자(+0.5) + 육식(+0.2) = 1.7 / 그 개체 채집 = 육식(-0.3) = 0.7
+        Individual h = one(Sex.MALE,
+                TraitInstance.of(Trait.BUTCHER), TraitInstance.of(Trait.CARNIVORE));
+        checkNum(report, "multiplier/사냥", 1.7, Multipliers.hunt(h), "도축업자+육식 = 1.0+0.5+0.2");
+        checkNum(report, "multiplier/육식채집", 0.7, Multipliers.gather(h), "육식 채집 = 1.0-0.3");
+
+        // 4) 저장: 요리사(+0.2)=1.2 / 요리치(-0.2)=0.8
+        checkNum(report, "multiplier/저장", 1.2,
+                Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.COOK))), "요리사 = 1.2");
+        checkNum(report, "multiplier/저장저하", 0.8,
+                Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.BAD_COOK))), "요리치 = 0.8");
+
+        // 5) 발현 연동: 여성발현 약초학자를 남성이 가지면 흔적 → 배율에 안 잡힘(=1.0)
+        Individual vest = one(Sex.MALE, TraitInstance.of(Trait.HERBALIST, Tag.FEMALE_EXPRESSED));
+        checkNum(report, "multiplier/흔적무효", 1.0, Multipliers.gather(vest),
+                "흔적(발동X)은 배율 미반영");
+
+        // 6) 매력: 평가자 강함선호+똑똑함선호, 상대 힘센+명석 → 2점
+        Individual evalr = one(Sex.FEMALE,
+                TraitInstance.of(Trait.PREF_STRENGTH), TraitInstance.of(Trait.PREF_SMART));
+        Individual tgt = one(Sex.MALE,
+                TraitInstance.of(Trait.STRONG), TraitInstance.of(Trait.BRIGHT));
+        int charm = Multipliers.charmScore(evalr, tgt);
+        report.add("multiplier/매력", charm == 2,
+                "강함·똑똑함 선호 → 힘센·명석 상대 = 2", charm + "점");
+
+        // 7) 매력 발현 연동: 상대의 명석이 흔적이면 똑똑함선호 가점 안 됨 → 1점
+        Individual tgt2 = one(Sex.MALE,
+                TraitInstance.of(Trait.STRONG),
+                TraitInstance.of(Trait.BRIGHT, Tag.FEMALE_EXPRESSED)); // 남성에겐 흔적
+        int charm2 = Multipliers.charmScore(evalr, tgt2);
+        report.add("multiplier/매력흔적", charm2 == 1,
+                "상대 명석이 흔적 → 강함선호만 = 1", charm2 + "점");
+    }
+
+    /** 특정 성별 + 지정 특성만 가진 검증용 개체 (무대 세팅). */
+    private static Individual one(Sex sex, TraitInstance... traits) {
+        Individual ind = new Individual(0, sex, 0, 0, 1);
+        for (TraitInstance ti : traits) {
+            ind.addTrait(ti);
+        }
+        return ind;
+    }
+
+    private static void checkNum(Report report, String id, double expected, double actual, String note) {
+        boolean ok = Math.abs(expected - actual) < 1e-9;
+        report.add(id, ok, num(expected) + " (" + note + ")", num(actual));
+    }
+
+    private static String num(double v) {
+        return String.format("%.2f", v);
+    }
+
+    private static String onOff(boolean on) {
+        return on ? "발동" : "흔적";
+    }
+
+    private static String yn(boolean b) {
+        return b ? "O" : "X";
+    }
+
     private static boolean withinPct(double actual, double target, double tol) {
         return Math.abs(actual - target) <= tol;
     }
@@ -179,6 +322,11 @@ public final class EvoTest {
 
         public boolean hasFailures() {
             return checks.stream().anyMatch(c -> !c.pass);
+        }
+
+        /** 개별 검사 목록 — 게임 표현층이 색상 Component 로 렌더할 때 사용. */
+        public List<Check> checks() {
+            return List.copyOf(checks);
         }
 
         /** 요약 헤더 + 상세를 줄 단위 리스트로 (CLI·게임 채팅 공용 출력). */
@@ -213,6 +361,7 @@ public final class EvoTest {
         }
     }
 
-    private record Check(String id, boolean pass, String expected, String actual) {
+    /** 검사 하나 — 기대 vs 실제 (설계서 §17 기록 형식). */
+    public record Check(String id, boolean pass, String expected, String actual) {
     }
 }

@@ -42,8 +42,10 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 게임 내 `/evotest`와 <b>같은 로직</b>을 호출하므로 결과가 일치한다.
 
 ```bash
-./gradlew evotest --args="genetics"   # Phase 0 유전 검증
-./gradlew evotest --args="all"        # 전체 회귀 테스트
+./gradlew evotest --args="genetics"     # Phase 0 유전 검증
+./gradlew evotest --args="traits"       # Phase 1 특성 발동(성별발현/흔적)
+./gradlew evotest --args="multiplier"   # Phase 1 배율/매력 손계산 대조
+./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
 출력 예 (게임 채팅과 동일):
@@ -74,11 +76,13 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `Sex`, `Category`, `Tag` | 성별 · 특성 카테고리(성향/신체/선호) · 태그(우성/성별발현) |
 | `Axis` | 특성 축 + 반발(exclusive) 규칙. 성향·신체는 반발, 선호는 독립(익숙함/다양성만 예외) |
 | `Trait` | 특성 마스터 목록(설계서 §14). 축·반발 판정 |
-| `TraitInstance` | 개체 보유 특성 = 특성 값 + 태그 |
+| `TraitInstance` | 개체 보유 특성 = 특성 값 + 태그. `expressedFor(sex)` 성별발현 판정 |
 | `Individual` | 개체 데이터(특성·성별·부모ID·homePos·세대·굶주림 카운트) |
 | `DeterministicRng` | 시드 고정 결정론 난수 1개 (§17 필수요소 ①) |
 | `Genetics` | `breed()` 유전 + 1세대 랜덤 부여 (순수 함수, §18) |
 | `BreedStats` | breed() 내부 확률 이벤트 누적(검증용) |
+| `ExpressionResolver` | 발현 판정(성별발현/흔적) — 저장 안 하고 성별로 재판정 (§2) |
+| `Multipliers` | `gather/hunt/storage/charmScore` — 발동 특성만 합연산 (§15) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
 
@@ -92,7 +96,9 @@ Minecraft 표현층 (`com.evosim.mod`):
 ## 페이즈 진행 상황
 
 - [x] **Phase 0 — 뼈대**: 데이터 구조, 결정론 난수, 특성 enum + 반발/태그, `/evotest genetics`
-- [ ] Phase 1 — 유전 + 특성 발동 (성별발현·흔적·보상·반발 카드, 배율 함수, `/evotest traits` `multiplier`)
+- [~] **Phase 1 — 유전 + 특성 발동**
+  - [x] ① 발현 판정(성별발현/흔적) + 배율·매력 함수, `/evotest traits` `multiplier`
+  - [ ] ② 반발 카드(억제유전자) + 흔적 보상 (breed 확장 + 발현 반발 판정)
 - [ ] Phase 2 — 마크 소환 + 기본 행동
 - [ ] Phase 3 — 생존 루프 (식량·정산·수명·전투)
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)

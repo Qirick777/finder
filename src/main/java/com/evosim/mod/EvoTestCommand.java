@@ -4,6 +4,7 @@ import com.evosim.test.EvoTest;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -31,10 +32,25 @@ public final class EvoTestCommand {
 
     private static int run(CommandContext<CommandSourceStack> ctx, String kind) {
         EvoTest.Report report = EvoTest.runReport(kind);
-        List<String> lines = report.render();
-        for (String line : lines) {
-            final String l = line;
-            ctx.getSource().sendSuccess(() -> Component.literal(l), false);
+        CommandSourceStack src = ctx.getSource();
+
+        // 마크 기본 폰트엔 이모지(✅❌)가 없어 네모로 뜬다 → 색상 + ASCII 마커([O]/[X])로 렌더.
+        List<EvoTest.Check> checks = report.checks();
+        long total = checks.size();
+        long passed = checks.stream().filter(EvoTest.Check::pass).count();
+        long failed = total - passed;
+
+        src.sendSuccess(() -> Component.literal("=== 검증: /evotest " + kind + " ===")
+                .withStyle(ChatFormatting.AQUA), false);
+        src.sendSuccess(() -> Component.literal(
+                        "총 " + total + " · 통과 " + passed + " · 실패 " + failed)
+                .withStyle(failed == 0 ? ChatFormatting.GREEN : ChatFormatting.RED), false);
+
+        for (EvoTest.Check c : checks) {
+            final String line = (c.pass() ? "[O] " : "[X] ")
+                    + "[" + c.id() + "] 기대 " + c.expected() + " / 실제 " + c.actual();
+            src.sendSuccess(() -> Component.literal(line)
+                    .withStyle(c.pass() ? ChatFormatting.GREEN : ChatFormatting.RED), false);
         }
         // 성공 시 1, 실패 있으면 0 (명령 결과값 — /execute store 등으로 회귀 자동화 가능).
         return report.hasFailures() ? 0 : 1;

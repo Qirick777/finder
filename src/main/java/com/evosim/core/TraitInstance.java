@@ -42,6 +42,27 @@ public final class TraitInstance {
         return tags.contains(Tag.DOMINANT);
     }
 
+    /**
+     * 이 특성이 주어진 성별에서 발동(발현)하는가 — 성별발현 판정 (설계서 §2 발현 판정 순서 1).
+     *
+     * <p>남성발현+여성발현 동시 = 상쇄 → 항상 발동. 한쪽만 있으면 그 성별만. 없으면 항상.
+     * 발동 안 하면 <b>흔적</b>(유전은 되지만 효과 없음). 발현은 저장하지 않고 참조할 때마다 재판정.
+     */
+    public boolean expressedFor(Sex sex) {
+        boolean male = tags.contains(Tag.MALE_EXPRESSED);
+        boolean female = tags.contains(Tag.FEMALE_EXPRESSED);
+        if (male && female) {
+            return true; // 상쇄 → 항상 발동
+        }
+        if (male) {
+            return sex == Sex.MALE;
+        }
+        if (female) {
+            return sex == Sex.FEMALE;
+        }
+        return true; // 태그 없음 → 성별 무관 항상 발동
+    }
+
     public boolean hasTag(Tag tag) {
         return tags.contains(tag);
     }

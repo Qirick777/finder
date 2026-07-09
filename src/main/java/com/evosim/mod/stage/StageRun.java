@@ -67,6 +67,18 @@ public final class StageRun {
         }
     }
 
+    /** 스테이지가 직접 만족시키는 기대(엔티티 관측이 아닌 스테이지 측정 — 예: 이동거리). */
+    public void mark(String tag) {
+        log.add("t" + ticks + " [stage] " + tag);
+        if (expected.contains(tag)) {
+            seen.add(tag);
+        }
+    }
+
+    public int ticks() {
+        return ticks;
+    }
+
     /** @return 이번 판이 끝났으면 true. */
     boolean tick() {
         if (!started) {

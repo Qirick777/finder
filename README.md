@@ -49,6 +49,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="trace"        # Phase 2 하루 행동 타임라인(진단, /evodebug trace)
 ./gradlew evotest --args="combat"       # Phase 3 전투 3층위 판정(진입/퇴각/복귀)
 ./gradlew evotest --args="feeding"      # Phase 3 밤 배치 정산(분배/굶주림/사망)
+./gradlew evotest --args="lifecycle"    # Phase 3 생애단계 능력 + 여성 페널티
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -90,6 +91,9 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `Schedule` | 하루 시간대(기상→일→배회→밤) — 특성별 기상/취침 오프셋 (§16) |
 | `BehaviorDecision` | 행동 결정 = 우선순위 목록(시간대+특성 → 행동, §18) |
 | `Simulation` | 헤드리스 다세대 시뮬 — 안정성+분포+결정론 (§17) |
+| `Combat` | 전투 3층위 판정(진입/퇴각/복귀) + 감지 범위 (§13-B) |
+| `Feeding` | 밤 배치 정산 — 분배(남편>자식>아내)/굶주림/사망 (§4) |
+| `SurvivalRules` | 생애단계 능력(전투·채집·이동)·여성 40% 페널티 (§7 §1) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
 
@@ -122,6 +126,8 @@ Minecraft 표현층 (`com.evosim.mod`):
 - **`/evostage growth`** — 유아→소년→성년 성장 전환 관측.
 - **`/evostage combat_brave`** — 용감 개체가 몬스터에 진입(engage).
 - **`/evostage combat_coward`** — 겁쟁이 개체가 몬스터에서 도망(flee).
+- **`/evostage combat_retreat`** — 신중 저체력 개체가 퇴각(retreat).
+- **`/evostage infant`** — 유아가 전투 불가(tooyoung) + 거의 안 움직임(slow) 관측.
 
 ## 페이즈 진행 상황
 
@@ -135,9 +141,10 @@ Minecraft 표현층 (`com.evosim.mod`):
         · 외형 구분: 여성=알렉스(슬림)/남성=스티브, 유아=아기비율(머리 큼), 소년=키 작게, 성년=기본
   - [ ] c. (Phase 3와 함께) BehaviorDecision→실제 잔디채집·동물사냥 goal 연동
 - [~] **Phase 3 — 생존 루프 (식량·정산·수명·전투)**
-  - [x] 순수: 전투 3층위 판정·밤 배치 정산, `/evotest combat` `feeding`
-  - [x] 표현층 자동검증: `/evostage`(성장·전투) — 소환→행동관측→성공/실패
-  - [ ] 수명(세대 기반)·상속(1명분)·실제 생애주기 성장 밸런싱·정산 goal 연동
+  - [x] 순수: 전투 3층위·밤 정산·생애단계 능력·여성 페널티, `/evotest combat` `feeding` `lifecycle`
+  - [x] 표현층: 생애단계별 이동속도(유아 거의 정지)·전투 성년만·여성 40% 약함(힘/체력)
+  - [x] 자동검증 `/evostage`: growth·combat(진입/도망/퇴각)·infant(전투불가+느림)
+  - [ ] 수명(세대 기반)·상속(1명분)·실제 성장 밸런싱·밤 정산 goal 연동·근친 회피
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)
 - [ ] Phase 5 — 관찰 + 밸런싱
 - [ ] Phase 6 — 대규모 검증 + 실험

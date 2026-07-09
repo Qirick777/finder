@@ -5,6 +5,7 @@ import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Sex;
+import com.evosim.core.SurvivalRules;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -46,17 +47,47 @@ public class MimicEntity extends PathfinderMob {
     private int growthTicks = 0;
     private boolean fastGrowth = false; // 무대 검증용 초고속 성장
 
+    // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
+    private static final double BASE_SPEED = 0.28D;
+    private static final double BASE_ATTACK = 2.0D;
+    private static final double BASE_HEALTH = 20.0D;
+
     public MimicEntity(EntityType<? extends MimicEntity> type, Level level) {
         super(type, level);
     }
 
     public static AttributeSupplier.Builder createAttributes() {
         return PathfinderMob.createMobAttributes()
-                .add(Attributes.MAX_HEALTH, 20.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.28D)
+                .add(Attributes.MAX_HEALTH, BASE_HEALTH)
+                .add(Attributes.MOVEMENT_SPEED, BASE_SPEED)
                 .add(Attributes.FOLLOW_RANGE, 24.0D)
                 // 전투 시 doHurtTarget 이 공격력 속성을 읽으므로 반드시 등록(없으면 크래시).
-                .add(Attributes.ATTACK_DAMAGE, 2.0D);
+                .add(Attributes.ATTACK_DAMAGE, BASE_ATTACK);
+    }
+
+    /**
+     * 생애단계·성별에 따라 속성 재적용 (설계서 §7 §1). 유아 거의 정지·소년 느림·성년 기본,
+     * 여성은 힘/체력 40%↓. 단계 성장·개체 부여 때마다 호출.
+     */
+    private void refreshStageAttributes() {
+        LifeStage stage = getStage();
+        var speed = getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speed != null) {
+            speed.setBaseValue(BASE_SPEED * SurvivalRules.moveSpeedFactor(stage));
+        }
+        double fem = SurvivalRules.physicalFactor(isFemale() ? Sex.FEMALE : Sex.MALE);
+        var attack = getAttribute(Attributes.ATTACK_DAMAGE);
+        if (attack != null) {
+            attack.setBaseValue(BASE_ATTACK * fem);
+        }
+        var health = getAttribute(Attributes.MAX_HEALTH);
+        if (health != null) {
+            double newMax = BASE_HEALTH * fem;
+            health.setBaseValue(newMax);
+            if (getHealth() > newMax) {
+                setHealth((float) newMax);
+            }
+        }
     }
 
     @Override
@@ -93,6 +124,7 @@ public class MimicEntity extends PathfinderMob {
     public void setStage(LifeStage stage) {
         this.entityData.set(STAGE, stage.ordinal());
         this.refreshDimensions();
+        refreshStageAttributes();
     }
 
     @Nullable
@@ -103,6 +135,7 @@ public class MimicEntity extends PathfinderMob {
     public void setIndividual(Individual ind) {
         this.individual = ind;
         setFemale(ind.sex() == Sex.FEMALE);
+        refreshStageAttributes();
     }
 
     public void setFastGrowth(boolean fast) {

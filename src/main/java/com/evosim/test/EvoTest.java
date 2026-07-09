@@ -14,6 +14,7 @@ import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
 import com.evosim.core.Sex;
 import com.evosim.core.Simulation;
+import com.evosim.core.SurvivalRules;
 import com.evosim.core.Tag;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
@@ -77,9 +78,10 @@ public final class EvoTest {
             case "simulate" -> simulate(report);
             case "combat" -> combat(report);
             case "feeding" -> feeding(report);
+            case "lifecycle" -> lifecycle(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -93,7 +95,8 @@ public final class EvoTest {
         simulate(report);
         combat(report);
         feeding(report);
-        // Phase 3↑: lifespan, family_lifecycle, mating … 를 여기에 누적.
+        lifecycle(report);
+        // Phase 3↑: lifespan, mating … 를 여기에 누적.
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -534,6 +537,58 @@ public final class EvoTest {
         Feeding.settle(h4);
         report.add("feeding/리셋", m.ind.hungerCount() == 0,
                 "먹으면 굶주림 0 리셋", "굶주림 " + m.ind.hungerCount());
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest lifecycle — 생애단계 능력 + 여성 페널티 (설계서 Phase 3, §7 §1)
+    // ──────────────────────────────────────────────────────────────
+    private static void lifecycle(Report report) {
+        Individual m = one(Sex.MALE);
+
+        // 1) 전투 가능: 성년만
+        boolean fight = SurvivalRules.canFight(LifeStage.ADULT)
+                && !SurvivalRules.canFight(LifeStage.BOY)
+                && !SurvivalRules.canFight(LifeStage.INFANT);
+        report.add("lifecycle/전투가능", fight, "성년만 전투",
+                "성년 " + yn(SurvivalRules.canFight(LifeStage.ADULT))
+                        + " · 소년 " + yn(SurvivalRules.canFight(LifeStage.BOY))
+                        + " · 유아 " + yn(SurvivalRules.canFight(LifeStage.INFANT)));
+
+        // 2) 채집 가능: 성년, 또는 만혼 소년
+        Individual lateBoy = one(Sex.MALE, TraitInstance.of(Trait.LATE_MARRIAGE));
+        boolean gather = SurvivalRules.canGather(LifeStage.ADULT, m)
+                && SurvivalRules.canGather(LifeStage.BOY, lateBoy)
+                && !SurvivalRules.canGather(LifeStage.BOY, m)
+                && !SurvivalRules.canGather(LifeStage.INFANT, m);
+        report.add("lifecycle/채집가능", gather, "성년·만혼소년만 채집",
+                "성년 O · 만혼소년 " + yn(SurvivalRules.canGather(LifeStage.BOY, lateBoy))
+                        + " · 일반소년 " + yn(SurvivalRules.canGather(LifeStage.BOY, m)));
+
+        // 3) 이동속도: 유아 < 소년 < 성년 (유아 거의 정지)
+        boolean speed = SurvivalRules.moveSpeedFactor(LifeStage.INFANT)
+                < SurvivalRules.moveSpeedFactor(LifeStage.BOY)
+                && SurvivalRules.moveSpeedFactor(LifeStage.BOY)
+                < SurvivalRules.moveSpeedFactor(LifeStage.ADULT)
+                && SurvivalRules.moveSpeedFactor(LifeStage.INFANT) <= 0.1;
+        report.add("lifecycle/이동속도", speed, "유아<소년<성년 (유아≤0.1)",
+                String.format("%.2f/%.2f/%.2f", SurvivalRules.moveSpeedFactor(LifeStage.INFANT),
+                        SurvivalRules.moveSpeedFactor(LifeStage.BOY),
+                        SurvivalRules.moveSpeedFactor(LifeStage.ADULT)));
+
+        // 4) 유아: 자가 섭취·자가 이동 불가
+        boolean infantHelpless = !SurvivalRules.canSelfFeed(LifeStage.INFANT)
+                && !SurvivalRules.canMoveSelf(LifeStage.INFANT)
+                && SurvivalRules.canSelfFeed(LifeStage.BOY)
+                && SurvivalRules.canMoveSelf(LifeStage.ADULT);
+        report.add("lifecycle/유아무력", infantHelpless, "유아 자가섭취·이동 불가",
+                infantHelpless ? "정상" : "어긋남");
+
+        // 5) 여성 페널티: 신체 40% 약함 (0.6배)
+        boolean female = Math.abs(SurvivalRules.physicalFactor(Sex.FEMALE) - 0.6) < 1e-9
+                && Math.abs(SurvivalRules.physicalFactor(Sex.MALE) - 1.0) < 1e-9;
+        report.add("lifecycle/여성페널티", female, "여성 신체 0.6배 (40%↓)",
+                String.format("여 %.2f · 남 %.2f", SurvivalRules.physicalFactor(Sex.FEMALE),
+                        SurvivalRules.physicalFactor(Sex.MALE)));
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

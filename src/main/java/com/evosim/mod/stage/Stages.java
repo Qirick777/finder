@@ -7,6 +7,7 @@ import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.reg.ModEntities;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.server.level.ServerLevel;
@@ -32,6 +33,8 @@ public final class Stages {
         put(new GrowthStage());
         put(new CombatStage("combat_brave", "용감 → 몬스터 처치 진입", Trait.BRAVE, "combat:engage"));
         put(new CombatStage("combat_coward", "겁쟁이 → 몬스터 회피 도망", Trait.COWARD, "combat:flee"));
+        put(new CombatRetreatStage());
+        put(new InfantStage());
     }
 
     private Stages() {
@@ -109,13 +112,67 @@ public final class Stages {
             if (e != null) {
                 run.watch(e);
             }
-            Zombie z = EntityType.ZOMBIE.create(level);
-            if (z != null) {
-                z.moveTo(anchor.x + 1.5, anchor.y, anchor.z, 0.0F, 0.0F);
-                z.setPersistenceRequired();
-                level.addFreshEntity(z);
-                run.track(z);
+            spawnZombie(level, anchor, run);
+        }
+    }
+
+    // ── 시나리오: 신중 저체력 → 퇴각 (전투 3층위 ② 검증) ──
+    static final class CombatRetreatStage implements Stage {
+        @Override public String name() { return "combat_retreat"; }
+        @Override public String description() { return "신중 저체력 → 전투 퇴각"; }
+        @Override public List<String> expected() { return List.of("combat:retreat"); }
+        @Override public int tickBudget() { return 120; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            MimicEntity e = spawnMimic(level, anchor, soloIndividual(Sex.MALE, Trait.PRUDENT), LifeStage.ADULT);
+            if (e != null) {
+                e.setHealth(e.getMaxHealth() * 0.2F); // 체력 하한(30%) 이하 → 퇴각 트리거
+                run.watch(e);
             }
+            spawnZombie(level, anchor, run);
+        }
+    }
+
+    // ── 시나리오: 유아 무방비(전투 불가) + 매우 느림 (설계서 §7) ──
+    static final class InfantStage implements Stage {
+        private int infantId;
+        private Vec3 start;
+
+        @Override public String name() { return "infant"; }
+        @Override public String description() { return "유아 전투 불가 + 매우 느림"; }
+        @Override public List<String> expected() { return List.of("combat:tooyoung", "slow:confirmed"); }
+        @Override public int tickBudget() { return 100; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            MimicEntity e = spawnMimic(level, anchor, soloIndividual(Sex.MALE, Trait.DILIGENT), LifeStage.INFANT);
+            if (e != null) {
+                run.watch(e);
+                infantId = e.getId();
+                start = e.position();
+            }
+            spawnZombie(level, anchor, run);
+        }
+
+        @Override
+        public void tick(ServerLevel level, StageRun run, int tick) {
+            if (tick == 60 && start != null) {
+                Entity e = level.getEntity(infantId);
+                if (e != null && e.position().distanceTo(start) < 3.0) {
+                    run.mark("slow:confirmed"); // 60틱 동안 3블록 미만 이동 = 사실상 정지(성년은 훨씬 멀리)
+                }
+            }
+        }
+    }
+
+    private static void spawnZombie(ServerLevel level, Vec3 anchor, StageRun run) {
+        Zombie z = EntityType.ZOMBIE.create(level);
+        if (z != null) {
+            z.moveTo(anchor.x + 1.5, anchor.y, anchor.z, 0.0F, 0.0F);
+            z.setPersistenceRequired();
+            level.addFreshEntity(z);
+            run.track(z);
         }
     }
 }

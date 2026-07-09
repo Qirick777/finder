@@ -6,6 +6,7 @@ import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
+import com.evosim.mod.stage.StageObserver;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -23,6 +24,9 @@ import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.monster.Skeleton;
+import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
@@ -46,6 +50,7 @@ public class MimicEntity extends PathfinderMob {
 
     private int growthTicks = 0;
     private boolean fastGrowth = false; // 무대 검증용 초고속 성장
+    private boolean tooYoungObserved = false;
 
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
     private static final double BASE_SPEED = 0.28D;
@@ -147,6 +152,24 @@ public class MimicEntity extends PathfinderMob {
         super.tick();
         if (!level().isClientSide) {
             growthTick();
+            observeTooYoung();
+        }
+    }
+
+    /**
+     * 유아·소년이 몬스터 곁에서도 못 싸움을 무대 검증에 보고 (설계서 §7 무방비).
+     * 무대 검증 중에만 스캔 → 평상시 오버헤드 0. 전투 goal 은 성년 전용이라 AI 를 안 건드림.
+     */
+    private void observeTooYoung() {
+        if (tooYoungObserved || !StageObserver.isActive() || SurvivalRules.canFight(getStage())) {
+            return;
+        }
+        for (Monster m : level().getEntitiesOfClass(Monster.class, getBoundingBox().inflate(5.0))) {
+            if (m instanceof Zombie || m instanceof Skeleton) {
+                StageObserver.record(getId(), "combat:tooyoung");
+                tooYoungObserved = true;
+                return;
+            }
         }
     }
 

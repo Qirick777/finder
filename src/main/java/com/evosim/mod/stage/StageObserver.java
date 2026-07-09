@@ -17,6 +17,11 @@ public final class StageObserver {
         active = run;
     }
 
+    /** 무대 검증이 진행 중인가 (평상시 부가 관측을 생략해 오버헤드 0으로 만들기 위함). */
+    public static boolean isActive() {
+        return active != null;
+    }
+
     /** 엔티티가 행동을 보고 — 예: {@code record(getId(), "combat:engage")}. */
     public static void record(int entityId, String tag) {
         StageRun run = active;

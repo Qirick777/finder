@@ -35,6 +35,7 @@ public final class EvoSimCommand {
         var spawn = Commands.literal("spawn");
         for (Sex sex : Sex.values()) {
             var sexNode = Commands.literal(sex == Sex.MALE ? "male" : "female");
+            sexNode.executes(ctx -> spawn(ctx, sex, LifeStage.ADULT, 1)); // 단계 생략 → 성년
             for (LifeStage stage : LifeStage.values()) {
                 sexNode.then(Commands.literal(stageName(stage))
                         .executes(ctx -> spawn(ctx, sex, stage, 1))

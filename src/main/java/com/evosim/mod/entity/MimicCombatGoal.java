@@ -36,16 +36,26 @@ public class MimicCombatGoal extends Goal {
     @Override
     public boolean canUse() {
         Individual ind = mob.getIndividual();
-        if (ind == null) {
+        if (ind == null || !SurvivalRules.canFight(mob.getStage())) {
+            return false; // 유아·소년은 전투 goal 미사용(권한 점유로 얼어붙지 않도록)
+        }
+        Monster m = nearestMonster(Combat.detectionRange(ind));
+        if (m == null) {
             return false;
         }
-        this.target = nearestMonster(Combat.detectionRange(ind));
-        return this.target != null;
+        // 실제로 진입/도망할 때만 goal 점유 — IGNORE(중립·비인접)면 배회 유지.
+        boolean adjacent = mob.distanceToSqr(m) < 4.0;
+        if (Combat.entry(ind, adjacent, true) == Combat.Entry.IGNORE) {
+            return false;
+        }
+        this.target = m;
+        return true;
     }
 
     @Override
     public boolean canContinueToUse() {
-        return target != null && target.isAlive() && mob.getIndividual() != null;
+        return target != null && target.isAlive() && mob.getIndividual() != null
+                && SurvivalRules.canFight(mob.getStage());
     }
 
     @Override
@@ -67,12 +77,6 @@ public class MimicCombatGoal extends Goal {
         if (ind == null || target == null) {
             return;
         }
-        // 유아·소년은 전투 불가(무방비, 설계서 §7) — 몬스터를 봐도 못 싸움.
-        if (!SurvivalRules.canFight(mob.getStage())) {
-            record("combat:tooyoung");
-            return;
-        }
-
         double maxHp = mob.getMaxHealth();
         double hp = maxHp > 0 ? mob.getHealth() / maxHp : 1.0;
         boolean adjacent = mob.distanceToSqr(target) < 4.0; // ~2블록
@@ -106,9 +110,12 @@ public class MimicCombatGoal extends Goal {
             return;
         }
 
-        // ① 진입: 접근 + 공격.
+        // ① 진입: 접근 + 공격. 몬스터도 반격하도록 타겟 지정(§13-B 상호 교전).
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
         mob.getNavigation().moveTo(target, 1.15);
+        if (target.getTarget() != mob) {
+            target.setTarget(mob);
+        }
         record("combat:engage");
         if (adjacent) {
             mob.doHurtTarget(target);

@@ -7,9 +7,8 @@ import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Mating;
-import com.evosim.core.Multipliers;
+import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
-import com.evosim.core.Schedule;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
 import com.evosim.mod.log.SimEvents;
@@ -93,8 +92,6 @@ public class MimicEntity extends PathfinderMob {
     private long lastSettleDay = Long.MIN_VALUE; // 마지막 정산한 절대 일자(하루 1회 보장)
     private boolean fastSettle = false;         // 무대 검증용 초고속 정산(틱 주기)
     private static final int SETTLE_TIME = 18000;    // 하루 중 밤 정산 시각(취침 중 — 귀가 완료 후)
-    private static final int HARVEST_INTERVAL = 20;  // 수확 누적 주기(틱)
-    private static final double HARVEST_RATE = 0.01; // 수확틱당 = 배율 × 이 값 (평상 성년 ≈ 3.5/일)
     private static final int FAST_SETTLE_INTERVAL = 40; // fast 모드 정산 주기(틱)
 
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
@@ -226,30 +223,9 @@ public class MimicEntity extends PathfinderMob {
         if (!level().isClientSide) {
             growthTick();
             observeTooYoung();
-            forageTick();      // 낮: 채집/사냥 수확 누적
-            settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6)
+            settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
             infantCareTick();
         }
-    }
-
-    /**
-     * 수확 누적 (설계서 §4). 노동 구간(WORK)에 성년·만혼소년이 채집/사냥 기대치({@link Multipliers})만큼
-     * 오늘치 수확을 쌓는다 — 밤 정산 전까지는 "카운트만 쌓기". 유아·일반소년은 못 함(자급 불가).
-     */
-    private void forageTick() {
-        if (individual == null || !SurvivalRules.canGather(getStage(), individual)) {
-            return;
-        }
-        boolean working = fastSettle
-                || Schedule.phaseAt(individual, level().getDayTime()) == Schedule.Phase.WORK;
-        if (!working) {
-            return;
-        }
-        if ((level().getGameTime() + getId()) % HARVEST_INTERVAL != 0) {
-            return; // 스태거(부하 분산) + 수확 주기
-        }
-        double rate = Math.max(Multipliers.gather(individual), Multipliers.hunt(individual));
-        dayHarvest += rate * HARVEST_RATE;
     }
 
     /**
@@ -433,6 +409,15 @@ public class MimicEntity extends PathfinderMob {
         this.fastSettle = fast;
     }
 
+    public boolean isFastSettle() {
+        return fastSettle;
+    }
+
+    /** 채집/사냥으로 확보한 식량을 오늘치에 더한다 (MimicForageGoal). */
+    public void addHarvest(double food) {
+        this.dayHarvest += food;
+    }
+
     public void setDayHarvest(double harvest) {
         this.dayHarvest = harvest;
     }
@@ -498,6 +483,17 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         return false;
+    }
+
+    /** 지금 육아에 매인 어미인가 (유아 자식 + 무시 아닌 육아 클래스). 이때는 채집 대신 육아. */
+    public boolean isCaregiverBound() {
+        if (!isFemale() || getStage() != LifeStage.ADULT || homePos == null || individual == null) {
+            return false;
+        }
+        if (individual.parentingCare() == ParentingClass.NEGLECTFUL) {
+            return false; // 무시 = 자유 배회 → 채집 가능
+        }
+        return hasInfantAtHome();
     }
 
     /** 같은 거처에 유아 자식이 있나 (육아 goal 판정용). */

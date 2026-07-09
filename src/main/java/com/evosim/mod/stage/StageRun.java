@@ -30,6 +30,7 @@ public final class StageRun {
     private final Set<String> expected;
     private final Set<String> seen = new LinkedHashSet<>();
     private final List<String> log = new ArrayList<>();
+    private final List<String> details = new ArrayList<>();
 
     private int ticks = 0;
     private boolean started = false;
@@ -79,6 +80,11 @@ public final class StageRun {
         return ticks;
     }
 
+    /** 스테이지가 리포트에 넣을 수치/요약 라인(예: 감사 통계). */
+    public void detail(String line) {
+        details.add(line);
+    }
+
     /** @return 이번 판이 끝났으면 true. */
     boolean tick() {
         if (!started) {
@@ -109,6 +115,11 @@ public final class StageRun {
         source.sendSuccess(() -> Component.literal(
                         "기대 " + expected + " · 관측 " + seen + " (" + ticks + "틱)")
                 .withStyle(ChatFormatting.GRAY), false);
+
+        for (String d : details) {
+            final String line = d;
+            source.sendSuccess(() -> Component.literal("  " + line).withStyle(ChatFormatting.YELLOW), false);
+        }
 
         if (!success) {
             Set<String> missing = new LinkedHashSet<>(expected);

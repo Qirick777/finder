@@ -1,5 +1,7 @@
 package com.evosim.mod.stage;
 
+import com.evosim.core.Category;
+import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Sex;
@@ -9,6 +11,7 @@ import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.reg.ModEntities;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -35,6 +38,7 @@ public final class Stages {
         put(new CombatStage("combat_coward", "겁쟁이 → 몬스터 회피 도망", Trait.COWARD, "combat:flee"));
         put(new CombatRetreatStage());
         put(new InfantStage());
+        put(new TraitAuditStage());
     }
 
     private Stages() {
@@ -164,6 +168,84 @@ public final class Stages {
                 }
             }
         }
+    }
+
+    // ── 시나리오: 특성 부여 자동 감사 (소환 개체를 코드로 읽어 우성비율·발현수·반발 집계) ──
+    static final class TraitAuditStage implements Stage {
+        private static final int SAMPLE = 30;
+
+        @Override public String name() { return "trait_audit"; }
+        @Override public String description() { return "소환 개체 특성 부여 감사(우성비율·발현수·반발)"; }
+        @Override public List<String> expected() { return List.of("audit:ok"); }
+        @Override public int tickBudget() { return 10; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            int totalExpressed = 0;
+            int dominantExpressed = 0;
+            int conflicts = 0;
+            int maxPerCat = 0;
+            int maxTotal = 0;
+            int missingIndividual = 0;
+
+            for (int i = 0; i < SAMPLE; i++) {
+                MimicEntity e = spawnRandomAdult(level, anchor.add(i * 0.3, 0, 0));
+                if (e == null) {
+                    continue;
+                }
+                run.track(e); // 감사 후 정리
+                Individual ind = e.getIndividual();
+                if (ind == null) {
+                    missingIndividual++;
+                    continue;
+                }
+                List<TraitInstance> expressed = ExpressionResolver.expressed(ind);
+                int total = 0;
+                int[] perCat = new int[Category.values().length];
+                for (int x = 0; x < expressed.size(); x++) {
+                    TraitInstance ti = expressed.get(x);
+                    total++;
+                    totalExpressed++;
+                    perCat[ti.category().ordinal()]++;
+                    if (ti.isDominant()) {
+                        dominantExpressed++;
+                    }
+                    for (int y = x + 1; y < expressed.size(); y++) {
+                        if (ti.trait().conflictsWith(expressed.get(y).trait())) {
+                            conflicts++;
+                        }
+                    }
+                }
+                for (int c : perCat) {
+                    maxPerCat = Math.max(maxPerCat, c);
+                }
+                maxTotal = Math.max(maxTotal, total);
+            }
+
+            double domFrac = totalExpressed == 0 ? 0.0 : (double) dominantExpressed / totalExpressed;
+            // 기준: 반발위반 0 · 발현 카테고리≤3·총≤9 · 개체데이터 결손 0 · 우성비율 적당(≤35%, 시드 20%).
+            boolean pass = conflicts == 0 && maxPerCat <= 3 && maxTotal <= 9
+                    && missingIndividual == 0 && domFrac <= 0.35;
+
+            run.detail(String.format("표본 %d · 발현총 %d · 우성 %.1f%% · 반발위반 %d · 최대발현 %d/%d · 데이터결손 %d",
+                    SAMPLE, totalExpressed, domFrac * 100.0, conflicts, maxPerCat, maxTotal, missingIndividual));
+            if (pass) {
+                run.mark("audit:ok");
+            }
+        }
+    }
+
+    private static MimicEntity spawnRandomAdult(ServerLevel level, Vec3 pos) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            return null;
+        }
+        e.moveTo(pos.x, pos.y, pos.z, 0.0F, 0.0F);
+        // 실제 스폰 경로로 랜덤 개체 부여(finalizeSpawn → randomFirstGen).
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
+        return e;
     }
 
     private static void spawnZombie(ServerLevel level, Vec3 anchor, StageRun run) {

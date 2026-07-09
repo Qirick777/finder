@@ -131,6 +131,7 @@ Minecraft 표현층 (`com.evosim.mod`):
 - **`/evostage combat_coward`** — 겁쟁이 개체가 몬스터에서 도망(flee).
 - **`/evostage combat_retreat`** — 신중 저체력 개체가 퇴각(retreat).
 - **`/evostage infant`** — 유아가 전투 불가(tooyoung) + 거의 안 움직임(slow) 관측.
+- **`/evostage trait_audit`** — 소환 개체 30마리의 특성 부여 자동 감사(우성비율·발현수·반발위반) → 성공/실패 + 수치.
 
 ## 페이즈 진행 상황
 

@@ -54,7 +54,9 @@ public class MimicEntity extends PathfinderMob {
         return PathfinderMob.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.28D)
-                .add(Attributes.FOLLOW_RANGE, 24.0D);
+                .add(Attributes.FOLLOW_RANGE, 24.0D)
+                // 전투 시 doHurtTarget 이 공격력 속성을 읽으므로 반드시 등록(없으면 크래시).
+                .add(Attributes.ATTACK_DAMAGE, 2.0D);
     }
 
     @Override

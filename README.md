@@ -17,6 +17,9 @@
 
 Gradle wrapper(`gradlew`, 8.1.1)가 포함되어 있으니 로컬에 gradle 설치 없이 바로 쓸 수 있다.
 
+> ⚠️ **JDK 17 로 실행할 것.** Forge 1.20.1 은 Gradle 8.1.1(래퍼에 고정)을 쓰는데, 이건
+> Java 21 에서 안 돈다(`Unsupported class file major version 65`). `java -version` 이 17 인지 확인.
+>
 > ⚠️ 첫 `./gradlew` 실행 시 ForgeGradle 이 Minecraft/Forge/매핑을 인터넷에서 받는다
 > (maven.minecraftforge.net, libraries.minecraft.net). 방화벽으로 막힌 환경에선 셋업이 안 된다.
 

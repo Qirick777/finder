@@ -1,6 +1,5 @@
 package com.evosim.mod.client;
 
-import com.evosim.core.LifeStage;
 import com.evosim.mod.entity.MimicEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.model.PlayerModel;
@@ -39,10 +38,25 @@ public class MimicRenderer extends MobRenderer<MimicEntity, PlayerModel<MimicEnt
     @Override
     public void render(MimicEntity entity, float yaw, float partialTick, PoseStack pose,
                        MultiBufferSource buffer, int light) {
-        // 성별별 모델 교체(슬림/기본) + 유아 비율.
+        // 성별별 모델 교체(슬림/기본).
         this.model = entity.isFemale() ? slim : wide;
-        this.model.young = entity.getStage() == LifeStage.INFANT;
+
+        // young(아기 변형)은 비활성 — 대신 머리 파츠만 살짝 확대해 동안 표현(설계서 요청).
+        // 모델 인스턴스는 개체 간 공유되므로 매 프레임 현재 단계 값으로 설정(성년은 1.0로 원복).
+        this.model.young = false;
+        float hs = entity.getStage().headScale();
+        applyHeadScale(this.model, hs);
+
         super.render(entity, yaw, partialTick, pose, buffer, light);
+    }
+
+    private static void applyHeadScale(PlayerModel<MimicEntity> model, float hs) {
+        model.head.xScale = hs;
+        model.head.yScale = hs;
+        model.head.zScale = hs;
+        model.hat.xScale = hs;
+        model.hat.yScale = hs;
+        model.hat.zScale = hs;
     }
 
     @Override

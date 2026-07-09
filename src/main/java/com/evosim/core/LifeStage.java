@@ -3,21 +3,29 @@ package com.evosim.core;
 /**
  * 생애단계 (설계서 §7). 유아기 → 소년기 → 성년기.
  *
- * <p>{@code modelScale}은 마크 렌더 배율(외형 구분용) — 유아는 작게+머리 큰 아기 비율(렌더에서 young),
- * 소년은 키 작게, 성년은 기본. 실제 성장 전환(마크 기본 성장 재활용)은 Phase 3.
+ * <p>{@code modelScale}은 전체 렌더 배율(키·몸집), {@code headScale}은 머리 파츠 추가 배율(동안 느낌).
+ * 유아·소년은 머리를 살짝 크게 해 "어림"을 표현. 실제 성장 전환(마크 기본 성장 재활용)은 Phase 3.
+ * (값은 외형 튜닝용 1차값 — 조정 자유.)
  */
 public enum LifeStage {
-    INFANT(0.5f),  // 유아: 자가 섭취 불가, 몬스터 노출
-    BOY(0.72f),    // 소년: 섭취 O·채취 X, 미아사 위험
-    ADULT(1.0f);   // 성년: 채집·사냥·번식·전투
+    INFANT(0.5f, 1.30f),  // 유아: 작게 + 머리 살짝 큼. 자가 섭취 불가, 몬스터 노출
+    BOY(0.72f, 1.15f),    // 소년: 키 작게 + 머리 살짝 큼. 섭취 O·채취 X, 미아사 위험
+    ADULT(1.0f, 1.0f);    // 성년: 기본. 채집·사냥·번식·전투
 
     private final float modelScale;
+    private final float headScale;
 
-    LifeStage(float modelScale) {
+    LifeStage(float modelScale, float headScale) {
         this.modelScale = modelScale;
+        this.headScale = headScale;
     }
 
     public float modelScale() {
         return modelScale;
+    }
+
+    /** 머리 파츠 추가 배율 (동안 표현). */
+    public float headScale() {
+        return headScale;
     }
 }

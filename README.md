@@ -54,6 +54,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="mating"       # Phase 4 조우·기준선·매력·근친회피
 ./gradlew evotest --args="settlement"   # Phase 4 거처 배치(거리·비겹침)
 ./gradlew evotest --args="reproduction" # Phase 4 번식 임계치·출산 상한
+./gradlew evotest --args="parenting"    # 육아 적극성 5단계 클래스·유전
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -103,6 +104,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `Settlement` | 거처 배치 — 이주/애향 거리·비겹침 링 탐색 (§13-D) |
 | `Kinship` | 근친 회피(형제·부모자식, 사촌 허용) (§13-E) |
 | `Reproduction` | 번식 임계치(선호/불호)·출산 상한(다산/난임)·쿨다운 (§6) |
+| `ParentingClass` | 육아 적극성 5단계(적극/소극/평범/무심/무시) — 돌봄 반경 (§7·§8) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
 
@@ -144,6 +146,8 @@ Minecraft 표현층 (`com.evosim.mod`):
 - **`/evostage mating`** — 매력 맞는 방랑자 남녀가 실제로 짝 성립(mating:pair)하나.
 - **`/evostage settlement`** — 여러 쌍 정착 시 거처가 겹치지 않나(settlement:ok).
 - **`/evostage reproduction`** — 정착 부부가 자식을 낳나(birth).
+- **`/evostage parenting_care`** — 적극 육아자가 유아를 먹여 살리나(infant:fed).
+- **`/evostage parenting_neglect`** — 방치된 유아가 아사하나(infant:starved).
 
 ## 페이즈 진행 상황
 
@@ -169,6 +173,7 @@ Minecraft 표현층 (`com.evosim.mod`):
   - [x] 검사봉 스크롤 4모드(특성/짝/거처/가족인벤토리) + 스크롤 네트워크
   - [x] 자동검증 `/evostage mating` `settlement` `reproduction` + 관찰 `/evosim village`
   - [x] 짝 성립 하트 이펙트 + in-world 번식(정착 부부가 자식 출산, 세대 이어짐)
+  - [x] 육아 적극성 5단계 클래스 + 유아 돌봄/아사(육아 투자↔유아 생존 선택압), `/evotest parenting`
   - [ ] 일부다처(상향혼)·경쟁/평화·밤 정산 연동(번식 잉여식량 게이트)·수명 in-world 적용
 - [ ] Phase 5 — 관찰 + 밸런싱
 - [ ] Phase 6 — 대규모 검증 + 실험

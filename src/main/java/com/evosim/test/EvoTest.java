@@ -14,6 +14,7 @@ import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
 import com.evosim.core.Multipliers;
+import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
 import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
@@ -88,9 +89,10 @@ public final class EvoTest {
             case "mating" -> mating(report);
             case "settlement" -> settlement(report);
             case "reproduction" -> reproduction(report);
+            case "parenting" -> parenting(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -109,6 +111,7 @@ public final class EvoTest {
         mating(report);
         settlement(report);
         reproduction(report);
+        parenting(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -822,6 +825,57 @@ public final class EvoTest {
         // 3) 잉여 ≥ 임계 → 번식
         boolean can = Reproduction.canReproduce(3.0, 2.5) && !Reproduction.canReproduce(2.0, 2.5);
         report.add("reproduction/잉여판정", can, "잉여≥임계 → 번식", can ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest parenting — 육아 적극성 5단계 클래스 (설계서 육아 클래스)
+    // ──────────────────────────────────────────────────────────────
+    private static void parenting(Report report) {
+        // 1) 돌봄 반경 단계: 적극 < 소극 < 평범 < 무심 < 무시
+        boolean order = ParentingClass.DEVOTED.careRadius() < ParentingClass.CARING.careRadius()
+                && ParentingClass.CARING.careRadius() < ParentingClass.MODERATE.careRadius()
+                && ParentingClass.MODERATE.careRadius() < ParentingClass.DETACHED.careRadius()
+                && ParentingClass.DETACHED.careRadius() < ParentingClass.NEGLECTFUL.careRadius()
+                && ParentingClass.DEVOTED.careRadius() == 0.0;
+        report.add("parenting/반경단계", order, "적극0<소극<평범<무심<무시",
+                String.format("0/%.0f/%.0f/%.0f/∞", ParentingClass.CARING.careRadius(),
+                        ParentingClass.MODERATE.careRadius(), ParentingClass.DETACHED.careRadius()));
+
+        // 2) 저녁 배회: 무시만
+        boolean evening = ParentingClass.NEGLECTFUL.eveningWander()
+                && !ParentingClass.DEVOTED.eveningWander()
+                && !ParentingClass.DETACHED.eveningWander();
+        report.add("parenting/저녁배회", evening, "무시만 저녁 배회·산책",
+                evening ? "정상" : "어긋남");
+
+        // 3) 5단계 정확히 (적극/소극/평범/무심/무시)
+        report.add("parenting/5단계", ParentingClass.values().length == 5,
+                "클래스 5개", ParentingClass.values().length + "개");
+
+        // 4) 1세대 배정 + 유전: 부모(적극·무시) → 자식 대부분 둘 중 하나(돌연변이 10%)
+        DeterministicRng rng = new DeterministicRng(7777L);
+        Individual dad = Genetics.randomFirstGen(1, rng);
+        Individual mom = Genetics.randomFirstGen(2, rng);
+        dad.setParentingCare(ParentingClass.DEVOTED);
+        mom.setParentingCare(ParentingClass.NEGLECTFUL);
+        int fromParent = 0;
+        int devoted = 0;
+        int neglect = 0;
+        int n = 3000;
+        for (int i = 0; i < n; i++) {
+            ParentingClass c = Genetics.breed(100 + i, dad, mom, rng, 2, null).parentingCare();
+            if (c == ParentingClass.DEVOTED) {
+                devoted++;
+                fromParent++;
+            } else if (c == ParentingClass.NEGLECTFUL) {
+                neglect++;
+                fromParent++;
+            }
+        }
+        double inheritRate = (double) fromParent / n;
+        boolean inherit = inheritRate > 0.80 && devoted > 0 && neglect > 0;
+        report.add("parenting/유전", inherit, "부모 클래스 물려받음(>80%, 돌연변이 10%)",
+                "부모유래 " + pct(inheritRate) + " (적극 " + devoted + "·무시 " + neglect + ")");
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

@@ -68,6 +68,12 @@ public class MimicEntity extends PathfinderMob {
     private static final int REPRO_COOLDOWN = 1200; // 데모용(1분). 잉여식량 게이트는 밤 정산 연동 후.
     private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시, 식량 게이트 전)
 
+    // 유아 돌봄/아사 (육아 클래스): 주기마다 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
+    private int careHunger = 0;
+    private static final int CARE_INTERVAL = 20;  // 소모 주기(틱)
+    private static final int CARE_DEATH = 6;      // 연속 방치 임계 → 아사 (≈120틱)
+    private static final double FEED_RADIUS = 5.0; // 이 반경 내 성인이 있으면 먹여줌
+
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
     private static final double BASE_SPEED = 0.28D;
     private static final double BASE_ATTACK = 2.0D;
@@ -114,6 +120,7 @@ public class MimicEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this)); // 전투 진입/도망(§13-B)
         this.goalSelector.addGoal(3, new MimicMatingGoal(this)); // 방랑자 짝짓기(§10)
         this.goalSelector.addGoal(5, new MimicHomeGoal(this));   // 거처 귀환(§3)
@@ -195,7 +202,54 @@ public class MimicEntity extends PathfinderMob {
             growthTick();
             observeTooYoung();
             reproductionTick();
+            infantCareTick();
         }
+    }
+
+    /**
+     * 유아 돌봄/아사 (육아 클래스, §7). 유아는 소모 주기마다 곁(FEED_RADIUS)에 성인이 있어야 먹는다.
+     * 없으면 굶주림↑ → 임계 초과 시 아사. 부모(육아 클래스)가 곁에 머물수록 유아 생존↑.
+     */
+    private void infantCareTick() {
+        if (getStage() != LifeStage.INFANT) {
+            return;
+        }
+        long now = level().getGameTime();
+        if ((now + getId()) % CARE_INTERVAL != 0) {
+            return;
+        }
+        if (adultNear()) {
+            careHunger = 0;
+            StageObserver.record(this.getId(), "infant:fed");
+        } else {
+            careHunger++;
+            if (careHunger >= CARE_DEATH) {
+                StageObserver.record(this.getId(), "infant:starved");
+                this.discard();
+            }
+        }
+    }
+
+    private boolean adultNear() {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(FEED_RADIUS))) {
+            if (m != this && m.getStage() == LifeStage.ADULT && m.getIndividual() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 같은 거처에 유아 자식이 있나 (육아 goal 판정용). */
+    public boolean hasInfantAtHome() {
+        if (homePos == null) {
+            return false;
+        }
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(20.0))) {
+            if (m.getStage() == LifeStage.INFANT && homePos.equals(m.getHomePos())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -323,6 +377,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("MatingBaseline", matingBaseline);
         tag.putLong("LastBirth", lastBirthTick);
         tag.putInt("ChildrenBorn", childrenBorn);
+        tag.putInt("CareHunger", careHunger);
         if (homePos != null) {
             tag.putInt("HomeX", homePos.getX());
             tag.putInt("HomeY", homePos.getY());
@@ -348,6 +403,7 @@ public class MimicEntity extends PathfinderMob {
             lastBirthTick = tag.getLong("LastBirth");
         }
         childrenBorn = tag.getInt("ChildrenBorn");
+        careHunger = tag.getInt("CareHunger");
         if (tag.contains("HomeX")) {
             homePos = new BlockPos(tag.getInt("HomeX"), tag.getInt("HomeY"), tag.getInt("HomeZ"));
         }

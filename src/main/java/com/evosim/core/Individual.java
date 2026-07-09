@@ -25,6 +25,9 @@ public final class Individual {
     private int hungerCount = 0;
     private int[] homePos = null; // {x,y,z} 포인터 또는 null
 
+    // 육아 적극성 — 개체마다 정확히 하나(설계서 육아 클래스). breed로 유전.
+    private ParentingClass parentingCare = ParentingClass.MODERATE;
+
     public Individual(long id, Sex sex, long parentAId, long parentBId, int generation) {
         this.id = id;
         this.sex = sex;
@@ -88,5 +91,13 @@ public final class Individual {
 
     public void setHomePos(int[] homePos) {
         this.homePos = homePos;
+    }
+
+    public ParentingClass parentingCare() {
+        return parentingCare;
+    }
+
+    public void setParentingCare(ParentingClass parentingCare) {
+        this.parentingCare = parentingCare;
     }
 }

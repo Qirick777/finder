@@ -4,6 +4,7 @@ import com.evosim.core.Category;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
+import com.evosim.core.ParentingClass;
 import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
@@ -43,6 +44,8 @@ public final class Stages {
         put(new MatingStage());
         put(new SettlementStage());
         put(new ReproductionStage());
+        put(new ParentingCareStage());
+        put(new ParentingNeglectStage());
     }
 
     /** 서로 매력 3점(선호↔특성 일치)인 짝짓기 준비 개체 — 신중(여) 기준선도 통과. */
@@ -365,6 +368,49 @@ public final class Stages {
             if (female != null) {
                 female.setHomePos(home);
                 run.watch(female);
+            }
+        }
+    }
+
+    // ── 시나리오: 적극 육아 → 유아 생존(먹여짐) ──
+    static final class ParentingCareStage implements Stage {
+        @Override public String name() { return "parenting_care"; }
+        @Override public String description() { return "적극 육아(곁에 머묾) → 유아 먹여짐"; }
+        @Override public List<String> expected() { return List.of("infant:fed"); }
+        @Override public int tickBudget() { return 100; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            BlockPos home = BlockPos.containing(anchor);
+            Individual momInd = matingReady(Sex.FEMALE);
+            momInd.setParentingCare(ParentingClass.DEVOTED); // 적극 → 거처에서 안 나옴
+            MimicEntity mom = spawnMimic(level, anchor, momInd, LifeStage.ADULT);
+            MimicEntity baby = spawnMimic(level, anchor.add(1.0, 0, 0), matingReady(Sex.MALE), LifeStage.INFANT);
+            if (mom != null) {
+                mom.setHomePos(home);
+                run.track(mom);
+            }
+            if (baby != null) {
+                baby.setHomePos(home);
+                run.watch(baby);
+            }
+        }
+    }
+
+    // ── 시나리오: 방치된 유아 → 아사 ──
+    static final class ParentingNeglectStage implements Stage {
+        @Override public String name() { return "parenting_neglect"; }
+        @Override public String description() { return "곁에 성인 없는 유아 → 아사"; }
+        @Override public List<String> expected() { return List.of("infant:starved"); }
+        @Override public int tickBudget() { return 200; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            BlockPos home = BlockPos.containing(anchor);
+            MimicEntity baby = spawnMimic(level, anchor, matingReady(Sex.MALE), LifeStage.INFANT);
+            if (baby != null) {
+                baby.setHomePos(home); // 거처는 있으나 돌볼 성인이 없음
+                run.watch(baby);
             }
         }
     }

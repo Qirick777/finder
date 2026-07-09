@@ -18,6 +18,8 @@ public final class Genetics {
     public static final double DOMINANT_INHERIT_RATE = 0.75;
     /** 돌연변이 확률 (설계서 §2, 확정값). */
     public static final double MUTATION_RATE = 0.02;
+    /** 육아 클래스 돌연변이 확률. */
+    public static final double PARENTING_MUTATION_RATE = 0.10;
     /** 카테고리당 최대 <b>발현</b> 특성 수 = 일반 특성 1차 선택 상한 (설계서 §2). */
     public static final int MAX_PER_CATEGORY = 3;
     /** 카테고리당 반발 카드 상한 (9 일반 + 6 반발 = 15, 설계서 §2). */
@@ -94,6 +96,7 @@ public final class Genetics {
                 ind.addTrait(TraitInstance.antiCard(target, antiTags));
             }
         }
+        ind.setParentingCare(ParentingClass.byOrdinal(rng.nextInt(ParentingClass.values().length)));
         return ind;
     }
 
@@ -118,6 +121,12 @@ public final class Genetics {
                 child.addTrait(ti);
             }
         }
+        // 육아 클래스 유전: 한쪽 부모에서 물려받되 10% 돌연변이.
+        ParentingClass pc = rng.nextBoolean() ? a.parentingCare() : b.parentingCare();
+        if (rng.chance(PARENTING_MUTATION_RATE)) {
+            pc = ParentingClass.byOrdinal(rng.nextInt(ParentingClass.values().length));
+        }
+        child.setParentingCare(pc);
         return child;
     }
 

@@ -99,6 +99,9 @@ public final class Genetics {
         int pcN = ParentingClass.values().length;
         ind.setParentingCareMale(ParentingClass.byOrdinal(rng.nextInt(pcN)));
         ind.setParentingCareFemale(ParentingClass.byOrdinal(rng.nextInt(pcN)));
+        int mcN = MateChoiceClass.values().length;
+        ind.setMateChoiceMale(MateChoiceClass.byOrdinal(rng.nextInt(mcN)));
+        ind.setMateChoiceFemale(MateChoiceClass.byOrdinal(rng.nextInt(mcN)));
         return ind;
     }
 
@@ -135,6 +138,18 @@ public final class Genetics {
         }
         child.setParentingCareMale(cm);
         child.setParentingCareFemale(cf);
+        // 짝 선정 까다로움 유전 — 육아와 동일(슬롯 독립 유전 + 각 슬롯 변이).
+        int mcN = MateChoiceClass.values().length;
+        MateChoiceClass mm = rng.nextBoolean() ? a.mateChoiceMale() : b.mateChoiceMale();
+        if (rng.chance(PARENTING_MUTATION_RATE)) {
+            mm = MateChoiceClass.byOrdinal(rng.nextInt(mcN));
+        }
+        MateChoiceClass mf = rng.nextBoolean() ? a.mateChoiceFemale() : b.mateChoiceFemale();
+        if (rng.chance(PARENTING_MUTATION_RATE)) {
+            mf = MateChoiceClass.byOrdinal(rng.nextInt(mcN));
+        }
+        child.setMateChoiceMale(mm);
+        child.setMateChoiceFemale(mf);
         return child;
     }
 

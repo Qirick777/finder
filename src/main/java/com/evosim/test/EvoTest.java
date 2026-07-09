@@ -4,6 +4,7 @@ import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
 import com.evosim.core.Combat;
+import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.ExpressionResolver;
@@ -14,6 +15,7 @@ import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
+import com.evosim.core.MateChoiceClass;
 import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
@@ -92,9 +94,11 @@ public final class EvoTest {
             case "reproduction" -> reproduction(report);
             case "parenting" -> parenting(report);
             case "cycle" -> cycle(report);
+            case "courtship" -> courtship(report);
+            case "matechoice" -> matechoice(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -115,6 +119,8 @@ public final class EvoTest {
         reproduction(report);
         parenting(report);
         cycle(report);
+        courtship(report);
+        matechoice(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -402,22 +408,30 @@ public final class EvoTest {
         checkNum(report, "multiplier/흔적무효", 1.0, Multipliers.gather(vest),
                 "흔적(발동X)은 배율 미반영");
 
-        // 6) 매력: 평가자 강함선호+똑똑함선호, 상대 힘센+명석 → 2점
+        // 6) 매력: 특정선호(강함·똑똑함)는 각 +2 → 힘센+명석 상대 = 4점
         Individual evalr = one(Sex.FEMALE,
                 TraitInstance.of(Trait.PREF_STRENGTH), TraitInstance.of(Trait.PREF_SMART));
         Individual tgt = one(Sex.MALE,
                 TraitInstance.of(Trait.STRONG), TraitInstance.of(Trait.BRIGHT));
         int charm = Multipliers.charmScore(evalr, tgt);
-        report.add("multiplier/매력", charm == 2,
-                "강함·똑똑함 선호 → 힘센·명석 상대 = 2", charm + "점");
+        report.add("multiplier/매력", charm == 4,
+                "특정선호 강함·똑똑함(각 +2) → 힘센·명석 상대 = 4", charm + "점");
 
-        // 7) 매력 발현 연동: 상대의 명석이 흔적이면 똑똑함선호 가점 안 됨 → 1점
+        // 7) 매력 발현 연동: 상대의 명석이 흔적이면 똑똑함선호 가점 안 됨 → 강함선호만 = 2점
         Individual tgt2 = one(Sex.MALE,
                 TraitInstance.of(Trait.STRONG),
                 TraitInstance.of(Trait.BRIGHT, Tag.FEMALE_EXPRESSED)); // 남성에겐 흔적
         int charm2 = Multipliers.charmScore(evalr, tgt2);
-        report.add("multiplier/매력흔적", charm2 == 1,
-                "상대 명석이 흔적 → 강함선호만 = 1", charm2 + "점");
+        report.add("multiplier/매력흔적", charm2 == 2,
+                "상대 명석이 흔적 → 강함선호만 = 2", charm2 + "점");
+
+        // 8) 포괄선호(능력선호)는 개념군 특성 개수마다 +1 → 채집자+사냥꾼+명석 상대 = 3점
+        Individual abilityEval = one(Sex.FEMALE, TraitInstance.of(Trait.PREF_ABILITY));
+        Individual multiTgt = one(Sex.MALE, TraitInstance.of(Trait.GATHERER),
+                TraitInstance.of(Trait.HUNTER), TraitInstance.of(Trait.BRIGHT));
+        int charm3 = Multipliers.charmScore(abilityEval, multiTgt);
+        report.add("multiplier/매력포괄", charm3 == 3,
+                "능력선호 → 개념군 특성 개수마다 +1 (채집·사냥·명석 = 3)", charm3 + "점");
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -1032,6 +1046,127 @@ public final class EvoTest {
         report.add("cycle/홀몸자급", loneOk,
                 "독신 성년 자급자족·번식 없음",
                 "본인 " + fedStr(r6.feeding, lone.father) + " · 번식 " + yn(r6.reproductionUnlocked));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest courtship — 수락 판정 베이지안 공식 (구애 사양서 v2 §3, §6)
+    //   q̂=(better+k·q0)/(n+k), P=1-q̂. 분모 항상 (n+k), q0=0.5.
+    // ──────────────────────────────────────────────────────────────
+    private static void courtship(Report report) {
+        // §6 k=2(보통)
+        boolean k2 = close(Courtship.acceptProbability(1, 3, 2), 0.60)          // 2/5
+                && close(Courtship.acceptProbability(1, 20, 2), 1.0 - 2.0 / 22.0) // ≈0.909
+                && close(Courtship.acceptProbability(0, 0, 2), 0.50);            // 1/2
+        report.add("courtship/k2", k2,
+                "n3b1→60% · n20b1→91% · n0→50%",
+                pct(Courtship.acceptProbability(1, 3, 2)) + " · "
+                        + pct(Courtship.acceptProbability(1, 20, 2)) + " · "
+                        + pct(Courtship.acceptProbability(0, 0, 2)));
+
+        // §6 k=0(완전개방): 1등이면 100%, 후보0이면 50%
+        boolean k0 = close(Courtship.acceptProbability(0, 3, 0), 1.00)
+                && close(Courtship.acceptProbability(0, 0, 0), 0.50); // n+k==0 → q0
+        report.add("courtship/k0", k0,
+                "1등→100% · 후보0→50%",
+                pct(Courtship.acceptProbability(0, 3, 0)) + " · "
+                        + pct(Courtship.acceptProbability(0, 0, 0)));
+
+        // §6 k=1(널널, 오타 정정): n1 b1 → q̂=1.5/2=0.75 → P=25%
+        boolean k1 = close(Courtship.acceptProbability(1, 1, 1), 0.25);
+        report.add("courtship/k1", k1, "n1b1 → 25% (사양 오타 정정)",
+                pct(Courtship.acceptProbability(1, 1, 1)));
+
+        // §6 k=8(엄격): n20 1등이어도 100% 미달(≈86%) — 의도된 동작
+        boolean k8 = close(Courtship.acceptProbability(0, 20, 8), 1.0 - 4.0 / 28.0);
+        report.add("courtship/k8", k8, "엄격 n20 1등 → 표본 커도 ≈86% (100% 미달)",
+                pct(Courtship.acceptProbability(0, 20, 8)));
+
+        // 경계: 동점(==)은 better에 미포함(엄격히 >) → C에게 유리
+        int better = Courtship.betterCount(new int[] {3, 2, 2}, 2);
+        report.add("courtship/동점제외", better == 1,
+                "후보 [3,2,2]에서 매력 2인 구애자보다 나은 후보 = 1(동점 2는 제외)",
+                "better=" + better);
+
+        // 경계: q̂>1 이면 P는 0으로 클램프
+        boolean clamp = close(Courtship.acceptProbability(10, 10, 0), 0.0);
+        report.add("courtship/클램프", clamp, "q̂>1 → P=0",
+                pct(Courtship.acceptProbability(10, 10, 0)));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest matechoice — 짝 선정 까다로움 클래스 (5단계·성별발동·슬롯 독립 유전)
+    // ──────────────────────────────────────────────────────────────
+    private static void matechoice(Report report) {
+        // 1) 테이블: 5단계 k=0/1/2/4/8 · 중립=보통
+        boolean table = MateChoiceClass.values().length == 5
+                && MateChoiceClass.OPEN.k() == 0 && MateChoiceClass.LOOSE.k() == 1
+                && MateChoiceClass.MODERATE.k() == 2 && MateChoiceClass.PRUDENT.k() == 4
+                && MateChoiceClass.STRICT.k() == 8
+                && MateChoiceClass.NEUTRAL == MateChoiceClass.MODERATE;
+        report.add("matechoice/테이블", table, "5단계 k=0/1/2/4/8·중립=보통",
+                table ? "정상" : "어긋남");
+
+        // 2) 성별 발동: 남=남슬롯, 여=여슬롯
+        Individual male = new Individual(1, Sex.MALE, 0, 0, 1);
+        male.setMateChoiceMale(MateChoiceClass.STRICT);
+        male.setMateChoiceFemale(MateChoiceClass.OPEN);
+        Individual female = new Individual(2, Sex.FEMALE, 0, 0, 1);
+        female.setMateChoiceMale(MateChoiceClass.STRICT);
+        female.setMateChoiceFemale(MateChoiceClass.OPEN);
+        boolean sexExpr = male.mateChoice() == MateChoiceClass.STRICT
+                && female.mateChoice() == MateChoiceClass.OPEN;
+        report.add("matechoice/성별발동", sexExpr,
+                "세트 중 성별 쪽 발동(남=엄격·여=완전개방)",
+                "남 " + male.mateChoice().label() + " · 여 " + female.mateChoice().label());
+
+        // 3) 슬롯 독립 유전: A(남엄격·여개방) × B(남개방·여엄격) 3000회 → 슬롯별 부모 유래 >80%,
+        //    남·여 조합 4종 모두 발생(독립 유전 증거)
+        Individual a = new Individual(10, Sex.MALE, 0, 0, 1);
+        a.setMateChoiceMale(MateChoiceClass.STRICT);
+        a.setMateChoiceFemale(MateChoiceClass.OPEN);
+        Individual b = new Individual(11, Sex.FEMALE, 0, 0, 1);
+        b.setMateChoiceMale(MateChoiceClass.OPEN);
+        b.setMateChoiceFemale(MateChoiceClass.STRICT);
+        DeterministicRng rng = new DeterministicRng(20240613L);
+        int n = 3000;
+        int maleFromParent = 0;
+        int femaleFromParent = 0;
+        int bothA = 0;
+        int bothB = 0;
+        int mixSS = 0; // 남엄격·여엄격
+        int mixOO = 0; // 남개방·여개방
+        for (int i = 0; i < n; i++) {
+            Individual c = Genetics.breed(100 + i, a, b, rng, 2, null);
+            MateChoiceClass cm = c.mateChoiceMale();
+            MateChoiceClass cf = c.mateChoiceFemale();
+            if (cm == MateChoiceClass.STRICT || cm == MateChoiceClass.OPEN) {
+                maleFromParent++;
+            }
+            if (cf == MateChoiceClass.OPEN || cf == MateChoiceClass.STRICT) {
+                femaleFromParent++;
+            }
+            if (cm == MateChoiceClass.STRICT && cf == MateChoiceClass.OPEN) {
+                bothA++;
+            } else if (cm == MateChoiceClass.OPEN && cf == MateChoiceClass.STRICT) {
+                bothB++;
+            } else if (cm == MateChoiceClass.STRICT && cf == MateChoiceClass.STRICT) {
+                mixSS++;
+            } else if (cm == MateChoiceClass.OPEN && cf == MateChoiceClass.OPEN) {
+                mixOO++;
+            }
+        }
+        double mRate = (double) maleFromParent / n;
+        double fRate = (double) femaleFromParent / n;
+        boolean inherit = mRate > 0.80 && fRate > 0.80
+                && bothA > 0 && bothB > 0 && mixSS > 0 && mixOO > 0;
+        report.add("matechoice/슬롯유전", inherit,
+                "슬롯 독립 유전(>80%)·조합 4종 모두 발생",
+                "남유래 " + pct(mRate) + " · 여유래 " + pct(fRate)
+                        + " · 전부A " + bothA + " 전부B " + bothB + " 섞SS " + mixSS + " 섞OO " + mixOO);
+    }
+
+    private static boolean close(double a, double b) {
+        return Math.abs(a - b) < 1e-9;
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

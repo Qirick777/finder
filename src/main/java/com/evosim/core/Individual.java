@@ -29,6 +29,10 @@ public final class Individual {
     private ParentingClass parentingCareMale = ParentingClass.MODERATE;
     private ParentingClass parentingCareFemale = ParentingClass.MODERATE;
 
+    // 짝 선정 까다로움 — 남/여 슬롯 세트(육아와 동일 유전 방식). 성별로 발동. 중립=보통.
+    private MateChoiceClass mateChoiceMale = MateChoiceClass.NEUTRAL;
+    private MateChoiceClass mateChoiceFemale = MateChoiceClass.NEUTRAL;
+
     public Individual(long id, Sex sex, long parentAId, long parentBId, int generation) {
         this.id = id;
         this.sex = sex;
@@ -113,5 +117,26 @@ public final class Individual {
     /** 이 개체 성별에서 실제 발동하는 육아 클래스 (남녀발현 세트 중 성별에 맞는 쪽). */
     public ParentingClass parentingCare() {
         return sex == Sex.MALE ? parentingCareMale : parentingCareFemale;
+    }
+
+    public MateChoiceClass mateChoiceMale() {
+        return mateChoiceMale;
+    }
+
+    public MateChoiceClass mateChoiceFemale() {
+        return mateChoiceFemale;
+    }
+
+    public void setMateChoiceMale(MateChoiceClass c) {
+        this.mateChoiceMale = c;
+    }
+
+    public void setMateChoiceFemale(MateChoiceClass c) {
+        this.mateChoiceFemale = c;
+    }
+
+    /** 이 개체 성별에서 실제 발동하는 짝 선정 까다로움 (성별에 맞는 슬롯). */
+    public MateChoiceClass mateChoice() {
+        return sex == Sex.MALE ? mateChoiceMale : mateChoiceFemale;
     }
 }

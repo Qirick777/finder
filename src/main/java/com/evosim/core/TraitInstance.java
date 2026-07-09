@@ -12,18 +12,39 @@ import java.util.Set;
 public final class TraitInstance {
     private final Trait trait;
     private final Set<Tag> tags;
+    // 반발 카드(설계서 §2): true면 이 인스턴스는 대상 특성 `trait`를 무력화하는 억제유전자 카드다.
+    // 카드 자신은 효과를 내지 않고, 같은 개체에서 발현 중인 `trait`를 흔적으로 끈다(일반 특성만 대상).
+    private final boolean anti;
 
     public TraitInstance(Trait trait, Set<Tag> tags) {
+        this(trait, tags, false);
+    }
+
+    public TraitInstance(Trait trait, Set<Tag> tags, boolean anti) {
         this.trait = trait;
         this.tags = tags.isEmpty() ? EnumSet.noneOf(Tag.class) : EnumSet.copyOf(tags);
+        this.anti = anti;
     }
 
     public static TraitInstance of(Trait trait, Tag... tags) {
+        return new TraitInstance(trait, toSet(tags), false);
+    }
+
+    /** 반발 카드 인스턴스 — {@code target}을 무력화한다. */
+    public static TraitInstance antiCard(Trait target, Tag... tags) {
+        return new TraitInstance(target, toSet(tags), true);
+    }
+
+    public static TraitInstance antiCard(Trait target, Set<Tag> tags) {
+        return new TraitInstance(target, tags, true);
+    }
+
+    private static EnumSet<Tag> toSet(Tag... tags) {
         EnumSet<Tag> set = EnumSet.noneOf(Tag.class);
         for (Tag t : tags) {
             set.add(t);
         }
-        return new TraitInstance(trait, set);
+        return set;
     }
 
     public Trait trait() {
@@ -32,6 +53,11 @@ public final class TraitInstance {
 
     public Category category() {
         return trait.category();
+    }
+
+    /** 반발(억제유전자) 카드인가. */
+    public boolean isAnti() {
+        return anti;
     }
 
     public Set<Tag> tags() {
@@ -82,6 +108,9 @@ public final class TraitInstance {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(trait.koreanName());
+        if (anti) {
+            sb.append("(반발)");
+        }
         if (!tags.isEmpty()) {
             sb.append('[');
             boolean first = true;

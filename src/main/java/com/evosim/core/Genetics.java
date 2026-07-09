@@ -18,12 +18,15 @@ public final class Genetics {
     public static final double DOMINANT_INHERIT_RATE = 0.75;
     /** 돌연변이 확률 (설계서 §2, 확정값). */
     public static final double MUTATION_RATE = 0.02;
-    /** 카테고리당 최대 발현 특성 수 (설계서 §2). */
+    /** 카테고리당 최대 <b>발현</b> 특성 수 = 일반 특성 1차 선택 상한 (설계서 §2). */
     public static final int MAX_PER_CATEGORY = 3;
+    /** 카테고리당 반발 카드 상한 (9 일반 + 6 반발 = 15, 설계서 §2). */
+    public static final int MAX_ANTI_PER_CATEGORY = 2;
 
     // 1세대 랜덤 부여 시 태그가 붙을 확률 (밸런싱 대상 — 검증엔 영향 없음).
     private static final double FIRST_GEN_DOMINANT_RATE = 0.50;
     private static final double FIRST_GEN_SEX_TAG_RATE = 0.15;
+    private static final double FIRST_GEN_ANTI_RATE = 0.20; // 카테고리마다 반발 카드 1장 심을 확률
 
     private static final Map<Category, List<Trait>> POOL = buildPool();
 
@@ -69,6 +72,21 @@ public final class Genetics {
                 }
                 ind.addTrait(new TraitInstance(t, tags));
             }
+            // 반발 카드 종자 심기 — 풀에 억제유전자가 돌게(유전·발현 검증 재료).
+            if (rng.chance(FIRST_GEN_ANTI_RATE)) {
+                Trait target = rng.pick(POOL.get(cat));
+                EnumSet<Tag> antiTags = EnumSet.noneOf(Tag.class);
+                if (rng.chance(FIRST_GEN_DOMINANT_RATE)) {
+                    antiTags.add(Tag.DOMINANT);
+                }
+                if (rng.chance(FIRST_GEN_SEX_TAG_RATE)) {
+                    antiTags.add(Tag.MALE_EXPRESSED);
+                }
+                if (rng.chance(FIRST_GEN_SEX_TAG_RATE)) {
+                    antiTags.add(Tag.FEMALE_EXPRESSED);
+                }
+                ind.addTrait(TraitInstance.antiCard(target, antiTags));
+            }
         }
         return ind;
     }
@@ -82,61 +100,151 @@ public final class Genetics {
         Individual child = new Individual(childId, sex, a.id(), b.id(), generation);
 
         for (Category cat : Category.values()) {
-            List<TraitInstance> chosen = selectCategory(cat, a, b, rng, stats);
-            mutate(cat, chosen, rng, stats);
-            for (TraitInstance ti : chosen) {
+            for (TraitInstance ti : selectCategory(cat, a, b, sex, rng, stats)) {
                 child.addTrait(ti);
             }
         }
         return child;
     }
 
-    /** 한 카테고리에서 부모 후보를 뽑아 최대 3개 채움 (우성 우선 확정 + 반발 회피). */
+    /**
+     * 한 카테고리의 자식 특성 구성 (설계서 §2 유전 알고리즘):
+     * <ol>
+     *   <li>우성 우선 + 반발 회피로 <b>일반 특성 최대 3개</b>.</li>
+     *   <li>돌연변이(일반 특성 대상).</li>
+     *   <li><b>흔적 보상</b>: 뽑힌 게 성별발현으로 흔적이 되면 같은 축의 발현값을 부모에서 1회 더 봄
+     *       → 흔적+발현 공존. 반발 카드는 보상 대상 아님.</li>
+     *   <li><b>반발 카드</b> 유전(최대 2개). 무력화는 발현 판정에서 처리되므로 일반 특성과 공존.</li>
+     * </ol>
+     */
     private static List<TraitInstance> selectCategory(Category cat, Individual a, Individual b,
-                                                      DeterministicRng rng, BreedStats stats) {
-        // 후보 = 아빠 + 엄마의 그 카테고리 특성. 우성 후보를 먼저(우선 확정), 각 그룹 셔플.
-        List<TraitInstance> dominantCands = new ArrayList<>();
-        List<TraitInstance> otherCands = new ArrayList<>();
+                                                      Sex childSex, DeterministicRng rng, BreedStats stats) {
+        List<TraitInstance> normalCands = new ArrayList<>();
+        List<TraitInstance> antiCands = new ArrayList<>();
         for (TraitInstance ti : a.traitsIn(cat)) {
-            (ti.isDominant() ? dominantCands : otherCands).add(ti);
+            (ti.isAnti() ? antiCands : normalCands).add(ti);
         }
         for (TraitInstance ti : b.traitsIn(cat)) {
-            (ti.isDominant() ? dominantCands : otherCands).add(ti);
+            (ti.isAnti() ? antiCands : normalCands).add(ti);
         }
-        rng.shuffle(dominantCands);
-        rng.shuffle(otherCands);
 
-        List<TraitInstance> ordered = new ArrayList<>(dominantCands);
-        ordered.addAll(otherCands);
-
+        // 1) 일반 특성 최대 3개 — 우성 우선 확정, 반발/중복 회피.
         List<TraitInstance> chosen = new ArrayList<>();
-        for (TraitInstance cand : ordered) {
+        for (TraitInstance cand : dominantFirst(normalCands, rng)) {
             if (chosen.size() >= MAX_PER_CATEGORY) {
                 break;
             }
-            if (containsTrait(chosen, cand.trait())) {
-                continue; // 중복 특성 금지
+            if (containsTrait(chosen, cand.trait()) || conflicts(chosen, cand.trait())) {
+                continue;
             }
-            if (conflicts(chosen, cand.trait())) {
-                continue; // 반발 특성 건너뜀
+            chosen.add(inherit(cand, rng, stats));
+        }
+
+        // 2) 돌연변이 (일반 특성 대상).
+        mutate(cat, chosen, rng, stats);
+
+        // 3) 흔적 보상 — 뽑힌 일반 특성이 자식 성별에서 흔적이면 같은 축의 발현값을 1회 더.
+        List<TraitInstance> rewards = new ArrayList<>();
+        for (TraitInstance ti : new ArrayList<>(chosen)) {
+            if (ti.expressedFor(childSex)) {
+                continue; // 발현되면 손해 아님 → 보상 없음
             }
-            // 성별발현 태그는 흔적으로도 100% 유전 (설계서 §2).
-            EnumSet<Tag> tags = cand.sexTags();
-            // 우성 후보는 75%로 우성 유지, 25%는 우성을 잃음("자식 4명 중 ~1명은 다름").
-            if (cand.isDominant()) {
+            TraitInstance sibling = findExpressingSibling(
+                    ti.trait(), childSex, normalCands, chosen, rewards, rng, stats);
+            if (sibling != null) {
+                rewards.add(sibling);
                 if (stats != null) {
-                    stats.dominantInherited++;
-                }
-                if (rng.chance(DOMINANT_INHERIT_RATE)) {
-                    tags.add(Tag.DOMINANT);
-                    if (stats != null) {
-                        stats.dominantRetained++;
-                    }
+                    stats.vestigialRewards++;
                 }
             }
-            chosen.add(new TraitInstance(cand.trait(), tags));
+        }
+        chosen.addAll(rewards);
+
+        // 4) 반발 카드 유전 (최대 2개). 대상 중복 방지, 일반 특성과 반발 검사 없이 공존.
+        int antiCount = 0;
+        for (TraitInstance cand : dominantFirst(antiCands, rng)) {
+            if (antiCount >= MAX_ANTI_PER_CATEGORY) {
+                break;
+            }
+            if (containsAntiTarget(chosen, cand.trait())) {
+                continue;
+            }
+            chosen.add(inherit(cand, rng, stats));
+            antiCount++;
         }
         return chosen;
+    }
+
+    /** 우성 후보를 앞에 두고 각 그룹을 셔플한 후보 순서(우선 확정용). */
+    private static List<TraitInstance> dominantFirst(List<TraitInstance> cands, DeterministicRng rng) {
+        List<TraitInstance> dominant = new ArrayList<>();
+        List<TraitInstance> other = new ArrayList<>();
+        for (TraitInstance ti : cands) {
+            (ti.isDominant() ? dominant : other).add(ti);
+        }
+        rng.shuffle(dominant);
+        rng.shuffle(other);
+        List<TraitInstance> ordered = new ArrayList<>(dominant);
+        ordered.addAll(other);
+        return ordered;
+    }
+
+    /**
+     * 부모 후보 하나를 자식에게 복제 — 성별발현 태그는 흔적 포함 100% 유전, 우성 후보는 75%로 우성 유지
+     * (설계서 §2). 반발 카드 여부도 보존.
+     */
+    private static TraitInstance inherit(TraitInstance cand, DeterministicRng rng, BreedStats stats) {
+        EnumSet<Tag> tags = cand.sexTags();
+        if (cand.isDominant()) {
+            if (stats != null) {
+                stats.dominantInherited++;
+            }
+            if (rng.chance(DOMINANT_INHERIT_RATE)) {
+                tags.add(Tag.DOMINANT);
+                if (stats != null) {
+                    stats.dominantRetained++;
+                }
+            }
+        }
+        return cand.isAnti()
+                ? TraitInstance.antiCard(cand.trait(), tags)
+                : new TraitInstance(cand.trait(), tags);
+    }
+
+    /**
+     * 흔적이 된 특성의 같은 축에서, 자식 성별에 발현되는 다른 값을 부모 후보에서 찾아 상속 복제(설계서 §2).
+     * 없으면 null.
+     */
+    private static TraitInstance findExpressingSibling(Trait vestigial, Sex childSex,
+                                                       List<TraitInstance> normalCands,
+                                                       List<TraitInstance> chosen,
+                                                       List<TraitInstance> rewards,
+                                                       DeterministicRng rng, BreedStats stats) {
+        Axis axis = vestigial.axis();
+        List<TraitInstance> options = new ArrayList<>();
+        for (TraitInstance cand : normalCands) {
+            if (cand.trait().axis() != axis || cand.trait() == vestigial) {
+                continue; // 같은 축의 다른 값이어야
+            }
+            if (!cand.expressedFor(childSex)) {
+                continue; // 이 성별에 발현되는 값만
+            }
+            if (containsTrait(chosen, cand.trait()) || containsTrait(rewards, cand.trait())) {
+                continue;
+            }
+            options.add(cand);
+        }
+        TraitInstance picked = rng.pick(options);
+        return picked == null ? null : inherit(picked, rng, stats);
+    }
+
+    private static boolean containsAntiTarget(List<TraitInstance> list, Trait target) {
+        for (TraitInstance ti : list) {
+            if (ti.isAnti() && ti.trait() == target) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 돌연변이: 2% 확률로 뽑힌 특성 하나를 다른 걸로 교체 + 우성여부 재주사위 (설계서 §2 step4). */

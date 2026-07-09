@@ -83,16 +83,16 @@ public final class EvoTest {
 
         GeneticsRun run = runGenetics(seed, breeds);
 
-        // 1) 반발 위반 0 (정합성 — 불변식)
-        report.add("genetics/반발", run.conflictViolations == 0,
-                "반발쌍 동시보유 0",
+        // 1) 발현 반발 0 (불변식 — 보유는 흔적/반발 카드로 반발 공존 허용, 발현은 반발 없음)
+        report.add("genetics/발현반발", run.conflictViolations == 0,
+                "발현 반발쌍 0",
                 run.conflictViolations + "건");
 
-        // 2) 특성 개수 범위 (불변식: 카테고리≤3, 총≤9)
+        // 2) 발현 개수 범위 (불변식: 발현 카테고리≤3, 발현 총≤9)
         boolean countOk = run.maxPerCategory <= Genetics.MAX_PER_CATEGORY && run.maxTotal <= 9;
-        report.add("genetics/개수", countOk,
-                "카테고리≤3 · 총≤9",
-                "최대 카테고리 " + run.maxPerCategory + " · 최대 총 " + run.maxTotal);
+        report.add("genetics/발현개수", countOk,
+                "발현 카테고리≤3 · 총≤9 (보유 최대 " + run.maxHeldTotal + ")",
+                "최대 발현 카테고리 " + run.maxPerCategory + " · 최대 발현 총 " + run.maxTotal);
 
         // 3) 우성 유전 75±2% (설계서 §2 확정)
         double domRate = run.stats.dominantRetentionRate();
@@ -137,27 +137,40 @@ public final class EvoTest {
         return run;
     }
 
-    /** 자식 하나에서 불변식 위반을 세고 체크섬에 반영. */
+    /**
+     * 자식 하나에서 불변식 위반을 센다. Phase 1 ② 이후 흔적 보상·반발 카드로 <b>보유</b> 반발은 허용되므로,
+     * 불변식은 <b>발현</b> 수준으로 검사한다(발현 반발 0, 발현 카테고리≤3, 발현 총≤9). 체크섬은 보유 전체.
+     */
     private static void inspect(Individual child, GeneticsRun run) {
-        int total = 0;
-        for (Category cat : Category.values()) {
-            List<TraitInstance> list = child.traitsIn(cat);
-            run.maxPerCategory = Math.max(run.maxPerCategory, list.size());
-            total += list.size();
-            // 같은 카테고리 내 반발쌍 동시보유 검사
-            for (int i = 0; i < list.size(); i++) {
-                for (int j = i + 1; j < list.size(); j++) {
-                    if (list.get(i).trait().conflictsWith(list.get(j).trait())) {
-                        run.conflictViolations++;
-                    }
+        // 발현 수준 불변식
+        List<TraitInstance> expressed = ExpressionResolver.expressed(child);
+        int[] perCat = new int[Category.values().length];
+        for (int i = 0; i < expressed.size(); i++) {
+            perCat[expressed.get(i).category().ordinal()]++;
+            for (int j = i + 1; j < expressed.size(); j++) {
+                if (expressed.get(i).trait().conflictsWith(expressed.get(j).trait())) {
+                    run.conflictViolations++;
                 }
-                // 체크섬: 특성 ordinal + 태그 수 (결정론 재현 확인용)
-                run.checksum = run.checksum * 1_000_003L
-                        + list.get(i).trait().ordinal() * 7L
-                        + list.get(i).tags().size();
             }
         }
-        run.maxTotal = Math.max(run.maxTotal, total);
+        for (int c : perCat) {
+            run.maxPerCategory = Math.max(run.maxPerCategory, c);
+        }
+        run.maxTotal = Math.max(run.maxTotal, expressed.size());
+
+        // 체크섬은 보유 특성 전체(결정론 재현 확인) + 보유 총량 추적
+        int held = 0;
+        for (Category cat : Category.values()) {
+            List<TraitInstance> list = child.traitsIn(cat);
+            held += list.size();
+            for (TraitInstance ti : list) {
+                run.checksum = run.checksum * 1_000_003L
+                        + ti.trait().ordinal() * 7L
+                        + ti.tags().size()
+                        + (ti.isAnti() ? 3L : 0L);
+            }
+        }
+        run.maxHeldTotal = Math.max(run.maxHeldTotal, held);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -216,6 +229,73 @@ public final class EvoTest {
         }
         report.add("traits/발현반발", violations == 0,
                 "발현 특성 반발쌍 0 (" + samples + "개체)", violations + "건");
+
+        // 6) 반발 카드: 용감함 + 용감함(반발) → 용감함 무력화(흔적). 카드가 유전자는 남김(억제유전자).
+        Individual sup = one(Sex.MALE,
+                TraitInstance.of(Trait.BRAVE), TraitInstance.antiCard(Trait.BRAVE));
+        boolean suppressed = !ExpressionResolver.isExpressed(sup, Trait.BRAVE);
+        boolean geneKept = sup.allTraits().stream().anyMatch(t -> t.trait() == Trait.BRAVE && !t.isAnti());
+        report.add("traits/반발무력화", suppressed && geneKept,
+                "발현 대상 무력화 + 유전자 잔존",
+                "용감함 " + onOff(!suppressed) + " · 유전자잔존 " + yn(geneKept));
+
+        // 7) 반발 카드 무대상: 겁쟁이 + 용감함(반발) → 끌 대상 없음 → 겁쟁이 유지, 카드가 흔적
+        Individual noTarget = one(Sex.MALE,
+                TraitInstance.of(Trait.COWARD), TraitInstance.antiCard(Trait.BRAVE));
+        boolean cowardKept = ExpressionResolver.isExpressed(noTarget, Trait.COWARD);
+        report.add("traits/반발무대상", cowardKept,
+                "무력화 대상 없으면 카드가 흔적", "겁쟁이 " + onOff(cowardKept));
+
+        // 8) 반발 카드 성별발현: 여성발현 반발 카드를 남성이 가지면 카드가 흔적 → 무력화 안 됨
+        Individual antiVest = one(Sex.MALE,
+                TraitInstance.of(Trait.BRAVE),
+                TraitInstance.antiCard(Trait.BRAVE, Tag.FEMALE_EXPRESSED)); // 남성에겐 카드 흔적
+        boolean stillBrave = ExpressionResolver.isExpressed(antiVest, Trait.BRAVE);
+        report.add("traits/반발흔적", stillBrave,
+                "흔적 반발카드는 무력화 못함", "용감함 " + onOff(stillBrave));
+
+        // 9) 흔적 보상: 성별발현 특성을 가진 부모에서 breed → 흔적 보상이 발생하고, 보유엔 반발 공존이
+        //    생기되(흔적+발현) 발현엔 반발 0. 보상이 실제로 일어나는지 통계로 확인.
+        DeterministicRng r2 = new DeterministicRng(13579L);
+        BreedStats st = new BreedStats();
+        List<Individual> pool = new ArrayList<>();
+        long id = 1;
+        for (int i = 0; i < 200; i++) {
+            pool.add(Genetics.randomFirstGen(id++, r2));
+        }
+        boolean heldConflictSeen = false;
+        int expressedConflicts = 0;
+        int breeds = 5000;
+        for (int i = 0; i < breeds; i++) {
+            Individual a = pool.get(r2.nextInt(pool.size()));
+            Individual b = pool.get(r2.nextInt(pool.size()));
+            Individual c = Genetics.breed(id++, a, b, r2, 2, st);
+            // 보유 반발(흔적+발현 공존) 관측
+            List<TraitInstance> all = c.allTraits();
+            for (int x = 0; x < all.size() && !heldConflictSeen; x++) {
+                for (int y = x + 1; y < all.size(); y++) {
+                    if (!all.get(x).isAnti() && !all.get(y).isAnti()
+                            && all.get(x).trait().conflictsWith(all.get(y).trait())) {
+                        heldConflictSeen = true;
+                        break;
+                    }
+                }
+            }
+            // 발현 반발은 0이어야
+            List<TraitInstance> exp = ExpressionResolver.expressed(c);
+            for (int x = 0; x < exp.size(); x++) {
+                for (int y = x + 1; y < exp.size(); y++) {
+                    if (exp.get(x).trait().conflictsWith(exp.get(y).trait())) {
+                        expressedConflicts++;
+                    }
+                }
+            }
+        }
+        report.add("traits/흔적보상", st.vestigialRewards > 0 && expressedConflicts == 0,
+                "보상 발생 & 발현반발 0",
+                "보상 " + st.vestigialRewards + "회 · 발현반발 " + expressedConflicts + "건");
+        report.add("traits/공존", heldConflictSeen,
+                "흔적+발현 공존(보유 반발) 관측됨", heldConflictSeen ? "관측" : "미관측");
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -307,6 +387,7 @@ public final class EvoTest {
         long conflictViolations = 0;
         int maxPerCategory = 0;
         int maxTotal = 0;
+        int maxHeldTotal = 0;
         long checksum = 1469598103934665603L; // FNV-ish 시드
     }
 

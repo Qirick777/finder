@@ -17,6 +17,9 @@ public final class BreedStats {
     /** 실제 돌연변이가 일어난 횟수 (기대 ≈ 2%). */
     public long mutations = 0;
 
+    /** 흔적 보상이 발생한 횟수 — 뽑힌 특성이 성별발현으로 흔적이 되어 발현값을 추가로 얻은 경우(설계서 §2). */
+    public long vestigialRewards = 0;
+
     public double dominantRetentionRate() {
         return dominantInherited == 0 ? 0.0 : (double) dominantRetained / dominantInherited;
     }

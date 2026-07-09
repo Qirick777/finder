@@ -81,7 +81,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 | `DeterministicRng` | 시드 고정 결정론 난수 1개 (§17 필수요소 ①) |
 | `Genetics` | `breed()` 유전 + 1세대 랜덤 부여 (순수 함수, §18) |
 | `BreedStats` | breed() 내부 확률 이벤트 누적(검증용) |
-| `ExpressionResolver` | 발현 판정(성별발현/흔적) — 저장 안 하고 성별로 재판정 (§2) |
+| `ExpressionResolver` | 발현 판정(성별발현 → 반발 카드 무력화) — 저장 안 하고 성별로 재판정 (§2) |
 | `Multipliers` | `gather/hunt/storage/charmScore` — 발동 특성만 합연산 (§15) |
 
 검증 하니스: `com.evosim.test.EvoTest`.
@@ -96,9 +96,9 @@ Minecraft 표현층 (`com.evosim.mod`):
 ## 페이즈 진행 상황
 
 - [x] **Phase 0 — 뼈대**: 데이터 구조, 결정론 난수, 특성 enum + 반발/태그, `/evotest genetics`
-- [~] **Phase 1 — 유전 + 특성 발동**
+- [x] **Phase 1 — 유전 + 특성 발동**
   - [x] ① 발현 판정(성별발현/흔적) + 배율·매력 함수, `/evotest traits` `multiplier`
-  - [ ] ② 반발 카드(억제유전자) + 흔적 보상 (breed 확장 + 발현 반발 판정)
+  - [x] ② 반발 카드(억제유전자) + 흔적 보상 — breed 확장 + 발현 반발 판정, 보유 반발 공존 허용
 - [ ] Phase 2 — 마크 소환 + 기본 행동
 - [ ] Phase 3 — 생존 루프 (식량·정산·수명·전투)
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)

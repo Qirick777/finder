@@ -95,9 +95,21 @@ Minecraft 표현층 (`com.evosim.mod`):
 
 | 파일 | 역할 |
 |---|---|
-| `EvoSimMod` | `@Mod` 진입점. `/evotest`·`/evodebug` 명령어 등록. |
+| `EvoSimMod` | `@Mod` 진입점. 개체·아이템·명령어 등록. |
 | `EvoTestCommand` | 게임 내 `/evotest` — `EvoTest.runReport()` 를 호출해 채팅 출력(§17). |
 | `EvoDebugCommand` | 게임 내 `/evodebug trace` — `EvoDebug.trace()` 하루 행동 타임라인(§17). |
+| `EvoSimCommand` | 게임 내 `/evosim spawn`·`gallery` — 개체 소환(무대 세팅, §17). |
+| `entity.MimicEntity` | 미믹 개체(플레이어 형태) — 성별·생애단계 동기화, 기본 배회 AI. |
+| `reg.ModEntities`·`ModItems` | 개체 타입·스폰에그 등록. |
+| `client.MimicRenderer`·`MimicClient` | 플레이어 모델 렌더(스티브/알렉스·단계별 크기·유아 비율). |
+
+### 게임에서 개체 소환 (Phase 2b, `runClient` 눈 확인)
+
+- **미믹 스폰 알**: 크리에이티브 "스폰 알" 탭 → 성년 랜덤 성별 소환.
+- **`/evosim spawn <male|female> <infant|boy|adult> [수]`**: 지정 성별·단계 소환.
+- **`/evosim gallery`**: 남/여 × 유아/소년/성년 6종을 한 줄로 → 외형 비교.
+
+외형: 여성=알렉스(슬림)·남성=스티브, 유아=아기비율(머리 큼)+작게, 소년=키 작게, 성년=기본.
 
 ## 페이즈 진행 상황
 
@@ -107,7 +119,9 @@ Minecraft 표현층 (`com.evosim.mod`):
   - [x] ② 반발 카드(억제유전자) + 흔적 보상 — breed 확장 + 발현 반발 판정, 보유 반발 공존 허용
 - [~] **Phase 2 — 마크 소환 + 기본 행동**
   - [x] a. 순수 로직: 시간대 스케줄·행동 우선순위·헤드리스 시뮬, `/evotest simulate` `/evodebug trace`
-  - [ ] b. 마크 표현층: 개체 스폰(스폰에그)·모델 외형·AI goal 연동·잔디채집/동물사냥 (runClient 눈 확인)
+  - [x] b. 마크 표현층: 미믹 개체(플레이어 형태)·스폰에그·`/evosim spawn`·기본 배회 AI (runClient 눈 확인)
+        · 외형 구분: 여성=알렉스(슬림)/남성=스티브, 유아=아기비율(머리 큼), 소년=키 작게, 성년=기본
+  - [ ] c. (Phase 3와 함께) BehaviorDecision→실제 잔디채집·동물사냥 goal 연동
 - [ ] Phase 3 — 생존 루프 (식량·정산·수명·전투)
 - [ ] Phase 4 — 사회 (거처·짝짓기·번식·이주)
 - [ ] Phase 5 — 관찰 + 밸런싱

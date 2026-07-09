@@ -48,7 +48,11 @@ public final class Genetics {
      * 1세대(스폰에그) 개체 — 완전 랜덤 부여, 9개 꽉 채움 (설계서 §2 첫 세대).
      */
     public static Individual randomFirstGen(long id, DeterministicRng rng) {
-        Sex sex = rng.nextBoolean() ? Sex.MALE : Sex.FEMALE;
+        return randomFirstGen(id, rng, rng.nextBoolean() ? Sex.MALE : Sex.FEMALE);
+    }
+
+    /** 성별을 지정한 1세대 개체 — 게임 내 무대 세팅(성별 지정 소환) 등에서 사용. */
+    public static Individual randomFirstGen(long id, DeterministicRng rng, Sex sex) {
         Individual ind = new Individual(id, sex, 0, 0, 1);
         for (Category cat : Category.values()) {
             List<Trait> shuffled = new ArrayList<>(POOL.get(cat));

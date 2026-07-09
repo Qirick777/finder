@@ -6,6 +6,8 @@ import com.evosim.core.Mating;
 import com.evosim.core.Settlement;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
 
 import java.util.ArrayList;
@@ -108,6 +110,18 @@ public class MimicMatingGoal extends Goal {
 
         mob.setHomePos(home);
         other.setHomePos(home);
+        heartEffect(mob);
+        heartEffect(other);
         StageObserver.record(mob.getId(), "mating:pair");
     }
+
+    /** 동물 교배 하트 이펙트 (설계서 관찰 편의) — 짝 성립 순간 양쪽에 표시. */
+    private static void heartEffect(MimicEntity m) {
+        if (m.level() instanceof ServerLevel sl) {
+            sl.sendParticles(ParticleTypes.HEART,
+                    m.getX(), m.getY() + m.getBbHeight() * 0.6, m.getZ(),
+                    7, m.getBbWidth() * 0.5, m.getBbHeight() * 0.4, m.getBbWidth() * 0.5, 0.02);
+        }
+    }
 }
+

@@ -30,7 +30,7 @@ public class MimicCourtshipGoal extends Goal {
     @Override
     public boolean canUse() {
         Individual ind = mob.getIndividual();
-        if (ind == null || !mob.isWanderer() || !courtTime(ind)) {
+        if (ind == null || !mob.isSingleAdult() || !courtTime(ind)) {
             return false;
         }
         return mob.isSearchReady() && mob.hasCandidate();
@@ -39,7 +39,7 @@ public class MimicCourtshipGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         Individual ind = mob.getIndividual();
-        return ind != null && mob.isWanderer() && courtTime(ind) && mob.hasCandidate();
+        return ind != null && mob.isSingleAdult() && courtTime(ind) && mob.hasCandidate();
     }
 
     /** 구애 시간대 — 평상시 배회, 무대 검증 중엔 항상. */

@@ -2,5 +2,6 @@
     "item.evosim.mimic_spawn_egg": "Mimic Spawn Egg",
     "item.evosim.trait_scanner": "Mimic Trait Scanner",
     "item.evosim.sim_clock": "Ecology Clock",
+    "block.evosim.mimic_hearth": "Mimic Hearth",
     "entity.evosim.mimic": "Mimic"
 }

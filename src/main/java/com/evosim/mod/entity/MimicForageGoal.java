@@ -53,8 +53,8 @@ public class MimicForageGoal extends Goal {
     @Override
     public boolean canUse() {
         Individual ind = mob.getIndividual();
-        if (ind == null || mob.isFastSettle()) {
-            return false; // 무대 검증은 수확을 시드로 통제(실채집 배제)
+        if (ind == null || mob.isFastSettle() || mob.isBuilding()) {
+            return false; // 무대 검증 시드 통제 / 건축 중엔 채집 정지
         }
         if (!SurvivalRules.canGather(mob.getStage(), ind)) {
             return false; // 유아·일반소년은 자급 불가

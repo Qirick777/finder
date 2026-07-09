@@ -16,6 +16,7 @@ import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
 import com.evosim.core.MateChoiceClass;
+import com.evosim.core.MateHome;
 import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
@@ -96,6 +97,7 @@ public final class EvoTest {
             case "cycle" -> cycle(report);
             case "courtship" -> courtship(report);
             case "matechoice" -> matechoice(report);
+            case "matehome" -> matehome(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
                     "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | all",
@@ -121,6 +123,7 @@ public final class EvoTest {
         cycle(report);
         courtship(report);
         matechoice(report);
+        matehome(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1171,6 +1174,29 @@ public final class EvoTest {
                 "슬롯 독립 유전(>80%)·조합 4종 모두 발생",
                 "남유래 " + pct(mRate) + " · 여유래 " + pct(fRate)
                         + " · 전부A " + bothA + " 전부B " + bothB + " 섞SS " + mixSS + " 섞OO " + mixOO);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest matehome — 재혼·분가 거처 귀속 판정 (MateHome)
+    // ──────────────────────────────────────────────────────────────
+    private static void matehome(Report report) {
+        MateHome.Status W = MateHome.Status.WANDERER;
+        MateHome.Status L = MateHome.Status.LONE_OWNER;
+        MateHome.Status F = MateHome.Status.FAMILY_MEMBER;
+
+        boolean ok =
+                MateHome.resolve(W, W) == MateHome.Action.NEW
+                && MateHome.resolve(W, L) == MateHome.Action.USE_B      // 혼자 사는 쪽으로
+                && MateHome.resolve(W, F) == MateHome.Action.NEW        // 자식 분가 → 신축
+                && MateHome.resolve(L, W) == MateHome.Action.USE_A
+                && MateHome.resolve(L, L) == MateHome.Action.KEEP_ONE   // 랜덤 한쪽 폐기
+                && MateHome.resolve(L, F) == MateHome.Action.USE_A      // 자식+혼자 → 혼자 거처로
+                && MateHome.resolve(F, W) == MateHome.Action.NEW
+                && MateHome.resolve(F, L) == MateHome.Action.USE_B
+                && MateHome.resolve(F, F) == MateHome.Action.NEW;       // 둘 다 자식 → 분가 신축
+        report.add("matehome/판정", ok,
+                "방랑·자식→신축 · 혼자쪽 있으면 그 거처 · 둘다 혼자→랜덤 합류",
+                ok ? "9종 전부 정상" : "판정 어긋남");
     }
 
     private static boolean close(double a, double b) {

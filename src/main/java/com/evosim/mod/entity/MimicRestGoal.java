@@ -51,6 +51,13 @@ public class MimicRestGoal extends Goal {
     @Override
     public void start() {
         mob.getNavigation().stop();
+        if (mob.getHomePos() != null) {
+            float yr = mob.getHomeFacingDir().toYRot(); // 천막 방향으로 눕기
+            mob.setYRot(yr);
+            mob.yBodyRot = yr;
+            mob.yBodyRotO = yr;
+            mob.setYHeadRot(yr);
+        }
         mob.setPose(Pose.SLEEPING); // 바닥에 눕는 포즈(렌더러가 눕혀 그림)
     }
 

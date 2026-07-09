@@ -8,6 +8,7 @@ import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
+import com.evosim.core.MateHome;
 import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
@@ -15,11 +16,15 @@ import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
+import com.evosim.mod.block.MimicHearthBlock;
 import com.evosim.mod.log.SimEvents;
+import com.evosim.mod.reg.ModBlocks;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
@@ -89,6 +94,15 @@ public class MimicEntity extends PathfinderMob {
     private int courtTargetId = -1;                                     // 현재 구애 대상(상호구애 특례)
     private final List<CourtRecord> courtLog = new ArrayList<>();       // GUI 기록(최근 것 유지)
     private static final int COURT_LOG_MAX = 20;
+
+    // 혼인·거처(재혼/분가/건축). 배우자는 개체 고유 id로 링크(리로드 안정).
+    private long spouseId = 0L;                 // 배우자 Individual.id (0=미혼)
+    private boolean widowed = false;            // 배우자 사망 → 재구애 참여
+    private byte homeFacing = 0;                // 천막 방향(Direction.get2DDataValue)
+    private boolean building = false;           // 거처 건축 중(리더/조력 공통)
+    private boolean buildLeader = false;        // 건축 리더(블록 설치 담당)
+    private int buildIndex = 0;                 // 건축 진행 인덱스
+    private static final int BUILD_INTERVAL = 8; // 건축 설치 주기(틱) — 한 칸씩
     // 인식 범위 = 신중도(엄격할수록 넓음). 노동은 근접 위주, 배회는 넓게(구애 사양서 v2 확장).
     private static final double WORK_PERCEPT_BASE = 3.0;
     private static final double WORK_PERCEPT_PER = 2.0;   // 레벨당(0~4)
@@ -168,6 +182,7 @@ public class MimicEntity extends PathfinderMob {
     protected void registerGoals() {
         // 하루 리듬(§16): 밤=귀가·취침, 낮=채집·구애. 우선순위 낮을수록 먼저 점유.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new MimicBuildGoal(this));     // 거처 건축(부지로 이동·머묾)
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
@@ -231,6 +246,60 @@ public class MimicEntity extends PathfinderMob {
         return homePos == null && getStage() == LifeStage.ADULT;
     }
 
+    /** 구애 참여 자격 = 살아있는 짝이 없는 성년(방랑·사별·성년자식 모두 포함). */
+    public boolean isSingleAdult() {
+        return getStage() == LifeStage.ADULT && individual != null
+                && (spouseId == 0L || widowed);
+    }
+
+    /** 거처 상태 — 방랑/단독거처주/가족동거 (재혼 판정용). */
+    public MateHome.Status homeStatus() {
+        if (homePos == null) {
+            return MateHome.Status.WANDERER;
+        }
+        return countAdultsAtHome() <= 1 ? MateHome.Status.LONE_OWNER : MateHome.Status.FAMILY_MEMBER;
+    }
+
+    private int countAdultsAtHome() {
+        if (homePos == null) {
+            return 0;
+        }
+        int n = 0;
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0))) {
+            if (m.isAlive() && m.getStage() == LifeStage.ADULT && homePos.equals(m.getHomePos())) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 배우자가 아직 살아있나(거처/근처에 같은 Individual.id 존재). */
+    private boolean spouseAlive() {
+        if (spouseId == 0L) {
+            return false;
+        }
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(64.0))) {
+            if (m != this && m.isAlive() && m.getIndividual() != null
+                    && m.getIndividual().id() == spouseId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void setSpouse(long id) {
+        this.spouseId = id;
+        this.widowed = false;
+    }
+
+    public boolean isBuilding() {
+        return building;
+    }
+
+    public Direction getHomeFacingDir() {
+        return Direction.from2DDataValue(homeFacing);
+    }
+
     public void setFastGrowth(boolean fast) {
         this.fastGrowth = fast;
     }
@@ -249,6 +318,7 @@ public class MimicEntity extends PathfinderMob {
             observeTooYoung();
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
+            buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
             settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
             infantCareTick();
         }
@@ -277,12 +347,22 @@ public class MimicEntity extends PathfinderMob {
      * 모은다 — 실제 구애 시도(이동·요청)는 배회 시간의 {@link MimicCourtshipGoal}가 한다.
      */
     private void mateTick() {
-        if (individual == null) {
+        if (individual == null || getStage() != LifeStage.ADULT) {
+            mateState = MateState.IDLE;
             return;
         }
-        if (!isWanderer()) {
-            mateState = (homePos != null && getStage() == LifeStage.ADULT)
-                    ? MateState.PAIRED : MateState.IDLE;
+        // 사별 감지: 배우자가 살아있지 않으면 과부/홀아비 → 재구애 참여.
+        if (spouseId != 0L && !widowed && (level().getGameTime() + getId()) % 40 == 0) {
+            if (!spouseAlive()) {
+                widowed = true;
+                mateState = MateState.SEARCHING;
+            }
+        }
+        if (building) {
+            return; // 건축 중엔 구애 안 함
+        }
+        if (!isSingleAdult()) {
+            mateState = MateState.PAIRED;
             return;
         }
         Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
@@ -297,14 +377,14 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 인식 범위 내 이성 방랑자(비근친·비거절)를 후보로 추가하고 매력 내림차순 유지. */
+    /** 인식 범위 내 이성 독신 성년(비근친·비거절)을 후보로 추가하고 매력 내림차순 유지. */
     private void perceive(Schedule.Phase phase) {
         int lvl = individual.mateChoice().ordinal();
         double range = phase == Schedule.Phase.WORK
                 ? WORK_PERCEPT_BASE + lvl * WORK_PERCEPT_PER
                 : WANDER_PERCEPT_BASE + lvl * WANDER_PERCEPT_PER;
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(range))) {
-            if (m == this || m.getIndividual() == null || !m.isWanderer()
+            if (m == this || m.getIndividual() == null || !m.isSingleAdult()
                     || m.isFemale() == isFemale()) {
                 continue;
             }
@@ -331,8 +411,8 @@ public class MimicEntity extends PathfinderMob {
         if (individual == null || si == null) {
             return false;
         }
-        if (mateState == MateState.PAIRED || homePos != null) {
-            return false; // 이미 성사 → 자동 거절
+        if (!isSingleAdult() || building) {
+            return false; // 이미 짝 있음/건축 중 → 자동 거절
         }
         // 상호구애 특례: 내가 이 상대를 구애 중이면 판정 없이 성사.
         if (mateState == MateState.COURTING && courtTargetId == suitor.getId()) {
@@ -368,72 +448,237 @@ public class MimicEntity extends PathfinderMob {
                 "미믹#" + getId(), accepted, charm, rank, pool, percent));
     }
 
-    /** 짝 성사 — 겹치지 않는 새 거처(§13-D)를 잡아 둘 다 정착·PAIRED. */
+    /** 짝 성사 — 배우자 링크 + 거처 귀속(재혼/분가/신축) 결정. */
     private void pairWith(MimicEntity other) {
+        spouseId = other.getIndividual().id();
+        widowed = false;
+        other.setSpouse(getIndividual().id());
+        mateState = MateState.PAIRED;
+        other.setMateState(MateState.PAIRED);
+        courtTargetId = -1;
+        other.setCourtTargetId(-1);
+        heartEffect(this);
+        heartEffect(other);
+        if (level() instanceof ServerLevel sl) {
+            resolveHome(sl, other);
+        }
+        StageObserver.record(getId(), "mating:pair");
+        SimEvents.event(this, "짝성립", "상대 #" + other.getId());
+    }
+
+    /** MateHome 규칙대로 거처 귀속: 새집(재활용/신축) / 한쪽 거처로 이주 / 둘다혼자→랜덤 합류. */
+    private void resolveHome(ServerLevel sl, MimicEntity other) {
+        switch (MateHome.resolve(homeStatus(), other.homeStatus())) {
+            case USE_A -> moveInto(sl, this, other);
+            case USE_B -> moveInto(sl, other, this);
+            case KEEP_ONE -> {
+                MimicEntity keep = getRandom().nextBoolean() ? this : other;
+                moveInto(sl, keep, keep == this ? other : this);
+            }
+            case NEW -> makeNewHome(sl, other);
+        }
+    }
+
+    /** guest를 host의 거처로 입주. guest가 단독 거처주였다면 그 집은 폐기(모닥불 끔). */
+    private static void moveInto(ServerLevel sl, MimicEntity host, MimicEntity guest) {
+        if (guest.getHomePos() != null && guest.homeStatus() == MateHome.Status.LONE_OWNER) {
+            guest.abandonHome(sl); // 원래 단독 거처 폐기
+        }
+        guest.setHomePos(host.getHomePos());
+        guest.homeFacing = host.homeFacing;
+        relightHearth(sl, host.getHomePos(), host.getHomeFacingDir());
+    }
+
+    /** 새 거처: 근처 빈 거처(꺼진 모닥불) 재활용, 없으면 겹치지 않는 자리에 신축(짓는 연출). */
+    private void makeNewHome(ServerLevel sl, MimicEntity other) {
+        int[] reuse = findAbandonedHome(sl);
+        if (reuse != null) {
+            BlockPos home = new BlockPos(reuse[0], reuse[1], reuse[2]);
+            Direction facing = Direction.from2DDataValue(reuse[3]);
+            setHomePos(home);
+            other.setHomePos(home);
+            homeFacing = (byte) reuse[3];
+            other.homeFacing = homeFacing;
+            relightHearth(sl, home, facing);
+            return;
+        }
         List<int[]> existing = new ArrayList<>();
-        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(64.0))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(96.0))) {
             BlockPos h = m.getHomePos();
             if (h != null) {
                 existing.add(new int[] {h.getX(), h.getZ()});
             }
         }
         int dist = Settlement.homeDistance(individual, other.getIndividual());
-        int anchorY = blockPosition().getY();
         int[] anchor = {blockPosition().getX(), blockPosition().getZ()};
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int[] pos = Settlement.placeHome(anchor, dist, existing, Settlement.MIN_GAP, rng);
-        BlockPos home = new BlockPos(pos[0], anchorY, pos[1]);
+        BlockPos home = new BlockPos(pos[0], blockPosition().getY(), pos[1]);
+        Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
 
         setHomePos(home);
         other.setHomePos(home);
-        mateState = MateState.PAIRED;
-        other.setMateState(MateState.PAIRED);
-        courtTargetId = -1;
-        heartEffect(this);
-        heartEffect(other);
-        if (level() instanceof ServerLevel sl) {
-            placeHomeTorch(sl, home); // 거처에 횃불(표시 + 야간 조명 → 몹 스폰 억제)
-        }
-        StageObserver.record(getId(), "mating:pair");
-        SimEvents.event(this, "짝성립", "상대 #" + other.getId() + " · 거처 @"
-                + home.getX() + "," + home.getY() + "," + home.getZ());
+        homeFacing = (byte) facing.get2DDataValue();
+        other.homeFacing = homeFacing;
+        // 낮은 id가 건축 리더, 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지).
+        MimicEntity leader = getId() <= other.getId() ? this : other;
+        MimicEntity helper = leader == this ? other : this;
+        leader.building = true;
+        leader.buildLeader = true;
+        leader.buildIndex = 0;
+        helper.building = true;
+        helper.buildLeader = false;
     }
 
-    /** 거처 좌표에 횃불 설치(빈칸·풀이고 지지가 될 때만). 이미 있으면 그대로. */
-    private static void placeHomeTorch(ServerLevel sl, BlockPos home) {
-        var cur = sl.getBlockState(home);
-        if (cur.is(Blocks.TORCH)) {
+    // 세션 내 폐기(꺼진) 거처 목록 {x,y,z,facing2d} — 재활용용(리로드엔 사라짐, 무해).
+    private static final List<int[]> ABANDONED_HOMES = new ArrayList<>();
+
+    /** 내 거처를 폐기 — 모닥불 끄고 폐기목록 등록(건물은 폐허로 남음). */
+    private void abandonHome(ServerLevel sl) {
+        if (homePos == null) {
             return;
         }
-        boolean replaceable = cur.isAir() || cur.is(Blocks.GRASS)
-                || cur.is(Blocks.TALL_GRASS) || cur.is(Blocks.FERN);
-        var torch = Blocks.TORCH.defaultBlockState();
-        if (replaceable && torch.canSurvive(sl, home)) {
-            sl.setBlockAndUpdate(home, torch);
+        Direction facing = getHomeFacingDir();
+        BlockPos hp = HomeStructure.hearthPos(homePos, facing);
+        if (sl.getBlockState(hp).getBlock() instanceof MimicHearthBlock) {
+            sl.setBlockAndUpdate(hp, sl.getBlockState(hp)
+                    .setValue(MimicHearthBlock.LIT, Boolean.FALSE));
+            ABANDONED_HOMES.add(new int[] {homePos.getX(), homePos.getY(), homePos.getZ(),
+                    facing.get2DDataValue()});
         }
     }
 
-    /** 거처에 산 거주자가 아무도 없으면 횃불 제거. 개체가 영구 제거될 때 호출. */
-    private static void removeTorchIfAbandoned(ServerLevel sl, BlockPos home) {
+    /** 폐기목록에서 근처 빈 거처 하나 찾아 반환(거주자 없고 모닥불 꺼짐 확인). 없으면 null. */
+    private int[] findAbandonedHome(ServerLevel sl) {
+        for (int i = 0; i < ABANDONED_HOMES.size(); i++) {
+            int[] a = ABANDONED_HOMES.get(i);
+            BlockPos home = new BlockPos(a[0], a[1], a[2]);
+            if (home.distSqr(blockPosition()) > 96.0 * 96.0) {
+                continue;
+            }
+            BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(a[3]));
+            var st = sl.getBlockState(hp);
+            if (!(st.getBlock() instanceof MimicHearthBlock) || st.getValue(MimicHearthBlock.LIT)) {
+                ABANDONED_HOMES.remove(i);
+                return null; // 무효 항목 정리
+            }
+            if (anyResidentAt(sl, home)) {
+                continue;
+            }
+            ABANDONED_HOMES.remove(i);
+            return a;
+        }
+        return null;
+    }
+
+    private static boolean anyResidentAt(ServerLevel sl, BlockPos home) {
         for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class,
                 new net.minecraft.world.phys.AABB(home).inflate(48.0))) {
             if (m.isAlive() && home.equals(m.getHomePos())) {
-                return; // 아직 거주자 있음
+                return true;
             }
         }
-        if (sl.getBlockState(home).is(Blocks.TORCH)) {
-            sl.removeBlock(home, false);
+        return false;
+    }
+
+    /** 거처 모닥불 배치/재점화 (완성·이주 시). */
+    private static void relightHearth(ServerLevel sl, BlockPos home, Direction facing) {
+        placeHearth(sl, home, facing, true);
+    }
+
+    private static void placeHearth(ServerLevel sl, BlockPos home, Direction facing, boolean lit) {
+        BlockPos hp = HomeStructure.hearthPos(home, facing);
+        var cur = sl.getBlockState(hp);
+        boolean replaceable = cur.isAir() || cur.getBlock() instanceof MimicHearthBlock
+                || cur.is(Blocks.GRASS) || cur.is(Blocks.TALL_GRASS) || cur.is(Blocks.FERN);
+        if (replaceable) {
+            sl.setBlockAndUpdate(hp, ModBlocks.MIMIC_HEARTH.get().defaultBlockState()
+                    .setValue(MimicHearthBlock.LIT, lit)
+                    .setValue(MimicHearthBlock.FACING, facing));
         }
     }
 
-    /** 영구 제거(사망·아사) 시 거처 무인화되면 횃불 회수. 청크 언로드에는 반응 안 함. */
+    /** 짓는 연출 — 리더가 부지 블록을 한 칸씩 설치, 완성되면 모닥불 점화. */
+    private void buildTick() {
+        if (!building || homePos == null || individual == null
+                || !(level() instanceof ServerLevel sl)) {
+            return;
+        }
+        if (!buildLeader) {
+            // 리더가 사라졌으면(사망) 승격, 아니면 대기.
+            if (hasBuildLeaderAtHome(sl)) {
+                return;
+            }
+            buildLeader = true;
+        }
+        if ((level().getGameTime() + getId()) % BUILD_INTERVAL != 0) {
+            return;
+        }
+        Direction facing = getHomeFacingDir();
+        List<HomeStructure.Placement> plan = HomeStructure.plan(homePos, facing);
+        while (buildIndex < plan.size()) {
+            HomeStructure.Placement p = plan.get(buildIndex++);
+            if (placeBuildBlock(sl, p)) {
+                swing(InteractionHand.MAIN_HAND);
+                break; // 한 틱에 한 칸(연출)
+            }
+        }
+        if (buildIndex >= plan.size()) {
+            placeHearth(sl, homePos, facing, true); // 완성 → 점화
+            finishBuilding(sl);
+        }
+    }
+
+    private boolean hasBuildLeaderAtHome(ServerLevel sl) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
+            if (m != this && m.isAlive() && m.building && m.buildLeader
+                    && homePos.equals(m.getHomePos())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean placeBuildBlock(ServerLevel sl, HomeStructure.Placement p) {
+        var cur = sl.getBlockState(p.pos());
+        boolean replaceable = cur.isAir() || cur.is(Blocks.GRASS)
+                || cur.is(Blocks.TALL_GRASS) || cur.is(Blocks.FERN) || cur.is(Blocks.SNOW);
+        if (!replaceable) {
+            return false; // 이미 채워짐/장애물 → 건너뜀
+        }
+        var state = p.token() == HomeStructure.TOKEN_FENCE
+                ? Blocks.OAK_FENCE.defaultBlockState()
+                : Blocks.WHITE_WOOL.defaultBlockState();
+        sl.setBlockAndUpdate(p.pos(), state);
+        return true;
+    }
+
+    /** 건축 완료 — 거처 구성원 전원 building 해제. */
+    private void finishBuilding(ServerLevel sl) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
+            if (homePos.equals(m.getHomePos())) {
+                m.building = false;
+                m.buildLeader = false;
+            }
+        }
+        building = false;
+        SimEvents.event(this, "건축완료", "거처 @" + homePos.getX() + "," + homePos.getY() + "," + homePos.getZ());
+    }
+
+    /** 영구 제거(사망·아사) 시 거처 무인화되면 모닥불을 끈다(폐허로 남김). 청크 언로드엔 반응 안 함. */
     @Override
     public void remove(Entity.RemovalReason reason) {
         BlockPos home = homePos;
+        byte facing = homeFacing;
         boolean destroy = reason.shouldDestroy();
         super.remove(reason);
-        if (destroy && home != null && level() instanceof ServerLevel sl) {
-            removeTorchIfAbandoned(sl, home);
+        if (destroy && home != null && level() instanceof ServerLevel sl && !anyResidentAt(sl, home)) {
+            BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(facing));
+            var st = sl.getBlockState(hp);
+            if (st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT)) {
+                sl.setBlockAndUpdate(hp, st.setValue(MimicHearthBlock.LIT, Boolean.FALSE));
+                ABANDONED_HOMES.add(new int[] {home.getX(), home.getY(), home.getZ(), facing});
+            }
         }
     }
 
@@ -455,7 +700,7 @@ public class MimicEntity extends PathfinderMob {
         int best = Integer.MIN_VALUE;
         for (int id : candidates) {
             Entity e = sl.getEntity(id);
-            if (!(e instanceof MimicEntity m) || !m.isAlive() || !m.isWanderer()
+            if (!(e instanceof MimicEntity m) || !m.isAlive() || !m.isSingleAdult()
                     || m.getIndividual() == null) {
                 remove.add(id);
                 continue;
@@ -537,8 +782,8 @@ public class MimicEntity extends PathfinderMob {
      * 반영하고, 잉여가 임계 이상이면 그때만 자식을 낳는다("식량 확보 시 번식").
      */
     private void settlementTick() {
-        if (individual == null || getStage() != LifeStage.ADULT) {
-            return; // 정산은 성년이 주도(대표 선출)
+        if (individual == null || getStage() != LifeStage.ADULT || building) {
+            return; // 정산은 성년이 주도(건축 중엔 대기)
         }
         long day = level().getDayTime() / 24000L;
         if (fastSettle) {
@@ -902,6 +1147,12 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("LastFed", lastFed);
         tag.putLong("LastSettleDay", lastSettleDay);
         tag.putBoolean("FastSettle", fastSettle);
+        tag.putLong("SpouseId", spouseId);
+        tag.putBoolean("Widowed", widowed);
+        tag.putByte("HomeFacing", homeFacing);
+        tag.putBoolean("Building", building);
+        tag.putBoolean("BuildLeader", buildLeader);
+        tag.putInt("BuildIndex", buildIndex);
         if (individual != null) {
             tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
         }
@@ -942,6 +1193,12 @@ public class MimicEntity extends PathfinderMob {
             lastSettleDay = tag.getLong("LastSettleDay");
         }
         fastSettle = tag.getBoolean("FastSettle");
+        spouseId = tag.getLong("SpouseId");
+        widowed = tag.getBoolean("Widowed");
+        homeFacing = tag.getByte("HomeFacing");
+        building = tag.getBoolean("Building");
+        buildLeader = tag.getBoolean("BuildLeader");
+        buildIndex = tag.getInt("BuildIndex");
         if (tag.contains("Individual")) {
             this.individual = IndividualNbt.load(tag.getCompound("Individual"));
             refreshStageAttributes(); // 성별 배율 등 재적용

@@ -3,6 +3,7 @@ package com.evosim.mod.entity;
 import com.evosim.core.Combat;
 import com.evosim.core.Individual;
 import com.evosim.core.SurvivalRules;
+import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.Monster;
@@ -131,7 +132,20 @@ public class MimicCombatGoal extends Goal {
     private void record(String tag) {
         if (recordedTags.add(tag)) {
             StageObserver.record(mob.getId(), tag);
+            SimEvents.event(mob, "전투", combatLabel(tag)
+                    + (target != null ? " (상대 " + target.getName().getString() + " #"
+                    + target.getId() + ")" : ""));
         }
+    }
+
+    private static String combatLabel(String tag) {
+        return switch (tag) {
+            case "combat:engage" -> "교전 진입";
+            case "combat:flee" -> "도주(겁많음)";
+            case "combat:retreat" -> "퇴각(체력↓)";
+            case "combat:return" -> "전열 복귀";
+            default -> tag;
+        };
     }
 
     private Monster nearestMonster(double range) {

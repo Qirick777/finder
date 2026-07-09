@@ -38,7 +38,7 @@ public final class EvoSimMod {
         modBus.addListener(this::onCommonSetup);
 
         MinecraftForge.EVENT_BUS.register(this);
-        LOGGER.info("EvoSim 로드됨 — /evotest, /evodebug, /evosim spawn 사용 가능 (Phase 2).");
+        LOGGER.info("EvoSim 로드됨 — /evotest, /evodebug, /evosim, /evostage, /evolog 사용 가능.");
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {
@@ -56,6 +56,7 @@ public final class EvoSimMod {
         }
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(ModItems.TRAIT_SCANNER.get());
+            event.accept(ModItems.SIM_CLOCK.get());
         }
     }
 
@@ -65,5 +66,6 @@ public final class EvoSimMod {
         EvoDebugCommand.register(event.getDispatcher());
         EvoSimCommand.register(event.getDispatcher());
         EvoStageCommand.register(event.getDispatcher());
+        EvoLogCommand.register(event.getDispatcher());
     }
 }

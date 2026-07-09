@@ -28,6 +28,21 @@ public final class Schedule {
     private Schedule() {
     }
 
+    /** 개체 오프셋 없는 전역 하루 구간 (시계·로그 표시용). */
+    public static Phase globalPhase(long worldTick) {
+        int t = (int) (((worldTick % DAY) + DAY) % DAY);
+        if (t < BASE_WAKE || t >= BASE_SLEEP) {
+            return Phase.SLEEP;
+        }
+        if (t < BASE_WORK_END) {
+            return Phase.WORK;
+        }
+        if (t < DUSK) {
+            return Phase.WANDER;
+        }
+        return Phase.NIGHT;
+    }
+
     /** 개체의 그 세계 시각에서의 하루 구간. */
     public static Phase phaseAt(Individual ind, long worldTick) {
         int t = (int) (((worldTick % DAY) + DAY) % DAY);

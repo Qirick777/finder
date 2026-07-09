@@ -4,6 +4,7 @@ import com.evosim.core.DeterministicRng;
 import com.evosim.core.Kinship;
 import com.evosim.core.Mating;
 import com.evosim.core.Settlement;
+import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
@@ -113,6 +114,8 @@ public class MimicMatingGoal extends Goal {
         heartEffect(mob);
         heartEffect(other);
         StageObserver.record(mob.getId(), "mating:pair");
+        SimEvents.event(mob, "짝성립", "상대 #" + other.getId() + " · 거처 @"
+                + home.getX() + "," + home.getY() + "," + home.getZ());
     }
 
     /** 동물 교배 하트 이펙트 (설계서 관찰 편의) — 짝 성립 순간 양쪽에 표시. */

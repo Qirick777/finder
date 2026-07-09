@@ -455,6 +455,17 @@ public final class EvoTest {
         report.add("simulate/시간대", sched,
                 "기상→일→배회→밤→취침 경계", sched ? "정상" : "경계 어긋남");
 
+        // 4-b) 전역 하루 구간 (시계·로그 표시용, 오프셋 없음) — 경계 + 음수/큰 틱 정규화
+        boolean global = Schedule.globalPhase(500) == Schedule.Phase.SLEEP
+                && Schedule.globalPhase(4000) == Schedule.Phase.WORK
+                && Schedule.globalPhase(10000) == Schedule.Phase.WANDER
+                && Schedule.globalPhase(13000) == Schedule.Phase.NIGHT
+                && Schedule.globalPhase(20000) == Schedule.Phase.SLEEP
+                && Schedule.globalPhase(24000 + 4000) == Schedule.Phase.WORK  // 다음날 정규화
+                && Schedule.globalPhase(-20000) == Schedule.Phase.WORK;       // 음수 정규화(-20000→4000)
+        report.add("simulate/전역시간", global,
+                "globalPhase 경계 + 틱 정규화(음수·초과)", global ? "정상" : "어긋남");
+
         // 5) 기상 오프셋 (설계서 §16): 부지런은 일찍 기상(500틱에 이미 노동), 게으름은 늦잠(1500틱 취침)
         Individual dili = one(Sex.MALE, TraitInstance.of(Trait.DILIGENT));
         Individual lazy = one(Sex.MALE, TraitInstance.of(Trait.LAZY));

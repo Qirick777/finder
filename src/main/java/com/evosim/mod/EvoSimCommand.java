@@ -55,7 +55,11 @@ public final class EvoSimCommand {
                 .then(Commands.literal("village")
                         .executes(ctx -> village(ctx, 4))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 12))
-                                .executes(ctx -> village(ctx, IntegerArgumentType.getInteger(ctx, "pairs"))))));
+                                .executes(ctx -> village(ctx, IntegerArgumentType.getInteger(ctx, "pairs")))))
+                .then(Commands.literal("wildpairs")
+                        .executes(ctx -> wildPairs(ctx, 4))
+                        .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))
+                                .executes(ctx -> wildPairs(ctx, IntegerArgumentType.getInteger(ctx, "pairs"))))));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -71,6 +75,40 @@ public final class EvoSimCommand {
                         "마을 소환: 남 " + pairs + " · 여 " + pairs + " (방랑자) — 짝짓기·거처 정착 관찰")
                 .withStyle(ChatFormatting.GREEN), false);
         return pairs * 2;
+    }
+
+    /**
+     * 무작위 특성 남녀쌍 소환 (설계서 §2 §14 관찰). village 와 달리 특성을 <b>완전 랜덤</b>으로 부여 →
+     * 매력·기준선이 제각각이라 짝이 되기도/안 되기도 함. 자연스러운 개체군을 관찰·로그로 검증.
+     */
+    private static int wildPairs(CommandContext<CommandSourceStack> ctx, int pairs) {
+        CommandSourceStack src = ctx.getSource();
+        ServerLevel level = src.getLevel();
+        Vec3 base = src.getPosition();
+        for (int i = 0; i < pairs; i++) {
+            spawnWild(level, scatter(level, base), Sex.MALE);
+            spawnWild(level, scatter(level, base), Sex.FEMALE);
+        }
+        src.sendSuccess(() -> Component.literal(
+                        "무작위 남녀쌍 소환: 남 " + pairs + " · 여 " + pairs
+                                + " (완전 랜덤 특성) — /evolog on 으로 관찰 권장")
+                .withStyle(ChatFormatting.GREEN), false);
+        return pairs * 2;
+    }
+
+    private static void spawnWild(ServerLevel level, Vec3 pos, Sex sex) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            return;
+        }
+        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        Individual ind = Genetics.randomFirstGen(id, new DeterministicRng(level.random.nextLong()), sex);
+        e.setIndividual(ind);
+        e.setStage(LifeStage.ADULT);
+        e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
     }
 
     private static Vec3 scatter(ServerLevel level, Vec3 base) {

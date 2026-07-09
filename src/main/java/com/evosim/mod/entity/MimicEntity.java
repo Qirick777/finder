@@ -8,9 +8,11 @@ import com.evosim.core.Mating;
 import com.evosim.core.Reproduction;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
+import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -235,10 +237,13 @@ public class MimicEntity extends PathfinderMob {
         if (adultNear()) {
             careHunger = 0;
             StageObserver.record(this.getId(), "infant:fed");
+            SimEvents.event(this, "급식", "곁에 성인 있음 → 굶주림 0");
         } else {
             careHunger++;
+            SimEvents.event(this, "방치", "성인 부재 → 굶주림 " + careHunger + "/" + CARE_DEATH);
             if (careHunger >= CARE_DEATH) {
                 StageObserver.record(this.getId(), "infant:starved");
+                SimEvents.event(this, "아사", "연속 방치 " + careHunger + "일 → 사망");
                 this.discard();
             }
         }
@@ -317,6 +322,8 @@ public class MimicEntity extends PathfinderMob {
         lastBirthTick = now;
         childrenBorn++;
         StageObserver.record(this.getId(), "birth");
+        SimEvents.event(this, "출산", "자식 #" + child.getId() + " 세대" + gen
+                + " · 부친 #" + mate.getId() + " (누적 " + childrenBorn + ")");
     }
 
     /** 같은 거처의 성년 남성(짝) 찾기. */
@@ -363,7 +370,26 @@ public class MimicEntity extends PathfinderMob {
             LifeStage next = stage == LifeStage.INFANT ? LifeStage.BOY : LifeStage.ADULT;
             setStage(next);
             com.evosim.mod.stage.StageObserver.record(this.getId(), "grow:" + next.name());
+            SimEvents.event(this, "성장", stageKo(stage) + "→" + stageKo(next));
         }
+    }
+
+    /** 사망 순간 관찰 로그 (누가·무엇에·어디서 죽었나 §14). 전투 사망·몬스터 처치 등 원인 포함. */
+    @Override
+    public void die(DamageSource source) {
+        if (!level().isClientSide) {
+            SimEvents.event(this, "사망", "원인=" + source.getMsgId()
+                    + (individual != null ? " · 세대" + individual.generation() : ""));
+        }
+        super.die(source);
+    }
+
+    private static String stageKo(LifeStage s) {
+        return switch (s) {
+            case INFANT -> "유아";
+            case BOY -> "소년";
+            case ADULT -> "성년";
+        };
     }
 
     /** 생애단계 배율만큼 히트박스도 축소(외형과 대략 일치). */

@@ -7,7 +7,6 @@ import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.Monster;
-import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
 
@@ -148,13 +147,14 @@ public class MimicCombatGoal extends Goal {
         };
     }
 
+    /** 교전 대상은 <b>좀비만</b>. 스켈레톤은 건드리지 않아 어그로를 끌지 않는다(설계 조정). */
     private Monster nearestMonster(double range) {
         List<Monster> list = mob.level().getEntitiesOfClass(
                 Monster.class, mob.getBoundingBox().inflate(range));
         Monster best = null;
         double bestDist = Double.MAX_VALUE;
         for (Monster m : list) {
-            if (!(m instanceof Zombie) && !(m instanceof Skeleton)) {
+            if (!(m instanceof Zombie)) {
                 continue;
             }
             double d = mob.distanceToSqr(m);

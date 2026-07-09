@@ -655,10 +655,10 @@ public final class EvoTest {
         report.add("lifecycle/유아무력", infantHelpless, "유아 자가섭취·이동 불가",
                 infantHelpless ? "정상" : "어긋남");
 
-        // 5) 여성 페널티: 신체 40% 약함 (0.6배)
-        boolean female = Math.abs(SurvivalRules.physicalFactor(Sex.FEMALE) - 0.6) < 1e-9
+        // 5) 여성 페널티: 신체 60% 약함 (0.4배) — 홀로는 좀비도 못 이김
+        boolean female = Math.abs(SurvivalRules.physicalFactor(Sex.FEMALE) - 0.4) < 1e-9
                 && Math.abs(SurvivalRules.physicalFactor(Sex.MALE) - 1.0) < 1e-9;
-        report.add("lifecycle/여성페널티", female, "여성 신체 0.6배 (40%↓)",
+        report.add("lifecycle/여성페널티", female, "여성 신체 0.4배 (60%↓)",
                 String.format("여 %.2f · 남 %.2f", SurvivalRules.physicalFactor(Sex.FEMALE),
                         SurvivalRules.physicalFactor(Sex.MALE)));
     }

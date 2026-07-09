@@ -13,8 +13,8 @@ package com.evosim.core;
  */
 public final class SurvivalRules {
 
-    /** 여성 신체 배율 — 40% 약함 (설계서 §1). */
-    public static final double FEMALE_PHYSICAL_FACTOR = 0.6;
+    /** 여성 신체 배율 — 60% 약함 (설계서 §1, 밸런싱: 홀로는 좀비도 못 이김). */
+    public static final double FEMALE_PHYSICAL_FACTOR = 0.4;
     /** 만혼 소년 채집 배율 (설계서 §7). */
     public static final double LATE_MARRIAGE_BOY_GATHER = 1.2;
 

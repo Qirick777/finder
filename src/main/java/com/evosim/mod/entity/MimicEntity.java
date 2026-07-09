@@ -46,6 +46,7 @@ import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
+import net.minecraft.world.level.block.Blocks;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -372,9 +373,50 @@ public class MimicEntity extends PathfinderMob {
         courtTargetId = -1;
         heartEffect(this);
         heartEffect(other);
+        if (level() instanceof ServerLevel sl) {
+            placeHomeTorch(sl, home); // 거처에 횃불(표시 + 야간 조명 → 몹 스폰 억제)
+        }
         StageObserver.record(getId(), "mating:pair");
         SimEvents.event(this, "짝성립", "상대 #" + other.getId() + " · 거처 @"
                 + home.getX() + "," + home.getY() + "," + home.getZ());
+    }
+
+    /** 거처 좌표에 횃불 설치(빈칸·풀이고 지지가 될 때만). 이미 있으면 그대로. */
+    private static void placeHomeTorch(ServerLevel sl, BlockPos home) {
+        var cur = sl.getBlockState(home);
+        if (cur.is(Blocks.TORCH)) {
+            return;
+        }
+        boolean replaceable = cur.isAir() || cur.is(Blocks.GRASS)
+                || cur.is(Blocks.TALL_GRASS) || cur.is(Blocks.FERN);
+        var torch = Blocks.TORCH.defaultBlockState();
+        if (replaceable && torch.canSurvive(sl, home)) {
+            sl.setBlockAndUpdate(home, torch);
+        }
+    }
+
+    /** 거처에 산 거주자가 아무도 없으면 횃불 제거. 개체가 영구 제거될 때 호출. */
+    private static void removeTorchIfAbandoned(ServerLevel sl, BlockPos home) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(home).inflate(48.0))) {
+            if (m.isAlive() && home.equals(m.getHomePos())) {
+                return; // 아직 거주자 있음
+            }
+        }
+        if (sl.getBlockState(home).is(Blocks.TORCH)) {
+            sl.removeBlock(home, false);
+        }
+    }
+
+    /** 영구 제거(사망·아사) 시 거처 무인화되면 횃불 회수. 청크 언로드에는 반응 안 함. */
+    @Override
+    public void remove(Entity.RemovalReason reason) {
+        BlockPos home = homePos;
+        boolean destroy = reason.shouldDestroy();
+        super.remove(reason);
+        if (destroy && home != null && level() instanceof ServerLevel sl) {
+            removeTorchIfAbandoned(sl, home);
+        }
     }
 
     private static void heartEffect(MimicEntity m) {

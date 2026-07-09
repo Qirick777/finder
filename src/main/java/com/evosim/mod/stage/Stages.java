@@ -9,6 +9,7 @@ import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.reg.ModEntities;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
@@ -39,6 +40,20 @@ public final class Stages {
         put(new CombatRetreatStage());
         put(new InfantStage());
         put(new TraitAuditStage());
+        put(new MatingStage());
+        put(new SettlementStage());
+    }
+
+    /** 서로 매력 3점(선호↔특성 일치)인 짝짓기 준비 개체 — 신중(여) 기준선도 통과. */
+    static Individual matingReady(Sex sex) {
+        Individual ind = new Individual(idCounter++, sex, 0, 0, 1);
+        ind.addTrait(TraitInstance.of(Trait.PREF_STRENGTH));
+        ind.addTrait(TraitInstance.of(Trait.PREF_ABILITY));
+        ind.addTrait(TraitInstance.of(Trait.PREF_VITALITY));
+        ind.addTrait(TraitInstance.of(Trait.STRONG));
+        ind.addTrait(TraitInstance.of(Trait.BRIGHT));
+        ind.addTrait(TraitInstance.of(Trait.NIMBLE));
+        return ind;
     }
 
     private Stages() {
@@ -246,6 +261,88 @@ public final class Stages {
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
         return e;
+    }
+
+    // ── 시나리오: 짝짓기 — 매력 맞는 방랑자 남녀가 조우해 짝 성립(거처 형성) ──
+    static final class MatingStage implements Stage {
+        @Override public String name() { return "mating"; }
+        @Override public String description() { return "매력 맞는 방랑자 남녀 → 짝 성립"; }
+        @Override public List<String> expected() { return List.of("mating:pair"); }
+        @Override public int tickBudget() { return 220; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            MimicEntity m = spawnMimic(level, anchor, matingReady(Sex.MALE), LifeStage.ADULT);
+            MimicEntity f = spawnMimic(level, anchor.add(2.0, 0, 0), matingReady(Sex.FEMALE), LifeStage.ADULT);
+            if (m != null) {
+                run.watch(m);
+            }
+            if (f != null) {
+                run.watch(f);
+            }
+        }
+    }
+
+    // ── 시나리오: 거처 비겹침 — 여러 쌍이 정착하면 거처가 최소간격 이상 벌어지나 ──
+    static final class SettlementStage implements Stage {
+        private final List<Integer> ids = new java.util.ArrayList<>();
+        private boolean checked;
+
+        @Override public String name() { return "settlement"; }
+        @Override public String description() { return "여러 쌍 정착 → 거처 비겹침"; }
+        @Override public List<String> expected() { return List.of("settlement:ok"); }
+        @Override public int tickBudget() { return 320; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            ids.clear();
+            checked = false;
+            for (int i = 0; i < 3; i++) {
+                MimicEntity m = spawnMimic(level, anchor.add(i * 1.5, 0, 0), matingReady(Sex.MALE), LifeStage.ADULT);
+                MimicEntity f = spawnMimic(level, anchor.add(i * 1.5, 0, 2.0), matingReady(Sex.FEMALE), LifeStage.ADULT);
+                if (m != null) {
+                    run.track(m);
+                    ids.add(m.getId());
+                }
+                if (f != null) {
+                    run.track(f);
+                    ids.add(f.getId());
+                }
+            }
+        }
+
+        @Override
+        public void tick(ServerLevel level, StageRun run, int tick) {
+            if (checked || tick < 280) {
+                return;
+            }
+            checked = true;
+            List<int[]> homes = new java.util.ArrayList<>();
+            for (int id : ids) {
+                Entity e = level.getEntity(id);
+                if (e instanceof MimicEntity m && m.getHomePos() != null) {
+                    int[] h = {m.getHomePos().getX(), m.getHomePos().getZ()};
+                    if (homes.stream().noneMatch(o -> o[0] == h[0] && o[1] == h[1])) {
+                        homes.add(h);
+                    }
+                }
+            }
+            boolean nonOverlap = true;
+            for (int i = 0; i < homes.size(); i++) {
+                for (int j = i + 1; j < homes.size(); j++) {
+                    long dx = homes.get(i)[0] - homes.get(j)[0];
+                    long dz = homes.get(i)[1] - homes.get(j)[1];
+                    if (dx * dx + dz * dz < (long) com.evosim.core.Settlement.MIN_GAP
+                            * com.evosim.core.Settlement.MIN_GAP) {
+                        nonOverlap = false;
+                    }
+                }
+            }
+            run.detail("형성된 거처 " + homes.size() + "곳 · 비겹침 " + (nonOverlap ? "O" : "X"));
+            if (homes.size() >= 2 && nonOverlap) {
+                run.mark("settlement:ok");
+            }
+        }
     }
 
     private static void spawnZombie(ServerLevel level, Vec3 anchor, StageRun run) {

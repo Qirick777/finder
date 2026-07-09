@@ -9,6 +9,7 @@ import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.InteractionHand;
@@ -18,13 +19,13 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 /**
- * 미믹 검사봉 — 미믹을 우클릭하면 보유 특성 전체를 채팅에 표시(설계서 §14 "개체 클릭 시 특성 목록").
- *
- * <p>발현/흔적/반발 카드/우성을 색·표기로 구분해 특성 부여가 제대로 됐는지 눈으로 확인.
+ * 미믹 검사봉 (설계서 §14). 미믹을 우클릭하면 <b>현재 모드</b>의 정보를 채팅에 표시.
+ * 쉬프트+스크롤로 모드 순환: 특성 / 짝 / 거처 / 가족 인벤토리.
  */
 public class TraitScannerItem extends Item {
 
@@ -42,18 +43,19 @@ public class TraitScannerItem extends Item {
             return InteractionResult.SUCCESS;
         }
 
-        Individual ind = mimic.getIndividual();
+        ScannerMode mode = ScannerMode.of(stack);
         String sexLabel = mimic.isFemale() ? "여" : "남";
         String stageLabel = switch (mimic.getStage()) {
             case INFANT -> "유아";
             case BOY -> "소년";
             case ADULT -> "성년";
         };
-
         player.displayClientMessage(Component.literal(
-                        "=== 미믹 #" + mimic.getId() + " [" + sexLabel + " · " + stageLabel + "] ===")
+                        "=== 미믹 #" + mimic.getId() + " [" + sexLabel + " · " + stageLabel
+                                + "] · " + mode.label() + " ===")
                 .withStyle(ChatFormatting.GOLD), false);
 
+        Individual ind = mimic.getIndividual();
         if (ind == null) {
             player.displayClientMessage(Component.literal(
                             "개체 데이터 없음 (리로드된 개체 — 저장은 Phase 6). 새로 소환해 확인하세요.")
@@ -61,15 +63,113 @@ public class TraitScannerItem extends Item {
             return InteractionResult.SUCCESS;
         }
 
+        switch (mode) {
+            case TRAIT -> showTraits(player, ind);
+            case MATE -> showMate(player, mimic, ind);
+            case HOME -> showHome(player, mimic);
+            case INVENTORY -> showInventory(player, mimic);
+        }
+        return InteractionResult.SUCCESS;
+    }
+
+    // ── 특성 모드 ──
+    private static void showTraits(Player player, Individual ind) {
         Sex sex = ind.sex();
-        Set<Trait> active = ExpressionResolver.expressedTraits(ind); // 최종 발현(성별+반발 반영)
+        Set<Trait> active = ExpressionResolver.expressedTraits(ind);
         player.displayClientMessage(Component.literal(
                         "발현 " + active.size() + "개 (초록=발현·노랑=우성·회색=흔적·하늘=반발)")
                 .withStyle(ChatFormatting.DARK_GRAY), false);
         for (Category cat : Category.values()) {
             player.displayClientMessage(categoryLine(cat, ind, sex, active), false);
         }
-        return InteractionResult.SUCCESS;
+    }
+
+    // ── 짝 모드 ──
+    private static void showMate(Player player, MimicEntity mimic, Individual ind) {
+        player.displayClientMessage(Component.literal(
+                        "기준선: " + baselineLabel(mimic.getMatingBaseline())
+                                + " · 상태: " + (mimic.isWanderer() ? "방랑자(구애중)"
+                                : mimic.getHomePos() != null ? "정착" : "미성년"))
+                .withStyle(ChatFormatting.GRAY), false);
+
+        List<String> prefs = new ArrayList<>();
+        for (Trait t : ExpressionResolver.expressedTraits(ind)) {
+            if (t.category() == Category.PREFERENCE) {
+                prefs.add(t.koreanName());
+            }
+        }
+        player.displayClientMessage(Component.literal(
+                        "선호(발현): " + (prefs.isEmpty() ? "없음" : String.join("·", prefs)))
+                .withStyle(ChatFormatting.GREEN), false);
+
+        int family = familyAt(mimic).size();
+        String famText = family <= 1 ? "독신/방랑" : family + "명 동거";
+        player.displayClientMessage(Component.literal("가족: " + famText)
+                .withStyle(ChatFormatting.AQUA), false);
+    }
+
+    // ── 거처 모드 ──
+    private static void showHome(Player player, MimicEntity mimic) {
+        BlockPos home = mimic.getHomePos();
+        if (home == null) {
+            player.displayClientMessage(Component.literal("거처: 없음 (방랑자)")
+                    .withStyle(ChatFormatting.GRAY), false);
+            return;
+        }
+        player.displayClientMessage(Component.literal(
+                        "거처 좌표: (" + home.getX() + ", " + home.getY() + ", " + home.getZ() + ")")
+                .withStyle(ChatFormatting.GREEN), false);
+        List<MimicEntity> fam = familyAt(mimic);
+        StringBuilder ids = new StringBuilder();
+        for (MimicEntity m : fam) {
+            ids.append('#').append(m.getId()).append(m.isFemale() ? "여 " : "남 ");
+        }
+        player.displayClientMessage(Component.literal(
+                        "같은 거처 " + fam.size() + "명: " + ids).withStyle(ChatFormatting.AQUA), false);
+    }
+
+    // ── 가족 인벤토리 모드 ──
+    private static void showInventory(Player player, MimicEntity mimic) {
+        BlockPos home = mimic.getHomePos();
+        if (home == null) {
+            player.displayClientMessage(Component.literal("거처 없음 → 가족 창고 없음 (방랑자)")
+                    .withStyle(ChatFormatting.GRAY), false);
+            return;
+        }
+        int fam = familyAt(mimic).size();
+        player.displayClientMessage(Component.literal(
+                        "거처 (" + home.getX() + "," + home.getY() + "," + home.getZ() + ") · 가족 " + fam + "명")
+                .withStyle(ChatFormatting.GREEN), false);
+        player.displayClientMessage(Component.literal(
+                        "창고 잔량: 0.0 (밤 정산 goal 미연동 — Phase 3 후속)")
+                .withStyle(ChatFormatting.DARK_GRAY), false);
+    }
+
+    /** 같은 거처(homePos)를 가리키는 미믹들 = 한 가족(§3). */
+    private static List<MimicEntity> familyAt(MimicEntity mimic) {
+        BlockPos home = mimic.getHomePos();
+        List<MimicEntity> fam = new ArrayList<>();
+        if (home == null) {
+            return fam;
+        }
+        for (MimicEntity m : mimic.level().getEntitiesOfClass(
+                MimicEntity.class, mimic.getBoundingBox().inflate(96.0))) {
+            if (home.equals(m.getHomePos())) {
+                fam.add(m);
+            }
+        }
+        return fam;
+    }
+
+    private static String baselineLabel(int b) {
+        return switch (b) {
+            case 0 -> "완전개방(0)";
+            case 1 -> "널널(1)";
+            case 2 -> "보통(2)";
+            case 3 -> "신중(3)";
+            case 4 -> "엄격(4)";
+            default -> String.valueOf(b);
+        };
     }
 
     private static MutableComponent categoryLine(Category cat, Individual ind, Sex sex, Set<Trait> active) {
@@ -91,7 +191,6 @@ public class TraitScannerItem extends Item {
     private static MutableComponent traitComponent(TraitInstance ti, Individual ind, Sex sex,
                                                    Set<Trait> active) {
         StringBuilder s = new StringBuilder(ti.trait().koreanName());
-        // 성별발현 태그 표기.
         boolean male = ti.hasTag(Tag.MALE_EXPRESSED);
         boolean female = ti.hasTag(Tag.FEMALE_EXPRESSED);
         if (male && female) {
@@ -106,23 +205,23 @@ public class TraitScannerItem extends Item {
         if (ti.isAnti()) {
             s.append("(반발)");
             if (!ti.expressedFor(sex)) {
-                s.append("[흔적]"); // 카드 자신이 성별로 발동 안 함
+                s.append("[흔적]");
                 color = ChatFormatting.DARK_AQUA;
             } else if (suppressesActive(ind, ti.trait(), sex)) {
-                s.append("→무력화중"); // 대상 특성을 실제로 끄는 중
+                s.append("→무력화중");
                 color = ChatFormatting.AQUA;
             } else {
-                s.append("[대상없음]"); // 켜졌지만 끌 대상이 발현 안 됨
+                s.append("[대상없음]");
                 color = ChatFormatting.DARK_AQUA;
             }
         } else {
             boolean sexExpressed = ti.expressedFor(sex);
             boolean fullyActive = sexExpressed && active.contains(ti.trait());
             if (!sexExpressed) {
-                s.append("[흔적·성별]"); // 성별발현 불일치로 발동 안 함
+                s.append("[흔적·성별]");
                 color = ChatFormatting.GRAY;
             } else if (!fullyActive) {
-                s.append("[흔적·반발]"); // 반발 카드에 무력화됨
+                s.append("[흔적·반발]");
                 color = ChatFormatting.GRAY;
             } else {
                 color = ti.isDominant() ? ChatFormatting.YELLOW : ChatFormatting.GREEN;
@@ -134,7 +233,6 @@ public class TraitScannerItem extends Item {
         return Component.literal(s.toString()).withStyle(color);
     }
 
-    /** 이 반발 카드가 실제로 무력화 중인가 — 같은 대상의 일반 특성이 성별상 발동하려는 상태인지. */
     private static boolean suppressesActive(Individual ind, Trait target, Sex sex) {
         for (TraitInstance ti : ind.allTraits()) {
             if (!ti.isAnti() && ti.trait() == target && ti.expressedFor(sex)) {

@@ -4,9 +4,11 @@ import com.evosim.core.DeterministicRng;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
+import com.evosim.core.Mating;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
 import com.evosim.mod.stage.StageObserver;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -51,6 +53,11 @@ public class MimicEntity extends PathfinderMob {
     private int growthTicks = 0;
     private boolean fastGrowth = false; // 무대 검증용 초고속 성장
     private boolean tooYoungObserved = false;
+
+    // 사회(§3, §10): 거처 포인터(null=방랑자) + 짝 기준선.
+    @Nullable
+    private BlockPos homePos = null;
+    private int matingBaseline = Mating.NORMAL;
 
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
     private static final double BASE_SPEED = 0.28D;
@@ -99,6 +106,8 @@ public class MimicEntity extends PathfinderMob {
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(2, new MimicCombatGoal(this)); // 전투 진입/도망(§13-B)
+        this.goalSelector.addGoal(3, new MimicMatingGoal(this)); // 방랑자 짝짓기(§10)
+        this.goalSelector.addGoal(5, new MimicHomeGoal(this));   // 거처 귀환(§3)
         this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
@@ -140,7 +149,30 @@ public class MimicEntity extends PathfinderMob {
     public void setIndividual(Individual ind) {
         this.individual = ind;
         setFemale(ind.sex() == Sex.FEMALE);
+        this.matingBaseline = Mating.startingBaseline(ind);
         refreshStageAttributes();
+    }
+
+    @Nullable
+    public BlockPos getHomePos() {
+        return homePos;
+    }
+
+    public void setHomePos(@Nullable BlockPos pos) {
+        this.homePos = pos;
+    }
+
+    /** 방랑자 = 성년이면서 거처 없음 (짝 구애 대상, §9). */
+    public boolean isWanderer() {
+        return homePos == null && getStage() == LifeStage.ADULT;
+    }
+
+    public int getMatingBaseline() {
+        return matingBaseline;
+    }
+
+    public void setMatingBaseline(int baseline) {
+        this.matingBaseline = baseline;
     }
 
     public void setFastGrowth(boolean fast) {
@@ -215,6 +247,12 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("Stage", this.entityData.get(STAGE));
         tag.putInt("GrowthTicks", growthTicks);
         tag.putBoolean("FastGrowth", fastGrowth);
+        tag.putInt("MatingBaseline", matingBaseline);
+        if (homePos != null) {
+            tag.putInt("HomeX", homePos.getX());
+            tag.putInt("HomeY", homePos.getY());
+            tag.putInt("HomeZ", homePos.getZ());
+        }
     }
 
     @Override
@@ -228,5 +266,11 @@ public class MimicEntity extends PathfinderMob {
         }
         growthTicks = tag.getInt("GrowthTicks");
         fastGrowth = tag.getBoolean("FastGrowth");
+        if (tag.contains("MatingBaseline")) {
+            matingBaseline = tag.getInt("MatingBaseline");
+        }
+        if (tag.contains("HomeX")) {
+            homePos = new BlockPos(tag.getInt("HomeX"), tag.getInt("HomeY"), tag.getInt("HomeZ"));
+        }
     }
 }

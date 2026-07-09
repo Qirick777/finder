@@ -9,6 +9,7 @@ import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
+import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
@@ -721,6 +722,20 @@ public final class EvoTest {
         report.add("mating/눈낮춤", sB == Mating.OPEN && paired,
                 "거절 누적 → 기준선 0 → 첫 상대와 성립",
                 "기준선 " + sB + " · " + (paired ? "성립" : "실패"));
+
+        // 6) 근친 회피(§13-E): 형제(부모 공유)·부모자식 회피, 사촌 허용, 1세대(부모 미상) 오탐 X
+        Individual sibA = new Individual(2, Sex.MALE, 1, 5, 2);
+        Individual sibB = new Individual(3, Sex.FEMALE, 1, 6, 2);   // 부모A(1) 공유 → 형제
+        Individual kid = new Individual(7, Sex.FEMALE, 2, 9, 3);    // sibA(2)의 자식
+        Individual cousin = new Individual(4, Sex.FEMALE, 8, 9, 2); // 부모 다름 → 사촌
+        Individual g1a = new Individual(10, Sex.MALE, 0, 0, 1);
+        Individual g1b = new Individual(11, Sex.FEMALE, 0, 0, 1);   // 둘 다 부모 미상(0)
+        boolean kin = Kinship.isRelated(sibA, sibB)
+                && Kinship.isRelated(sibA, kid)
+                && !Kinship.isRelated(sibA, cousin)
+                && !Kinship.isRelated(g1a, g1b); // 1세대는 부모 0 공유해도 근친 아님
+        report.add("mating/근친회피", kin, "형제·부모자식 회피·사촌/1세대 허용",
+                kin ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

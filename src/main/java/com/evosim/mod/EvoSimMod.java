@@ -1,6 +1,7 @@
 package com.evosim.mod;
 
 import com.evosim.mod.entity.MimicEntity;
+import com.evosim.mod.net.ModNetwork;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.reg.ModItems;
 import com.mojang.logging.LogUtils;
@@ -12,6 +13,7 @@ import net.minecraftforge.event.entity.EntityAttributeCreationEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 
@@ -33,9 +35,14 @@ public final class EvoSimMod {
         ModItems.ITEMS.register(modBus);
         modBus.addListener(this::onAttributes);
         modBus.addListener(this::onBuildTabs);
+        modBus.addListener(this::onCommonSetup);
 
         MinecraftForge.EVENT_BUS.register(this);
         LOGGER.info("EvoSim 로드됨 — /evotest, /evodebug, /evosim spawn 사용 가능 (Phase 2).");
+    }
+
+    private void onCommonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(ModNetwork::register);
     }
 
     private void onAttributes(EntityAttributeCreationEvent event) {

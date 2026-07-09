@@ -11,16 +11,21 @@ import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -30,8 +35,36 @@ import java.util.Set;
  */
 public class TraitScannerItem extends Item {
 
+    private static final int HOME_MARK_INTERVAL = 15;   // 파티클 갱신 주기(틱) — 렉 방지
+    private static final double HOME_MARK_RANGE = 80.0;  // 이 반경 내 미믹 거처만 표시
+
     public TraitScannerItem(Properties properties) {
         super(properties);
+    }
+
+    /**
+     * 거처 모드로 <b>들고 있으면</b> 주변 미믹들의 거처를 파티클 기둥으로 표시(설계서 §14 관찰).
+     * 서버측·주기적(15틱)·거처 좌표 중복 제거 → 다수 미믹이어도 렉 없이 몇 개만 뿌린다.
+     */
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slot, boolean selected) {
+        if (!selected || level.isClientSide || ScannerMode.of(stack) != ScannerMode.HOME) {
+            return;
+        }
+        if (level.getGameTime() % HOME_MARK_INTERVAL != 0
+                || !(level instanceof ServerLevel sl) || !(entity instanceof Player player)) {
+            return;
+        }
+        Set<Long> shown = new HashSet<>();
+        for (MimicEntity m : sl.getEntitiesOfClass(
+                MimicEntity.class, player.getBoundingBox().inflate(HOME_MARK_RANGE))) {
+            BlockPos h = m.getHomePos();
+            if (h == null || !shown.add(h.asLong())) {
+                continue; // 같은 거처는 한 번만
+            }
+            sl.sendParticles(ParticleTypes.HAPPY_VILLAGER,
+                    h.getX() + 0.5, h.getY() + 1.2, h.getZ() + 0.5, 5, 0.2, 0.6, 0.2, 0.0);
+        }
     }
 
     @Override
@@ -59,7 +92,7 @@ public class TraitScannerItem extends Item {
         Individual ind = mimic.getIndividual();
         if (ind == null) {
             player.displayClientMessage(Component.literal(
-                            "개체 데이터 없음 (리로드된 개체 — 저장은 Phase 6). 새로 소환해 확인하세요.")
+                            "개체 데이터 없음 (구버전 개체 — 새로 소환해 확인하세요).")
                     .withStyle(ChatFormatting.RED), false);
             return InteractionResult.SUCCESS;
         }

@@ -1,6 +1,7 @@
 package com.evosim.mod.entity;
 
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.Mating;
 import com.evosim.core.Schedule;
@@ -65,8 +66,12 @@ public class MimicMatingGoal extends Goal {
 
     /** 구애 가능 시간대 — 평상시엔 배회 구간만, 무대 검증 중엔 항상(결정론). */
     private boolean courtingTime() {
-        return StageObserver.isActive()
-                || Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) == Schedule.Phase.WANDER;
+        if (StageObserver.isActive()) {
+            return true;
+        }
+        Individual ind = mob.getIndividual();
+        return ind != null
+                && Schedule.phaseAt(ind, mob.level().getDayTime()) == Schedule.Phase.WANDER;
     }
 
     @Override

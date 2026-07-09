@@ -217,6 +217,12 @@ public class MimicEntity extends PathfinderMob {
         this.fastGrowth = fast;
     }
 
+    /** 자연 디스폰 안 함 (설계서: 개체는 세대를 이어야 하므로 멀어져도 사라지면 안 됨). */
+    @Override
+    public boolean removeWhenFarAway(double distanceToClosestPlayer) {
+        return false;
+    }
+
     @Override
     public void tick() {
         super.tick();
@@ -600,6 +606,9 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("LastFed", lastFed);
         tag.putLong("LastSettleDay", lastSettleDay);
         tag.putBoolean("FastSettle", fastSettle);
+        if (individual != null) {
+            tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
+        }
         if (homePos != null) {
             tag.putInt("HomeX", homePos.getX());
             tag.putInt("HomeY", homePos.getY());
@@ -640,6 +649,10 @@ public class MimicEntity extends PathfinderMob {
             lastSettleDay = tag.getLong("LastSettleDay");
         }
         fastSettle = tag.getBoolean("FastSettle");
+        if (tag.contains("Individual")) {
+            this.individual = IndividualNbt.load(tag.getCompound("Individual"));
+            refreshStageAttributes(); // 성별 배율 등 재적용
+        }
         if (tag.contains("HomeX")) {
             homePos = new BlockPos(tag.getInt("HomeX"), tag.getInt("HomeY"), tag.getInt("HomeZ"));
         }

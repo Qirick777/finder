@@ -1,15 +1,19 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Individual;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
 import com.evosim.core.SurvivalRules;
+import com.evosim.core.Trait;
 import com.evosim.mod.log.SimEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -38,7 +42,7 @@ public class MimicForageGoal extends Goal {
     private static final double REACH = 1.9;         // 이 거리 안이면 채집(부수기) 가능
 
     private final MimicEntity mob;
-    private Animal huntTarget;
+    private Mob huntTarget;
     private BlockPos gatherTarget;
     private int gatherCooldown;
     private int attackCooldown;
@@ -93,20 +97,25 @@ public class MimicForageGoal extends Goal {
             huntTarget = null;
         }
         if (huntTarget == null) {
-            huntTarget = nearestAnimal();
+            huntTarget = nearestHuntable(ind);
         }
         if (huntTarget != null) {
             mob.getLookControl().setLookAt(huntTarget, 30.0F, 30.0F);
             if (mob.distanceToSqr(huntTarget) > 4.0) {
                 mob.getNavigation().moveTo(huntTarget, 1.2);
             } else if (attackCooldown == 0) {
+                boolean slime = huntTarget instanceof Slime;
                 mob.swing(InteractionHand.MAIN_HAND);
                 mob.doHurtTarget(huntTarget);
                 attackCooldown = ATTACK_COOLDOWN;
                 if (!huntTarget.isAlive()) {
-                    double food = HUNT_FOOD * Multipliers.hunt(ind);
-                    mob.addHarvest(food);
-                    SimEvents.event(mob, "사냥", String.format("동물 처치 → 식량 +%.2f", food));
+                    // 동물은 처치 시, 슬라임은 '가장 작은 것'을 처치할 때만 식량(동물과 동일량).
+                    if (givesFood(huntTarget)) {
+                        double food = HUNT_FOOD * Multipliers.hunt(ind);
+                        mob.addHarvest(food);
+                        SimEvents.event(mob, "사냥",
+                                String.format("%s 처치 → 식량 +%.2f", slime ? "슬라임" : "동물", food));
+                    }
                     huntTarget = null;
                 }
             }
@@ -150,12 +159,14 @@ public class MimicForageGoal extends Goal {
         }
     }
 
-    private Animal nearestAnimal() {
-        List<Animal> list = mob.level().getEntitiesOfClass(
-                Animal.class, mob.getBoundingBox().inflate(HUNT_RANGE));
-        Animal best = null;
+    /**
+     * 가장 가까운 사냥감. 동물은 누구나, 슬라임은 <b>용감/사냥꾼/도축업자/무모</b> 발현자만 사냥감으로 인식.
+     */
+    private Mob nearestHuntable(Individual ind) {
+        Mob best = null;
         double bestDist = Double.MAX_VALUE;
-        for (Animal a : list) {
+        for (Animal a : mob.level().getEntitiesOfClass(
+                Animal.class, mob.getBoundingBox().inflate(HUNT_RANGE))) {
             if (!a.isAlive()) {
                 continue;
             }
@@ -165,7 +176,36 @@ public class MimicForageGoal extends Goal {
                 best = a;
             }
         }
+        if (canHuntSlime(ind)) {
+            for (Slime s : mob.level().getEntitiesOfClass(
+                    Slime.class, mob.getBoundingBox().inflate(HUNT_RANGE))) {
+                if (!s.isAlive()) {
+                    continue;
+                }
+                double d = mob.distanceToSqr(s);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = s;
+                }
+            }
+        }
         return best;
+    }
+
+    /** 슬라임 사냥 가능 특성(설계서 확장): 용감·사냥꾼·도축업자·무모 중 하나라도 발현. */
+    private static boolean canHuntSlime(Individual ind) {
+        return ExpressionResolver.isExpressed(ind, Trait.BRAVE)
+                || ExpressionResolver.isExpressed(ind, Trait.HUNTER)
+                || ExpressionResolver.isExpressed(ind, Trait.BUTCHER)
+                || ExpressionResolver.isExpressed(ind, Trait.RECKLESS);
+    }
+
+    /** 식량을 주는 처치인가 — 동물은 항상, 슬라임은 가장 작은 크기(1)만. */
+    private static boolean givesFood(Mob target) {
+        if (target instanceof Slime slime) {
+            return slime.getSize() <= 1;
+        }
+        return true;
     }
 
     /** 주변에서 부술 풀 한 칸을 무작위 표본으로 탐색(전체 스캔 회피). */

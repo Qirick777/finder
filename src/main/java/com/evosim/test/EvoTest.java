@@ -11,8 +11,10 @@ import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
+import com.evosim.core.Mating;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
+import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
 import com.evosim.core.Simulation;
 import com.evosim.core.SurvivalRules;
@@ -81,9 +83,11 @@ public final class EvoTest {
             case "feeding" -> feeding(report);
             case "lifecycle" -> lifecycle(report);
             case "lifespan" -> lifespan(report);
+            case "mating" -> mating(report);
+            case "settlement" -> settlement(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -99,7 +103,9 @@ public final class EvoTest {
         feeding(report);
         lifecycle(report);
         lifespan(report);
-        // Phase 4↑: mating, family_lifecycle … 를 여기에 누적.
+        mating(report);
+        settlement(report);
+        // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -664,6 +670,100 @@ public final class EvoTest {
         report.add("lifespan/상속", inherit, "남은 자 1명분만·없으면 소멸",
                 "10→" + Lifespan.inheritAmount(10.0, true) + " · 없음→"
                         + Lifespan.inheritAmount(10.0, false));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest mating — 조우 판정 + 기준선 (설계서 Phase 4, §10)
+    // ──────────────────────────────────────────────────────────────
+    private static void mating(Report report) {
+        // 1) 시작 기준선: 여=신중(3), 남=널널(1), 엄격=4, 개방=0
+        boolean base = Mating.startingBaseline(one(Sex.FEMALE)) == Mating.PRUDENT
+                && Mating.startingBaseline(one(Sex.MALE)) == Mating.LOOSE
+                && Mating.startingBaseline(one(Sex.MALE, TraitInstance.of(Trait.STRICT_MATE))) == Mating.STRICT
+                && Mating.startingBaseline(one(Sex.FEMALE, TraitInstance.of(Trait.OPEN_MATE))) == Mating.OPEN;
+        report.add("mating/기준선", base, "여신중·남널널·엄격4·개방0",
+                base ? "정상" : "어긋남");
+
+        // 서로 상대의 선호를 만족(강함선호 ↔ 힘센) → 매력 상호 1점.
+        Individual m = one(Sex.MALE, TraitInstance.of(Trait.PREF_STRENGTH), TraitInstance.of(Trait.STRONG));
+        Individual f = one(Sex.FEMALE, TraitInstance.of(Trait.PREF_STRENGTH), TraitInstance.of(Trait.STRONG));
+
+        // 2) 상호 매력 충분 + 기준선 낮음 → 짝 성립
+        report.add("mating/성립", Mating.encounter(m, Mating.LOOSE, f, Mating.LOOSE) == Mating.Outcome.PAIR,
+                "상호 매력≥기준선 → PAIR",
+                Mating.encounter(m, Mating.LOOSE, f, Mating.LOOSE).toString());
+
+        // 3) 내 매력이 상대 기준선 미달 → 거절당함(REJECTED)
+        Individual plain = one(Sex.MALE, TraitInstance.of(Trait.PREF_STRENGTH)); // 힘센 없음 → 매력 0
+        report.add("mating/거절", Mating.encounter(plain, Mating.LOOSE, f, Mating.STRICT) == Mating.Outcome.REJECTED,
+                "내매력<상대기준선 → REJECTED",
+                Mating.encounter(plain, Mating.LOOSE, f, Mating.STRICT).toString());
+
+        // 4) 상대는 받아주나 내가 까다로워 컷(CUT)
+        Individual picky = one(Sex.MALE, TraitInstance.of(Trait.PREF_STRENGTH)); // 상대(개방) 매력 0
+        Individual openF = one(Sex.FEMALE, TraitInstance.of(Trait.OPEN_MATE));   // 힘센 없음
+        report.add("mating/컷", Mating.encounter(picky, Mating.STRICT, openF, Mating.OPEN) == Mating.Outcome.CUT,
+                "상대 수락·내가 컷 → CUT",
+                Mating.encounter(picky, Mating.STRICT, openF, Mating.OPEN).toString());
+
+        // 5) 거절당할 때만 눈 낮춤 → 기준선 0으로 하락 → 첫 상대와 성립 (멸종 방지 메커니즘)
+        Individual self = one(Sex.MALE, TraitInstance.of(Trait.PREF_STRENGTH)); // 매력 0(까다로운 상대에겐)
+        Individual pickyF = one(Sex.FEMALE, TraitInstance.of(Trait.PREF_STRENGTH)); // self 매력 안 봄
+        int sB = Mating.STRICT;
+        int r = 0;
+        for (; sB > Mating.OPEN && r < 10; r++) {
+            if (Mating.encounter(self, sB, pickyF, Mating.STRICT) == Mating.Outcome.REJECTED) {
+                sB = Mating.lowerBaseline(sB);
+            }
+        }
+        Individual anyF = one(Sex.FEMALE, TraitInstance.of(Trait.OPEN_MATE));
+        boolean paired = Mating.encounter(self, sB, anyF, Mating.OPEN) == Mating.Outcome.PAIR;
+        report.add("mating/눈낮춤", sB == Mating.OPEN && paired,
+                "거절 누적 → 기준선 0 → 첫 상대와 성립",
+                "기준선 " + sB + " · " + (paired ? "성립" : "실패"));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest settlement — 거처 배치 (설계서 Phase 4, §13-D)
+    // ──────────────────────────────────────────────────────────────
+    private static void settlement(Report report) {
+        Individual mig = one(Sex.MALE, TraitInstance.of(Trait.MIGRATORY));
+        Individual home = one(Sex.MALE, TraitInstance.of(Trait.HOMEBOUND));
+        Individual neu = one(Sex.MALE);
+
+        // 1) 조합별 거리: 이주×이주 멀리·애향×애향 가까이·중립 기본·이주×애향 상쇄
+        boolean dist = Settlement.homeDistance(mig, mig) == Settlement.BASE_DISTANCE * 2
+                && Settlement.homeDistance(home, home) == Settlement.BASE_DISTANCE / 2
+                && Settlement.homeDistance(neu, neu) == Settlement.BASE_DISTANCE
+                && Settlement.homeDistance(mig, home) == Settlement.BASE_DISTANCE   // 상쇄
+                && Settlement.homeDistance(neu, mig) == Settlement.BASE_DISTANCE * 2;
+        report.add("settlement/거리", dist, "이주멀리·애향가까이·상쇄기본",
+                String.format("이주×이주 %d · 애향×애향 %d · 상쇄 %d",
+                        Settlement.homeDistance(mig, mig), Settlement.homeDistance(home, home),
+                        Settlement.homeDistance(mig, home)));
+
+        // 2) 비겹침: 마을에 거처 20개를 순차 배치 → 모든 쌍이 최소 간격 이상
+        DeterministicRng rng = new DeterministicRng(4242L);
+        List<int[]> homes = new ArrayList<>();
+        homes.add(new int[] {0, 0});
+        for (int i = 0; i < 20; i++) {
+            int[] parent = homes.get(rng.nextInt(homes.size()));
+            int[] pos = Settlement.placeHome(parent, Settlement.BASE_DISTANCE, homes, Settlement.MIN_GAP, rng);
+            homes.add(pos);
+        }
+        int violations = 0;
+        for (int i = 0; i < homes.size(); i++) {
+            for (int j = i + 1; j < homes.size(); j++) {
+                long dx = homes.get(i)[0] - homes.get(j)[0];
+                long dz = homes.get(i)[1] - homes.get(j)[1];
+                if (dx * dx + dz * dz < (long) Settlement.MIN_GAP * Settlement.MIN_GAP) {
+                    violations++;
+                }
+            }
+        }
+        report.add("settlement/비겹침", violations == 0,
+                "거처 " + homes.size() + "개 최소간격≥" + Settlement.MIN_GAP,
+                violations + "건 겹침");
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

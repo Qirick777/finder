@@ -32,6 +32,7 @@ public enum Axis {
     INTELLIGENCE(Category.DISPOSITION, true),         // 지능: 멍청 / 명석
     RESPONSIBILITY(Category.DISPOSITION, true),       // 책임(남): 무책임 / 과한책임 (남성발현)
     MATERNAL(Category.DISPOSITION, true),             // 모성(여): 모성애없음 / 강한모성애 (여성발현)
+    MATE_CHOICE(Category.DISPOSITION, true),          // 짝고르기: 엄격 / 완전개방 (성별기본 여=신중·남=널널)
 
     // ── 신체 (PHYSICAL) — 전부 반발 ──
     STRENGTH(Category.PHYSICAL, true),                // 힘: 힘센 / 약함

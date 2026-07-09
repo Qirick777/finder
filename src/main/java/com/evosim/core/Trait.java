@@ -52,6 +52,8 @@ public enum Trait {
     OVER_RESPONSIBLE(Axis.RESPONSIBILITY, "과한책임"),
     NO_MATERNAL(Axis.MATERNAL, "모성애없음"),
     STRONG_MATERNAL(Axis.MATERNAL, "강한모성애"),
+    STRICT_MATE(Axis.MATE_CHOICE, "엄격"),
+    OPEN_MATE(Axis.MATE_CHOICE, "완전개방"),
 
     // ── 신체 ──
     STRONG(Axis.STRENGTH, "힘센"),

@@ -852,30 +852,59 @@ public final class EvoTest {
         report.add("parenting/5단계", ParentingClass.values().length == 5,
                 "클래스 5개", ParentingClass.values().length + "개");
 
-        // 4) 1세대 배정 + 유전: 부모(적극·무시) → 자식 대부분 둘 중 하나(돌연변이 10%)
+        // 4) 남녀발현 세트 + 성별 발동: M=무심·F=적극 개체는 남이면 무심, 여면 적극
+        Individual maleInd = new Individual(1, Sex.MALE, 0, 0, 1);
+        maleInd.setParentingCareMale(ParentingClass.DETACHED);
+        maleInd.setParentingCareFemale(ParentingClass.DEVOTED);
+        Individual femInd = new Individual(2, Sex.FEMALE, 0, 0, 1);
+        femInd.setParentingCareMale(ParentingClass.DETACHED);
+        femInd.setParentingCareFemale(ParentingClass.DEVOTED);
+        boolean sexExpr = maleInd.parentingCare() == ParentingClass.DETACHED
+                && femInd.parentingCare() == ParentingClass.DEVOTED;
+        report.add("parenting/성별발동", sexExpr, "세트 중 성별 쪽 발동(남=M·여=F)",
+                "남 " + maleInd.parentingCare().label() + " · 여 " + femInd.parentingCare().label());
+
+        // 5) 세트 유전: 부모A(남적극·여적극), 부모B(남무시·여무시) → 각 슬롯 독립 유전
+        //    → '한쪽 전부'(둘 다 한 부모)와 '섞이기'(남·여 다른 부모) 모두 발생, 각 슬롯 부모유래 >80%
         DeterministicRng rng = new DeterministicRng(7777L);
         Individual dad = Genetics.randomFirstGen(1, rng);
         Individual mom = Genetics.randomFirstGen(2, rng);
-        dad.setParentingCare(ParentingClass.DEVOTED);
-        mom.setParentingCare(ParentingClass.NEGLECTFUL);
-        int fromParent = 0;
-        int devoted = 0;
-        int neglect = 0;
-        int n = 3000;
+        dad.setParentingCareMale(ParentingClass.DEVOTED);
+        dad.setParentingCareFemale(ParentingClass.DEVOTED);
+        mom.setParentingCareMale(ParentingClass.NEGLECTFUL);
+        mom.setParentingCareFemale(ParentingClass.NEGLECTFUL);
+        int mFromParent = 0;
+        int fFromParent = 0;
+        int wholeCount = 0;
+        int mixedCount = 0;
+        int n = 4000;
         for (int i = 0; i < n; i++) {
-            ParentingClass c = Genetics.breed(100 + i, dad, mom, rng, 2, null).parentingCare();
-            if (c == ParentingClass.DEVOTED) {
-                devoted++;
-                fromParent++;
-            } else if (c == ParentingClass.NEGLECTFUL) {
-                neglect++;
-                fromParent++;
+            Individual c = Genetics.breed(100 + i, dad, mom, rng, 2, null);
+            ParentingClass cm = c.parentingCareMale();
+            ParentingClass cf = c.parentingCareFemale();
+            boolean mOk = cm == ParentingClass.DEVOTED || cm == ParentingClass.NEGLECTFUL;
+            boolean fOk = cf == ParentingClass.DEVOTED || cf == ParentingClass.NEGLECTFUL;
+            if (mOk) {
+                mFromParent++;
+            }
+            if (fOk) {
+                fFromParent++;
+            }
+            if (mOk && fOk) {
+                if (cm == cf) {
+                    wholeCount++; // 한쪽 전부(둘 다 DEVOTED 또는 둘 다 NEGLECTFUL)
+                } else {
+                    mixedCount++; // 섞이기
+                }
             }
         }
-        double inheritRate = (double) fromParent / n;
-        boolean inherit = inheritRate > 0.80 && devoted > 0 && neglect > 0;
-        report.add("parenting/유전", inherit, "부모 클래스 물려받음(>80%, 돌연변이 10%)",
-                "부모유래 " + pct(inheritRate) + " (적극 " + devoted + "·무시 " + neglect + ")");
+        double mRate = (double) mFromParent / n;
+        double fRate = (double) fFromParent / n;
+        boolean inherit = mRate > 0.80 && fRate > 0.80 && wholeCount > 0 && mixedCount > 0;
+        report.add("parenting/세트유전", inherit,
+                "슬롯 독립 유전(>80%)·전부&섞이기 모두 발생",
+                "남유래 " + pct(mRate) + " · 여유래 " + pct(fRate)
+                        + " · 전부 " + wholeCount + " · 섞이기 " + mixedCount);
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

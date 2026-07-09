@@ -96,7 +96,9 @@ public final class Genetics {
                 ind.addTrait(TraitInstance.antiCard(target, antiTags));
             }
         }
-        ind.setParentingCare(ParentingClass.byOrdinal(rng.nextInt(ParentingClass.values().length)));
+        int pcN = ParentingClass.values().length;
+        ind.setParentingCareMale(ParentingClass.byOrdinal(rng.nextInt(pcN)));
+        ind.setParentingCareFemale(ParentingClass.byOrdinal(rng.nextInt(pcN)));
         return ind;
     }
 
@@ -121,12 +123,18 @@ public final class Genetics {
                 child.addTrait(ti);
             }
         }
-        // 육아 클래스 유전: 한쪽 부모에서 물려받되 10% 돌연변이.
-        ParentingClass pc = rng.nextBoolean() ? a.parentingCare() : b.parentingCare();
+        // 육아 클래스 유전: 남·여발현 슬롯을 각각 독립 유전(→ 한쪽 전부 or 섞이기 자연 발생) + 각 10% 돌연변이.
+        int pcN = ParentingClass.values().length;
+        ParentingClass cm = rng.nextBoolean() ? a.parentingCareMale() : b.parentingCareMale();
         if (rng.chance(PARENTING_MUTATION_RATE)) {
-            pc = ParentingClass.byOrdinal(rng.nextInt(ParentingClass.values().length));
+            cm = ParentingClass.byOrdinal(rng.nextInt(pcN));
         }
-        child.setParentingCare(pc);
+        ParentingClass cf = rng.nextBoolean() ? a.parentingCareFemale() : b.parentingCareFemale();
+        if (rng.chance(PARENTING_MUTATION_RATE)) {
+            cf = ParentingClass.byOrdinal(rng.nextInt(pcN));
+        }
+        child.setParentingCareMale(cm);
+        child.setParentingCareFemale(cf);
         return child;
     }
 

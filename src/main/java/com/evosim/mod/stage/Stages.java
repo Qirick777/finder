@@ -383,7 +383,7 @@ public final class Stages {
         public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
             BlockPos home = BlockPos.containing(anchor);
             Individual momInd = matingReady(Sex.FEMALE);
-            momInd.setParentingCare(ParentingClass.DEVOTED); // 적극 → 거처에서 안 나옴
+            momInd.setParentingCareFemale(ParentingClass.DEVOTED); // 여성발현 적극 → 거처에서 안 나옴
             MimicEntity mom = spawnMimic(level, anchor, momInd, LifeStage.ADULT);
             MimicEntity baby = spawnMimic(level, anchor.add(1.0, 0, 0), matingReady(Sex.MALE), LifeStage.INFANT);
             if (mom != null) {
@@ -392,6 +392,7 @@ public final class Stages {
             }
             if (baby != null) {
                 baby.setHomePos(home);
+                baby.setFastCare(true); // 무대 검증 초고속 급식
                 run.watch(baby);
             }
         }
@@ -410,6 +411,7 @@ public final class Stages {
             MimicEntity baby = spawnMimic(level, anchor, matingReady(Sex.MALE), LifeStage.INFANT);
             if (baby != null) {
                 baby.setHomePos(home); // 거처는 있으나 돌볼 성인이 없음
+                baby.setFastCare(true); // 무대 검증 초고속 급식(방치 → 아사 관측)
                 run.watch(baby);
             }
         }

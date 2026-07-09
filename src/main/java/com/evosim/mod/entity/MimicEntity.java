@@ -68,10 +68,13 @@ public class MimicEntity extends PathfinderMob {
     private static final int REPRO_COOLDOWN = 1200; // 데모용(1분). 잉여식량 게이트는 밤 정산 연동 후.
     private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시, 식량 게이트 전)
 
-    // 유아 돌봄/아사 (육아 클래스): 주기마다 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
+    // 유아 돌봄/아사 (육아 클래스): 하루 급식 시각에 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
     private int careHunger = 0;
-    private static final int CARE_INTERVAL = 20;  // 소모 주기(틱)
-    private static final int CARE_DEATH = 6;      // 연속 방치 임계 → 아사 (≈120틱)
+    private long lastCareDay = Long.MIN_VALUE; // 마지막 급식 판정한 절대 일자(하루 1회 보장)
+    private boolean fastCare = false;          // 무대 검증용 초고속 급식(틱 주기)
+    private static final int FEEDING_TIME = 13000; // 하루 중 급식 시각(밤, 가족 수렴 §4)
+    private static final int CARE_INTERVAL = 20;   // fast 모드 소모 주기(틱)
+    private static final int CARE_DEATH = 3;       // 연속 방치 임계 → 아사 (평상시 3일)
     private static final double FEED_RADIUS = 5.0; // 이 반경 내 성인이 있으면 먹여줌
 
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
@@ -214,8 +217,19 @@ public class MimicEntity extends PathfinderMob {
         if (getStage() != LifeStage.INFANT) {
             return;
         }
-        long now = level().getGameTime();
-        if ((now + getId()) % CARE_INTERVAL != 0) {
+        // 급식 타이밍: 평상시엔 하루 1회(급식 시각 이후), 무대 검증은 fast(틱 주기). 연산 절약.
+        boolean feedNow;
+        if (fastCare) {
+            feedNow = (level().getGameTime() + getId()) % CARE_INTERVAL == 0;
+        } else {
+            long day = level().getGameTime() / 24000L;
+            long timeOfDay = level().getDayTime() % 24000L;
+            feedNow = day != lastCareDay && timeOfDay >= FEEDING_TIME;
+            if (feedNow) {
+                lastCareDay = day;
+            }
+        }
+        if (!feedNow) {
             return;
         }
         if (adultNear()) {
@@ -228,6 +242,10 @@ public class MimicEntity extends PathfinderMob {
                 this.discard();
             }
         }
+    }
+
+    public void setFastCare(boolean fast) {
+        this.fastCare = fast;
     }
 
     private boolean adultNear() {
@@ -378,6 +396,8 @@ public class MimicEntity extends PathfinderMob {
         tag.putLong("LastBirth", lastBirthTick);
         tag.putInt("ChildrenBorn", childrenBorn);
         tag.putInt("CareHunger", careHunger);
+        tag.putLong("LastCareDay", lastCareDay);
+        tag.putBoolean("FastCare", fastCare);
         if (homePos != null) {
             tag.putInt("HomeX", homePos.getX());
             tag.putInt("HomeY", homePos.getY());
@@ -404,6 +424,10 @@ public class MimicEntity extends PathfinderMob {
         }
         childrenBorn = tag.getInt("ChildrenBorn");
         careHunger = tag.getInt("CareHunger");
+        if (tag.contains("LastCareDay")) {
+            lastCareDay = tag.getLong("LastCareDay");
+        }
+        fastCare = tag.getBoolean("FastCare");
         if (tag.contains("HomeX")) {
             homePos = new BlockPos(tag.getInt("HomeX"), tag.getInt("HomeY"), tag.getInt("HomeZ"));
         }

@@ -77,9 +77,12 @@ public class TraitScannerItem extends Item {
         Sex sex = ind.sex();
         Set<Trait> active = ExpressionResolver.expressedTraits(ind);
         player.displayClientMessage(Component.literal(
-                        "발현 " + active.size() + "개 (초록=발현·노랑=우성·회색=흔적·하늘=반발) · 육아: "
-                                + ind.parentingCare().label())
+                        "발현 " + active.size() + "개 (초록=발현·노랑=우성·회색=흔적·하늘=반발)")
                 .withStyle(ChatFormatting.DARK_GRAY), false);
+        player.displayClientMessage(Component.literal("육아: "
+                        + ind.parentingCareMale().label() + "[남]·"
+                        + ind.parentingCareFemale().label() + "[여] → 활성 " + ind.parentingCare().label())
+                .withStyle(ChatFormatting.LIGHT_PURPLE), false);
         for (Category cat : Category.values()) {
             player.displayClientMessage(categoryLine(cat, ind, sex, active), false);
         }

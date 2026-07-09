@@ -1,13 +1,14 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.Schedule;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.goal.Goal;
 
 import java.util.EnumSet;
 
 /**
- * 거처 귀환 goal (설계서 §3). 거처가 있는 미믹은 거처 좌표 근처로 수렴 → 가족이 한 곳에 뭉친다
- * (밤에 집 좌표로 수렴 = 가정, §14 관찰). 겹치지 않는 거처들이라 가족별로 흩어져 모인다.
+ * 거처 귀환 goal (설계서 §3 §16). 거처가 있는 미믹은 <b>밤(귀가)·취침</b> 구간에 거처 좌표로 수렴한다
+ * → 밤에 가족이 한 곳에 뭉쳐 정산(§4). 낮(노동·배회)에는 풀려나 채집·구애하러 돌아다닌다.
  */
 public class MimicHomeGoal extends Goal {
 
@@ -18,16 +19,25 @@ public class MimicHomeGoal extends Goal {
         this.setFlags(EnumSet.of(Goal.Flag.MOVE));
     }
 
+    /** 지금이 귀가/취침 시간인가 (개체 스케줄 기준). 개체 데이터 없으면 항상 귀가. */
+    private boolean homeTime() {
+        if (mob.getIndividual() == null) {
+            return true;
+        }
+        Schedule.Phase phase = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime());
+        return phase == Schedule.Phase.NIGHT || phase == Schedule.Phase.SLEEP;
+    }
+
     @Override
     public boolean canUse() {
         BlockPos home = mob.getHomePos();
-        return home != null && mob.blockPosition().distSqr(home) > 9.0; // 3블록 밖이면 귀환
+        return home != null && homeTime() && mob.blockPosition().distSqr(home) > 9.0; // 3블록 밖이면 귀환
     }
 
     @Override
     public boolean canContinueToUse() {
         BlockPos home = mob.getHomePos();
-        return home != null && mob.blockPosition().distSqr(home) > 4.0;
+        return home != null && homeTime() && mob.blockPosition().distSqr(home) > 4.0;
     }
 
     @Override

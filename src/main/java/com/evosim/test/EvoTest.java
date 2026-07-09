@@ -4,6 +4,7 @@ import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
 import com.evosim.core.Combat;
+import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Feeding;
@@ -90,9 +91,10 @@ public final class EvoTest {
             case "settlement" -> settlement(report);
             case "reproduction" -> reproduction(report);
             case "parenting" -> parenting(report);
+            case "cycle" -> cycle(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -112,6 +114,7 @@ public final class EvoTest {
         settlement(report);
         reproduction(report);
         parenting(report);
+        cycle(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -916,6 +919,80 @@ public final class EvoTest {
                 "슬롯 독립 유전(>80%)·전부&섞이기 모두 발생",
                 "남유래 " + pct(mRate) + " · 여유래 " + pct(fRate)
                         + " · 전부 " + wholeCount + " · 섞이기 " + mixedCount);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest cycle — 하루 사이클: 밤 정산 → 잉여 → 번식 게이트 (설계서 §4 §6)
+    //   식량이 확보되어야만 번식이 해금된다는 단일 판정을 헤드리스로 검증.
+    // ──────────────────────────────────────────────────────────────
+    private static void cycle(Report report) {
+        // 1) 풍족: 부부가 넉넉히 수확 → 먹고도 잉여≥임계(2.5) → 번식 해금
+        Feeding.Household rich = new Feeding.Household();
+        rich.father = member(Sex.MALE, LifeStage.ADULT, 3.5, 0.0);
+        rich.wives.add(member(Sex.FEMALE, LifeStage.ADULT, 3.5, 0.0));
+        DailyCycle.DayResult r1 = DailyCycle.settleFamily(rich);
+        boolean richOk = r1.reproductionUnlocked && r1.surplus >= Reproduction.BASE_THRESHOLD
+                && r1.feeding.starved.isEmpty();
+        report.add("cycle/풍족번식", richOk,
+                "잉여≥임계 → 번식 해금·아무도 안 굶음",
+                "잉여 " + String.format("%.1f", r1.surplus) + " · 번식 " + yn(r1.reproductionUnlocked));
+
+        // 2) 근근이 생존: 먹을 만큼만 → 굶진 않지만 잉여 부족 → 번식 막힘
+        Feeding.Household lean = new Feeding.Household();
+        lean.father = member(Sex.MALE, LifeStage.ADULT, 1.5, 0.0);
+        lean.wives.add(member(Sex.FEMALE, LifeStage.ADULT, 1.0, 0.0)); // 창고 2.5, 소모 2.0 → 잉여 0.5
+        DailyCycle.DayResult r2 = DailyCycle.settleFamily(lean);
+        boolean leanOk = !r2.reproductionUnlocked && r2.feeding.starved.isEmpty()
+                && r2.surplus < Reproduction.BASE_THRESHOLD;
+        report.add("cycle/근근번식막힘", leanOk,
+                "먹고 살지만 잉여 부족 → 번식 안 함",
+                "잉여 " + String.format("%.1f", r2.surplus) + " · 번식 " + yn(r2.reproductionUnlocked));
+
+        // 3) 흉년: 수확 0 → 부부 굶주림 누적 + 번식 완전 차단
+        Feeding.Household famine = new Feeding.Household();
+        famine.father = member(Sex.MALE, LifeStage.ADULT, 0.0, 0.0);
+        famine.wives.add(member(Sex.FEMALE, LifeStage.ADULT, 0.0, 0.0));
+        DailyCycle.DayResult r3 = DailyCycle.settleFamily(famine);
+        boolean famineOk = !r3.reproductionUnlocked && r3.feeding.starved.size() == 2
+                && famine.father.ind.hungerCount() == 1;
+        report.add("cycle/흉년번식차단", famineOk,
+                "수확 0 → 굶주림↑·번식 차단",
+                "굶은이 " + r3.feeding.starved.size() + " · 번식 " + yn(r3.reproductionUnlocked));
+
+        // 4) 자식 우선: 창고가 남편+자식만 감당 → 아내 굶고 잉여 없음(번식 막힘)
+        Feeding.Household withKid = new Feeding.Household();
+        withKid.father = member(Sex.MALE, LifeStage.ADULT, 2.0, 0.0);
+        withKid.children.add(member(Sex.MALE, LifeStage.BOY, 0.0, 0.0)); // 소모 0.5
+        withKid.wives.add(member(Sex.FEMALE, LifeStage.ADULT, 0.0, 0.0));
+        DailyCycle.DayResult r4 = DailyCycle.settleFamily(withKid);
+        boolean kidOk = r4.feeding.fed.contains(withKid.children.get(0))
+                && r4.feeding.starved.contains(withKid.wives.get(0))
+                && !r4.reproductionUnlocked;
+        report.add("cycle/자식우선", kidOk,
+                "창고 부족 → 자식 먼저·아내 굶음·번식 막힘",
+                "자식 " + fedStr(r4.feeding, withKid.children.get(0))
+                        + " · 아내 " + fedStr(r4.feeding, withKid.wives.get(0)));
+
+        // 5) 연속 흉년 → 사망: 이미 이틀 굶은 아내가 또 굶으면 3일 → 사망(부부 해체)
+        Feeding.Household starve = new Feeding.Household();
+        starve.father = member(Sex.MALE, LifeStage.ADULT, 1.0, 0.0);
+        Feeding.Member wife = member(Sex.FEMALE, LifeStage.ADULT, 0.0, 0.0);
+        wife.ind.setHungerCount(2);
+        starve.wives.add(wife);
+        DailyCycle.DayResult r5 = DailyCycle.settleFamily(starve);
+        boolean deathOk = r5.feeding.died.contains(wife) && wife.dead && !r5.reproductionUnlocked;
+        report.add("cycle/연속흉년사망", deathOk,
+                "3일 연속 굶음 → 아내 사망·번식 불가",
+                "아내 굶주림 " + wife.ind.hungerCount() + " · 사망 " + yn(wife.dead));
+
+        // 6) 홀몸 방랑자 자급: 거처·짝 없는 성년은 스스로 수확해 자기부터 먹는다(번식은 당연히 없음)
+        Feeding.Household lone = new Feeding.Household();
+        lone.father = member(Sex.MALE, LifeStage.ADULT, 2.0, 0.0);
+        DailyCycle.DayResult r6 = DailyCycle.settleFamily(lone);
+        boolean loneOk = r6.feeding.fed.contains(lone.father) && !r6.reproductionUnlocked;
+        report.add("cycle/홀몸자급", loneOk,
+                "독신 성년 자급자족·번식 없음",
+                "본인 " + fedStr(r6.feeding, lone.father) + " · 번식 " + yn(r6.reproductionUnlocked));
     }
 
     private static Feeding.Member member(Sex sex, LifeStage stage, double harvest, double activity,

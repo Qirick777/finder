@@ -44,6 +44,7 @@ public final class Stages {
         put(new MatingStage());
         put(new SettlementStage());
         put(new ReproductionStage());
+        put(new StarvationStage());
         put(new ParentingCareStage());
         put(new ParentingNeglectStage());
     }
@@ -349,12 +350,12 @@ public final class Stages {
         }
     }
 
-    // ── 시나리오: 번식 — 정착 부부가 자식을 출산(세대 이어짐) ──
+    // ── 시나리오: 번식 — 정착 부부가 식량 잉여 확보 시 자식을 출산(세대 이어짐) ──
     static final class ReproductionStage implements Stage {
         @Override public String name() { return "reproduction"; }
-        @Override public String description() { return "정착 부부 → 자식 출산"; }
+        @Override public String description() { return "정착 부부 + 잉여식량 → 자식 출산"; }
         @Override public List<String> expected() { return List.of("birth"); }
-        @Override public int tickBudget() { return 140; }
+        @Override public int tickBudget() { return 200; }
 
         @Override
         public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
@@ -363,10 +364,39 @@ public final class Stages {
             MimicEntity female = spawnMimic(level, anchor.add(1.0, 0, 0), matingReady(Sex.FEMALE), LifeStage.ADULT);
             if (male != null) {
                 male.setHomePos(home); // 이미 정착(짝짓기 생략) → 바로 번식 관찰
+                male.setFastSettle(true);
+                male.setDayHarvest(10.0); // 잉여식량 확보 → 밤 정산 번식 게이트 통과
                 run.track(male);
             }
             if (female != null) {
                 female.setHomePos(home);
+                female.setFastSettle(true);
+                female.setDayHarvest(10.0);
+                run.watch(female);
+            }
+        }
+    }
+
+    // ── 시나리오: 흉년 — 식량 없는 정착 부부는 굶어 죽고 번식하지 않는다(식량 게이트 검증) ──
+    static final class StarvationStage implements Stage {
+        @Override public String name() { return "cycle_starve"; }
+        @Override public String description() { return "수확 0 정착 부부 → 아사(번식 없음)"; }
+        @Override public List<String> expected() { return List.of("settle:starved"); }
+        @Override public int tickBudget() { return 220; }
+
+        @Override
+        public void setup(ServerLevel level, Vec3 anchor, StageRun run) {
+            BlockPos home = BlockPos.containing(anchor);
+            MimicEntity male = spawnMimic(level, anchor, matingReady(Sex.MALE), LifeStage.ADULT);
+            MimicEntity female = spawnMimic(level, anchor.add(1.0, 0, 0), matingReady(Sex.FEMALE), LifeStage.ADULT);
+            if (male != null) {
+                male.setHomePos(home);
+                male.setFastSettle(true); // 수확 0 → 매 정산 굶주림↑ → 3회째 아사
+                run.watch(male);
+            }
+            if (female != null) {
+                female.setHomePos(home);
+                female.setFastSettle(true);
                 run.watch(female);
             }
         }

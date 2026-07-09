@@ -55,6 +55,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="settlement"   # Phase 4 거처 배치(거리·비겹침)
 ./gradlew evotest --args="reproduction" # Phase 4 번식 임계치·출산 상한
 ./gradlew evotest --args="parenting"    # 육아 적극성 5단계 클래스·유전
+./gradlew evotest --args="cycle"        # 하루 사이클: 밤 정산→잉여→식량 게이트 번식
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -148,7 +149,8 @@ Minecraft 표현층 (`com.evosim.mod`):
 - **`/evostage trait_audit`** — 소환 개체 30마리의 특성 부여 자동 감사(우성비율·발현수·반발위반) → 성공/실패 + 수치.
 - **`/evostage mating`** — 매력 맞는 방랑자 남녀가 실제로 짝 성립(mating:pair)하나.
 - **`/evostage settlement`** — 여러 쌍 정착 시 거처가 겹치지 않나(settlement:ok).
-- **`/evostage reproduction`** — 정착 부부가 자식을 낳나(birth).
+- **`/evostage reproduction`** — 정착 부부가 **잉여식량 확보 시** 자식을 낳나(birth).
+- **`/evostage cycle_starve`** — 수확 0 정착 부부가 굶어 죽고 번식 못 하나(settle:starved).
 - **`/evostage parenting_care`** — 적극 육아자가 유아를 먹여 살리나(infant:fed).
 - **`/evostage parenting_neglect`** — 방치된 유아가 아사하나(infant:starved).
 
@@ -176,7 +178,7 @@ AI에게 검증**시킬 수 있다. 기본 꺼짐(오버헤드 0).
   - [x] a. 순수 로직: 시간대 스케줄·행동 우선순위·헤드리스 시뮬, `/evotest simulate` `/evodebug trace`
   - [x] b. 마크 표현층: 미믹 개체(플레이어 형태)·스폰에그·`/evosim spawn`·기본 배회 AI (runClient 눈 확인)
         · 외형 구분: 여성=알렉스(슬림)/남성=스티브, 유아=아기비율(머리 큼), 소년=키 작게, 성년=기본
-  - [ ] c. (Phase 3와 함께) BehaviorDecision→실제 잔디채집·동물사냥 goal 연동
+  - [x] c. 시간대 goal 연동: 노동=채집/사냥 배회(수확 누적)·밤=귀가·취침=거처 대기 (하루 리듬 §16)
 - [x] **Phase 3 — 생존 루프 (식량·정산·수명·전투)**
   - [x] 순수: 전투 3층위·밤 정산·생애단계 능력·여성 페널티·세대 수명·상속
         (`/evotest combat` `feeding` `lifecycle` `lifespan`)
@@ -192,7 +194,14 @@ AI에게 검증**시킬 수 있다. 기본 꺼짐(오버헤드 0).
   - [x] 짝 성립 하트 이펙트 + in-world 번식(정착 부부가 자식 출산, 세대 이어짐)
   - [x] 육아 적극성 5단계(남녀발현 세트·슬롯 독립 유전) + 유아 돌봄/아사(하루 급식 시각 기준),
         `/evotest parenting`
-  - [ ] 일부다처(상향혼)·경쟁/평화·밤 정산 연동(번식 잉여식량 게이트)·수명 in-world 적용
+  - [ ] 일부다처(상향혼)·경쟁/평화·수명 in-world 적용
+- [x] **하루 사이클 통합 (식량 루프 in-world)**
+  - [x] 순수: `DailyCycle.settleFamily` = 밤 정산(창고 분배·굶주림·아사) + 잉여→**식량 게이트 번식**,
+        `/evotest cycle` (풍족→번식·근근→막힘·흉년→아사·자식우선·홀몸자급 6종)
+  - [x] 표현층: 낮 채집/사냥 수확 누적(배율대로) → 밤 정산(가족 대표가 `DailyCycle` 구동) →
+        굶주림·아사 반영 → **잉여 확보 시에만** 출산. 번식이 데모 쿨다운에서 식량 게이트로 전환
+  - [x] 자동검증 `/evostage reproduction`(식량 확보→출산)·`cycle_starve`(수확 0→아사·번식 없음)
+  - [x] 검사봉 짝/가족창고 모드에 식량(오늘수확·정산잉여·먹음/굶음) 표시, 관찰 로그에 `정산` 기록
 - [~] **Phase 5 — 자연 관찰 (관측 도구 + 로그)**
   - [x] 순수: 전역 하루 구간 `Schedule.globalPhase` (오프셋 없는 시계·로그용), `/evotest simulate`(전역시간)
   - [x] 무작위 특성 남녀쌍 소환 `/evosim wildpairs [쌍수]`

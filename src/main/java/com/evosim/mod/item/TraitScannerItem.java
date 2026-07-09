@@ -3,6 +3,7 @@ package com.evosim.mod.item;
 import com.evosim.core.Category;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Individual;
+import com.evosim.core.Reproduction;
 import com.evosim.core.Sex;
 import com.evosim.core.Tag;
 import com.evosim.core.Trait;
@@ -110,6 +111,12 @@ public class TraitScannerItem extends Item {
         String famText = family <= 1 ? "독신/방랑" : family + "명 동거";
         player.displayClientMessage(Component.literal("가족: " + famText)
                 .withStyle(ChatFormatting.AQUA), false);
+
+        player.displayClientMessage(Component.literal(String.format(
+                        "식량: 오늘수확 %.2f · 지난정산잉여 %.1f · %s (잉여≥%.1f면 번식)",
+                        mimic.getDayHarvest(), mimic.getLastSurplus(),
+                        mimic.wasLastFed() ? "먹음" : "굶음", Reproduction.BASE_THRESHOLD))
+                .withStyle(mimic.wasLastFed() ? ChatFormatting.GREEN : ChatFormatting.RED), false);
     }
 
     // ── 거처 모드 ──
@@ -140,13 +147,18 @@ public class TraitScannerItem extends Item {
                     .withStyle(ChatFormatting.GRAY), false);
             return;
         }
-        int fam = familyAt(mimic).size();
+        List<MimicEntity> fam = familyAt(mimic);
         player.displayClientMessage(Component.literal(
-                        "거처 (" + home.getX() + "," + home.getY() + "," + home.getZ() + ") · 가족 " + fam + "명")
+                        "거처 (" + home.getX() + "," + home.getY() + "," + home.getZ() + ") · 가족 " + fam.size() + "명")
                 .withStyle(ChatFormatting.GREEN), false);
-        player.displayClientMessage(Component.literal(
-                        "창고 잔량: 0.0 (밤 정산 goal 미연동 — Phase 3 후속)")
-                .withStyle(ChatFormatting.DARK_GRAY), false);
+        double todayHarvest = 0.0;
+        for (MimicEntity m : fam) {
+            todayHarvest += m.getDayHarvest();
+        }
+        player.displayClientMessage(Component.literal(String.format(
+                        "오늘 누적수확 %.2f · 지난 밤 정산잉여 %.1f (밤 %d시경 정산)",
+                        todayHarvest, mimic.getLastSurplus(), 18))
+                .withStyle(ChatFormatting.GOLD), false);
     }
 
     /** 같은 거처(homePos)를 가리키는 미믹들 = 한 가족(§3). */

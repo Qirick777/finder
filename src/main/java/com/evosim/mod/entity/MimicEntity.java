@@ -100,6 +100,7 @@ public class MimicEntity extends PathfinderMob {
     private long lastBirthTick = -100_000L;
     private int childrenBorn = 0;
     private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시)
+    private static final double ZOMBIE_AGGRO_RANGE = 20.0; // 이 안의 임자 없는 좀비가 미믹을 노림
 
     // 유아 돌봄/아사 (육아 클래스): 하루 급식 시각에 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
     private int careHunger = 0;
@@ -246,9 +247,26 @@ public class MimicEntity extends PathfinderMob {
         if (!level().isClientSide) {
             growthTick();
             observeTooYoung();
+            attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
             infantCareTick();
+        }
+    }
+
+    /**
+     * 좀비 어그로 유도 — 인지 범위 내 <b>임자 없는</b> 좀비(타겟 없음/죽은 타겟)를 자신에게 붙인다.
+     * 이미 살아있는 대상(다른 미믹·플레이어)을 노리는 좀비는 뺏지 않는다(좀비 한 마리=한 대상, 진동 방지).
+     */
+    private void attractZombies() {
+        if ((level().getGameTime() + getId()) % 10 != 0) {
+            return; // 스태거(부하 분산)
+        }
+        for (Zombie z : level().getEntitiesOfClass(Zombie.class, getBoundingBox().inflate(ZOMBIE_AGGRO_RANGE))) {
+            var cur = z.getTarget();
+            if (cur == null || !cur.isAlive()) {
+                z.setTarget(this);
+            }
         }
     }
 

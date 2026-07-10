@@ -14,6 +14,7 @@ import com.evosim.core.Multipliers;
 import com.evosim.core.Physique;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
+import com.evosim.core.Roaming;
 import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
@@ -207,6 +208,7 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(1, new MimicBuildGoal(this));     // 거처 건축(부지로 이동·머묾)
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
+        this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
@@ -273,6 +275,16 @@ public class MimicEntity extends PathfinderMob {
 
     public void setBirthPos(BlockPos pos) {
         this.birthPos = pos;
+    }
+
+    /** 활동반경 앵커 — 거처가 있으면 거처, 없으면(방랑자) 태어난 곳. 리시가 이 지점 반경으로 묶는다. */
+    public BlockPos roamAnchor() {
+        return homePos != null ? homePos : getBirthPos();
+    }
+
+    /** 활동반경(블록) — 특성별 차등({@link Roaming}). 개체 없으면 기본값. */
+    public double roamRadius() {
+        return individual != null ? Roaming.radius(individual) : Roaming.BASE_RADIUS;
     }
 
     /** 방랑자 = 성년이면서 거처 없음 (짝 구애 대상, §9). */

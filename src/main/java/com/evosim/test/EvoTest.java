@@ -22,6 +22,7 @@ import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Physique;
 import com.evosim.core.Reproduction;
+import com.evosim.core.Roaming;
 import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
@@ -102,9 +103,10 @@ public final class EvoTest {
             case "matehome" -> matehome(report);
             case "homeresolution" -> homeresolution(report);
             case "physique" -> physique(report);
+            case "roaming" -> roaming(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -130,6 +132,7 @@ public final class EvoTest {
         matehome(report);
         homeresolution(report);
         physique(report);
+        roaming(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1321,6 +1324,25 @@ public final class EvoTest {
         }
         report.add("physique/유전등급", genOk, "등급특성 1~5·무등급 0",
                 genOk ? "정상" : "범위이탈");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest roaming — 특성별 활동반경 (설계서 §14 활동반경, 분산 방지)
+    // ──────────────────────────────────────────────────────────────
+    private static void roaming(Report report) {
+        double b = Roaming.BASE_RADIUS;
+        boolean ok = close(Roaming.radius(one(Sex.MALE)), b)                                   // 중립 32
+                && close(Roaming.radius(one(Sex.MALE, TraitInstance.of(Trait.MIGRATORY))), b * 2.0)   // 이주자 넓게
+                && close(Roaming.radius(one(Sex.MALE, TraitInstance.of(Trait.HOMEBOUND))), b * 0.5)   // 애향심 좁게
+                && close(Roaming.radius(one(Sex.MALE, TraitInstance.of(Trait.SOLITARY))), b * 1.5)    // 고독 넓게
+                && close(Roaming.radius(one(Sex.MALE, TraitInstance.of(Trait.GREGARIOUS))), b * 0.75) // 군집 좁게
+                && close(Roaming.radius(one(Sex.MALE, TraitInstance.of(Trait.MIGRATORY),
+                        TraitInstance.of(Trait.SOLITARY))), b * 3.0)                            // 이주+고독 최대
+                && close(Roaming.radius(one(Sex.MALE, TraitInstance.of(Trait.HOMEBOUND),
+                        TraitInstance.of(Trait.GREGARIOUS))), b * 0.375);                       // 애향+군집 최소
+        report.add("roaming/반경", ok,
+                "중립 32·이주 ×2·애향 ×0.5·고독 ×1.5·군집 ×0.75(조합 곱)",
+                ok ? "정상" : "어긋남");
     }
 
     /** 성별 + 등급 특성 하나만 가진 검증용 개체. */

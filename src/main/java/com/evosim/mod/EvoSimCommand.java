@@ -263,24 +263,26 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 베리 점검: 거처 둘 즉시 세우고 정원에 베리를 마구 심어 연결성 가드 동태 관찰. */
+    /** 베리 라이브 점검: 부부를 정착시켜 fastSettle 로 정산마다 경로변 헤지를 직접 심고, 익은 베리를 수확. */
     private static int stageBerry(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
-        level.setDayTime(2000L);
-        int total = 0;
-        int[][] spots = {{-6, 0}, {8, 4}}; // 거처 둘(사이 정원이 겹쳐 가드 관찰)
-        for (int[] s : spots) {
-            BlockPos home = BlockPos.containing(b.add(s[0], 0, s[1]));
-            MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
-            if (a != null) {
-                a.debugSettleWithTent(home, Direction.NORTH);
-                total += a.plantBerries(level, 999); // 상한 무시하고 링을 꽉 채워 관찰
-            }
+        level.setDayTime(2000L); // 노동 시간대(채집·수확 활성)
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.6, 0, 0), Sex.FEMALE);
+        if (m != null && f != null) {
+            m.debugSettleWithTent(home, Direction.NORTH);
+            f.debugSettleWithTent(home, Direction.NORTH);
+            m.debugMarryTo(f);
+            m.setFastSettle(true);
+            f.setFastSettle(true);
+            m.addHarvest(30.0);               // 큰 잉여 → 정산(≈2초)마다 헤지 심기
+            m.debugSeedRipeBerries(level, 4); // 익은 베리 씨앗 → 즉시 수확 관찰
         }
-        final int t = total;
-        tell(ctx.getSource(), "베리 점검: 거처 2채 + 정원에 베리 " + t + "그루 심음(연결성 가드). "
-                + "덤불이 빽빽해도 바깥으로 통하는 길이 항상 남는지 확인. 익으면 미믹이 수확(재생 식량).");
+        tell(ctx.getSource(), "베리 라이브: 부부가 fastSettle(≈2초)로 입구 앞 통로 양옆에 헤지를 직접 심습니다"
+                + "(안→밖 줄지어). 통로는 항상 열려 있고, 익은(빨간) 베리는 미믹이 수확 → age 리셋. "
+                + "AI가 심고 수확하는 동태를 관찰하세요.");
         return 1;
     }
 

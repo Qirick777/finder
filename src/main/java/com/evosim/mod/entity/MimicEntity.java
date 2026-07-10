@@ -848,33 +848,49 @@ public class MimicEntity extends PathfinderMob {
                 (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
     }
 
-    // ── 달콤한 베리 농장 (재생 식량 + 연결성 가드) ──
-    private static final int BERRY_CAP = 12;      // 거처당 베리 상한(도배 억제)
-    private static final int BERRY_RING_MIN = 2;  // 집에서 최소 반경(붙지 않게)
-    private static final int BERRY_RING_MAX = 8;   // 최대 반경(정원 범위)
-    private static final int BERRY_SPACING = 2;    // 덤불 간 최소 간격
+    // ── 달콤한 베리 농장 (경로변 일렬 식재 + 연결성 가드) ──
+    private static final int BERRY_CAP = 12;   // 거처당 베리 상한(도배 억제)
+    private static final int PATH_START = 4;    // 입구(모닥불) 너머 경로 시작 오프셋
+    private static final int PATH_LEN = 16;      // 경로 길이(슬롯 t 범위)
     private static final int GY_UP = 4, GY_DOWN = 8; // 지면 탐색 상·하 범위
 
     /**
-     * 거처 주변 정원에 베리 {@code maxCount}그루까지 심는다. 각 후보 칸은 (1) 심을 지면·자리 (2) 간격
-     * (3) <b>연결성 가드</b>(이 칸을 막아도 통로가 안 갈라짐)를 통과해야 한다. 실제 심은 수 반환.
+     * 경로변 헤지 슬롯의 (x,z) — 입구(전방) 앞으로 뻗는 <b>중앙 통로 양옆</b>(±1·±2칸), 안쪽→바깥 순.
+     * 통로 자신(경로 타일)은 슬롯에 없으므로 <b>절대 심지 않아</b> 항상 열린 길로 남는다(줄지어 식재).
      */
-    public int plantBerries(ServerLevel sl, int maxCount) {
+    private java.util.List<int[]> berrySlots() {
+        java.util.List<int[]> out = new java.util.ArrayList<>();
+        if (homePos == null) {
+            return out;
+        }
+        Direction facing = getHomeFacingDir();
+        net.minecraft.core.Vec3i d = facing.getNormal();               // 전방(경로 방향)
+        net.minecraft.core.Vec3i n = facing.getClockWise().getNormal(); // 옆(수직)
+        for (int t = PATH_START; t < PATH_START + PATH_LEN; t += 2) {  // 한 칸 걸러(경로 방향 간격)
+            int px = homePos.getX() + d.getX() * t;
+            int pz = homePos.getZ() + d.getZ() * t;
+            for (int w = 1; w <= 2; w++) {
+                for (int side = -1; side <= 1; side += 2) {
+                    out.add(new int[] {px + n.getX() * side * w, pz + n.getZ() * side * w});
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 경로변 슬롯에 베리를 {@code maxCount}그루까지 안쪽부터 심는다(줄이 안→밖으로 자람). 심은 수 반환. */
+    public int plantBerriesAlongPath(ServerLevel sl, int maxCount) {
         if (homePos == null || maxCount <= 0) {
             return 0;
         }
         int planted = 0;
         int refY = homePos.getY();
-        int r = BERRY_RING_MAX;
-        for (int dx = -r; dx <= r && planted < maxCount; dx++) {
-            for (int dz = -r; dz <= r && planted < maxCount; dz++) {
-                int d2 = dx * dx + dz * dz;
-                if (d2 < BERRY_RING_MIN * BERRY_RING_MIN || d2 > r * r) {
-                    continue; // 링(고리) 안에서만
-                }
-                if (tryPlantBerry(sl, homePos.getX() + dx, homePos.getZ() + dz, refY)) {
-                    planted++;
-                }
+        for (int[] s : berrySlots()) {
+            if (planted >= maxCount) {
+                break;
+            }
+            if (tryPlantBerry(sl, s[0], s[1], refY)) {
+                planted++;
             }
         }
         return planted;
@@ -894,10 +910,7 @@ public class MimicEntity extends PathfinderMob {
         if (!(occ.isAir() || isFillable(occ))) {
             return false; // 자리 비어 있어야
         }
-        if (hasBerryNear(sl, spot)) {
-            return false; // 간격 규칙
-        }
-        // 연결성 가드: 이 칸을 막아도(베리) 통로가 두 조각으로 안 갈라지는가.
+        // 최종 안전판: 이 칸을 막아도(베리) 통로가 두 조각으로 안 갈라지는가.
         if (!Connectivity.keepsConnectivity(walkableRing(sl, x, z, refY))) {
             return false;
         }
@@ -906,37 +919,46 @@ public class MimicEntity extends PathfinderMob {
         return true;
     }
 
-    /** 거처 귀속 베리 그루 수(정원 반경 내). */
+    /** 거처 귀속 베리 그루 수(헤지 슬롯 기준 — 정확·저비용). */
     public int countBerries(ServerLevel sl) {
         if (homePos == null) {
             return 0;
         }
-        int n = 0;
-        int r = BERRY_RING_MAX;
-        for (int dx = -r; dx <= r; dx++) {
-            for (int dz = -r; dz <= r; dz++) {
-                for (int dy = -1; dy <= 2; dy++) {
-                    if (sl.getBlockState(homePos.offset(dx, dy, dz)).is(Blocks.SWEET_BERRY_BUSH)) {
-                        n++;
-                    }
-                }
+        int refY = homePos.getY();
+        int c = 0;
+        for (int[] s : berrySlots()) {
+            int g = groundY(sl, s[0], s[1], refY);
+            if (g != Integer.MIN_VALUE
+                    && sl.getBlockState(new BlockPos(s[0], g + 1, s[1])).is(Blocks.SWEET_BERRY_BUSH)) {
+                c++;
             }
         }
-        return n;
+        return c;
     }
 
-    private boolean hasBerryNear(ServerLevel sl, BlockPos spot) {
-        for (int dx = -BERRY_SPACING; dx <= BERRY_SPACING; dx++) {
-            for (int dz = -BERRY_SPACING; dz <= BERRY_SPACING; dz++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if ((dx != 0 || dz != 0 || dy != 0)
-                            && sl.getBlockState(spot.offset(dx, dy, dz)).is(Blocks.SWEET_BERRY_BUSH)) {
-                        return true;
-                    }
-                }
+    /** 점검용 — 헤지 슬롯 앞쪽 몇 칸에 <b>다 익은</b> 베리를 심어 즉시 수확 관찰이 되게 한다. */
+    public void debugSeedRipeBerries(ServerLevel sl, int count) {
+        if (homePos == null) {
+            return;
+        }
+        int refY = homePos.getY();
+        int done = 0;
+        for (int[] s : berrySlots()) {
+            if (done >= count) {
+                break;
+            }
+            int g = groundY(sl, s[0], s[1], refY);
+            if (g == Integer.MIN_VALUE) {
+                continue;
+            }
+            BlockPos spot = new BlockPos(s[0], g + 1, s[1]);
+            if (sl.getBlockState(spot).isAir()
+                    && canPlaceBerryOn(sl.getBlockState(new BlockPos(s[0], g, s[1])))) {
+                sl.setBlockAndUpdate(spot, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                        .setValue(SweetBerryBushBlock.AGE, 3));
+                done++;
             }
         }
-        return false;
     }
 
     private static boolean canPlaceBerryOn(BlockState s) {
@@ -1463,9 +1485,9 @@ public class MimicEntity extends PathfinderMob {
             BerryEconomy.Plan bp = BerryEconomy.plan(res.surplus, reserve, bushCount, BERRY_CAP,
                     res.reproThreshold);
             if (bp.plant() > 0) {
-                int done = plantBerries(sl, bp.plant());
+                int done = plantBerriesAlongPath(sl, bp.plant());
                 if (done > 0) {
-                    SimEvents.event(this, "베리", "정원 +" + done + "그루 (누적 "
+                    SimEvents.event(this, "베리", "경로변 헤지 +" + done + "그루 (누적 "
                             + (bushCount + done) + "/" + BERRY_CAP + ")");
                 }
             }

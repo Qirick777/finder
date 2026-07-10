@@ -181,8 +181,15 @@ public class MimicForageGoal extends Goal {
         return best;
     }
 
-    /** 채집물 한 칸 탐색 — <b>다 익은 옆 정원 베리를 먼저</b>(자기 밭 우선), 없으면 주변 풀 무작위 표본. */
+    /**
+     * 채집물 한 칸 탐색 — 우선순위: ① <b>자기 거처 옆 정원의 다 익은 베리</b>(멀리 있어도 되돌아와 수확),
+     * ② 근처(±5) 아무 익은 베리, ③ 주변 풀 무작위 표본.
+     */
     private BlockPos findForage(boolean herbalist) {
+        BlockPos garden = ripeHomeBerry();
+        if (garden != null) {
+            return garden; // 내 밭이 익었으면 어디 있든 그리로 가서 딴다
+        }
         BlockPos base = mob.blockPosition();
         BlockPos berry = nearestRipeBerry(base);
         if (berry != null) {
@@ -195,6 +202,23 @@ public class MimicForageGoal extends Goal {
             BlockPos p = base.offset(dx, dy, dz);
             if (forageable(mob.level().getBlockState(p), herbalist)) {
                 return p;
+            }
+        }
+        return null;
+    }
+
+    /** 자기 거처 옆 정원(x=±3, 8칸)에서 다 익은 베리 한 칸. 없으면 null. 위치와 무관하게 정확히 조준한다. */
+    private BlockPos ripeHomeBerry() {
+        BlockPos home = mob.getHomePos();
+        if (home == null) {
+            return null;
+        }
+        for (BlockPos tile : HomeStructure.berryTiles(home, mob.getHomeFacingDir())) {
+            for (int dy = 3; dy >= -3; dy--) {
+                BlockPos p = tile.offset(0, dy, 0);
+                if (isRipeBerry(mob.level().getBlockState(p))) {
+                    return p;
+                }
             }
         }
         return null;

@@ -769,39 +769,50 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
-    private static final int MAX_FLATTEN_FILL = 16; // 하단 메움 최대 깊이(협곡 폭주 방지)
+    private static final int MAX_FLATTEN = 16; // 메움·파냄 최대 깊이(협곡 폭주 방지)
+    private static final net.minecraft.world.level.levelgen.Heightmap.Types SURFACE_MAP =
+            net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
 
-    /** 발자국(하단 사각형) 지형의 최고점 = 기단 Y. 이 위에 지으면 어떤 칸도 파묻히지 않는다. */
+    /**
+     * 기단 Y = 발자국 지표들의 <b>중앙값</b>(median) + 1. 중앙값에 맞추면 낮은 칸 메움량 + 높은 칸 파냄량의
+     * 총합이 최소가 된다(L1 최소화점=median) → 흙을 가장 덜 쓰고 덜 파는 방향.
+     */
     private static int terrainBaseY(ServerLevel sl, BlockPos site, Direction facing) {
-        int base = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                site.getX(), site.getZ());
-        for (BlockPos col : HomeStructure.footprint(site, facing)) {
-            int h = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    col.getX(), col.getZ());
-            if (h > base) {
-                base = h;
-            }
+        List<BlockPos> foot = HomeStructure.footprint(site, facing);
+        int[] surf = new int[foot.size()];
+        for (int i = 0; i < foot.size(); i++) {
+            surf[i] = sl.getHeight(SURFACE_MAP, foot.get(i).getX(), foot.get(i).getZ()) - 1; // 지표 블록 Y
         }
-        return base;
+        java.util.Arrays.sort(surf);
+        return surf[surf.length / 2] + 1; // 하단 딛는 레벨(기단-1)=중앙값 지표
     }
 
     /**
-     * 하단 평탄화 — 기단(home.Y)보다 낮은 발자국 칸을 흙으로 메워 하단이 전부 지면에 닿게 한다(공중부양
-     * 방지). 최고점을 기단으로 잡으므로 파낼 필요 없이 메우기만 하면 되어 지형 개변이 최소다. 흙 효과음 재생.
+     * 하단 평탄화 — 기단보다 낮은 칸은 흙으로 <b>메우고</b>, 높은 칸은 구조가 파묻히지 않게 <b>파낸다</b>.
+     * 기단이 중앙값이라 메움·파냄 총량이 최소다. 하단이 전부 지면에 닿고(공중부양 방지) 벽이 흙에 묻히지
+     * 않는다(매립 방지). 파냄은 destroyBlock 이 흙 파괴음·파티클을, 메움은 별도 흙 효과음을 낸다.
      */
     private void flattenSite(ServerLevel sl, BlockPos home, Direction facing) {
-        int base = home.getY();
+        int target = home.getY() - 1; // 하단이 딛어야 할 지면 레벨
         boolean played = false;
         for (BlockPos col : HomeStructure.footprint(home, facing)) {
-            int h = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    col.getX(), col.getZ());
-            for (int y = Math.max(h, base - MAX_FLATTEN_FILL); y <= base - 1; y++) {
-                BlockPos p = new BlockPos(col.getX(), y, col.getZ());
-                if (isFillable(sl.getBlockState(p))) {
-                    sl.setBlockAndUpdate(p, Blocks.DIRT.defaultBlockState());
-                    if (!played) {
-                        playDirtSound(sl, p);
-                        played = true;
+            int surface = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
+            if (surface < target) {
+                for (int y = Math.max(surface + 1, target - MAX_FLATTEN); y <= target; y++) {
+                    BlockPos p = new BlockPos(col.getX(), y, col.getZ());
+                    if (isFillable(sl.getBlockState(p))) {
+                        sl.setBlockAndUpdate(p, Blocks.DIRT.defaultBlockState());
+                        if (!played) {
+                            playDirtSound(sl, p);
+                            played = true;
+                        }
+                    }
+                }
+            } else if (surface > target) {
+                for (int y = target + 1; y <= Math.min(surface, target + 1 + MAX_FLATTEN); y++) {
+                    BlockPos p = new BlockPos(col.getX(), y, col.getZ());
+                    if (isDiggable(sl.getBlockState(p))) {
+                        sl.destroyBlock(p, false); // 드랍 없음 + 흙 파괴음·파티클 자동
                     }
                 }
             }
@@ -813,6 +824,17 @@ public class MimicEntity extends PathfinderMob {
         return st.isAir() || !st.getFluidState().isEmpty()
                 || st.is(Blocks.GRASS) || st.is(Blocks.TALL_GRASS)
                 || st.is(Blocks.FERN) || st.is(Blocks.LARGE_FERN) || st.is(Blocks.SNOW);
+    }
+
+    /** 파낼 수 있는 칸인가(자연 지형만 — 구조 블록·모닥불·기반암은 보호). */
+    private static boolean isDiggable(net.minecraft.world.level.block.state.BlockState st) {
+        if (st.isAir() || !st.getFluidState().isEmpty()) {
+            return false;
+        }
+        if (st.is(Blocks.WHITE_WOOL) || st.is(Blocks.OAK_FENCE) || st.is(Blocks.BEDROCK)) {
+            return false;
+        }
+        return !(st.getBlock() instanceof MimicHearthBlock);
     }
 
     /** 흙 파괴(정지 작업) 효과음. */

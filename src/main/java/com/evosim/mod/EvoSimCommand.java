@@ -69,8 +69,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lonepair").executes(EvoSimCommand::stageLonePair))
                 .then(Commands.literal("abandon").executes(EvoSimCommand::stageAbandon))
                 .then(Commands.literal("reuse").executes(EvoSimCommand::stageReuse))
-                .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate))
-                .then(Commands.literal("berry").executes(EvoSimCommand::stageBerry)));
+                .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -260,29 +259,6 @@ public final class EvoSimCommand {
         }
         tell(ctx.getSource(), "이주자 점검: 근처 빈 거처가 있어도 이주자×이주자는 반드시 신축(재사용 0%). "
                 + "기본×2보다 더 멀리(×3) 부지를 잡아 천막을 새로 짓습니다.");
-        return 1;
-    }
-
-    /** 베리 라이브 점검: 부부를 정착시켜 fastSettle 로 정산마다 경로변 헤지를 직접 심고, 익은 베리를 수확. */
-    private static int stageBerry(CommandContext<CommandSourceStack> ctx) {
-        ServerLevel level = ctx.getSource().getLevel();
-        Vec3 b = ctx.getSource().getPosition();
-        level.setDayTime(2000L); // 노동 시간대(채집·수확 활성)
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
-        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
-        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.6, 0, 0), Sex.FEMALE);
-        if (m != null && f != null) {
-            m.debugSettleWithTent(home, Direction.NORTH);
-            f.debugSettleWithTent(home, Direction.NORTH);
-            m.debugMarryTo(f);
-            m.setFastSettle(true);
-            f.setFastSettle(true);
-            m.addHarvest(30.0);               // 큰 잉여 → 정산(≈2초)마다 헤지 심기
-            m.debugSeedRipeBerries(level, 4); // 익은 베리 씨앗 → 즉시 수확 관찰
-        }
-        tell(ctx.getSource(), "베리 라이브: 부부가 fastSettle(≈2초)로 입구 앞 통로 양옆에 헤지를 직접 심습니다"
-                + "(안→밖 줄지어). 통로는 항상 열려 있고, 익은(빨간) 베리는 미믹이 수확 → age 리셋. "
-                + "AI가 심고 수확하는 동태를 관찰하세요.");
         return 1;
     }
 

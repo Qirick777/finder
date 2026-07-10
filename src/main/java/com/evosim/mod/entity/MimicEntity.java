@@ -1,7 +1,5 @@
 package com.evosim.mod.entity;
 
-import com.evosim.core.BerryEconomy;
-import com.evosim.core.Connectivity;
 import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
@@ -64,8 +62,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.SweetBerryBushBlock;
-import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -848,175 +844,6 @@ public class MimicEntity extends PathfinderMob {
                 (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
     }
 
-    // ── 달콤한 베리 농장 (경로변 일렬 식재 + 연결성 가드) ──
-    private static final int BERRY_CAP = 12;   // 거처당 베리 상한(도배 억제)
-    private static final int PATH_START = 4;    // 입구(모닥불) 너머 경로 시작 오프셋
-    private static final int PATH_LEN = 16;      // 경로 길이(슬롯 t 범위)
-    private static final int GY_UP = 4, GY_DOWN = 8; // 지면 탐색 상·하 범위
-
-    /**
-     * 경로변 헤지 슬롯의 (x,z) — 입구(전방) 앞으로 뻗는 <b>중앙 통로 양옆</b>(±1·±2칸), 안쪽→바깥 순.
-     * 통로 자신(경로 타일)은 슬롯에 없으므로 <b>절대 심지 않아</b> 항상 열린 길로 남는다(줄지어 식재).
-     */
-    private java.util.List<int[]> berrySlots() {
-        java.util.List<int[]> out = new java.util.ArrayList<>();
-        if (homePos == null) {
-            return out;
-        }
-        Direction facing = getHomeFacingDir();
-        net.minecraft.core.Vec3i d = facing.getNormal();               // 전방(경로 방향)
-        net.minecraft.core.Vec3i n = facing.getClockWise().getNormal(); // 옆(수직)
-        for (int t = PATH_START; t < PATH_START + PATH_LEN; t += 2) {  // 한 칸 걸러(경로 방향 간격)
-            int px = homePos.getX() + d.getX() * t;
-            int pz = homePos.getZ() + d.getZ() * t;
-            for (int w = 1; w <= 2; w++) {
-                for (int side = -1; side <= 1; side += 2) {
-                    out.add(new int[] {px + n.getX() * side * w, pz + n.getZ() * side * w});
-                }
-            }
-        }
-        return out;
-    }
-
-    /** 경로변 슬롯에 베리를 {@code maxCount}그루까지 안쪽부터 심는다(줄이 안→밖으로 자람). 심은 수 반환. */
-    public int plantBerriesAlongPath(ServerLevel sl, int maxCount) {
-        if (homePos == null || maxCount <= 0) {
-            return 0;
-        }
-        int planted = 0;
-        int refY = homePos.getY();
-        for (int[] s : berrySlots()) {
-            if (planted >= maxCount) {
-                break;
-            }
-            if (tryPlantBerry(sl, s[0], s[1], refY)) {
-                planted++;
-            }
-        }
-        return planted;
-    }
-
-    private boolean tryPlantBerry(ServerLevel sl, int x, int z, int refY) {
-        int g = groundY(sl, x, z, refY);
-        if (g == Integer.MIN_VALUE) {
-            return false;
-        }
-        BlockPos ground = new BlockPos(x, g, z);
-        BlockPos spot = ground.above();
-        if (!canPlaceBerryOn(sl.getBlockState(ground))) {
-            return false; // 잔디/흙 위에만
-        }
-        BlockState occ = sl.getBlockState(spot);
-        if (!(occ.isAir() || isFillable(occ))) {
-            return false; // 자리 비어 있어야
-        }
-        // 최종 안전판: 이 칸을 막아도(베리) 통로가 두 조각으로 안 갈라지는가.
-        if (!Connectivity.keepsConnectivity(walkableRing(sl, x, z, refY))) {
-            return false;
-        }
-        sl.setBlockAndUpdate(spot, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                .setValue(SweetBerryBushBlock.AGE, 1));
-        return true;
-    }
-
-    /** 거처 귀속 베리 그루 수(헤지 슬롯 기준 — 정확·저비용). */
-    public int countBerries(ServerLevel sl) {
-        if (homePos == null) {
-            return 0;
-        }
-        int refY = homePos.getY();
-        int c = 0;
-        for (int[] s : berrySlots()) {
-            int g = groundY(sl, s[0], s[1], refY);
-            if (g != Integer.MIN_VALUE
-                    && sl.getBlockState(new BlockPos(s[0], g + 1, s[1])).is(Blocks.SWEET_BERRY_BUSH)) {
-                c++;
-            }
-        }
-        return c;
-    }
-
-    /** 점검용 — 헤지 슬롯 앞쪽 몇 칸에 <b>다 익은</b> 베리를 심어 즉시 수확 관찰이 되게 한다. */
-    public void debugSeedRipeBerries(ServerLevel sl, int count) {
-        if (homePos == null) {
-            return;
-        }
-        int refY = homePos.getY();
-        int done = 0;
-        for (int[] s : berrySlots()) {
-            if (done >= count) {
-                break;
-            }
-            int g = groundY(sl, s[0], s[1], refY);
-            if (g == Integer.MIN_VALUE) {
-                continue;
-            }
-            BlockPos spot = new BlockPos(s[0], g + 1, s[1]);
-            if (sl.getBlockState(spot).isAir()
-                    && canPlaceBerryOn(sl.getBlockState(new BlockPos(s[0], g, s[1])))) {
-                sl.setBlockAndUpdate(spot, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                        .setValue(SweetBerryBushBlock.AGE, 3));
-                done++;
-            }
-        }
-    }
-
-    private static boolean canPlaceBerryOn(BlockState s) {
-        return s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.DIRT) || s.is(Blocks.COARSE_DIRT)
-                || s.is(Blocks.PODZOL) || s.is(Blocks.FARMLAND);
-    }
-
-    /** 이 컬럼에서 몹이 딛는 단단한 지면 블록의 Y (풀·베리·물 제외). 없으면 Integer.MIN_VALUE. */
-    private static int groundY(ServerLevel sl, int x, int z, int refY) {
-        for (int y = refY + GY_UP; y >= refY - GY_DOWN; y--) {
-            if (isSolidGround(sl.getBlockState(new BlockPos(x, y, z)))) {
-                return y;
-            }
-        }
-        return Integer.MIN_VALUE;
-    }
-
-    private static boolean isSolidGround(BlockState s) {
-        if (s.isAir() || !s.getFluidState().isEmpty() || s.is(Blocks.SWEET_BERRY_BUSH)) {
-            return false;
-        }
-        return !(s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS) || s.is(Blocks.FERN)
-                || s.is(Blocks.LARGE_FERN) || s.is(Blocks.SNOW));
-    }
-
-    /** 이 타일이 통행 가능한가(딛을 지면 + 위 통과 가능 + 베리·벽 아님). */
-    private static boolean tileWalkable(ServerLevel sl, int x, int z, int refY) {
-        int g = groundY(sl, x, z, refY);
-        if (g == Integer.MIN_VALUE) {
-            return false;
-        }
-        BlockState ground = sl.getBlockState(new BlockPos(x, g, z));
-        if (ground.is(Blocks.WHITE_WOOL) || ground.is(Blocks.OAK_FENCE)
-                || ground.getBlock() instanceof MimicHearthBlock) {
-            return false; // 구조물 위는 통로로 안 봄
-        }
-        BlockState occ = sl.getBlockState(new BlockPos(x, g + 1, z));
-        if (occ.is(Blocks.SWEET_BERRY_BUSH) || occ.is(Blocks.WHITE_WOOL) || occ.is(Blocks.OAK_FENCE)) {
-            return false; // 베리·벽 = 막힘
-        }
-        return occ.isAir() || isFillable(occ);
-    }
-
-    /** 후보 칸의 시계방향 8이웃 통행성 [N,NE,E,SE,S,SW,W,NW] — 높이차 ≤1만 연결로 인정. */
-    private static boolean[] walkableRing(ServerLevel sl, int cx, int cz, int refY) {
-        int[][] dir = {{0, -1}, {1, -1}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}};
-        int cg = groundY(sl, cx, cz, refY);
-        boolean[] ring = new boolean[8];
-        for (int i = 0; i < 8; i++) {
-            int nx = cx + dir[i][0];
-            int nz = cz + dir[i][1];
-            int ng = groundY(sl, nx, nz, refY);
-            ring[i] = ng != Integer.MIN_VALUE && cg != Integer.MIN_VALUE
-                    && Math.abs(ng - cg) <= 1 && tileWalkable(sl, nx, nz, refY);
-        }
-        return ring;
-    }
-
     /** 거처 모닥불 배치/재점화 (완성·이주 시). */
     private static void relightHearth(ServerLevel sl, BlockPos home, Direction facing) {
         placeHearth(sl, home, facing, true);
@@ -1478,35 +1305,6 @@ public class MimicEntity extends PathfinderMob {
         if (res.reproductionUnlocked && !starvedAny) {
             tryReproduce(sl, father);
         }
-        // 달콤한 베리: 번식 우선 뒤 남는 잉여로 정원 확장(상한까지 · 연결성 가드로 길 안 막음).
-        if (!starvedAny && homePos != null) {
-            int bushCount = countBerries(sl);
-            double reserve = familyReserve(h);
-            BerryEconomy.Plan bp = BerryEconomy.plan(res.surplus, reserve, bushCount, BERRY_CAP,
-                    res.reproThreshold);
-            if (bp.plant() > 0) {
-                int done = plantBerriesAlongPath(sl, bp.plant());
-                if (done > 0) {
-                    SimEvents.event(this, "베리", "경로변 헤지 +" + done + "그루 (누적 "
-                            + (bushCount + done) + "/" + BERRY_CAP + ")");
-                }
-            }
-        }
-    }
-
-    /** 가족 하루 소모량 합(예비식량 = 잉여에서 남길 양). */
-    private static double familyReserve(Feeding.Household h) {
-        double r = 0.0;
-        if (h.father != null) {
-            r += h.father.consumption();
-        }
-        for (Feeding.Member c : h.children) {
-            r += c.consumption();
-        }
-        for (Feeding.Member w : h.wives) {
-            r += w.consumption();
-        }
-        return r;
     }
 
     /** 같은 거처(또는 독신이면 자기 자신)를 공유하는 가족 구성원. */
@@ -1729,10 +1527,10 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 사망 순간 관찰 로그 (누가·무엇에·어디서 죽었나 §14). 전투 사망·몬스터 처치 등 원인 포함. */
-    /** 질식(벽 낌)·베리 가시 데미지 무시 — 건축 중 겹침·자기 베리밭에서 다치지 않게 한다. */
+    /** 질식(벽 낌) 데미지 무시 — 건축 연출 중 서로/블럭에 잠시 겹쳐도 질식사하지 않게 한다. */
     @Override
     public boolean hurt(DamageSource source, float amount) {
-        if (source.is(DamageTypes.IN_WALL) || source.is(DamageTypes.SWEET_BERRY_BUSH)) {
+        if (source.is(DamageTypes.IN_WALL)) {
             return false;
         }
         return super.hurt(source, amount);

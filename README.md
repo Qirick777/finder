@@ -59,8 +59,6 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="physique"     # 신체 등급(I~V) 강도·등급 선호 매칭
 ./gradlew evotest --args="roaming"      # 특성별 활동반경(이주/애향/고독/군집)
 ./gradlew evotest --args="ability"      # 능력특성 재분류(성향 슬롯 공유)·언변 매력
-./gradlew evotest --args="connectivity" # 베리 설치 연결성 가드(공간 분리 금지)
-./gradlew evotest --args="berry"        # 베리 농장 잉여 배분(번식 우선→베리)
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 

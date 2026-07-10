@@ -73,6 +73,20 @@ public final class HomeStructure {
         return world(home, 0, 0, 3, facing);
     }
 
+    /**
+     * 하단 발자국 — 천막이 덮는 바닥 사각형(양털 벽 x=±2, z=-2..+1 + 앞 모닥불 z=+3까지)의 모든 칸을
+     * 앵커 Y로 반환. 평탄화(기단 높이 산정·하단 메움)에 쓴다. y는 home.Y, x·z만 의미 있음.
+     */
+    public static List<BlockPos> footprint(BlockPos home, Direction facing) {
+        List<BlockPos> out = new ArrayList<>();
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 3; dz++) { // -2..+1 천막 몸체 + +2 입구 + +3 모닥불
+                out.add(world(home, dx, 0, dz, facing));
+            }
+        }
+        return out;
+    }
+
     /** 로컬(dx,dy,dz, +z=전방)을 facing 회전해 월드 좌표로. 좌우 대칭이라 right 부호는 무관. */
     private static BlockPos world(BlockPos home, int dx, int dy, int dz, Direction facing) {
         Vec3i front = facing.getNormal();

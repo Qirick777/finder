@@ -645,13 +645,17 @@ public class MimicEntity extends PathfinderMob {
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
                 existing, Settlement.MIN_GAP, rng);
-        BlockPos home = new BlockPos(pos[0], anchor[1], pos[1]);
         Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
+        // 기단 높이 = 발자국 지형 '최고점'에 맞춤(파묻힘·공중부양 방지). 그보다 낮은 칸은 흙으로 메운다.
+        BlockPos site = new BlockPos(pos[0], anchor[1], pos[1]);
+        int baseY = terrainBaseY(sl, site, facing);
+        BlockPos home = new BlockPos(pos[0], baseY, pos[1]);
 
         setHomePos(home);
         other.setHomePos(home);
         homeFacing = (byte) facing.get2DDataValue();
         other.homeFacing = homeFacing;
+        flattenSite(sl, home, facing); // 하단 평탄화 — 낮은 칸 흙 메움 + 흙 효과음(하단 전부 접지)
         // 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지). 실제 분담·리더는 buildTick 이 매 틱 결정.
         this.building = true;
         this.buildReachTicks = 0;
@@ -763,6 +767,59 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         return false;
+    }
+
+    private static final int MAX_FLATTEN_FILL = 16; // 하단 메움 최대 깊이(협곡 폭주 방지)
+
+    /** 발자국(하단 사각형) 지형의 최고점 = 기단 Y. 이 위에 지으면 어떤 칸도 파묻히지 않는다. */
+    private static int terrainBaseY(ServerLevel sl, BlockPos site, Direction facing) {
+        int base = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                site.getX(), site.getZ());
+        for (BlockPos col : HomeStructure.footprint(site, facing)) {
+            int h = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    col.getX(), col.getZ());
+            if (h > base) {
+                base = h;
+            }
+        }
+        return base;
+    }
+
+    /**
+     * 하단 평탄화 — 기단(home.Y)보다 낮은 발자국 칸을 흙으로 메워 하단이 전부 지면에 닿게 한다(공중부양
+     * 방지). 최고점을 기단으로 잡으므로 파낼 필요 없이 메우기만 하면 되어 지형 개변이 최소다. 흙 효과음 재생.
+     */
+    private void flattenSite(ServerLevel sl, BlockPos home, Direction facing) {
+        int base = home.getY();
+        boolean played = false;
+        for (BlockPos col : HomeStructure.footprint(home, facing)) {
+            int h = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    col.getX(), col.getZ());
+            for (int y = Math.max(h, base - MAX_FLATTEN_FILL); y <= base - 1; y++) {
+                BlockPos p = new BlockPos(col.getX(), y, col.getZ());
+                if (isFillable(sl.getBlockState(p))) {
+                    sl.setBlockAndUpdate(p, Blocks.DIRT.defaultBlockState());
+                    if (!played) {
+                        playDirtSound(sl, p);
+                        played = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /** 흙으로 메울 수 있는 칸인가(빈 칸·유체·풀·눈만 — 기존 지면은 건드리지 않음). */
+    private static boolean isFillable(net.minecraft.world.level.block.state.BlockState st) {
+        return st.isAir() || !st.getFluidState().isEmpty()
+                || st.is(Blocks.GRASS) || st.is(Blocks.TALL_GRASS)
+                || st.is(Blocks.FERN) || st.is(Blocks.LARGE_FERN) || st.is(Blocks.SNOW);
+    }
+
+    /** 흙 파괴(정지 작업) 효과음. */
+    private static void playDirtSound(ServerLevel sl, BlockPos p) {
+        SoundType st = Blocks.DIRT.defaultBlockState().getSoundType();
+        sl.playSound(null, p, st.getBreakSound(), SoundSource.BLOCKS,
+                (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
     }
 
     /** 거처 모닥불 배치/재점화 (완성·이주 시). */

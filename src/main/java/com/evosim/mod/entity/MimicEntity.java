@@ -106,7 +106,12 @@ public class MimicEntity extends PathfinderMob {
     private boolean building = false;           // 거처 건축 중(리더/조력 공통)
     private boolean buildLeader = false;        // 건축 리더(블록 설치 담당)
     private int buildIndex = 0;                 // 건축 진행 인덱스
-    private static final int BUILD_INTERVAL = 8; // 건축 설치 주기(틱) — 한 칸씩
+    @Nullable
+    private BlockPos buildTargetPos = null;     // 리더가 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
+    private int buildReachTicks = 0;            // 현재 목표 접근 시도 누적(교착 방지 폴백용)
+    private static final int BUILD_INTERVAL = 8; // 설치 박자(틱) — 손이 닿아 있을 때 한 칸씩
+    private static final double BUILD_REACH = 2.4; // 이 수평 거리 안이어야 설치(밖이면 걸어감)
+    private static final int BUILD_REACH_TIMEOUT = 60; // 이만큼 못 닿으면 강제 설치(막힌 자리 교착 방지)
     // 인식 범위 = 신중도(엄격할수록 넓음). 노동은 근접 위주, 배회는 넓게(구애 사양서 v2 확장).
     private static final double WORK_PERCEPT_BASE = 3.0;
     private static final double WORK_PERCEPT_PER = 2.0;   // 레벨당(0~4)
@@ -735,35 +740,77 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 짓는 연출 — 리더가 부지 블록을 한 칸씩 설치, 완성되면 모닥불 점화. */
+    /**
+     * 짓는 연출 — 리더가 <b>다음 블록 자리로 직접 걸어가</b>(MimicBuildGoal) 손이 닿으면 한 칸 설치한다.
+     * 이미 채워진 칸은 건너뛴다. 닿을 수 없는 자리에서 오래 지체하면 강제 설치해 교착을 막는다. 전부
+     * 설치되면 모닥불을 점화하고 완료 처리한다.
+     */
     private void buildTick() {
         if (!building || homePos == null || individual == null
                 || !(level() instanceof ServerLevel sl)) {
             return;
         }
         if (!buildLeader) {
-            // 리더가 사라졌으면(사망) 승격, 아니면 대기.
+            // 리더가 사라졌으면(사망) 승격, 아니면 대기(조력자는 설치 안 함).
             if (hasBuildLeaderAtHome(sl)) {
                 return;
             }
             buildLeader = true;
         }
+        Direction facing = getHomeFacingDir();
+        List<HomeStructure.Placement> plan = HomeStructure.plan(homePos, facing);
+
+        // ① 다음 설치할(설치 가능한) 블록을 찾아 목표로 잡는다. 이미 채워진 칸은 통과.
+        HomeStructure.Placement target = null;
+        while (buildIndex < plan.size()) {
+            HomeStructure.Placement p = plan.get(buildIndex);
+            if (isPlaceable(sl, p.pos())) {
+                target = p;
+                break;
+            }
+            buildIndex++;
+        }
+        if (target == null) {
+            buildTargetPos = null;
+            placeHearth(sl, homePos, facing, true); // 완성 → 점화
+            finishBuilding(sl);
+            return;
+        }
+        buildTargetPos = target.pos(); // MimicBuildGoal 이 이 좌표 옆으로 리더를 데려감
+
+        // ② 손이 닿아야 설치. 못 닿으면 접근 대기(단, 오래 못 닿으면 강제 설치로 교착 방지).
+        buildReachTicks++;
+        boolean forced = buildReachTicks >= BUILD_REACH_TIMEOUT;
+        if (!withinReach(target.pos()) && !forced) {
+            return; // 아직 걸어가는 중
+        }
+        // ③ 설치 박자 — 닿아 있을 때만 소모해 한 칸씩 리듬으로 놓는다.
         if ((level().getGameTime() + getId()) % BUILD_INTERVAL != 0) {
             return;
         }
-        Direction facing = getHomeFacingDir();
-        List<HomeStructure.Placement> plan = HomeStructure.plan(homePos, facing);
-        while (buildIndex < plan.size()) {
-            HomeStructure.Placement p = plan.get(buildIndex++);
-            if (placeBuildBlock(sl, p)) {
-                swing(InteractionHand.MAIN_HAND);
-                break; // 한 틱에 한 칸(연출)
-            }
+        if (placeBuildBlock(sl, target)) {
+            swing(InteractionHand.MAIN_HAND);
         }
-        if (buildIndex >= plan.size()) {
-            placeHearth(sl, homePos, facing, true); // 완성 → 점화
-            finishBuilding(sl);
-        }
+        buildIndex++;
+        buildReachTicks = 0;
+        buildTargetPos = null;
+    }
+
+    /** 이 블록 자리에 손이 닿는가(수평 거리 기준 — 지붕 등 높은 칸은 폴백 타이머가 보완). */
+    private boolean withinReach(BlockPos p) {
+        double dx = (p.getX() + 0.5) - getX();
+        double dz = (p.getZ() + 0.5) - getZ();
+        return dx * dx + dz * dz <= BUILD_REACH * BUILD_REACH;
+    }
+
+    public boolean isBuildLeader() {
+        return buildLeader;
+    }
+
+    /** 리더가 지금 걸어가 설치할 다음 블록 좌표(없으면 null) — MimicBuildGoal 이 목적지로 사용. */
+    @Nullable
+    public BlockPos getBuildTargetPos() {
+        return buildTargetPos;
     }
 
     private boolean hasBuildLeaderAtHome(ServerLevel sl) {
@@ -777,10 +824,7 @@ public class MimicEntity extends PathfinderMob {
     }
 
     private boolean placeBuildBlock(ServerLevel sl, HomeStructure.Placement p) {
-        var cur = sl.getBlockState(p.pos());
-        boolean replaceable = cur.isAir() || cur.is(Blocks.GRASS)
-                || cur.is(Blocks.TALL_GRASS) || cur.is(Blocks.FERN) || cur.is(Blocks.SNOW);
-        if (!replaceable) {
+        if (!isPlaceable(sl, p.pos())) {
             return false; // 이미 채워짐/장애물 → 건너뜀
         }
         var state = p.token() == HomeStructure.TOKEN_FENCE
@@ -788,6 +832,13 @@ public class MimicEntity extends PathfinderMob {
                 : Blocks.WHITE_WOOL.defaultBlockState();
         sl.setBlockAndUpdate(p.pos(), state);
         return true;
+    }
+
+    /** 그 자리에 부지 블록을 놓을 수 있나(빈 칸·풀·눈만 대체). */
+    private static boolean isPlaceable(ServerLevel sl, BlockPos pos) {
+        var cur = sl.getBlockState(pos);
+        return cur.isAir() || cur.is(Blocks.GRASS) || cur.is(Blocks.TALL_GRASS)
+                || cur.is(Blocks.FERN) || cur.is(Blocks.SNOW);
     }
 
     /** 건축 완료 — 거처 구성원 전원 building 해제. */

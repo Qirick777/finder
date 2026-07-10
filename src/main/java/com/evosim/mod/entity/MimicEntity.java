@@ -115,7 +115,8 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     private BlockPos buildTargetPos = null;     // 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
     private int buildReachTicks = 0;            // 현재 목표 접근 시도 누적(교착 방지 폴백용)
-    private static final int BUILD_INTERVAL = 8; // 설치 박자(틱) — 손이 닿아 있을 때 한 칸씩
+    private int buildCooldown = 0;              // 개인 설치 박자 카운터(도착 즉시 설치, 전역 동기 아님)
+    private static final int BUILD_INTERVAL = 8; // 설치 박자(틱) — 한 칸 놓은 뒤 이만큼 쉼
     private static final double BUILD_REACH = 2.4; // 이 수평 거리 안이어야 설치(밖이면 걸어감)
     private static final int BUILD_REACH_TIMEOUT = 60; // 이만큼 못 닿으면 강제 설치(막힌 자리 교착 방지)
     // 인식 범위 = 신중도(엄격할수록 넓음). 노동은 근접 위주, 배회는 넓게(구애 사양서 v2 확장).
@@ -745,36 +746,34 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 짓는 연출 — 부부가 <b>각자 맡은 다음 블록 자리로 직접 걸어가</b>(MimicBuildGoal) 손에 든 그 블럭을
-     * 손이 닿았을 때 설치한다(설치음 재생). 담당은 인덱스 패리티로 나눠 <b>동시에·충돌 없이</b> 짓고, 다른
-     * 구성원이 있는 칸엔 놓지 않아(질식 방지) 파묻지 않는다. 이미 채워진 칸은 건너뛰고, 닿을 수 없는 자리는
-     * 폴백 타이머로 강제 설치해 교착을 막는다. 전부 설치되면 모닥불을 점화하고 완료 처리한다.
+     * 짓는 연출 — 부부가 <b>각자에게 가장 가까운 칸</b>으로 직접 걸어가(MimicBuildGoal) 손에 든 그 블럭을
+     * 닿았을 때 설치한다(팔 스윙 + 블록별 설치음). 칸 소유는 '가장 가까운 구성원'으로 갈라 <b>동시에·충돌
+     * 없이</b> 짓고(거리 기반이라 걷는 거리 최소 → 설치가 촘촘해 스윙이 잘 보임), 다른 구성원이 있는 칸엔
+     * 놓지 않아(질식 방지) 파묻지 않는다. <b>전투/피격 중엔 건축을 멈춘다</b>(이동은 전투 goal이 잡고, 설치
+     * 스윙이 전투 스윙과 섞이지 않게). 닿을 수 없는 자리는 폴백 타이머로 강제 설치해 교착을 막고, 전부
+     * 설치되면 모닥불을 점화한다.
      */
     private void buildTick() {
         if (!building || homePos == null || individual == null
                 || !(level() instanceof ServerLevel sl)) {
             return;
         }
+        // 전투/피격 중엔 건축 정지 — 스윙 누수·충돌 방지(끝나면 자동 재개).
+        if (isUnderThreat()) {
+            buildTargetPos = null;
+            buildReachTicks = 0;
+            clearBuildItem();
+            return;
+        }
         Direction facing = getHomeFacingDir();
         List<HomeStructure.Placement> plan = HomeStructure.plan(homePos, facing);
-
-        // 함께 짓는 동료(나 포함)를 id 순으로 정렬 → 안정적 레인 배정으로 동시에·충돌 없이 짓는다.
         List<MimicEntity> crew = buildCrew(sl);
-        int lanes = Math.max(1, crew.size());
-        int lane = Math.max(0, crew.indexOf(this));
 
-        // ① 완성 판정 — 남은 설치 가능 블록이 없으면 종료(레인0가 점화·완료 처리).
-        boolean anyLeft = false;
-        for (HomeStructure.Placement p : plan) {
-            if (isPlaceable(sl, p.pos())) {
-                anyLeft = true;
-                break;
-            }
-        }
-        if (!anyLeft) {
+        // ① 완성 판정 — 남은 설치 가능 블록이 없으면 종료(최소 id가 점화·완료 처리).
+        if (!anyPlaceable(sl, plan)) {
             buildTargetPos = null;
             clearBuildItem();
-            if (lane == 0) {
+            if (crew.isEmpty() || crew.get(0) == this) {
                 placeHearth(sl, homePos, facing, true); // 완성 → 점화
                 finishBuilding(sl);
             } else {
@@ -783,48 +782,123 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
 
-        // ② 내 레인이 담당하는 다음 설치 가능한 블록(고정 인덱스 패리티로 분담 → 서로 다른 칸).
-        HomeStructure.Placement target = null;
-        for (int i = 0; i < plan.size(); i++) {
-            if (i % lanes != lane) {
-                continue;
-            }
-            if (isPlaceable(sl, plan.get(i).pos())) {
-                target = plan.get(i);
-                break;
-            }
+        if (buildCooldown > 0) {
+            buildCooldown--;
         }
+
+        // ② 목표 선정 — 진행 중 목표가 아직 유효하면 유지(오실레이션 방지), 아니면 내가 소유한 최근접 칸.
+        HomeStructure.Placement target = stickyOrNearest(sl, plan, crew);
         if (target == null) {
             buildTargetPos = null;
             clearBuildItem();
             return; // 내 몫은 끝, 남은 건 동료가 마저 짓는다
         }
+        if (!target.pos().equals(buildTargetPos)) {
+            buildReachTicks = 0; // 새 목표 → 접근 타이머 초기화(먼 곳 강제설치 방지)
+        }
         buildTargetPos = target.pos(); // MimicBuildGoal 이 이 좌표 옆으로 데려감
         showBuildItem(target);         // 그 블럭을 손에 들고 이동(설치 연출)
 
-        // ③ 손이 닿아야 설치. 못 닿으면 접근 대기(단, 오래 못 닿으면 강제 설치로 교착 방지).
-        buildReachTicks++;
-        boolean forced = buildReachTicks >= BUILD_REACH_TIMEOUT;
-        if (!withinReach(target.pos()) && !forced) {
-            return; // 아직 걸어가는 중
+        // ③ 닿아야 설치. 못 닿으면 접근 대기(단, 오래 못 닿으면 강제 설치로 교착 방지).
+        if (!withinReach(target.pos())) {
+            buildReachTicks++;
+            if (buildReachTicks < BUILD_REACH_TIMEOUT) {
+                return; // 아직 걸어가는 중
+            }
         }
-        // ④ 설치 박자 — 닿아 있을 때만 소모해 한 칸씩 리듬으로 놓는다.
-        if ((level().getGameTime() + getId()) % BUILD_INTERVAL != 0) {
+        // ④ 개인 쿨다운 박자 — 도착 즉시(쿨다운 지났으면) 한 칸, 놓은 뒤 잠깐 쉼.
+        if (buildCooldown > 0) {
             return;
         }
         if (placeBuildBlock(sl, target)) {
             swing(InteractionHand.MAIN_HAND);
             playPlaceSound(sl, target); // 블록별 설치 효과음
         }
+        buildCooldown = BUILD_INTERVAL;
         buildReachTicks = 0;
-        buildTargetPos = null;
+        buildTargetPos = null; // 다음 틱에 다음 최근접 칸 선정
+    }
+
+    /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */
+    @Nullable
+    private HomeStructure.Placement stickyOrNearest(ServerLevel sl, List<HomeStructure.Placement> plan,
+                                                    List<MimicEntity> crew) {
+        if (buildTargetPos != null && isPlaceable(sl, buildTargetPos)) {
+            HomeStructure.Placement cur = placementAt(plan, buildTargetPos);
+            if (cur != null) {
+                return cur; // 고정 유지
+            }
+        }
+        HomeStructure.Placement best = null;
+        double bestD = Double.MAX_VALUE;
+        for (HomeStructure.Placement p : plan) {
+            if (!isPlaceable(sl, p.pos())) {
+                continue;
+            }
+            double d = horizDistSq(p.pos());
+            if (d < bestD && ownedByMe(crew, p.pos(), d)) {
+                bestD = d;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    /** 이 칸을 내가 담당하나 — crew 중 내가 가장 가깝나(동률이면 낮은 id). 거리 기반이라 걷는 거리 최소. */
+    private boolean ownedByMe(List<MimicEntity> crew, BlockPos pos, double myD) {
+        for (MimicEntity m : crew) {
+            if (m == this) {
+                continue;
+            }
+            double d = m.horizDistSq(pos);
+            if (d < myD || (d == myD && m.getId() < getId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static HomeStructure.Placement placementAt(List<HomeStructure.Placement> plan, BlockPos pos) {
+        for (HomeStructure.Placement p : plan) {
+            if (p.pos().equals(pos)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private static boolean anyPlaceable(ServerLevel sl, List<HomeStructure.Placement> plan) {
+        for (HomeStructure.Placement p : plan) {
+            if (isPlaceable(sl, p.pos())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 이 블록 자리까지 수평 거리²(발밑 기준). */
+    private double horizDistSq(BlockPos p) {
+        double dx = (p.getX() + 0.5) - getX();
+        double dz = (p.getZ() + 0.5) - getZ();
+        return dx * dx + dz * dz;
     }
 
     /** 이 블록 자리에 손이 닿는가(수평 거리 기준 — 지붕 등 높은 칸은 폴백 타이머가 보완). */
     private boolean withinReach(BlockPos p) {
-        double dx = (p.getX() + 0.5) - getX();
-        double dz = (p.getZ() + 0.5) - getZ();
-        return dx * dx + dz * dz <= BUILD_REACH * BUILD_REACH;
+        return horizDistSq(p) <= BUILD_REACH * BUILD_REACH;
+    }
+
+    /** 전투/피격 중인가 — 피격 직후·최근 가해자 기억·나를 노리는 근처 좀비. 건축 정지 판단용. */
+    public boolean isUnderThreat() {
+        if (hurtTime > 0 || getLastHurtByMob() != null) {
+            return true;
+        }
+        for (Zombie z : level().getEntitiesOfClass(Zombie.class, getBoundingBox().inflate(12.0))) {
+            if (z.getTarget() == this) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 지금 걸어가 설치할 다음 블록 좌표(없으면 null) — MimicBuildGoal 이 목적지로 사용. */
@@ -833,7 +907,7 @@ public class MimicEntity extends PathfinderMob {
         return buildTargetPos;
     }
 
-    /** 같은 거처를 함께 짓는 살아있는 구성원(나 포함) — id 순 정렬로 레인 배정이 안정적. */
+    /** 같은 거처를 함께 짓는 살아있는 구성원(나 포함) — id 순 정렬로 소유 판정 동률이 안정적. */
     private List<MimicEntity> buildCrew(ServerLevel sl) {
         List<MimicEntity> crew = new ArrayList<>();
         for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {

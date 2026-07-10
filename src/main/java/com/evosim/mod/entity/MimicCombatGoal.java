@@ -5,6 +5,7 @@ import com.evosim.core.Individual;
 import com.evosim.core.SurvivalRules;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.stage.StageObserver;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.Zombie;
@@ -118,6 +119,7 @@ public class MimicCombatGoal extends Goal {
         }
         record("combat:engage");
         if (adjacent) {
+            mob.swing(InteractionHand.MAIN_HAND); // 근접 공격 팔 스윙(애니메이션)
             mob.doHurtTarget(target);
         }
     }

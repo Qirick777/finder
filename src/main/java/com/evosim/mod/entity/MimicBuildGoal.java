@@ -21,8 +21,8 @@ public class MimicBuildGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        return mob.isBuilding() && mob.getHomePos() != null
-                && mob.hurtTime <= 0 && mob.getTarget() == null;
+        // 전투/피격 중엔 물러나 전투 goal 이 이동을 잡게 한다(건축은 buildTick 에서도 함께 정지).
+        return mob.isBuilding() && mob.getHomePos() != null && !mob.isUnderThreat();
     }
 
     @Override

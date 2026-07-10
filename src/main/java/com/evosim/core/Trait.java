@@ -68,6 +68,8 @@ public enum Trait {
     POOR_SPATIAL(Axis.SPATIAL, "길치"),
     HARDY(Axis.RECOVERY, "강건"),
     SICKLY(Axis.RECOVERY, "병약"),
+
+    // ── 능력 (배율 특성, 성향 슬롯 공유) ──
     HERBALIST(Axis.GATHER_SKILL, "약초학자"),
     PLANT_CONFUSED(Axis.GATHER_SKILL, "식물혼동"),
     BUTCHER(Axis.HUNT_SKILL, "도축업자"),
@@ -80,6 +82,8 @@ public enum Trait {
     CARNIVORE(Axis.DIET, "육식"),
     COOK(Axis.COOKING, "요리사"),
     BAD_COOK(Axis.COOKING, "요리치"),
+    ELOQUENT(Axis.ELOQUENCE, "달변가"),
+    INARTICULATE(Axis.ELOQUENCE, "눌변가"),
 
     // ── 선호 ──
     PREF_STRENGTH(Axis.STRENGTH_PREF, "강함선호"),
@@ -117,18 +121,28 @@ public enum Trait {
         this.koreanName = koreanName;
     }
 
-    // 등급(I~V)을 갖는 축 — 신체 스칼라 특성과 그 등급 선호. 나머지는 무등급(grade 0).
+    // 등급(I~V)을 갖는 축 — 신체 스탯 전부 + 그 등급 선호. 나머지는 무등급(grade 0).
     private static final java.util.EnumSet<Axis> GRADED_AXES = java.util.EnumSet.of(
-            Axis.TOUGHNESS, Axis.AGILITY, Axis.VISION, Axis.RECOVERY,
+            Axis.STRENGTH, Axis.TOUGHNESS, Axis.AGILITY, Axis.VISION, Axis.SPATIAL, Axis.RECOVERY,
             Axis.TOUGHNESS_PREF, Axis.AGILITY_PREF, Axis.VISION_PREF, Axis.RECOVERY_PREF);
+
+    // 능력 특성 축(배율 특성) — 성향과 슬롯을 공유하되 '능력'으로 구분(표시·판정용).
+    private static final java.util.EnumSet<Axis> ABILITY_AXES = java.util.EnumSet.of(
+            Axis.GATHER_SKILL, Axis.HUNT_SKILL, Axis.ACQUISITION,
+            Axis.DEXTERITY, Axis.DIET, Axis.COOKING, Axis.ELOQUENCE);
 
     public Axis axis() {
         return axis;
     }
 
-    /** 이 특성이 강도 등급(I~V)을 갖는가 — 신체 스칼라 특성·그 등급 선호만 해당. */
+    /** 이 특성이 강도 등급(I~V)을 갖는가 — 신체 스탯 전부·그 등급 선호. */
     public boolean isGraded() {
         return GRADED_AXES.contains(axis);
+    }
+
+    /** 능력 특성인가 — 성향 슬롯을 공유하는 배율 특성(획득 계열·언변). */
+    public boolean isAbility() {
+        return ABILITY_AXES.contains(axis);
     }
 
     public Category category() {

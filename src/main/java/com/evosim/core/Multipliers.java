@@ -124,6 +124,14 @@ public final class Multipliers {
             }
         }
 
+        // ── 언변(능력): 상대의 기본 매력 가감 — 달변가 +1 / 눌변가 −1 ──
+        if (tt.contains(Trait.ELOQUENT)) {
+            score += 1;
+        }
+        if (tt.contains(Trait.INARTICULATE)) {
+            score -= 1;
+        }
+
         // ── 등급 선호 (신체 등급): 지정 목표 등급과 상대 보유 등급의 근접도 ──
         //    완전 일치 +3, 한 칸 차이마다 −1(예: 강건III선호 → I·V=+1, II·IV=+2, III=+3).
         score += gradedMatch(evaluator, target, Trait.PREF_TOUGHNESS, Trait.TOUGH);

@@ -118,8 +118,37 @@ public class TraitScannerItem extends Item {
                         + ind.parentingCareFemale().label() + "[여] → 활성 " + ind.parentingCare().label())
                 .withStyle(ChatFormatting.LIGHT_PURPLE), false);
         for (Category cat : Category.values()) {
-            player.displayClientMessage(categoryLine(cat, ind, sex, active), false);
+            if (cat == Category.DISPOSITION) {
+                // 성향 슬롯을 공유하는 능력특성은 따로 묶어 보여준다(성향 / 능력).
+                player.displayClientMessage(dispositionLine(ind, sex, active, false), false);
+                player.displayClientMessage(dispositionLine(ind, sex, active, true), false);
+            } else {
+                player.displayClientMessage(categoryLine(cat, ind, sex, active), false);
+            }
         }
+    }
+
+    /** 성향 카테고리 표시 — abilityOnly=false 면 순수 성향, true 면 능력특성만. */
+    private static MutableComponent dispositionLine(Individual ind, Sex sex, Set<Trait> active,
+                                                    boolean abilityOnly) {
+        MutableComponent line = Component.literal("[" + (abilityOnly ? "능력" : "성향") + "] ")
+                .withStyle(ChatFormatting.GRAY);
+        List<TraitInstance> picked = new java.util.ArrayList<>();
+        for (TraitInstance ti : ind.traitsIn(Category.DISPOSITION)) {
+            if (ti.trait().isAbility() == abilityOnly) {
+                picked.add(ti);
+            }
+        }
+        if (picked.isEmpty()) {
+            return line.append(Component.literal("(없음)").withStyle(ChatFormatting.DARK_GRAY));
+        }
+        for (int i = 0; i < picked.size(); i++) {
+            if (i > 0) {
+                line.append(Component.literal(" · ").withStyle(ChatFormatting.DARK_GRAY));
+            }
+            line.append(traitComponent(picked.get(i), ind, sex, active));
+        }
+        return line;
     }
 
     // ── 짝 모드 ──

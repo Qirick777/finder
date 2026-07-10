@@ -104,9 +104,10 @@ public final class EvoTest {
             case "homeresolution" -> homeresolution(report);
             case "physique" -> physique(report);
             case "roaming" -> roaming(report);
+            case "ability" -> ability(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -133,6 +134,7 @@ public final class EvoTest {
         homeresolution(report);
         physique(report);
         roaming(report);
+        ability(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1279,7 +1281,7 @@ public final class EvoTest {
                 && TraitInstance.graded(Trait.TOUGH, 3).grade() == 3
                 && "III".equals(TraitInstance.roman(3)) && "V".equals(TraitInstance.roman(5))
                 && Trait.TOUGH.isGraded() && Trait.PREF_RECOVERY.isGraded()
-                && !Trait.STRONG.isGraded()
+                && !Trait.HERBALIST.isGraded()
                 && ExpressionResolver.expressedGrade(graded(Sex.MALE, Trait.TOUGH, 4), Trait.TOUGH) == 4
                 && ExpressionResolver.expressedGrade(graded(Sex.MALE, Trait.TOUGH, 4), Trait.FRAIL) == 0;
         report.add("physique/등급기반", infra, "clamp1~5·로마·isGraded·발동등급 조회",
@@ -1343,6 +1345,38 @@ public final class EvoTest {
         report.add("roaming/반경", ok,
                 "중립 32·이주 ×2·애향 ×0.5·고독 ×1.5·군집 ×0.75(조합 곱)",
                 ok ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest ability — 능력특성 재분류(성향 슬롯 공유) + 언변 매력 (설계서 §14)
+    // ──────────────────────────────────────────────────────────────
+    private static void ability(Report report) {
+        // 1) 능력특성은 성향과 같은 슬롯(DISPOSITION) 공유 + isAbility 로 구분, 힘은 신체 유지
+        boolean cat = Trait.HERBALIST.category() == Category.DISPOSITION
+                && Trait.HUNTER.category() == Category.DISPOSITION
+                && Trait.COOK.category() == Category.DISPOSITION
+                && Trait.DEXTEROUS.category() == Category.DISPOSITION
+                && Trait.HERBIVORE.category() == Category.DISPOSITION
+                && Trait.ELOQUENT.category() == Category.DISPOSITION
+                && Trait.HERBALIST.isAbility() && Trait.ELOQUENT.isAbility()
+                && !Trait.STRONG.isAbility() && !Trait.DILIGENT.isAbility()
+                && Trait.STRONG.category() == Category.PHYSICAL; // 힘은 신체 유지
+        report.add("ability/슬롯공유", cat, "획득·언변=성향 슬롯 공유·능력 구분·힘은 신체",
+                cat ? "정상" : "어긋남");
+
+        // 2) 신체 스탯 전부 등급화(힘·공간지각 포함), 능력은 무등급
+        boolean graded = Trait.STRONG.isGraded() && Trait.GOOD_SPATIAL.isGraded()
+                && Trait.TOUGH.isGraded() && !Trait.HERBALIST.isGraded() && !Trait.ELOQUENT.isGraded();
+        report.add("ability/신체등급", graded, "힘·공간지각 포함 신체 전부 등급·능력 무등급",
+                graded ? "정상" : "어긋남");
+
+        // 3) 언변 매력: 달변가 +1 / 눌변가 −1 (상대 기준, 기본 매력 가감)
+        Individual plain = one(Sex.MALE);
+        boolean charm = Multipliers.charmScore(plain, one(Sex.FEMALE, TraitInstance.of(Trait.ELOQUENT))) == 1
+                && Multipliers.charmScore(plain, one(Sex.FEMALE, TraitInstance.of(Trait.INARTICULATE))) == -1
+                && Multipliers.charmScore(plain, one(Sex.FEMALE)) == 0;
+        report.add("ability/언변매력", charm, "달변가 +1·눌변가 −1·기본 0",
+                charm ? "정상" : "어긋남");
     }
 
     /** 성별 + 등급 특성 하나만 가진 검증용 개체. */

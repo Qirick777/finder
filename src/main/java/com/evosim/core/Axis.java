@@ -34,19 +34,22 @@ public enum Axis {
     MATERNAL(Category.DISPOSITION, true),             // 모성(여): 모성애없음 / 강한모성애 (여성발현)
     MATE_CHOICE(Category.DISPOSITION, true),          // 짝고르기: 엄격 / 완전개방 (성별기본 여=신중·남=널널)
 
-    // ── 신체 (PHYSICAL) — 전부 반발 ──
+    // ── 신체 (PHYSICAL) — 전부 반발, 전부 V~I 등급 스탯(배율 특성은 능력으로 이전) ──
     STRENGTH(Category.PHYSICAL, true),                // 힘: 힘센 / 약함
     TOUGHNESS(Category.PHYSICAL, true),               // 튼튼함: 튼튼 / 빈약
     AGILITY(Category.PHYSICAL, true),                 // 민첩: 재빠름 / 굼뜸
     VISION(Category.PHYSICAL, true),                  // 시야: 천리안 / 근시안
     SPATIAL(Category.PHYSICAL, true),                 // 공간지각: 공간지각 / 길치
     RECOVERY(Category.PHYSICAL, true),                // 회복력: 강건 / 병약
-    GATHER_SKILL(Category.PHYSICAL, true),            // 획득(채집): 약초학자 / 식물혼동
-    HUNT_SKILL(Category.PHYSICAL, true),              // 획득(사냥): 도축업자 / 피공포
-    ACQUISITION(Category.PHYSICAL, true),             // 획득: 사냥꾼 / 채집꾼
-    DEXTERITY(Category.PHYSICAL, true),               // 손재주 / 곰손
-    DIET(Category.PHYSICAL, true),                    // 채식 / 육식
-    COOKING(Category.PHYSICAL, true),                 // 요리사 / 요리치
+
+    // ── 능력 (ABILITY, 배율 특성) — 반발. 성향과 같은 슬롯 공유 → Category.DISPOSITION 로 편입 ──
+    GATHER_SKILL(Category.DISPOSITION, true),         // 획득(채집): 약초학자 / 식물혼동
+    HUNT_SKILL(Category.DISPOSITION, true),           // 획득(사냥): 도축업자 / 피공포
+    ACQUISITION(Category.DISPOSITION, true),          // 획득: 사냥꾼 / 채집꾼
+    DEXTERITY(Category.DISPOSITION, true),            // 손재주 / 곰손
+    DIET(Category.DISPOSITION, true),                 // 채식 / 육식
+    COOKING(Category.DISPOSITION, true),              // 요리: 요리사 / 요리치
+    ELOQUENCE(Category.DISPOSITION, true),            // 언변: 달변가 / 눌변가 (기본 매력 ±1)
 
     // ── 선호 (PREFERENCE) — 반발 없음(exclusive=false), FAMILIARITY만 예외 ──
     STRENGTH_PREF(Category.PREFERENCE, false),        // 강함선호 / 효율선호

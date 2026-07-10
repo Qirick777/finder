@@ -74,13 +74,24 @@ public final class HomeStructure {
     }
 
     /**
-     * 하단 발자국 — 천막이 덮는 바닥 사각형(양털 벽 x=±2, z=-2..+1 + 앞 모닥불 z=+3까지)의 모든 칸을
-     * 앵커 Y로 반환. 평탄화(기단 높이 산정·하단 메움)에 쓴다. y는 home.Y, x·z만 의미 있음.
+     * 하단 발자국 — 천막 바닥 사각형(벽 x=±2, z=-2..+1 + 앞 모닥불) + <b>옆 베리 자리(x=±3)</b>까지 포함.
+     * 평탄화가 베리 심을 자리까지 미리 골라 "옆에 공간 없음"을 방지한다. y는 home.Y, x·z만 의미 있음.
      */
     public static List<BlockPos> footprint(BlockPos home, Direction facing) {
         List<BlockPos> out = new ArrayList<>();
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 3; dz++) { // -2..+1 천막 몸체 + +2 입구 + +3 모닥불
+        for (int dx = -3; dx <= 3; dx++) {          // ±3 = 옆 베리 자리 포함(평탄화 대상)
+            for (int dz = -2; dz <= 3; dz++) {      // -2..+1 천막 몸체 + +2 입구 + +3 모닥불
+                out.add(world(home, dx, 0, dz, facing));
+            }
+        }
+        return out;
+    }
+
+    /** 옆 베리 정원 8칸 — 양털 옆벽(x=±2) 바로 바깥(x=±3), z=-2..+1. 심기·집계에 쓴다. */
+    public static List<BlockPos> berryTiles(BlockPos home, Direction facing) {
+        List<BlockPos> out = new ArrayList<>();
+        for (int dx : new int[] {3, -3}) {
+            for (int dz = -2; dz <= 1; dz++) {
                 out.add(world(home, dx, 0, dz, facing));
             }
         }

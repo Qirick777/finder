@@ -14,6 +14,7 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -37,6 +38,7 @@ public class MimicForageGoal extends Goal {
     private static final int ATTACK_COOLDOWN = 20;   // 타격 간격(틱)
     private static final double HUNT_FOOD = 1.5;     // 동물 1마리 = 이 × 사냥배율
     private static final double GATHER_FOOD = 0.06;  // 채집물 1개 = 이 × 채집배율
+    private static final double BERRY_FOOD = 0.5;    // 다 익은 베리 1수확 = 이 × 채집배율
     private static final double REACH = 1.9;         // 이 거리 안이면 채집(부수기) 가능
 
     private final MimicEntity mob;
@@ -129,7 +131,15 @@ public class MimicForageGoal extends Goal {
         }
         if (gatherTarget != null) {
             if (mob.blockPosition().closerThan(gatherTarget, REACH)) {
-                if (mob.level().destroyBlock(gatherTarget, false)) {
+                BlockState ts = mob.level().getBlockState(gatherTarget);
+                if (isRipeBerry(ts)) {
+                    // 다 익은 베리는 부수지 않고 수확 → age 1 로 되돌려 재성장(바닐라 수확).
+                    double food = BERRY_FOOD * Multipliers.gather(ind);
+                    mob.addHarvest(food);
+                    mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));
+                    mob.swing(InteractionHand.MAIN_HAND);
+                    gatherCooldown = GATHER_COOLDOWN;
+                } else if (mob.level().destroyBlock(gatherTarget, false)) {
                     double food = GATHER_FOOD * Multipliers.gather(ind);
                     mob.addHarvest(food);
                     gatherCooldown = GATHER_COOLDOWN;
@@ -185,13 +195,21 @@ public class MimicForageGoal extends Goal {
         return null;
     }
 
-    /** 누구나 채집하는 풀(잔디·고사리) + 약초학자만 채집하는 꽃·버섯. */
+    /** 누구나 채집하는 풀(잔디·고사리) + 다 익은 옆 정원 베리 + 약초학자만 채집하는 꽃·버섯. */
     private static boolean forageable(BlockState s, boolean herbalist) {
         if (s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS)
                 || s.is(Blocks.FERN) || s.is(Blocks.LARGE_FERN)) {
             return true;
         }
+        if (isRipeBerry(s)) {
+            return true; // 다 익은 베리는 누구나 수확
+        }
         return herbalist && (s.is(BlockTags.FLOWERS)
                 || s.is(Blocks.BROWN_MUSHROOM) || s.is(Blocks.RED_MUSHROOM));
+    }
+
+    /** 스위트베리 덤불이 다 익었는지(age 3 = 수확 가능). */
+    private static boolean isRipeBerry(BlockState s) {
+        return s.is(Blocks.SWEET_BERRY_BUSH) && s.getValue(SweetBerryBushBlock.AGE) >= 3;
     }
 }

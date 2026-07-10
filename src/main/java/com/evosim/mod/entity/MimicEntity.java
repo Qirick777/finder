@@ -10,6 +10,7 @@ import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
 import com.evosim.core.MateHome;
+import com.evosim.core.BerryEconomy;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Physique;
 import com.evosim.core.ParentingClass;
@@ -62,6 +63,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -844,6 +847,106 @@ public class MimicEntity extends PathfinderMob {
                 (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
     }
 
+    // ── 옆 베리 정원 (거처 좌우 x=±3 · 8칸, 평탄화로 자리 확보됨) ──
+    private static final int BERRY_CAP = 8; // 거처당 베리 상한
+
+    /** 옆 정원 8칸에 베리를 {@code maxCount}그루까지 심는다(빈 자리·심을 지면인 곳만). 심은 수 반환. */
+    public int plantBerries(ServerLevel sl, int maxCount) {
+        if (homePos == null || maxCount <= 0) {
+            return 0;
+        }
+        int planted = 0;
+        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+            if (planted >= maxCount) {
+                break;
+            }
+            if (tryPlantBerry(sl, tile, 1)) {
+                planted++;
+            }
+        }
+        return planted;
+    }
+
+    /** 베리 한 그루를 tile 자리(주변 지면 위)에 age 로 심는다. 성공 시 true. */
+    private boolean tryPlantBerry(ServerLevel sl, BlockPos tile, int age) {
+        BlockPos ground = findBerryGround(sl, tile);
+        if (ground == null) {
+            return false;
+        }
+        BlockPos spot = ground.above();
+        BlockState occ = sl.getBlockState(spot);
+        if (!(occ.isAir() || occ.is(Blocks.GRASS) || occ.is(Blocks.TALL_GRASS) || occ.is(Blocks.FERN))) {
+            return false; // 자리 비어 있어야
+        }
+        sl.setBlockAndUpdate(spot, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                .setValue(SweetBerryBushBlock.AGE, age));
+        return true;
+    }
+
+    /** tile 근처(±)에서 베리를 심을 수 있는 지면 블록을 찾는다. 없으면 null. */
+    private static BlockPos findBerryGround(ServerLevel sl, BlockPos tile) {
+        for (int dy = 2; dy >= -4; dy--) {
+            BlockPos p = tile.offset(0, dy, 0);
+            if (canPlaceBerryOn(sl.getBlockState(p))) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private static boolean canPlaceBerryOn(BlockState s) {
+        return s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.DIRT) || s.is(Blocks.COARSE_DIRT)
+                || s.is(Blocks.PODZOL) || s.is(Blocks.FARMLAND);
+    }
+
+    /** 거처 옆 정원의 베리 그루 수. */
+    public int countBerries(ServerLevel sl) {
+        if (homePos == null) {
+            return 0;
+        }
+        int c = 0;
+        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+            for (int dy = 3; dy >= -3; dy--) {
+                if (sl.getBlockState(tile.offset(0, dy, 0)).is(Blocks.SWEET_BERRY_BUSH)) {
+                    c++;
+                    break;
+                }
+            }
+        }
+        return c;
+    }
+
+    /** 가족 하루 소모량 합(예비식량 = 잉여에서 남길 양). */
+    private static double familyReserve(Feeding.Household h) {
+        double r = 0.0;
+        if (h.father != null) {
+            r += h.father.consumption();
+        }
+        for (Feeding.Member c : h.children) {
+            r += c.consumption();
+        }
+        for (Feeding.Member w : h.wives) {
+            r += w.consumption();
+        }
+        return r;
+    }
+
+    /** 점검용 — 옆 정원 앞 몇 칸에 <b>다 익은</b>(age 3) 베리를 심어 즉시 수확 관찰이 되게 한다. */
+    public void debugSeedRipeBerries(ServerLevel sl, int count) {
+        if (homePos == null) {
+            return;
+        }
+        int done = 0;
+        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+            if (done >= count) {
+                break;
+            }
+            if (tryPlantBerry(sl, tile, 3)) {
+                done++;
+            }
+        }
+    }
+
     /** 거처 모닥불 배치/재점화 (완성·이주 시). */
     private static void relightHearth(ServerLevel sl, BlockPos home, Direction facing) {
         placeHearth(sl, home, facing, true);
@@ -1232,7 +1335,19 @@ public class MimicEntity extends PathfinderMob {
         if (!(level() instanceof ServerLevel sl)) {
             return;
         }
+        runSettlement(sl);
+    }
 
+    /** 점검용 — 시각·주기 게이트를 건너뛰고 이 대표가 즉시 한 번 밤 정산(번식·옆 정원 베리 포함)을 돌린다. */
+    public void debugSettleOnce() {
+        if (level() instanceof ServerLevel sl) {
+            runSettlement(sl);
+        }
+    }
+
+    /** 밤 정산 실체: 가정 구성 → 우선순위 분배·아사·번식·옆 정원 베리. settlementTick·debugSettleOnce 공용. */
+    private void runSettlement(ServerLevel sl) {
+        long day = level().getDayTime() / 24000L;
         List<MimicEntity> fam = householdMembers();
         MimicEntity driver = lowestIdAdult(fam);
         if (driver != this) {
@@ -1304,6 +1419,22 @@ public class MimicEntity extends PathfinderMob {
         // 식량 게이트 번식: 잉여≥임계일 때만 (설계서 §6). 굶은 가정은 절대 번식 안 함.
         if (res.reproductionUnlocked && !starvedAny) {
             tryReproduce(sl, father);
+        }
+
+        // 옆 정원 베리: 최하위 우선순위. 먹이고(정산 완료)·하루 예비·번식 몫을 뺀 잉여로만 심는다.
+        // 넉넉할수록 여러 그루, 상한 BERRY_CAP. 굶은 밤엔 잉여가 없어 자동으로 0그루.
+        if (homePos != null) {
+            int bushCount = countBerries(sl);
+            double reserve = familyReserve(h);
+            double reproReserve = Double.isInfinite(res.reproThreshold) ? 0.0 : res.reproThreshold;
+            int n = BerryEconomy.plant(res.surplus, reserve, reproReserve, bushCount, BERRY_CAP);
+            if (n > 0) {
+                int done = plantBerries(sl, n);
+                if (done > 0) {
+                    SimEvents.event(this, "베리",
+                            "옆 정원 +" + done + " (누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
+                }
+            }
         }
     }
 
@@ -1530,8 +1661,8 @@ public class MimicEntity extends PathfinderMob {
     /** 질식(벽 낌) 데미지 무시 — 건축 연출 중 서로/블럭에 잠시 겹쳐도 질식사하지 않게 한다. */
     @Override
     public boolean hurt(DamageSource source, float amount) {
-        if (source.is(DamageTypes.IN_WALL)) {
-            return false;
+        if (source.is(DamageTypes.IN_WALL) || source.is(DamageTypes.SWEET_BERRY_BUSH)) {
+            return false; // 질식·베리 가시 무시(자기 밭에서 안 다침)
         }
         return super.hurt(source, amount);
     }

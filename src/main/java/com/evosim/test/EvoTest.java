@@ -3,6 +3,7 @@ package com.evosim.test;
 import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
+import com.evosim.core.BerryEconomy;
 import com.evosim.core.Combat;
 import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
@@ -105,9 +106,10 @@ public final class EvoTest {
             case "physique" -> physique(report);
             case "roaming" -> roaming(report);
             case "ability" -> ability(report);
+            case "berry" -> berry(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -135,6 +137,7 @@ public final class EvoTest {
         physique(report);
         roaming(report);
         ability(report);
+        berry(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1377,6 +1380,28 @@ public final class EvoTest {
                 && Multipliers.charmScore(plain, one(Sex.FEMALE)) == 0;
         report.add("ability/언변매력", charm, "달변가 +1·눌변가 −1·기본 0",
                 charm ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest berry — 베리 심기 잉여 배분(생존·번식 우선, 남으면 여러 그루)
+    // ──────────────────────────────────────────────────────────────
+    private static void berry(Report report) {
+        // 잉여10·예비2·번식몫2.5 → 잔여5.5 → 5그루(넉넉할수록 여러 그루)
+        boolean b1 = BerryEconomy.plant(10, 2, 2.5, 0, 8) == 5;
+        // 번식몫까지 빼면 부족: 잉여5 → 잔여0.5 → 0그루(번식이 우선)
+        boolean b2 = BerryEconomy.plant(5, 2, 2.5, 0, 8) == 0;
+        // 잉여6 → 잔여1.5 → 1그루
+        boolean b3 = BerryEconomy.plant(6, 2, 2.5, 0, 8) == 1;
+        // 상한: 잉여20·현재6·상한8 → 잔여15.5지만 자리 2 → 2그루
+        boolean b4 = BerryEconomy.plant(20, 2, 2.5, 6, 8) == 2;
+        // 독신(번식몫0): 잉여3 → 잔여1 → 1그루
+        boolean b5 = BerryEconomy.plant(3, 2, 0, 0, 8) == 1;
+        // 굶는 가정: 잉여1 → 잔여<0 → 0그루(아사·출산 지장 없음)
+        boolean b6 = BerryEconomy.plant(1, 2, 2.5, 0, 8) == 0;
+
+        boolean ok = b1 && b2 && b3 && b4 && b5 && b6;
+        report.add("berry/잉여배분", ok, "예비·번식 뺀 잔여로만 심기(넉넉할수록 여러 그루·상한)",
+                ok ? "정상" : "어긋남");
     }
 
     /** 성별 + 등급 특성 하나만 가진 검증용 개체. */

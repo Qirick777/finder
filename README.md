@@ -59,6 +59,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="physique"     # 신체 등급(I~V) 강도·등급 선호 매칭
 ./gradlew evotest --args="roaming"      # 특성별 활동반경(이주/애향/고독/군집)
 ./gradlew evotest --args="ability"      # 능력특성 재분류(성향 슬롯 공유)·언변 매력
+./gradlew evotest --args="berry"        # 옆 정원 베리: 예비·번식 뺀 잉여로만 심기(넉넉할수록 여러 그루)
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 
@@ -142,6 +143,7 @@ Minecraft 표현층 (`com.evosim.mod`):
   - **`/evosim family`** — 부모 부부 + 성년 아들 + 방랑 여성 → 아들 분가(새 천막 신축)
   - **`/evosim lonepair`** — 각자 홀거처 둘 → 한쪽 랜덤 폐기·합류
   - **`/evosim abandon`** — 홀거처주(천막) → 처치 시 모닥불 꺼짐
+  - **`/evosim berry`** — 부부 즉시 정산 → **번식하고 남은 잉여로 옆 정원(x=±3)에 베리 여러 그루 심기** + 미리 심어둔 익은 베리 낮에 수확(age3→age1 재성장) 관찰
 
 외형: 여성=알렉스(슬림)·남성=스티브, 유아=아기비율(머리 큼)+작게, 소년=키 작게, 성년=기본.
 

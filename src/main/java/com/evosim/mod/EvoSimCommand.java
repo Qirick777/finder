@@ -69,7 +69,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lonepair").executes(EvoSimCommand::stageLonePair))
                 .then(Commands.literal("abandon").executes(EvoSimCommand::stageAbandon))
                 .then(Commands.literal("reuse").executes(EvoSimCommand::stageReuse))
-                .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate)));
+                .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate))
+                .then(Commands.literal("berry").executes(EvoSimCommand::stageBerry)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -259,6 +260,27 @@ public final class EvoSimCommand {
         }
         tell(ctx.getSource(), "이주자 점검: 근처 빈 거처가 있어도 이주자×이주자는 반드시 신축(재사용 0%). "
                 + "기본×2보다 더 멀리(×3) 부지를 잡아 천막을 새로 짓습니다.");
+        return 1;
+    }
+
+    /** 베리 점검: 거처 둘 즉시 세우고 정원에 베리를 마구 심어 연결성 가드 동태 관찰. */
+    private static int stageBerry(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        level.setDayTime(2000L);
+        int total = 0;
+        int[][] spots = {{-6, 0}, {8, 4}}; // 거처 둘(사이 정원이 겹쳐 가드 관찰)
+        for (int[] s : spots) {
+            BlockPos home = BlockPos.containing(b.add(s[0], 0, s[1]));
+            MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+            if (a != null) {
+                a.debugSettleWithTent(home, Direction.NORTH);
+                total += a.plantBerries(level, 999); // 상한 무시하고 링을 꽉 채워 관찰
+            }
+        }
+        final int t = total;
+        tell(ctx.getSource(), "베리 점검: 거처 2채 + 정원에 베리 " + t + "그루 심음(연결성 가드). "
+                + "덤불이 빽빽해도 바깥으로 통하는 길이 항상 남는지 확인. 익으면 미믹이 수확(재생 식량).");
         return 1;
     }
 

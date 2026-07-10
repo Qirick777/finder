@@ -3,7 +3,9 @@ package com.evosim.test;
 import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
+import com.evosim.core.BerryEconomy;
 import com.evosim.core.Combat;
+import com.evosim.core.Connectivity;
 import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
@@ -105,9 +107,11 @@ public final class EvoTest {
             case "physique" -> physique(report);
             case "roaming" -> roaming(report);
             case "ability" -> ability(report);
+            case "connectivity" -> connectivity(report);
+            case "berry" -> berry(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | connectivity | berry | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -135,6 +139,8 @@ public final class EvoTest {
         physique(report);
         roaming(report);
         ability(report);
+        connectivity(report);
+        berry(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1377,6 +1383,67 @@ public final class EvoTest {
                 && Multipliers.charmScore(plain, one(Sex.FEMALE)) == 0;
         report.add("ability/언변매력", charm, "달변가 +1·눌변가 −1·기본 0",
                 charm ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest connectivity — "공간 분리 금지" 설치 가드 (설계안 v2)
+    // ──────────────────────────────────────────────────────────────
+    private static void connectivity(Report report) {
+        // 인덱스: 0=N 1=NE 2=E 3=SE 4=S 5=SW 6=W 7=NW
+        // T1 허허벌판(전부 통행) → 허용
+        boolean t1 = Connectivity.keepsConnectivity(ringOf(0, 1, 2, 3, 4, 5, 6, 7));
+        // T2 벽 옆에 이어 붙이기(한 이웃만 통행) → 허용(arcs=1)
+        boolean t2 = Connectivity.keepsConnectivity(ringOf(0));
+        // T3 통로 봉쇄(N·S 양쪽만 통행, C가 다리) → 금지(arcs=2)
+        boolean t3 = !Connectivity.keepsConnectivity(ringOf(0, 4));
+        // T3' 좌우 통로 봉쇄(E·W) → 금지
+        boolean t3b = !Connectivity.keepsConnectivity(ringOf(2, 6));
+        // T4 모서리 한 덩어리(N·NE·E) → 허용(arcs=1)
+        boolean t4 = Connectivity.keepsConnectivity(ringOf(0, 1, 2));
+        // T5 대각으로만 뚫림(NE만, 양옆 직교 막힘) → 케이스 B 보정 → 허용(직교 통로 없음)
+        boolean t5 = Connectivity.keepsConnectivity(ringOf(1));
+        // 사방 막힘 → 허용(잃는 공간이 그 칸뿐, arcs=0)
+        boolean t0 = Connectivity.keepsConnectivity(ringOf());
+
+        boolean ok = t1 && t2 && t3 && t3b && t4 && t5 && t0;
+        report.add("connectivity/판정", ok,
+                "벌판·벽옆·모서리 허용 · 통로봉쇄 금지 · 대각핀치 보정",
+                ok ? "T0~T5 정상" : "판정 어긋남");
+    }
+
+    /** 지정 인덱스(시계방향 8이웃)만 통행 가능인 ring 생성. */
+    private static boolean[] ringOf(int... walkable) {
+        boolean[] r = new boolean[8];
+        for (int i : walkable) {
+            r[i] = true;
+        }
+        return r;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest berry — 잉여 배분(예비→베리 상한→번식)
+    // ──────────────────────────────────────────────────────────────
+    private static void berry(Report report) {
+        // 번식 우선 + 남는 잉여로 베리. 잉여5·예비1→가용4≥2.5 번식·잔여1.5→1그루
+        boolean b1 = eq(BerryEconomy.plan(5, 1, 0, 3, 2.5), 1, true);
+        // 농장 가득: 잉여8·예비1→가용7 번식·잔여4.5·자리0 → 0그루·번식
+        boolean b2 = eq(BerryEconomy.plan(8, 1, 3, 3, 2.5), 0, true);
+        // 잉여6·예비1→가용5 번식·잔여2.5·자리2 → 2그루·번식
+        boolean b3 = eq(BerryEconomy.plan(6, 1, 1, 3, 2.5), 2, true);
+        // 번식 미달이라도 심기: 잉여2·예비1→가용1<2.5 번식X·1그루
+        boolean b4 = eq(BerryEconomy.plan(2, 1, 0, 3, 2.5), 1, false);
+        // 예비 미달: 잉여0.5·예비1 → 심기·번식 없음
+        boolean b5 = eq(BerryEconomy.plan(0.5, 1, 0, 3, 2.5), 0, false);
+        // 풍족: 잉여10·예비1→가용9 번식·잔여6.5·상한3 → 3그루·번식
+        boolean b6 = eq(BerryEconomy.plan(10, 1, 0, 3, 2.5), 3, true);
+
+        boolean ok = b1 && b2 && b3 && b4 && b5 && b6;
+        report.add("berry/잉여배분", ok, "번식 우선 → 남는 잉여로 상한까지 베리",
+                ok ? "정상" : "어긋남");
+    }
+
+    private static boolean eq(BerryEconomy.Plan p, int plant, boolean repro) {
+        return p.plant() == plant && p.reproduce() == repro;
     }
 
     /** 성별 + 등급 특성 하나만 가진 검증용 개체. */

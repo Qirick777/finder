@@ -6,9 +6,9 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import java.util.EnumSet;
 
 /**
- * 거처 건축 goal — 짓는 동안 미믹을 부지로 데려가 머물게 한다(짓는 연출). <b>리더</b>는 플레이어처럼
- * <b>다음 설치할 블록 자리로 직접 걸어가</b> 바짝 붙고, <b>조력자</b>는 거처 중심에 대기한다. 실제 블록 설치는
- * 리더의 {@code buildTick}이 손이 닿았을 때 한다. 공격받으면(hurtTime·타겟) 물러나 전투 goal이 우선한다.
+ * 거처 건축 goal — 짓는 동안 미믹을 부지로 데려가 머물게 한다(짓는 연출). 두 구성원이 <b>각자 맡은
+ * 다음 블록 자리로 직접 걸어가</b>(플레이어처럼) 바짝 붙어 <b>동시에</b> 짓는다. 실제 블록 설치는 각자의
+ * {@code buildTick}이 손이 닿았을 때 한다. 공격받으면(hurtTime·타겟) 물러나 전투 goal이 우선한다.
  */
 public class MimicBuildGoal extends Goal {
 
@@ -36,8 +36,8 @@ public class MimicBuildGoal extends Goal {
         if (home == null) {
             return;
         }
-        // 리더는 다음 블록 자리로, 조력자(또는 목표 미정)는 거처 중심으로.
-        BlockPos target = mob.isBuildLeader() ? mob.getBuildTargetPos() : null;
+        // 각자 맡은 다음 블록 자리로. 목표가 아직 없으면(대기) 거처 중심으로.
+        BlockPos target = mob.getBuildTargetPos();
         boolean toBlock = target != null;
         BlockPos dest = toBlock ? target : home;
 

@@ -25,8 +25,15 @@ import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -56,6 +63,7 @@ import net.minecraft.world.level.block.Blocks;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -103,11 +111,9 @@ public class MimicEntity extends PathfinderMob {
     private long spouseId = 0L;                 // 배우자 Individual.id (0=미혼)
     private boolean widowed = false;            // 배우자 사망 → 재구애 참여
     private byte homeFacing = 0;                // 천막 방향(Direction.get2DDataValue)
-    private boolean building = false;           // 거처 건축 중(리더/조력 공통)
-    private boolean buildLeader = false;        // 건축 리더(블록 설치 담당)
-    private int buildIndex = 0;                 // 건축 진행 인덱스
+    private boolean building = false;           // 거처 건축 중(부부 공통) — 분담·리더는 buildTick 이 결정
     @Nullable
-    private BlockPos buildTargetPos = null;     // 리더가 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
+    private BlockPos buildTargetPos = null;     // 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
     private int buildReachTicks = 0;            // 현재 목표 접근 시도 누적(교착 방지 폴백용)
     private static final int BUILD_INTERVAL = 8; // 설치 박자(틱) — 손이 닿아 있을 때 한 칸씩
     private static final double BUILD_REACH = 2.4; // 이 수평 거리 안이어야 설치(밖이면 걸어감)
@@ -151,6 +157,8 @@ public class MimicEntity extends PathfinderMob {
 
     public MimicEntity(EntityType<? extends MimicEntity> type, Level level) {
         super(type, level);
+        // 건축 중 손에 든 블럭(연출용)이 사망 시 드랍되지 않도록.
+        setDropChance(EquipmentSlot.MAINHAND, 0.0F);
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -294,7 +302,6 @@ public class MimicEntity extends PathfinderMob {
         setHomePos(home);
         homeFacing = (byte) facing.get2DDataValue();
         building = false;
-        buildLeader = false;
         if (level() instanceof ServerLevel sl) {
             for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
                 var state = p.token() == HomeStructure.TOKEN_FENCE
@@ -607,14 +614,11 @@ public class MimicEntity extends PathfinderMob {
         other.setHomePos(home);
         homeFacing = (byte) facing.get2DDataValue();
         other.homeFacing = homeFacing;
-        // 낮은 id가 건축 리더, 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지).
-        MimicEntity leader = getId() <= other.getId() ? this : other;
-        MimicEntity helper = leader == this ? other : this;
-        leader.building = true;
-        leader.buildLeader = true;
-        leader.buildIndex = 0;
-        helper.building = true;
-        helper.buildLeader = false;
+        // 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지). 실제 분담·리더는 buildTick 이 매 틱 결정.
+        this.building = true;
+        this.buildReachTicks = 0;
+        other.building = true;
+        other.buildReachTicks = 0;
     }
 
     /** 빈 거처(꺼진 모닥불)에 부부가 입주 — 모닥불 재점화. */
@@ -741,57 +745,77 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 짓는 연출 — 리더가 <b>다음 블록 자리로 직접 걸어가</b>(MimicBuildGoal) 손이 닿으면 한 칸 설치한다.
-     * 이미 채워진 칸은 건너뛴다. 닿을 수 없는 자리에서 오래 지체하면 강제 설치해 교착을 막는다. 전부
-     * 설치되면 모닥불을 점화하고 완료 처리한다.
+     * 짓는 연출 — 부부가 <b>각자 맡은 다음 블록 자리로 직접 걸어가</b>(MimicBuildGoal) 손에 든 그 블럭을
+     * 손이 닿았을 때 설치한다(설치음 재생). 담당은 인덱스 패리티로 나눠 <b>동시에·충돌 없이</b> 짓고, 다른
+     * 구성원이 있는 칸엔 놓지 않아(질식 방지) 파묻지 않는다. 이미 채워진 칸은 건너뛰고, 닿을 수 없는 자리는
+     * 폴백 타이머로 강제 설치해 교착을 막는다. 전부 설치되면 모닥불을 점화하고 완료 처리한다.
      */
     private void buildTick() {
         if (!building || homePos == null || individual == null
                 || !(level() instanceof ServerLevel sl)) {
             return;
         }
-        if (!buildLeader) {
-            // 리더가 사라졌으면(사망) 승격, 아니면 대기(조력자는 설치 안 함).
-            if (hasBuildLeaderAtHome(sl)) {
-                return;
-            }
-            buildLeader = true;
-        }
         Direction facing = getHomeFacingDir();
         List<HomeStructure.Placement> plan = HomeStructure.plan(homePos, facing);
 
-        // ① 다음 설치할(설치 가능한) 블록을 찾아 목표로 잡는다. 이미 채워진 칸은 통과.
-        HomeStructure.Placement target = null;
-        while (buildIndex < plan.size()) {
-            HomeStructure.Placement p = plan.get(buildIndex);
+        // 함께 짓는 동료(나 포함)를 id 순으로 정렬 → 안정적 레인 배정으로 동시에·충돌 없이 짓는다.
+        List<MimicEntity> crew = buildCrew(sl);
+        int lanes = Math.max(1, crew.size());
+        int lane = Math.max(0, crew.indexOf(this));
+
+        // ① 완성 판정 — 남은 설치 가능 블록이 없으면 종료(레인0가 점화·완료 처리).
+        boolean anyLeft = false;
+        for (HomeStructure.Placement p : plan) {
             if (isPlaceable(sl, p.pos())) {
-                target = p;
+                anyLeft = true;
                 break;
             }
-            buildIndex++;
+        }
+        if (!anyLeft) {
+            buildTargetPos = null;
+            clearBuildItem();
+            if (lane == 0) {
+                placeHearth(sl, homePos, facing, true); // 완성 → 점화
+                finishBuilding(sl);
+            } else {
+                building = false; // 동료가 마무리(점화)를 맡음
+            }
+            return;
+        }
+
+        // ② 내 레인이 담당하는 다음 설치 가능한 블록(고정 인덱스 패리티로 분담 → 서로 다른 칸).
+        HomeStructure.Placement target = null;
+        for (int i = 0; i < plan.size(); i++) {
+            if (i % lanes != lane) {
+                continue;
+            }
+            if (isPlaceable(sl, plan.get(i).pos())) {
+                target = plan.get(i);
+                break;
+            }
         }
         if (target == null) {
             buildTargetPos = null;
-            placeHearth(sl, homePos, facing, true); // 완성 → 점화
-            finishBuilding(sl);
-            return;
+            clearBuildItem();
+            return; // 내 몫은 끝, 남은 건 동료가 마저 짓는다
         }
-        buildTargetPos = target.pos(); // MimicBuildGoal 이 이 좌표 옆으로 리더를 데려감
+        buildTargetPos = target.pos(); // MimicBuildGoal 이 이 좌표 옆으로 데려감
+        showBuildItem(target);         // 그 블럭을 손에 들고 이동(설치 연출)
 
-        // ② 손이 닿아야 설치. 못 닿으면 접근 대기(단, 오래 못 닿으면 강제 설치로 교착 방지).
+        // ③ 손이 닿아야 설치. 못 닿으면 접근 대기(단, 오래 못 닿으면 강제 설치로 교착 방지).
         buildReachTicks++;
         boolean forced = buildReachTicks >= BUILD_REACH_TIMEOUT;
         if (!withinReach(target.pos()) && !forced) {
             return; // 아직 걸어가는 중
         }
-        // ③ 설치 박자 — 닿아 있을 때만 소모해 한 칸씩 리듬으로 놓는다.
+        // ④ 설치 박자 — 닿아 있을 때만 소모해 한 칸씩 리듬으로 놓는다.
         if ((level().getGameTime() + getId()) % BUILD_INTERVAL != 0) {
             return;
         }
         if (placeBuildBlock(sl, target)) {
             swing(InteractionHand.MAIN_HAND);
+            playPlaceSound(sl, target); // 블록별 설치 효과음
         }
-        buildIndex++;
         buildReachTicks = 0;
         buildTargetPos = null;
     }
@@ -803,34 +827,29 @@ public class MimicEntity extends PathfinderMob {
         return dx * dx + dz * dz <= BUILD_REACH * BUILD_REACH;
     }
 
-    public boolean isBuildLeader() {
-        return buildLeader;
-    }
-
-    /** 리더가 지금 걸어가 설치할 다음 블록 좌표(없으면 null) — MimicBuildGoal 이 목적지로 사용. */
+    /** 지금 걸어가 설치할 다음 블록 좌표(없으면 null) — MimicBuildGoal 이 목적지로 사용. */
     @Nullable
     public BlockPos getBuildTargetPos() {
         return buildTargetPos;
     }
 
-    private boolean hasBuildLeaderAtHome(ServerLevel sl) {
+    /** 같은 거처를 함께 짓는 살아있는 구성원(나 포함) — id 순 정렬로 레인 배정이 안정적. */
+    private List<MimicEntity> buildCrew(ServerLevel sl) {
+        List<MimicEntity> crew = new ArrayList<>();
         for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
-            if (m != this && m.isAlive() && m.building && m.buildLeader
-                    && homePos.equals(m.getHomePos())) {
-                return true;
+            if (m.isAlive() && m.building && homePos.equals(m.getHomePos())) {
+                crew.add(m);
             }
         }
-        return false;
+        crew.sort(Comparator.comparingInt(Entity::getId));
+        return crew;
     }
 
     private boolean placeBuildBlock(ServerLevel sl, HomeStructure.Placement p) {
-        if (!isPlaceable(sl, p.pos())) {
-            return false; // 이미 채워짐/장애물 → 건너뜀
+        if (!isPlaceable(sl, p.pos()) || cellOccupiedByOther(sl, p.pos())) {
+            return false; // 이미 채워짐/장애물 · 다른 구성원이 그 칸에 있으면 파묻지 않음
         }
-        var state = p.token() == HomeStructure.TOKEN_FENCE
-                ? Blocks.OAK_FENCE.defaultBlockState()
-                : Blocks.WHITE_WOOL.defaultBlockState();
-        sl.setBlockAndUpdate(p.pos(), state);
+        sl.setBlockAndUpdate(p.pos(), blockFor(p).defaultBlockState());
         return true;
     }
 
@@ -841,12 +860,48 @@ public class MimicEntity extends PathfinderMob {
                 || cur.is(Blocks.FERN) || cur.is(Blocks.SNOW);
     }
 
-    /** 건축 완료 — 거처 구성원 전원 building 해제. */
+    /** 그 칸에 나 아닌 다른 미믹이 있나(질식 방지 — 남을 파묻지 않음). */
+    private boolean cellOccupiedByOther(ServerLevel sl, BlockPos pos) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, new AABB(pos))) {
+            if (m != this && m.isAlive()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Block blockFor(HomeStructure.Placement p) {
+        return p.token() == HomeStructure.TOKEN_FENCE ? Blocks.OAK_FENCE : Blocks.WHITE_WOOL;
+    }
+
+    /** 지금 설치할 블럭을 손에 들려 보여준다(바뀔 때만 갱신해 동기화 절약). */
+    private void showBuildItem(HomeStructure.Placement p) {
+        ItemStack want = new ItemStack(blockFor(p));
+        if (!ItemStack.matches(getItemBySlot(EquipmentSlot.MAINHAND), want)) {
+            setItemSlot(EquipmentSlot.MAINHAND, want);
+        }
+    }
+
+    /** 손에 든 블럭을 치운다(건축 종료·대기). */
+    private void clearBuildItem() {
+        if (!getItemBySlot(EquipmentSlot.MAINHAND).isEmpty()) {
+            setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+        }
+    }
+
+    /** 블록별 설치 효과음(양털=푹신, 울타리=나무) — 바닐라 블록 배치음과 동일 톤. */
+    private void playPlaceSound(ServerLevel sl, HomeStructure.Placement p) {
+        SoundType st = blockFor(p).defaultBlockState().getSoundType();
+        sl.playSound(null, p.pos(), st.getPlaceSound(), SoundSource.BLOCKS,
+                (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
+    }
+
+    /** 건축 완료 — 거처 구성원 전원 building 해제·손에 든 블럭 정리. */
     private void finishBuilding(ServerLevel sl) {
         for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
             if (homePos.equals(m.getHomePos())) {
                 m.building = false;
-                m.buildLeader = false;
+                m.clearBuildItem();
             }
         }
         building = false;
@@ -1282,6 +1337,15 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 사망 순간 관찰 로그 (누가·무엇에·어디서 죽었나 §14). 전투 사망·몬스터 처치 등 원인 포함. */
+    /** 질식(벽 낌) 데미지 무시 — 건축 연출 중 서로/블럭에 잠시 겹쳐도 질식사하지 않게 한다. */
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        if (source.is(DamageTypes.IN_WALL)) {
+            return false;
+        }
+        return super.hurt(source, amount);
+    }
+
     @Override
     public void die(DamageSource source) {
         if (!level().isClientSide) {
@@ -1340,8 +1404,6 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("Widowed", widowed);
         tag.putByte("HomeFacing", homeFacing);
         tag.putBoolean("Building", building);
-        tag.putBoolean("BuildLeader", buildLeader);
-        tag.putInt("BuildIndex", buildIndex);
         if (individual != null) {
             tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
         }
@@ -1391,8 +1453,6 @@ public class MimicEntity extends PathfinderMob {
         widowed = tag.getBoolean("Widowed");
         homeFacing = tag.getByte("HomeFacing");
         building = tag.getBoolean("Building");
-        buildLeader = tag.getBoolean("BuildLeader");
-        buildIndex = tag.getInt("BuildIndex");
         if (tag.contains("Individual")) {
             this.individual = IndividualNbt.load(tag.getCompound("Individual"));
             refreshStageAttributes(); // 성별 배율 등 재적용

@@ -6,6 +6,7 @@ import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
+import net.minecraft.client.renderer.entity.layers.ItemInHandLayer;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -28,6 +29,8 @@ public class MimicRenderer extends MobRenderer<MimicEntity, PlayerModel<MimicEnt
         super(ctx, new PlayerModel<>(ctx.bakeLayer(MimicClient.MIMIC_WIDE_LAYER), false), 0.5F);
         this.wide = this.getModel();
         this.slim = new PlayerModel<>(ctx.bakeLayer(MimicClient.MIMIC_SLIM_LAYER), true);
+        // 건축 시 손에 든 블럭(양털·울타리)을 그려준다.
+        this.addLayer(new ItemInHandLayer<>(this, ctx.getItemInHandRenderer()));
     }
 
     @Override

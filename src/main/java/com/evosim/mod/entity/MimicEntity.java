@@ -453,6 +453,7 @@ public class MimicEntity extends PathfinderMob {
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
             settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
+            berryDemoTick();   // /evosim berry 실연: 심기→성장→수확을 실시간으로 진행
             infantCareTick();
             regenTick();       // 회복력(강건/병약) 등급 비례 재생(위험 없을 때)
         }
@@ -931,18 +932,46 @@ public class MimicEntity extends PathfinderMob {
         return r;
     }
 
-    /** 점검용 — 옆 정원 앞 몇 칸에 <b>다 익은</b>(age 3) 베리를 심어 즉시 수확 관찰이 되게 한다. */
-    public void debugSeedRipeBerries(ServerLevel sl, int count) {
+    // ── /evosim berry 실연(實演): 아무것도 미리 깔지 않고, 심기→성장→수확을 실시간으로 보여준다 ──
+    private int berryDemoTicks = 0;
+
+    /** 실연 시작 — 잠시 후 1회 정산(번식+잉여로 베리 심기), 이어 심은 베리를 빠르게 익혀 수확까지 관찰. */
+    public void startBerryDemo() {
+        berryDemoTicks = 600; // 약 30초
+    }
+
+    public boolean isBerryDemo() {
+        return berryDemoTicks > 0;
+    }
+
+    /** 실연 진행: (2초 후) 잉여 공급→정산 1회로 베리 심기 → 이후 심은 베리를 15틱마다 한 그루씩 빠르게 익힘. */
+    private void berryDemoTick() {
+        if (berryDemoTicks <= 0 || !(level() instanceof ServerLevel sl)) {
+            return;
+        }
+        berryDemoTicks--;
+        if (berryDemoTicks == 560) {
+            addHarvest(20.0);   // 먹이·예비·번식 몫을 떼고도 넉넉히 남는 잉여
+            debugSettleOnce();  // → 번식 1회 + 남는 잉여로 옆 정원에 베리 여러 그루(관찰)
+        } else if (berryDemoTicks < 560 && berryDemoTicks % 15 == 0) {
+            ripenOneBerry(sl);  // 심은 age1 베리를 빠르게 익혀 아버지가 수확할 수 있게(실시간 성장 연출)
+        }
+    }
+
+    /** 옆 정원에서 아직 덜 익은 베리 한 그루의 나이를 +1 (실연용 빠른 성장). */
+    private void ripenOneBerry(ServerLevel sl) {
         if (homePos == null) {
             return;
         }
-        int done = 0;
         for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
-            if (done >= count) {
-                break;
-            }
-            if (tryPlantBerry(sl, tile, 3)) {
-                done++;
+            for (int dy = 3; dy >= -3; dy--) {
+                BlockPos p = tile.offset(0, dy, 0);
+                BlockState s = sl.getBlockState(p);
+                if (s.is(Blocks.SWEET_BERRY_BUSH) && s.getValue(SweetBerryBushBlock.AGE) < 3) {
+                    sl.setBlockAndUpdate(p, s.setValue(SweetBerryBushBlock.AGE,
+                            s.getValue(SweetBerryBushBlock.AGE) + 1));
+                    return;
+                }
             }
         }
     }
@@ -1335,22 +1364,22 @@ public class MimicEntity extends PathfinderMob {
         if (!(level() instanceof ServerLevel sl)) {
             return;
         }
-        runSettlement(sl);
+        runSettlement(sl, false);
     }
 
-    /** 점검용 — 시각·주기 게이트를 건너뛰고 이 대표가 즉시 한 번 밤 정산(번식·옆 정원 베리 포함)을 돌린다. */
+    /** 점검용 — 시각·주기·대표 게이트를 건너뛰고 이 미믹이 즉시 한 번 밤 정산(번식·옆 정원 베리 포함)을 돌린다. */
     public void debugSettleOnce() {
         if (level() instanceof ServerLevel sl) {
-            runSettlement(sl);
+            runSettlement(sl, true);
         }
     }
 
     /** 밤 정산 실체: 가정 구성 → 우선순위 분배·아사·번식·옆 정원 베리. settlementTick·debugSettleOnce 공용. */
-    private void runSettlement(ServerLevel sl) {
+    private void runSettlement(ServerLevel sl, boolean force) {
         long day = level().getDayTime() / 24000L;
         List<MimicEntity> fam = householdMembers();
         MimicEntity driver = lowestIdAdult(fam);
-        if (driver != this) {
+        if (!force && driver != this) {
             return; // 대표만 정산(중복 방지). 비대표는 대표가 lastSettleDay 를 찍어줌
         }
 

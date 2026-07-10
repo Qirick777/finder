@@ -138,6 +138,7 @@ public class MimicForageGoal extends Goal {
                     mob.addHarvest(food);
                     mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));
                     mob.swing(InteractionHand.MAIN_HAND);
+                    SimEvents.event(mob, "수확", String.format("옆 정원 베리 → 식량 +%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
                     double food = GATHER_FOOD * Multipliers.gather(ind);
@@ -180,9 +181,13 @@ public class MimicForageGoal extends Goal {
         return best;
     }
 
-    /** 주변에서 부술 채집물 한 칸을 무작위 표본으로 탐색(전체 스캔 회피). */
+    /** 채집물 한 칸 탐색 — <b>다 익은 옆 정원 베리를 먼저</b>(자기 밭 우선), 없으면 주변 풀 무작위 표본. */
     private BlockPos findForage(boolean herbalist) {
         BlockPos base = mob.blockPosition();
+        BlockPos berry = nearestRipeBerry(base);
+        if (berry != null) {
+            return berry; // 익은 베리가 근처에 있으면 풀보다 먼저 딴다
+        }
         for (int i = 0; i < 24; i++) {
             int dx = mob.getRandom().nextInt(11) - 5;
             int dz = mob.getRandom().nextInt(11) - 5;
@@ -193,6 +198,27 @@ public class MimicForageGoal extends Goal {
             }
         }
         return null;
+    }
+
+    /** 근처(±5)에서 가장 가까운 다 익은 스위트베리 덤불. 없으면 null. */
+    private BlockPos nearestRipeBerry(BlockPos base) {
+        BlockPos best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (int dx = -5; dx <= 5; dx++) {
+            for (int dz = -5; dz <= 5; dz++) {
+                for (int dy = -2; dy <= 2; dy++) {
+                    BlockPos p = base.offset(dx, dy, dz);
+                    if (isRipeBerry(mob.level().getBlockState(p))) {
+                        double d = base.distSqr(p);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = p;
+                        }
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     /** 누구나 채집하는 풀(잔디·고사리) + 다 익은 옆 정원 베리 + 약초학자만 채집하는 꽃·버섯. */

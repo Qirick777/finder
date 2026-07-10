@@ -264,8 +264,9 @@ public final class EvoSimCommand {
     }
 
     /**
-     * 옆 정원 베리 원터치 점검: 부부 1쌍(천막·거처) + 넉넉한 잉여 → 즉시 밤 정산 1회. ① 먹이고·번식 후 남는
-     * 잉여로 옆 정원(x=±3)에 베리 여러 그루 심는지, ② 미리 심어둔 다 익은 베리를 낮에 수확하는지 확인.
+     * 옆 정원 베리 원터치 <b>실연</b>: 부부 1쌍(천막·거처)을 세우고 실시간 실연을 켠다. 아무것도 미리 깔지
+     * 않는다 — ① 약 2초 뒤 정산 1회로 <b>번식하고 남은 잉여만큼</b> 옆 정원(x=±3)에 베리를 여러 그루 심고,
+     * ② 심은 베리가 실시간으로 익으면 ③ 아버지가 낮에 수확(age3→age1, 재성장)하는 것까지 눈으로 확인한다.
      */
     private static int stageBerry(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
@@ -276,15 +277,13 @@ public final class EvoSimCommand {
         if (m != null && f != null) {
             m.debugSettleWithTent(home, Direction.NORTH);
             f.debugSettleWithTent(home, Direction.NORTH);
-            m.debugMarryTo(f);                 // 부부 → 번식 몫을 먼저 떼고 남는 잉여로만 베리
-            m.debugSeedRipeBerries(level, 4);  // 옆 정원 4칸에 다 익은(수확용) 베리 선(先)심기
-            m.addHarvest(30.0);                // 넉넉한 잉여: 먹이고·예비·번식 후에도 남아 베리 여러 그루
-            m.debugSettleOnce();               // 즉시 밤 정산 1회 → 번식 + 남는 잉여로 베리 심기
+            m.debugMarryTo(f);      // 부부 → 번식 몫을 먼저 떼고 남는 잉여로만 베리
+            m.startBerryDemo();     // 실시간 실연 시작(잠시 후 정산→심기, 이어 성장→수확)
         }
-        level.setDayTime(2000L);               // 낮(노동 시간): 아버지가 익은 베리를 수확하러 나감
-        tell(ctx.getSource(), "베리 점검: 부부 즉시 정산 완료. 옆 정원(천막 좌우 x=±3)에 ① 번식하고 남은 "
-                + "잉여로 새 베리가 심기고(로그 [베리] +N), ② 미리 심어둔 익은 베리 4그루를 낮에 수확합니다"
-                + "(수확 시 age3→age1로 되돌아 다시 자람). 잉여가 많을수록 더 여러 그루 심습니다(상한 8).");
+        level.setDayTime(4000L);    // 낮(노동 시간 한복판): 아버지가 익은 베리를 수확하러 나감
+        tell(ctx.getSource(), "베리 실연 시작: 옆 정원(천막 좌우 x=±3)은 지금 비어 있습니다. ① 약 2초 뒤 정산 "
+                + "→ 번식하고 남은 잉여만큼 베리가 실시간으로 심기고(로그 [베리] +N), ② 심은 베리가 점점 익어 "
+                + "③ 아버지가 낮에 수확합니다(로그 [수확], age3→age1 재성장). 잉여가 많을수록 더 여러 그루(상한 8).");
         return 1;
     }
 

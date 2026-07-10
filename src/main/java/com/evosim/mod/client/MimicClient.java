@@ -1,9 +1,12 @@
 package com.evosim.mod.client;
 
 import com.evosim.mod.EvoSimMod;
+import com.evosim.mod.reg.ModBlocks;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.reg.ModMenus;
 import net.minecraft.client.gui.screens.MenuScreens;
+import net.minecraft.client.renderer.ItemBlockRenderTypes;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelLayerLocation;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -31,7 +34,11 @@ public final class MimicClient {
 
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> MenuScreens.register(ModMenus.EVOMATCH.get(), EvoMatchScreen::new));
+        event.enqueueWork(() -> {
+            MenuScreens.register(ModMenus.EVOMATCH.get(), EvoMatchScreen::new);
+            // 모닥불 모델은 컷아웃 렌더타입 필요 — 미지정 시 불꽃/투명 부분이 검게 렌더된다.
+            ItemBlockRenderTypes.setRenderLayer(ModBlocks.MIMIC_HEARTH.get(), RenderType.cutout());
+        });
     }
 
     @SubscribeEvent

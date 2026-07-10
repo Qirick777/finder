@@ -67,7 +67,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("widow").executes(EvoSimCommand::stageWidow))
                 .then(Commands.literal("family").executes(EvoSimCommand::stageFamily))
                 .then(Commands.literal("lonepair").executes(EvoSimCommand::stageLonePair))
-                .then(Commands.literal("abandon").executes(EvoSimCommand::stageAbandon)));
+                .then(Commands.literal("abandon").executes(EvoSimCommand::stageAbandon))
+                .then(Commands.literal("reuse").executes(EvoSimCommand::stageReuse))
+                .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -108,6 +110,11 @@ public final class EvoSimCommand {
 
     /** matingReady(서로 매력 매칭) 성년 하나 소환해 반환. */
     private static MimicEntity spawnAdult(ServerLevel level, Vec3 pos, Sex sex) {
+        return spawnAdult(level, pos, sex, new Trait[0]);
+    }
+
+    /** matingReady 성년 + 지정 추가 특성(정착 성향 등) 부여해 소환. */
+    private static MimicEntity spawnAdult(ServerLevel level, Vec3 pos, Sex sex, Trait... extra) {
         MimicEntity e = ModEntities.MIMIC.get().create(level);
         if (e == null) {
             return null;
@@ -120,6 +127,9 @@ public final class EvoSimCommand {
         ind.addTrait(TraitInstance.of(Trait.STRONG));
         ind.addTrait(TraitInstance.of(Trait.BRIGHT));
         ind.addTrait(TraitInstance.of(Trait.NIMBLE));
+        for (Trait t : extra) {
+            ind.addTrait(TraitInstance.of(t));
+        }
         e.setIndividual(ind);
         e.setStage(LifeStage.ADULT);
         e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
@@ -215,6 +225,40 @@ public final class EvoSimCommand {
         }
         tell(ctx.getSource(), "소화 점검: 홀거처주(천막·모닥불 켜짐). 이 미믹을 처치하면 거주자 0 → "
                 + "모닥불이 꺼집니다(건물은 폐허로 남음).");
+        return 1;
+    }
+
+    /** 애향심 재사용: 빈 거처(꺼진 모닥불) 하나 + 애향심 부부 → 신축 대신 그 빈 거처로 입주(재점화). */
+    private static int stageReuse(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        level.setDayTime(10000L);
+        BlockPos empty = BlockPos.containing(b.add(-8, 0, 0));
+        MimicEntity.debugPlaceAbandonedHome(level, empty, Direction.NORTH); // 빈 거처 준비
+        MimicEntity m = spawnAdult(level, b.add(2, 0, 0), Sex.MALE, Trait.HOMEBOUND);
+        MimicEntity f = spawnAdult(level, b.add(3, 0, 0), Sex.FEMALE, Trait.HOMEBOUND);
+        if (m != null && f != null) {
+            m.debugForcePair(f);
+        }
+        tell(ctx.getSource(), "재사용 점검: 근처에 빈 거처(꺼진 모닥불) 1채 + 애향심(愛鄕) 부부 즉시 성사. "
+                + "애향심×애향심=100%로 빈 거처 재사용 → 신축 없이 그 모닥불이 다시 켜집니다.");
+        return 1;
+    }
+
+    /** 이주자: 빈 거처가 옆에 있어도 무시하고 멀리 신축. reuse 와 대조. */
+    private static int stageMigrate(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        level.setDayTime(10000L);
+        BlockPos empty = BlockPos.containing(b.add(-8, 0, 0));
+        MimicEntity.debugPlaceAbandonedHome(level, empty, Direction.NORTH); // 빈 거처(무시될 것)
+        MimicEntity m = spawnAdult(level, b.add(2, 0, 0), Sex.MALE, Trait.MIGRATORY);
+        MimicEntity f = spawnAdult(level, b.add(3, 0, 0), Sex.FEMALE, Trait.MIGRATORY);
+        if (m != null && f != null) {
+            m.debugForcePair(f);
+        }
+        tell(ctx.getSource(), "이주자 점검: 근처 빈 거처가 있어도 이주자×이주자는 반드시 신축(재사용 0%). "
+                + "기본×2보다 더 멀리(×3) 부지를 잡아 천막을 새로 짓습니다.");
         return 1;
     }
 

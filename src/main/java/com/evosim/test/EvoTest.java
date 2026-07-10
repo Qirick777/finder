@@ -16,6 +16,7 @@ import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
 import com.evosim.core.MateChoiceClass;
+import com.evosim.core.HomeResolution;
 import com.evosim.core.MateHome;
 import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
@@ -98,9 +99,10 @@ public final class EvoTest {
             case "courtship" -> courtship(report);
             case "matechoice" -> matechoice(report);
             case "matehome" -> matehome(report);
+            case "homeresolution" -> homeresolution(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -124,6 +126,7 @@ public final class EvoTest {
         courtship(report);
         matechoice(report);
         matehome(report);
+        homeresolution(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1197,6 +1200,68 @@ public final class EvoTest {
         report.add("matehome/판정", ok,
                 "방랑·자식→신축 · 혼자쪽 있으면 그 거처 · 둘다 혼자→랜덤 합류",
                 ok ? "9종 전부 정상" : "판정 어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest homeresolution — 정착 성향 조합별 거처 마련 계획 (설계서 §13-D 확장)
+    // ──────────────────────────────────────────────────────────────
+    private static void homeresolution(Report report) {
+        HomeResolution.Disposition M = HomeResolution.Disposition.MIGRANT;
+        HomeResolution.Disposition H = HomeResolution.Disposition.HOMER;
+        HomeResolution.Disposition N = HomeResolution.Disposition.NEUTRAL;
+        int base = Settlement.BASE_DISTANCE;
+
+        // 1) 성향 판정: 이주자→MIGRANT, 애향심→HOMER, 무특성→NEUTRAL
+        boolean disp = HomeResolution.dispositionOf(one(Sex.MALE, TraitInstance.of(Trait.MIGRATORY))) == M
+                && HomeResolution.dispositionOf(one(Sex.MALE, TraitInstance.of(Trait.HOMEBOUND))) == H
+                && HomeResolution.dispositionOf(one(Sex.MALE)) == N;
+        report.add("homeresolution/성향", disp, "이주자·애향심·기본 판정",
+                disp ? "정상" : "어긋남");
+
+        // 2) 이주자는 항상 신축(재사용 0%), 애향심은 확률적 재사용(75/100%)
+        boolean empty = HomeResolution.plan(M, N).emptyPercent() == 0     // 이주자+기본
+                && HomeResolution.plan(M, M).emptyPercent() == 0          // 이주자+이주자
+                && HomeResolution.plan(M, H).emptyPercent() == 50         // 이주자+애향심(랜덤)
+                && HomeResolution.plan(N, H).emptyPercent() == 75         // 기본+애향심
+                && HomeResolution.plan(H, H).emptyPercent() == 100        // 애향심+애향심
+                && HomeResolution.plan(N, N).emptyPercent() == 50;        // 기본+기본
+        report.add("homeresolution/재사용", empty,
+                "이주자0%·이주×애향50%·기본×애향75%·애향×애향100%",
+                empty ? "정상" : "어긋남");
+
+        // 3) 신축 거리: 이주×이주 더멀리(×3) > 이주×기본 멀리(×2) > 기본 > 애향 가까이(÷2)
+        boolean dist = HomeResolution.plan(M, M).distance() == base * 3
+                && HomeResolution.plan(M, N).distance() == base * 2
+                && HomeResolution.plan(M, H).distance() == base       // 기본처럼 가까이
+                && HomeResolution.plan(N, N).distance() == base
+                && HomeResolution.plan(N, H).distance() == base / 2
+                && HomeResolution.plan(H, H).distance() == base / 2;
+        report.add("homeresolution/거리", dist,
+                "이주×이주 " + (base * 3) + " · 이주×기본 " + (base * 2) + " · 애향 " + (base / 2),
+                dist ? "정상" : "어긋남");
+
+        // 4) 신축 앵커: 기본+애향=애향 보유자 고향 · 애향+애향=두 거처 중간 · 그 외=짝 성사 자리
+        boolean anchor = HomeResolution.plan(N, H).anchor() == HomeResolution.Anchor.HOMER_BIRTH
+                && HomeResolution.plan(H, N).anchor() == HomeResolution.Anchor.HOMER_BIRTH
+                && HomeResolution.plan(H, H).anchor() == HomeResolution.Anchor.MIDPOINT_HOMES
+                && HomeResolution.plan(M, H).anchor() == HomeResolution.Anchor.MATING_SPOT
+                && HomeResolution.plan(N, N).anchor() == HomeResolution.Anchor.MATING_SPOT;
+        report.add("homeresolution/앵커", anchor,
+                "기본+애향=고향 · 애향+애향=중간 · 그외=성사자리",
+                anchor ? "정상" : "어긋남");
+
+        // 5) 대칭성: plan(a,b) == plan(b,a) 전 조합
+        HomeResolution.Disposition[] all = {M, H, N};
+        boolean sym = true;
+        for (HomeResolution.Disposition a : all) {
+            for (HomeResolution.Disposition b : all) {
+                if (!HomeResolution.plan(a, b).equals(HomeResolution.plan(b, a))) {
+                    sym = false;
+                }
+            }
+        }
+        report.add("homeresolution/대칭", sym, "plan(a,b)=plan(b,a)",
+                sym ? "정상" : "비대칭!");
     }
 
     private static boolean close(double a, double b) {

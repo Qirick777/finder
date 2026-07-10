@@ -3,6 +3,7 @@ package com.evosim.mod.entity;
 import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.HomeResolution;
 import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
@@ -84,6 +85,9 @@ public class MimicEntity extends PathfinderMob {
     // 사회(§3, §10): 거처 포인터(null=방랑자).
     @Nullable
     private BlockPos homePos = null;
+    // 태어난(스폰된) 위치 — 애향심 신축 앵커·1세대 정착 기준(설계서 §13-D). 최초 tick에 지연 설정.
+    @Nullable
+    private BlockPos birthPos = null;
 
     // 구애 상태머신 (구애 사양서 v2). 방랑자만 참여. 전부 세션 내 상태(저장 안 함, 리로드 시 재탐색).
     private MateState mateState = MateState.IDLE;
@@ -241,6 +245,18 @@ public class MimicEntity extends PathfinderMob {
         this.homePos = pos;
     }
 
+    /** 태어난 위치 — 없으면 현재 위치로 지연 확정(1세대·스폰 개체). 애향심 신축 앵커. */
+    public BlockPos getBirthPos() {
+        if (birthPos == null) {
+            birthPos = blockPosition();
+        }
+        return birthPos;
+    }
+
+    public void setBirthPos(BlockPos pos) {
+        this.birthPos = pos;
+    }
+
     /** 방랑자 = 성년이면서 거처 없음 (짝 구애 대상, §9). */
     public boolean isWanderer() {
         return homePos == null && getStage() == LifeStage.ADULT;
@@ -283,6 +299,22 @@ public class MimicEntity extends PathfinderMob {
             }
             placeHearth(sl, home, facing, true);
         }
+    }
+
+    /**
+     * 점검용 — 빈 거처(천막 + 꺼진 모닥불)를 즉시 지어 폐기목록에 등록. 애향심/이주자 재사용 판정 관찰용
+     * (거주자 없이 존재하는 꺼진 거처를 하나 만들어 둔다).
+     */
+    public static void debugPlaceAbandonedHome(ServerLevel sl, BlockPos home, Direction facing) {
+        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
+            var state = p.token() == HomeStructure.TOKEN_FENCE
+                    ? Blocks.OAK_FENCE.defaultBlockState()
+                    : Blocks.WHITE_WOOL.defaultBlockState();
+            sl.setBlockAndUpdate(p.pos(), state);
+        }
+        placeHearth(sl, home, facing, false); // 꺼진 모닥불
+        ABANDONED_HOMES.add(new int[] {home.getX(), home.getY(), home.getZ(),
+                facing.get2DDataValue()});
     }
 
     /** 거처 상태 — 방랑/단독거처주/가족동거 (재혼 판정용). */
@@ -333,6 +365,19 @@ public class MimicEntity extends PathfinderMob {
         return Direction.from2DDataValue(homeFacing);
     }
 
+    /**
+     * 취침 시 눕는 방향 — 천막 안쪽(입구 반대)으로 머리를 두게 한다(머리가 천막 밖으로 빠져나오는 문제 해결).
+     * 렌더러가 이 방향으로 몸을 뉘고 침대처럼 위치를 보정해 천막 안에 반듯이 눕는다.
+     */
+    @Override
+    @Nullable
+    public Direction getBedOrientation() {
+        if (getPose() == Pose.SLEEPING && homePos != null) {
+            return getHomeFacingDir().getOpposite(); // 입구(모닥불)는 전방, 머리는 후방(안쪽)
+        }
+        return super.getBedOrientation();
+    }
+
     public void setFastGrowth(boolean fast) {
         this.fastGrowth = fast;
     }
@@ -347,6 +392,9 @@ public class MimicEntity extends PathfinderMob {
     public void tick() {
         super.tick();
         if (!level().isClientSide) {
+            if (birthPos == null) {
+                birthPos = blockPosition(); // 스폰 위치 확정(1세대 정착 기준)
+            }
             growthTick();
             observeTooYoung();
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
@@ -522,31 +570,32 @@ public class MimicEntity extends PathfinderMob {
         relightHearth(sl, host.getHomePos(), host.getHomeFacingDir());
     }
 
-    /** 새 거처: 근처 빈 거처(꺼진 모닥불) 재활용, 없으면 겹치지 않는 자리에 신축(짓는 연출). */
+    /**
+     * 새 거처 마련 — 정착 성향(이주자/애향심/기본) 조합으로 결정(설계서 §13-D, {@link HomeResolution}).
+     * 애향심은 빈 거처(꺼진 모닥불)를 확률적으로 먼저 노리고, 이주자는 반드시 신축한다. 신축 위치·거리도
+     * 조합에 따라 정한다(기본=짝 성사 자리, 기본+애향=애향 보유자 고향, 애향+애향=두 거처 중간).
+     */
     private void makeNewHome(ServerLevel sl, MimicEntity other) {
-        int[] reuse = findAbandonedHome(sl);
-        if (reuse != null) {
-            BlockPos home = new BlockPos(reuse[0], reuse[1], reuse[2]);
-            Direction facing = Direction.from2DDataValue(reuse[3]);
-            setHomePos(home);
-            other.setHomePos(home);
-            homeFacing = (byte) reuse[3];
-            other.homeFacing = homeFacing;
-            relightHearth(sl, home, facing);
-            return;
-        }
-        List<int[]> existing = new ArrayList<>();
-        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(96.0))) {
-            BlockPos h = m.getHomePos();
-            if (h != null) {
-                existing.add(new int[] {h.getX(), h.getZ()});
+        HomeResolution.Disposition da = HomeResolution.dispositionOf(individual);
+        HomeResolution.Disposition db = HomeResolution.dispositionOf(other.getIndividual());
+        HomeResolution.Plan plan = HomeResolution.plan(da, db);
+
+        // ① 애향심: 확률적으로 빈 거처 재사용 시도. 이주자는 emptyPercent=0 → 항상 신축.
+        if (plan.emptyPercent() > 0 && getRandom().nextInt(100) < plan.emptyPercent()) {
+            int[] reuse = findAbandonedHome(sl);
+            if (reuse != null) {
+                occupyAbandoned(sl, other, reuse);
+                return;
             }
         }
-        int dist = Settlement.homeDistance(individual, other.getIndividual());
-        int[] anchor = {blockPosition().getX(), blockPosition().getZ()};
+
+        // ② 신축 — 조합별 앵커(기준점)와 거리로 자리를 잡고 짓는 연출 시작.
+        int[] anchor = buildAnchor(other, da, plan.anchor());
+        List<int[]> existing = collectExistingHomes(sl);
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
-        int[] pos = Settlement.placeHome(anchor, dist, existing, Settlement.MIN_GAP, rng);
-        BlockPos home = new BlockPos(pos[0], blockPosition().getY(), pos[1]);
+        int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
+                existing, Settlement.MIN_GAP, rng);
+        BlockPos home = new BlockPos(pos[0], anchor[1], pos[1]);
         Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
 
         setHomePos(home);
@@ -561,6 +610,61 @@ public class MimicEntity extends PathfinderMob {
         leader.buildIndex = 0;
         helper.building = true;
         helper.buildLeader = false;
+    }
+
+    /** 빈 거처(꺼진 모닥불)에 부부가 입주 — 모닥불 재점화. */
+    private void occupyAbandoned(ServerLevel sl, MimicEntity other, int[] reuse) {
+        BlockPos home = new BlockPos(reuse[0], reuse[1], reuse[2]);
+        Direction facing = Direction.from2DDataValue(reuse[3]);
+        setHomePos(home);
+        other.setHomePos(home);
+        homeFacing = (byte) reuse[3];
+        other.homeFacing = homeFacing;
+        relightHearth(sl, home, facing);
+        SimEvents.event(this, "입주", "빈 거처 재사용 @" + home.getX() + "," + home.getZ()
+                + " (상대 #" + other.getId() + ")");
+    }
+
+    /** 신축 위치 기준점 {x,y,z} — 조합별 앵커(짝 성사 자리 / 애향 보유자 고향 / 두 거처 중간). */
+    private int[] buildAnchor(MimicEntity other, HomeResolution.Disposition da,
+                              HomeResolution.Anchor anchor) {
+        switch (anchor) {
+            case HOMER_BIRTH -> {
+                MimicEntity homer = da == HomeResolution.Disposition.HOMER ? this : other;
+                BlockPos b = homer.getBirthPos();
+                return new int[] {b.getX(), b.getY(), b.getZ()};
+            }
+            case MIDPOINT_HOMES -> {
+                BlockPos ha = homeOrBirth(this);
+                BlockPos hb = homeOrBirth(other);
+                return new int[] {(ha.getX() + hb.getX()) / 2, (ha.getY() + hb.getY()) / 2,
+                        (ha.getZ() + hb.getZ()) / 2};
+            }
+            default -> { // MATING_SPOT
+                BlockPos p = blockPosition();
+                return new int[] {p.getX(), p.getY(), p.getZ()};
+            }
+        }
+    }
+
+    /** 가족 거처가 있으면 그 좌표, 없으면(방랑자) 태어난 위치. */
+    private static BlockPos homeOrBirth(MimicEntity m) {
+        return m.getHomePos() != null ? m.getHomePos() : m.getBirthPos();
+    }
+
+    /** 주변(그리고 폐기목록) 거처 좌표(x,z) — 겹침 회피용. */
+    private List<int[]> collectExistingHomes(ServerLevel sl) {
+        List<int[]> existing = new ArrayList<>();
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(160.0))) {
+            BlockPos h = m.getHomePos();
+            if (h != null) {
+                existing.add(new int[] {h.getX(), h.getZ()});
+            }
+        }
+        for (int[] a : ABANDONED_HOMES) {
+            existing.add(new int[] {a[0], a[2]});
+        }
+        return existing;
     }
 
     // 세션 내 폐기(꺼진) 거처 목록 {x,y,z,facing2d} — 재활용용(리로드엔 사라짐, 무해).
@@ -976,6 +1080,7 @@ public class MimicEntity extends PathfinderMob {
         child.setStage(LifeStage.INFANT);
         BlockPos where = homePos != null ? homePos : blockPosition();
         child.setHomePos(homePos);
+        child.setBirthPos(where); // 태어난 위치 확정(애향심 신축 앵커·분가 기준)
         child.moveTo(where.getX() + 0.5, where.getY(), where.getZ() + 0.5, 0.0F, 0.0F);
         sl.addFreshEntity(child);
 
@@ -1194,6 +1299,11 @@ public class MimicEntity extends PathfinderMob {
             tag.putInt("HomeY", homePos.getY());
             tag.putInt("HomeZ", homePos.getZ());
         }
+        if (birthPos != null) {
+            tag.putInt("BirthX", birthPos.getX());
+            tag.putInt("BirthY", birthPos.getY());
+            tag.putInt("BirthZ", birthPos.getZ());
+        }
     }
 
     @Override
@@ -1238,6 +1348,9 @@ public class MimicEntity extends PathfinderMob {
         }
         if (tag.contains("HomeX")) {
             homePos = new BlockPos(tag.getInt("HomeX"), tag.getInt("HomeY"), tag.getInt("HomeZ"));
+        }
+        if (tag.contains("BirthX")) {
+            birthPos = new BlockPos(tag.getInt("BirthX"), tag.getInt("BirthY"), tag.getInt("BirthZ"));
         }
     }
 }

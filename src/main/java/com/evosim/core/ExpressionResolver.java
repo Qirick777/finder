@@ -61,4 +61,18 @@ public final class ExpressionResolver {
         }
         return false;
     }
+
+    /**
+     * 발동 중인 해당 특성의 강도 등급(1~5). 발동 안 하면 0. 같은 특성 인스턴스가 여럿이면 가장 높은 등급.
+     * (신체 스칼라·등급 선호 매칭용.)
+     */
+    public static int expressedGrade(Individual ind, Trait trait) {
+        int best = 0;
+        for (TraitInstance ti : expressed(ind)) {
+            if (ti.trait() == trait && ti.grade() > best) {
+                best = ti.grade();
+            }
+        }
+        return best;
+    }
 }

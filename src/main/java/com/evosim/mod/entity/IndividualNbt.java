@@ -40,6 +40,9 @@ public final class IndividualNbt {
             CompoundTag c = new CompoundTag();
             c.putString("T", ti.trait().name());
             c.putBoolean("A", ti.isAnti());
+            if (ti.grade() > 0) {
+                c.putInt("R", ti.grade()); // 강도 등급(I~V)
+            }
             StringBuilder tags = new StringBuilder();
             for (Tag tag : ti.tags()) {
                 if (tags.length() > 0) {
@@ -79,7 +82,7 @@ public final class IndividualNbt {
                     }
                 }
             }
-            ind.addTrait(new TraitInstance(trait, tags, c.getBoolean("A")));
+            ind.addTrait(new TraitInstance(trait, tags, c.getBoolean("A"), c.getInt("R")));
         }
         return ind;
     }

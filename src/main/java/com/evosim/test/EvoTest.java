@@ -20,6 +20,7 @@ import com.evosim.core.HomeResolution;
 import com.evosim.core.MateHome;
 import com.evosim.core.Multipliers;
 import com.evosim.core.ParentingClass;
+import com.evosim.core.Physique;
 import com.evosim.core.Reproduction;
 import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
@@ -100,9 +101,10 @@ public final class EvoTest {
             case "matechoice" -> matechoice(report);
             case "matehome" -> matehome(report);
             case "homeresolution" -> homeresolution(report);
+            case "physique" -> physique(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -127,6 +129,7 @@ public final class EvoTest {
         matechoice(report);
         matehome(report);
         homeresolution(report);
+        physique(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1262,6 +1265,69 @@ public final class EvoTest {
         }
         report.add("homeresolution/대칭", sym, "plan(a,b)=plan(b,a)",
                 sym ? "정상" : "비대칭!");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest physique — 신체 등급(I~V) 강도·등급 선호 매칭 (설계서 §14)
+    // ──────────────────────────────────────────────────────────────
+    private static void physique(Report report) {
+        // 1) 등급 기반구조: clamp·roman·발동 등급 조회
+        boolean infra = TraitInstance.clampGrade(0) == 1 && TraitInstance.clampGrade(9) == 5
+                && TraitInstance.graded(Trait.TOUGH, 3).grade() == 3
+                && "III".equals(TraitInstance.roman(3)) && "V".equals(TraitInstance.roman(5))
+                && Trait.TOUGH.isGraded() && Trait.PREF_RECOVERY.isGraded()
+                && !Trait.STRONG.isGraded()
+                && ExpressionResolver.expressedGrade(graded(Sex.MALE, Trait.TOUGH, 4), Trait.TOUGH) == 4
+                && ExpressionResolver.expressedGrade(graded(Sex.MALE, Trait.TOUGH, 4), Trait.FRAIL) == 0;
+        report.add("physique/등급기반", infra, "clamp1~5·로마·isGraded·발동등급 조회",
+                infra ? "정상" : "어긋남");
+
+        // 2) 신체 배수: 등급 비례(튼튼 ±5%/속도 ±3%/시야 +8·−6%/회복 +30·−15%)
+        boolean fac = close(Physique.toughness(graded(Sex.MALE, Trait.TOUGH, 5)), 1.25)
+                && close(Physique.toughness(graded(Sex.MALE, Trait.FRAIL, 5)), 0.75)
+                && close(Physique.toughness(one(Sex.MALE)), 1.0)
+                && close(Physique.agility(graded(Sex.MALE, Trait.NIMBLE, 5)), 1.15)
+                && close(Physique.vision(graded(Sex.MALE, Trait.FARSIGHTED, 5)), 1.40)
+                && close(Physique.vision(graded(Sex.MALE, Trait.NEARSIGHTED, 5)), 0.70)
+                && close(Physique.recovery(graded(Sex.MALE, Trait.HARDY, 5)), 2.50)
+                && close(Physique.recovery(graded(Sex.MALE, Trait.SICKLY, 5)), 0.25);
+        report.add("physique/배수", fac, "튼튼V 1.25·빈약V 0.75·천리안V 1.40·강건V 2.5",
+                fac ? "정상" : "어긋남");
+
+        // 3) 등급 선호 매칭: 강건III선호 → 보유 I·V=1, II·IV=2, III=3, 미보유=0 (사용자 규칙)
+        Individual pref = graded(Sex.MALE, Trait.PREF_RECOVERY, 3);
+        boolean match = Multipliers.charmScore(pref, graded(Sex.FEMALE, Trait.HARDY, 3)) == 3
+                && Multipliers.charmScore(pref, graded(Sex.FEMALE, Trait.HARDY, 2)) == 2
+                && Multipliers.charmScore(pref, graded(Sex.FEMALE, Trait.HARDY, 4)) == 2
+                && Multipliers.charmScore(pref, graded(Sex.FEMALE, Trait.HARDY, 1)) == 1
+                && Multipliers.charmScore(pref, graded(Sex.FEMALE, Trait.HARDY, 5)) == 1
+                && Multipliers.charmScore(pref, one(Sex.FEMALE)) == 0;
+        report.add("physique/등급선호", match, "강건III선호 → I·V:1 II·IV:2 III:3 (완전일치 3점)",
+                match ? "정상" : "어긋남");
+
+        // 4) 유전: 1세대 등급 특성은 1~5, 무등급은 0
+        DeterministicRng rng = new DeterministicRng(31337L);
+        boolean genOk = true;
+        for (int i = 0; i < 300 && genOk; i++) {
+            Individual ind = Genetics.randomFirstGen(i + 1, rng);
+            for (TraitInstance ti : ind.allTraits()) {
+                if (ti.isAnti()) {
+                    continue; // 반발 카드는 강도 등급 없음(억제자)
+                }
+                boolean g = ti.trait().isGraded();
+                if (g && (ti.grade() < 1 || ti.grade() > 5)) genOk = false;
+                if (!g && ti.grade() != 0) genOk = false;
+            }
+        }
+        report.add("physique/유전등급", genOk, "등급특성 1~5·무등급 0",
+                genOk ? "정상" : "범위이탈");
+    }
+
+    /** 성별 + 등급 특성 하나만 가진 검증용 개체. */
+    private static Individual graded(Sex sex, Trait trait, int grade) {
+        Individual ind = new Individual(0, sex, 0, 0, 1);
+        ind.addTrait(TraitInstance.graded(trait, grade));
+        return ind;
     }
 
     private static boolean close(double a, double b) {

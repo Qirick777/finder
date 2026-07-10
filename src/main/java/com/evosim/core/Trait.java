@@ -101,7 +101,13 @@ public enum Trait {
     PREF_PLAIN(Axis.INTELLIGENCE_PREF, "단순함선호"),
     PREF_WASTE(Axis.WASTE_PREF, "낭비선호"),
     PREF_PEACE(Axis.PEACE_PREF, "평화선호"),
-    PREF_PIONEER(Axis.PEACE_PREF, "개척선호");
+    PREF_PIONEER(Axis.PEACE_PREF, "개척선호"),
+
+    // ── 등급 선호 (신체 등급 매칭) — 선호 자신도 목표 등급을 가진다(예: 튼튼II선호) ──
+    PREF_TOUGHNESS(Axis.TOUGHNESS_PREF, "튼튼선호"),
+    PREF_AGILITY(Axis.AGILITY_PREF, "재빠름선호"),
+    PREF_VISION(Axis.VISION_PREF, "천리안선호"),
+    PREF_RECOVERY(Axis.RECOVERY_PREF, "강건선호");
 
     private final Axis axis;
     private final String koreanName;
@@ -111,8 +117,18 @@ public enum Trait {
         this.koreanName = koreanName;
     }
 
+    // 등급(I~V)을 갖는 축 — 신체 스칼라 특성과 그 등급 선호. 나머지는 무등급(grade 0).
+    private static final java.util.EnumSet<Axis> GRADED_AXES = java.util.EnumSet.of(
+            Axis.TOUGHNESS, Axis.AGILITY, Axis.VISION, Axis.RECOVERY,
+            Axis.TOUGHNESS_PREF, Axis.AGILITY_PREF, Axis.VISION_PREF, Axis.RECOVERY_PREF);
+
     public Axis axis() {
         return axis;
+    }
+
+    /** 이 특성이 강도 등급(I~V)을 갖는가 — 신체 스칼라 특성·그 등급 선호만 해당. */
+    public boolean isGraded() {
+        return GRADED_AXES.contains(axis);
     }
 
     public Category category() {

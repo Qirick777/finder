@@ -11,6 +11,7 @@ import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
 import com.evosim.core.MateHome;
 import com.evosim.core.Multipliers;
+import com.evosim.core.Physique;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
 import com.evosim.core.Schedule;
@@ -177,9 +178,12 @@ public class MimicEntity extends PathfinderMob {
      */
     private void refreshStageAttributes() {
         LifeStage stage = getStage();
+        // 신체 등급 배수(재빠름/굼뜸 → 속도, 튼튼/빈약 → 체력). 개체 없으면 중립 1.0.
+        double agility = individual != null ? Physique.agility(individual) : 1.0;
+        double toughness = individual != null ? Physique.toughness(individual) : 1.0;
         var speed = getAttribute(Attributes.MOVEMENT_SPEED);
         if (speed != null) {
-            speed.setBaseValue(BASE_SPEED * SurvivalRules.moveSpeedFactor(stage));
+            speed.setBaseValue(BASE_SPEED * SurvivalRules.moveSpeedFactor(stage) * agility);
         }
         double fem = SurvivalRules.physicalFactor(isFemale() ? Sex.FEMALE : Sex.MALE);
         var attack = getAttribute(Attributes.ATTACK_DAMAGE);
@@ -188,7 +192,7 @@ public class MimicEntity extends PathfinderMob {
         }
         var health = getAttribute(Attributes.MAX_HEALTH);
         if (health != null) {
-            double newMax = BASE_HEALTH * fem;
+            double newMax = BASE_HEALTH * fem * toughness;
             health.setBaseValue(newMax);
             if (getHealth() > newMax) {
                 setHealth((float) newMax);
@@ -401,6 +405,26 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
+    private int regenTimer = 0;
+    private static final int REGEN_INTERVAL = 40;   // 재생 판정 주기(틱)
+    private static final double REGEN_BASE = 0.5;   // 주기당 기본 회복량(× 회복력 등급 배수)
+
+    /** 회복력(강건/병약) 등급 비례 재생 — 위험이 없을 때만 서서히 체력 회복(전투 중 탱킹 방지). */
+    private void regenTick() {
+        if (individual == null || getHealth() >= getMaxHealth()) {
+            regenTimer = 0;
+            return;
+        }
+        if (isUnderThreat()) {
+            return; // 위험 중엔 회복 안 함
+        }
+        if (++regenTimer < REGEN_INTERVAL) {
+            return;
+        }
+        regenTimer = 0;
+        heal((float) (REGEN_BASE * Physique.recovery(individual)));
+    }
+
     @Override
     public void tick() {
         super.tick();
@@ -415,6 +439,7 @@ public class MimicEntity extends PathfinderMob {
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
             settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
             infantCareTick();
+            regenTick();       // 회복력(강건/병약) 등급 비례 재생(위험 없을 때)
         }
     }
 

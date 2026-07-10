@@ -123,7 +123,30 @@ public final class Multipliers {
                 if (!pref.contains(x)) score++;
             }
         }
+
+        // ── 등급 선호 (신체 등급): 지정 목표 등급과 상대 보유 등급의 근접도 ──
+        //    완전 일치 +3, 한 칸 차이마다 −1(예: 강건III선호 → I·V=+1, II·IV=+2, III=+3).
+        score += gradedMatch(evaluator, target, Trait.PREF_TOUGHNESS, Trait.TOUGH);
+        score += gradedMatch(evaluator, target, Trait.PREF_AGILITY, Trait.NIMBLE);
+        score += gradedMatch(evaluator, target, Trait.PREF_VISION, Trait.FARSIGHTED);
+        score += gradedMatch(evaluator, target, Trait.PREF_RECOVERY, Trait.HARDY);
         return score;
+    }
+
+    /**
+     * 등급 선호 매칭 — 평가자가 등급 선호(prefTrait)를 발동 중이고 상대가 목표 특성(wanted)을 보유하면
+     * {@code max(0, 3 − |선호등급 − 보유등급|)} 가점(완전 일치 3점, 한 칸 멀어질수록 1점씩 감소).
+     */
+    private static int gradedMatch(Individual evaluator, Individual target, Trait prefTrait, Trait wanted) {
+        int pg = ExpressionResolver.expressedGrade(evaluator, prefTrait);
+        if (pg <= 0) {
+            return 0; // 선호 미발동
+        }
+        int tg = ExpressionResolver.expressedGrade(target, wanted);
+        if (tg <= 0) {
+            return 0; // 상대가 그 특성 없음
+        }
+        return Math.max(0, 3 - Math.abs(pg - tg));
     }
 
     /** 특정선호: 평가자가 prefTrait 선호를 발동 중이고 상대가 wanted 특성 보유 시 +2. */

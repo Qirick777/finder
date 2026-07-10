@@ -15,19 +15,52 @@ public final class TraitInstance {
     // 반발 카드(설계서 §2): true면 이 인스턴스는 대상 특성 `trait`를 무력화하는 억제유전자 카드다.
     // 카드 자신은 효과를 내지 않고, 같은 개체에서 발현 중인 `trait`를 흔적으로 끈다(일반 특성만 대상).
     private final boolean anti;
+    // 강도 등급 (설계서 §14: 힘 V~I 등). 무등급 특성은 0, 등급 특성은 1~5(I~V). 선호도 목표 등급을 담는다.
+    private final int grade;
+
+    /** 최소·최대 등급 (I~V). */
+    public static final int MIN_GRADE = 1;
+    public static final int MAX_GRADE = 5;
 
     public TraitInstance(Trait trait, Set<Tag> tags) {
-        this(trait, tags, false);
+        this(trait, tags, false, 0);
     }
 
     public TraitInstance(Trait trait, Set<Tag> tags, boolean anti) {
+        this(trait, tags, anti, 0);
+    }
+
+    public TraitInstance(Trait trait, Set<Tag> tags, boolean anti, int grade) {
         this.trait = trait;
         this.tags = tags.isEmpty() ? EnumSet.noneOf(Tag.class) : EnumSet.copyOf(tags);
         this.anti = anti;
+        this.grade = grade;
     }
 
     public static TraitInstance of(Trait trait, Tag... tags) {
         return new TraitInstance(trait, toSet(tags), false);
+    }
+
+    /** 등급을 가진 특성 인스턴스 (신체 스칼라·등급 선호). 등급은 1~5로 고정(클램프). */
+    public static TraitInstance graded(Trait trait, int grade, Tag... tags) {
+        return new TraitInstance(trait, toSet(tags), false, clampGrade(grade));
+    }
+
+    /** 등급을 1~5로 제한. */
+    public static int clampGrade(int g) {
+        return g < MIN_GRADE ? MIN_GRADE : Math.min(g, MAX_GRADE);
+    }
+
+    /** 등급을 로마숫자 표기(0=빈 문자열). */
+    public static String roman(int g) {
+        return switch (g) {
+            case 1 -> "I";
+            case 2 -> "II";
+            case 3 -> "III";
+            case 4 -> "IV";
+            case 5 -> "V";
+            default -> "";
+        };
     }
 
     /** 반발 카드 인스턴스 — {@code target}을 무력화한다. */
@@ -58,6 +91,11 @@ public final class TraitInstance {
     /** 반발(억제유전자) 카드인가. */
     public boolean isAnti() {
         return anti;
+    }
+
+    /** 강도 등급(1~5). 무등급이면 0. */
+    public int grade() {
+        return grade;
     }
 
     public Set<Tag> tags() {
@@ -108,6 +146,9 @@ public final class TraitInstance {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(trait.koreanName());
+        if (grade > 0) {
+            sb.append(roman(grade)); // 예: 튼튼III
+        }
         if (anti) {
             sb.append("(반발)");
         }

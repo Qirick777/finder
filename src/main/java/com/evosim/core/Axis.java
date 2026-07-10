@@ -59,7 +59,13 @@ public enum Axis {
     FAMILIARITY_PREF(Category.PREFERENCE, true),      // 익숙함선호 / 다양성선호 (유일한 배타 선호쌍)
     INTELLIGENCE_PREF(Category.PREFERENCE, false),    // 똑똑함선호 / 단순함선호
     WASTE_PREF(Category.PREFERENCE, false),           // 낭비선호 (단일, 핸디캡 원리)
-    PEACE_PREF(Category.PREFERENCE, false);           // 평화선호 / 개척선호
+    PEACE_PREF(Category.PREFERENCE, false),           // 평화선호 / 개척선호
+
+    // ── 등급 선호 (PREFERENCE, 단일·등급 보유) — 신체 등급 매칭용(예: 튼튼II선호) ──
+    TOUGHNESS_PREF(Category.PREFERENCE, false),       // 튼튼선호 (등급)
+    AGILITY_PREF(Category.PREFERENCE, false),         // 재빠름선호 (등급)
+    VISION_PREF(Category.PREFERENCE, false),          // 천리안선호 (등급)
+    RECOVERY_PREF(Category.PREFERENCE, false);        // 강건선호 (등급)
 
     private final Category category;
     private final boolean exclusive;

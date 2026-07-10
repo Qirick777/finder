@@ -232,6 +232,9 @@ public class TraitScannerItem extends Item {
     private static MutableComponent traitComponent(TraitInstance ti, Individual ind, Sex sex,
                                                    Set<Trait> active) {
         StringBuilder s = new StringBuilder(ti.trait().koreanName());
+        if (ti.grade() > 0) {
+            s.append(TraitInstance.roman(ti.grade())); // 강도 등급(예: 튼튼III)
+        }
         boolean male = ti.hasTag(Tag.MALE_EXPRESSED);
         boolean female = ti.hasTag(Tag.FEMALE_EXPRESSED);
         if (male && female) {

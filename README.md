@@ -56,6 +56,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="reproduction" # Phase 4 번식 임계치·출산 상한
 ./gradlew evotest --args="parenting"    # 육아 적극성 5단계 클래스·유전
 ./gradlew evotest --args="cycle"        # 하루 사이클: 밤 정산→잉여→식량 게이트 번식
+./gradlew evotest --args="physique"     # 신체 등급(I~V) 강도·등급 선호 매칭
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 

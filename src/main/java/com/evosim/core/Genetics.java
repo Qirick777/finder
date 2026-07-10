@@ -20,6 +20,8 @@ public final class Genetics {
     public static final double MUTATION_RATE = 0.02;
     /** 육아 클래스 돌연변이 확률. */
     public static final double PARENTING_MUTATION_RATE = 0.10;
+    /** 등급 특성(신체 스칼라·등급 선호)이 유전 시 ±1 표류할 확률. */
+    public static final double GRADE_DRIFT_RATE = 0.15;
     /** 카테고리당 최대 <b>발현</b> 특성 수 = 일반 특성 1차 선택 상한 (설계서 §2). */
     public static final int MAX_PER_CATEGORY = 3;
     /** 카테고리당 반발 카드 상한 (9 일반 + 6 반발 = 15, 설계서 §2). */
@@ -78,7 +80,9 @@ public final class Genetics {
                 if (rng.chance(FIRST_GEN_SEX_TAG_RATE)) {
                     tags.add(Tag.FEMALE_EXPRESSED);
                 }
-                ind.addTrait(new TraitInstance(t, tags));
+                ind.addTrait(t.isGraded()
+                        ? new TraitInstance(t, tags, false, randomGrade(rng))
+                        : new TraitInstance(t, tags));
             }
             // 반발 카드 종자 심기 — 풀에 억제유전자가 돌게(유전·발현 검증 재료).
             if (rng.chance(FIRST_GEN_ANTI_RATE)) {
@@ -254,9 +258,25 @@ public final class Genetics {
                 }
             }
         }
-        return cand.isAnti()
-                ? TraitInstance.antiCard(cand.trait(), tags)
-                : new TraitInstance(cand.trait(), tags);
+        if (cand.isAnti()) {
+            return TraitInstance.antiCard(cand.trait(), tags);
+        }
+        // 등급 특성은 부모 등급을 물려받되 15%로 ±1 표류(진화 여지). 무등급은 0 유지.
+        int grade = cand.grade();
+        if (cand.trait().isGraded()) {
+            if (grade < TraitInstance.MIN_GRADE) {
+                grade = randomGrade(rng); // 방어: 등급 유실 시 보정
+            }
+            if (rng.chance(GRADE_DRIFT_RATE)) {
+                grade = TraitInstance.clampGrade(grade + (rng.nextBoolean() ? 1 : -1));
+            }
+        }
+        return new TraitInstance(cand.trait(), tags, false, grade);
+    }
+
+    /** 1~5 균등 등급. */
+    private static int randomGrade(DeterministicRng rng) {
+        return rng.nextInt(TraitInstance.MAX_GRADE) + 1;
     }
 
     /**
@@ -313,7 +333,9 @@ public final class Genetics {
         if (rng.chance(0.5)) { // 우성여부 재주사위
             tags.add(Tag.DOMINANT);
         }
-        chosen.set(idx, new TraitInstance(replacement, tags));
+        chosen.set(idx, replacement.isGraded()
+                ? new TraitInstance(replacement, tags, false, randomGrade(rng))
+                : new TraitInstance(replacement, tags));
         if (stats != null) {
             stats.mutations++;
         }

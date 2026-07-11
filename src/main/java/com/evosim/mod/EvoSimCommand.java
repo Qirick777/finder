@@ -8,6 +8,7 @@ import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
+import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.core.BlockPos;
@@ -70,7 +71,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("abandon").executes(EvoSimCommand::stageAbandon))
                 .then(Commands.literal("reuse").executes(EvoSimCommand::stageReuse))
                 .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate))
-                .then(Commands.literal("berry").executes(EvoSimCommand::stageBerry)));
+                .then(Commands.literal("berry").executes(EvoSimCommand::stageBerry))
+                .then(Commands.literal("food").executes(EvoSimCommand::stageFood)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -284,6 +286,29 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), "베리 실연 시작: 옆 정원(천막 좌우 x=±3)은 지금 비어 있습니다. ① 약 2초 뒤 정산 "
                 + "→ 번식하고 남은 잉여만큼 베리가 실시간으로 심기고(로그 [베리] +N), ② 심은 베리가 점점 익어 "
                 + "③ 아버지가 낮에 수확합니다(로그 [수확], age3→age1 재성장). 잉여가 많을수록 더 여러 그루(상한 8).");
+        return 1;
+    }
+
+    /**
+     * 식량 경제 원터치 관찰: 부부 정착(천막·저장고) + <b>관찰 로그 자동 ON</b> + 기상 시각. 시간 가속 없이
+     * 자연 그대로 살게 두고, 채집→입금→인출→가계 시계열→번식까지 로그로 체킹한다(밸런싱 근거 수집).
+     */
+    private static int stageFood(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath()); // 로그 자동 ON
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
+        if (m != null && f != null) {
+            m.debugSettleWithTent(home, Direction.NORTH);
+            f.debugSettleWithTent(home, Direction.NORTH);
+            m.debugMarryTo(f);
+        }
+        level.setDayTime(1000L); // 기상 직후 — 하루 풀 사이클(노동→배회→귀가→취침) 관찰
+        tell(ctx.getSource(), "식량 관찰 시작: 부부 정착 + 관찰 로그 자동 ON(evosim-events.log). "
+                + "남편이 채집(여 0.5×/남 1.5×)→H≥2면 귀가 입금, 배고프면(H<0.8) 인출. 가계 시계열은 "
+                + "1분/가구, 인구+식량 통계는 매일 아침 자동 기록. 즉석 확인: /evolog food · /evolog dump");
         return 1;
     }
 

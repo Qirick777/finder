@@ -1,7 +1,9 @@
 package com.evosim.mod;
 
+import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.log.SimEvents;
+import net.minecraft.core.BlockPos;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -12,17 +14,25 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 게임 내 {@code /evolog} — 자연 관찰 로그 제어 (설계서 §14). 사건이 <b>실제로 벌어지는 순간</b>에
- * 컨텍스트와 함께 파일·메모리에 기록되므로, 로그를 통째로 복사해 검증할 수 있다.
+ * 컨텍스트(개체·보유 H·좌표·시각)와 함께 파일·메모리에 기록된다 — 통째로 복사해 밸런싱 근거로 쓴다.
+ *
+ * <p>기록되는 사건(전부 컴팩트 한 줄): 채집/사냥/수확(+량), 입금/인출(저장고 증감), 위급/회복/굶주림/아사,
+ * 나눔(B), 육아 급식(D), 출산·성장(유→소→성)·사망, 짝성립/건축/입주/베리, 가계(1분/가구: 저장고·소지합·
+ * 입출금), 인구(하루 1회: 인구+식량 통계).
  *
  * <ul>
- *   <li>{@code /evolog on} — 기록 시작 (파일 {@code evosim-events.log} 열림).</li>
- *   <li>{@code /evolog off} — 기록 종료.</li>
+ *   <li>{@code /evolog} — 현재 상태(ON/OFF·버퍼·파일 경로).</li>
+ *   <li>{@code /evolog on|off} — 기록 시작/종료 (파일 {@code evosim-events.log}).</li>
  *   <li>{@code /evolog dump [n]} — 최근 n건(기본 30)을 채팅에 출력.</li>
- *   <li>{@code /evolog census} — 지금 즉시 인구 스냅샷을 로그에 남김.</li>
+ *   <li>{@code /evolog food} — 즉석 식량 스냅샷: 가구별 저장고 + 구성원 보유 H (로그에도 남음).</li>
+ *   <li>{@code /evolog census} — 즉시 인구+식량 스냅샷을 로그에 남김.</li>
  *   <li>{@code /evolog clear} — 메모리 버퍼 비움.</li>
  * </ul>
  */
@@ -34,14 +44,89 @@ public final class EvoLogCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("evolog")
                 .requires(src -> src.hasPermission(2))
+                .executes(EvoLogCommand::status)
                 .then(Commands.literal("on").executes(EvoLogCommand::on))
                 .then(Commands.literal("off").executes(EvoLogCommand::off))
+                .then(Commands.literal("food").executes(EvoLogCommand::food))
                 .then(Commands.literal("census").executes(EvoLogCommand::census))
                 .then(Commands.literal("clear").executes(EvoLogCommand::clear))
                 .then(Commands.literal("dump")
                         .executes(ctx -> dump(ctx, 30))
                         .then(Commands.argument("n", IntegerArgumentType.integer(1, 500))
                                 .executes(ctx -> dump(ctx, IntegerArgumentType.getInteger(ctx, "n"))))));
+    }
+
+    /** 인수 없이 — 로그 상태 한 줄. */
+    private static int status(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        boolean on = SimEvents.enabled();
+        Path log = SimEvents.logPath();
+        src.sendSuccess(() -> Component.literal(String.format(
+                        "관찰 로그 %s · 버퍼 %d건%s",
+                        on ? "ON" : "OFF", SimEvents.memorySize(),
+                        on && log != null ? " · 파일 " + log : ""))
+                .withStyle(on ? ChatFormatting.GREEN : ChatFormatting.YELLOW), false);
+        return on ? 1 : 0;
+    }
+
+    /** 즉석 식량 스냅샷 — 가구별 저장고 L + 구성원 보유 H, 방랑자 별도. 로그가 켜져 있으면 기록도. */
+    private static int food(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        ServerLevel level = src.getLevel();
+        List<MimicEntity> all = level.getEntitiesOfClass(MimicEntity.class,
+                net.minecraft.world.phys.AABB.ofSize(src.getPosition(), 256, 256, 256));
+        if (all.isEmpty()) {
+            src.sendSuccess(() -> Component.literal("근처(256) 미믹 없음")
+                    .withStyle(ChatFormatting.DARK_GRAY), false);
+            return 0;
+        }
+        Map<Long, List<MimicEntity>> byHome = new LinkedHashMap<>();
+        List<MimicEntity> wanderers = new ArrayList<>();
+        for (MimicEntity m : all) {
+            BlockPos h = m.getHomePos();
+            if (h == null) {
+                wanderers.add(m);
+            } else {
+                byHome.computeIfAbsent(h.asLong(), k -> new ArrayList<>()).add(m);
+            }
+        }
+        LarderStore store = LarderStore.get(level);
+        List<String> lines = new ArrayList<>();
+        for (Map.Entry<Long, List<MimicEntity>> e : byHome.entrySet()) {
+            BlockPos hp = BlockPos.of(e.getKey());
+            StringBuilder sb = new StringBuilder(String.format("@%d,%d 저장고 %.0f │",
+                    hp.getX(), hp.getZ(), store.get(hp)));
+            for (MimicEntity m : e.getValue()) {
+                sb.append(String.format(" #%d(%s%s H%.1f)", m.getId(),
+                        m.isFemale() ? "여" : "남", stage1(m), m.getHolding()));
+            }
+            lines.add(sb.toString());
+        }
+        if (!wanderers.isEmpty()) {
+            StringBuilder sb = new StringBuilder("방랑 │");
+            for (MimicEntity m : wanderers) {
+                sb.append(String.format(" #%d(%s%s H%.1f)", m.getId(),
+                        m.isFemale() ? "여" : "남", stage1(m), m.getHolding()));
+            }
+            lines.add(sb.toString());
+        }
+        src.sendSuccess(() -> Component.literal("── 식량 스냅샷 (가구 " + byHome.size()
+                + " · 방랑 " + wanderers.size() + ") ──").withStyle(ChatFormatting.GOLD), false);
+        for (String line : lines) {
+            src.sendSuccess(() -> Component.literal(line).withStyle(ChatFormatting.GRAY), false);
+            if (SimEvents.enabled()) {
+                SimEvents.note(level, "식량", line);
+            }
+        }
+        return lines.size();
+    }
+
+    private static String stage1(MimicEntity m) {
+        return switch (m.getStage()) {
+            case INFANT -> "유";
+            case BOY -> "소";
+            case ADULT -> "성";
+        };
     }
 
     private static int on(CommandContext<CommandSourceStack> ctx) {

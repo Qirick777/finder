@@ -2,8 +2,10 @@ package com.evosim.mod.log;
 
 import com.evosim.core.LifeStage;
 import com.evosim.core.Schedule;
+import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MimicEntity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 
 import java.io.IOException;
@@ -69,31 +71,50 @@ public final class SimEvents {
         }
     }
 
-    /** 개체 컨텍스트를 붙여 사건 기록 (id·성별·단계·좌표·시각). */
+    /**
+     * 개체 컨텍스트를 붙여 사건 기록 — 컴팩트 한 줄: 시각·유형·개체(성별/단계)·<b>보유 H 자동 포함</b>·상세·좌표.
+     * 모든 개체 사건에 H가 찍히므로 식량 궤적이 공짜로 시계열이 된다(밸런싱 근거).
+     */
     public static void event(MimicEntity e, String type, String detail) {
         if (!enabled) {
             return;
         }
         Level lv = e.level();
         BlockPos p = e.blockPosition();
-        String line = String.format("[day%d %s] %-7s #%d(%s·%s) @%d,%d,%d %s",
+        String line = String.format("[d%d %s] %-4s #%d(%s%s H%.2f) %s @%d,%d",
                 lv.getGameTime() / 24000L, phaseLabel(lv.getDayTime()), type,
                 e.getId(), e.isFemale() ? "여" : "남", stageLabel(e.getStage()),
-                p.getX(), p.getY(), p.getZ(), detail);
+                e.getHolding(), detail, p.getX(), p.getZ());
         append(line);
     }
 
-    /** 개체 없이 사건 기록 (정산·인구조사 등). */
+    /** 개체 없이 사건 기록 (가계·인구조사 등). */
     public static void note(Level lv, String type, String detail) {
         if (!enabled) {
             return;
         }
-        String line = String.format("[day%d %s] %-7s %s",
+        String line = String.format("[d%d %s] %-4s %s",
                 lv.getGameTime() / 24000L, phaseLabel(lv.getDayTime()), type, detail);
         append(line);
     }
 
-    /** 인구 조사 — 사건이 아니라 상태 스냅샷(루프가 실제로 굴러가는지 시간축 확인). */
+    /**
+     * 가계 스냅샷 — 가족 정산 틱마다 한 줄(≈1분/가구). 저장고·구성·소지합·하루소모·이번 입출금이
+     * 시간축으로 쌓여 "식량이 얼마나 늘었는지"의 근간 시계열이 된다.
+     */
+    public static void household(Level lv, BlockPos home, double larder, int adults, int boys,
+                                 int infants, double holdingSum, double need,
+                                 int deposited, int withdrawn) {
+        if (!enabled) {
+            return;
+        }
+        note(lv, "가계", String.format(
+                "@%d,%d 저장고%.0f 가족%d(성%d·소%d·유%d) 소지합%.1f 하루소모%.1f 입금%d 인출%d",
+                home.getX(), home.getZ(), larder, adults + boys + infants, adults, boys, infants,
+                holdingSum, need, deposited, withdrawn));
+    }
+
+    /** 인구 조사 — 상태 스냅샷 + <b>식량 통계</b>(저장고합·소지합·위급 수). 하루 1회 시계열. */
     public static void census(Level lv, Collection<MimicEntity> mimics) {
         if (!enabled) {
             return;
@@ -102,6 +123,8 @@ public final class SimEvents {
         int boy = 0;
         int infant = 0;
         int wanderer = 0;
+        int critical = 0;
+        double holdSum = 0.0;
         int minGen = Integer.MAX_VALUE;
         int maxGen = 0;
         Set<Long> homes = new HashSet<>();
@@ -114,6 +137,10 @@ public final class SimEvents {
             if (m.isWanderer()) {
                 wanderer++;
             }
+            holdSum += m.getHolding();
+            if (m.isCritical()) {
+                critical++;
+            }
             BlockPos h = m.getHomePos();
             if (h != null) {
                 homes.add(h.asLong());
@@ -124,11 +151,22 @@ public final class SimEvents {
                 maxGen = Math.max(maxGen, g);
             }
         }
+        double larderSum = 0.0;
+        if (lv instanceof ServerLevel sl) {
+            LarderStore store = LarderStore.get(sl);
+            for (long h : homes) {
+                larderSum += store.get(BlockPos.of(h));
+            }
+        }
         int total = mimics.size();
-        note(lv, "CENSUS", String.format(
-                "인구=%d 성년=%d 소년=%d 유아=%d 방랑=%d 거처=%d 세대=%s",
+        note(lv, "인구", String.format(
+                "총%d(성%d·소%d·유%d) 방랑%d 거처%d 세대%s | 저장고합%.0f 소지합%.1f 위급%d",
                 total, adult, boy, infant, wanderer, homes.size(),
-                total == 0 ? "-" : (minGen + "~" + maxGen)));
+                total == 0 ? "-" : (minGen + "~" + maxGen), larderSum, holdSum, critical));
+    }
+
+    public static synchronized int memorySize() {
+        return MEMORY.size();
     }
 
     public static synchronized List<String> recent(int n) {
@@ -163,9 +201,9 @@ public final class SimEvents {
 
     private static String stageLabel(LifeStage s) {
         return switch (s) {
-            case INFANT -> "유아";
-            case BOY -> "소년";
-            case ADULT -> "성년";
+            case INFANT -> "유";
+            case BOY -> "소";
+            case ADULT -> "성";
         };
     }
 }

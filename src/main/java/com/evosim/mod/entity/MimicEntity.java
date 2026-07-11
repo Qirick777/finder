@@ -149,6 +149,7 @@ public class MimicEntity extends PathfinderMob {
     // 식량 경제 v2 (FoodEconomy): 개인 보유 H(배부름+소지 통합) + 거처 저장고 L(정수 입출금).
     private double holding = 1.5;               // H — 시작 1.5(밴드 [1,2) 안, 콜드스타트 완충)
     private int hungerGraceTicks = 0;           // H=0 지속 틱(아사 유예 클럭, NBT 저장 — B-4)
+    private boolean wasCritical = false;        // 위급 전이 감지(로그 1회용, 휘발)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
@@ -1355,6 +1356,17 @@ public class MimicEntity extends PathfinderMob {
         double perDay = FoodEconomy.consumptionPerDay(getStage(), act, individual,
                 getHealth() < getMaxHealth());
         holding = Math.max(0.0, holding - perDay * interval * scale / 24000.0);
+        // 위급 전이 로그(1회) — 진입 시 대응 방향(귀가/강행)까지 남겨 밸런싱 근거로.
+        boolean crit = isCritical();
+        if (crit != wasCritical) {
+            wasCritical = crit;
+            if (crit) {
+                SimEvents.event(this, "위급", larderHasFood()
+                        ? "소지 고갈 임박 — 저장고 있음(귀가 우선)" : "소지 고갈 임박 — 저장고 없음(채집 강행)");
+            } else {
+                SimEvents.event(this, "회복", "소지 회복 → 위급 해제");
+            }
+        }
         if (holding > 0.0) {
             hungerGraceTicks = 0;
             return;
@@ -1362,6 +1374,9 @@ public class MimicEntity extends PathfinderMob {
         hungerGraceTicks += interval; // 틱 단위 누적(B-4) — NBT 저장으로 재로그인 리셋 방지
         int grace = fastSettle ? FAST_STARVE_GRACE : FoodEconomy.GRACE_TICKS;
         if (hungerGraceTicks > grace) {
+            if (hungerGraceTicks - interval <= grace) {
+                SimEvents.event(this, "굶주림", "유예 " + grace + "틱 초과 → 피해 시작");
+            }
             hurt(damageSources().starve(), fastSettle ? 2.0F : 0.5F); // 임시값, 게임 관찰로 확정
             if (isDeadOrDying()) {
                 StageObserver.record(getId(), "settle:starved");
@@ -1459,11 +1474,22 @@ public class MimicEntity extends PathfinderMob {
 
         // 결과 반영 + goal 캐시 갱신(채집 goal이 매 틱 가족 스캔 없이 판단하도록).
         int adults = 0;
+        int boys = 0;
+        int infants = 0;
+        int deposited = 0;
+        int withdrawn = 0;
+        double holdSum = 0.0;
         boolean infantFed = false;
         for (int i = 0; i < ordered.size(); i++) {
             MimicEntity m = ordered.get(i);
             FoodEconomy.Eater e = eaters.get(i);
-            if (m.getStage() == LifeStage.INFANT && e.holding > m.holding + 1.0E-9) {
+            double delta = e.holding - m.holding; // 정산 후 − 전(정수 입출금 집계용)
+            if (delta >= 1.0 - 1.0E-9) {
+                withdrawn += (int) Math.round(delta);
+            } else if (delta <= -1.0 + 1.0E-9) {
+                deposited += (int) Math.round(-delta);
+            }
+            if (m.getStage() == LifeStage.INFANT && delta > 1.0E-9) {
                 infantFed = true;
             }
             m.holding = e.holding;
@@ -1471,8 +1497,11 @@ public class MimicEntity extends PathfinderMob {
             m.lastFed = !m.isCritical();
             m.cachedFamilyNeed = need;
             m.cachedProvider = (m == father) || (father == null && m.getStage() == LifeStage.ADULT);
-            if (m.getStage() == LifeStage.ADULT) {
-                adults++;
+            holdSum += m.holding;
+            switch (m.getStage()) {
+                case ADULT -> adults++;
+                case BOY -> boys++;
+                case INFANT -> infants++;
             }
         }
         boolean starving = FoodEconomy.anyStarvingHome(eaters);
@@ -1522,6 +1551,9 @@ public class MimicEntity extends PathfinderMob {
                 }
             }
             store.set(homePos, larder);
+            // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
+            SimEvents.household(sl, homePos, larder, adults, boys, infants, holdSum, need,
+                    deposited, withdrawn);
         }
     }
 
@@ -1661,10 +1693,19 @@ public class MimicEntity extends PathfinderMob {
         LarderStore store = LarderStore.get(sl);
         double larder = store.getOrInit(homePos,
                 fastSettle ? 0.0 : FoodEconomy.initialLarder(cachedFamilyNeed));
+        double before = holding;
         FoodEconomy.Eater self = new FoodEconomy.Eater(individual, getStage(), holding, true);
         larder = FoodEconomy.settleHome(larder, List.of(self));
         holding = self.holding;
         store.set(homePos, larder);
+        double delta = holding - before; // 입금(−)이면 여분 저장, 인출(+)이면 꺼내 먹음
+        if (delta <= -1.0 + 1.0E-9) {
+            SimEvents.event(this, "입금", String.format("%d개 저장 → 저장고 %.0f",
+                    (int) Math.round(-delta), larder));
+        } else if (delta >= 1.0 - 1.0E-9) {
+            SimEvents.event(this, "인출", String.format("%d개 꺼냄 → 저장고 %.0f",
+                    (int) Math.round(delta), larder));
+        }
     }
 
     /** 위급 식구에게 소지분을 나눠준다(B 연출, 순수 재분배 — L 안 거침). */

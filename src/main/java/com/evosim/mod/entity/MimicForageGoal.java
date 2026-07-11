@@ -161,6 +161,7 @@ public class MimicForageGoal extends Goal {
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
                     double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind); // 남 1.5× / 여 0.5×
                     mob.addHarvest(food);
+                    SimEvents.event(mob, "채집", String.format("+%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
                 }
                 gatherTarget = null;

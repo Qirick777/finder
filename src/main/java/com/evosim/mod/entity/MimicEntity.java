@@ -3,6 +3,7 @@ package com.evosim.mod.entity;
 import com.evosim.core.Activity;
 import com.evosim.core.Courtship;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.ExpressionResolver;
 import com.evosim.core.FoodEconomy;
 import com.evosim.core.HomeResolution;
 import com.evosim.core.Genetics;
@@ -150,6 +151,8 @@ public class MimicEntity extends PathfinderMob {
     private double holding = 1.5;               // H — 시작 1.5(밴드 [1,2) 안, 콜드스타트 완충)
     private int hungerGraceTicks = 0;           // H=0 지속 틱(아사 유예 클럭, NBT 저장 — B-4)
     private boolean wasCritical = false;        // 위급 전이 감지(로그 1회용, 휘발)
+    private boolean introLogged = false;        // 등장(개체 변수) 로그 1회용 — 로그 ON 상태에서만 소모
+    private int mobilizedState = -1;            // R4 동원 전이 감지(-1 미정 / 0 넉넉 / 1 동원)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
@@ -462,6 +465,7 @@ public class MimicEntity extends PathfinderMob {
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
+            introTick();       // 관찰 로그: 개체 변수(성별·세대·특성) 1회 소개 — 유전 검증 근거
             hungerTick();      // 식량 v2: 개인 보유 연속 소모(활동·특성·부상 차등) + 아사 클럭
             familyTick();      // 식량 v2: 대표가 주기 정산(입금·급식·번식·베리) — 18000 의존 제거
             berryDemoTick();   // /evosim berry 실연: 심기→성장→수확을 실시간으로 진행
@@ -585,13 +589,15 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
-    /** 수락/거절을 양쪽 기록에 남긴다 (내 RECEIVED + 구애자 COURTED). */
+    /** 수락/거절을 양쪽 기록에 남긴다 (내 RECEIVED + 구애자 COURTED) + 관찰 로그(판정 수치 포함). */
     private void logCourt(MimicEntity suitor, boolean accepted, int charm, int rank, int pool, int percent) {
         long now = level().getDayTime();
         addCourtLog(new CourtRecord(now, CourtRecord.Kind.RECEIVED, suitor.getId(),
                 "미믹#" + suitor.getId(), accepted, charm, rank, pool, percent));
         suitor.addCourtLog(new CourtRecord(now, CourtRecord.Kind.COURTED, getId(),
                 "미믹#" + getId(), accepted, charm, rank, pool, percent));
+        SimEvents.event(suitor, "구애", String.format("%s — 상대 #%d · 매력%d 순위%d/%d 확률%d%%",
+                accepted ? "성사" : "거절", getId(), charm, rank, pool, percent));
     }
 
     /** 짝 성사 — 배우자 링크 + 거처 귀속(재혼/분가/신축) 결정. */
@@ -633,6 +639,8 @@ public class MimicEntity extends PathfinderMob {
         guest.setHomePos(host.getHomePos());
         guest.homeFacing = host.homeFacing;
         relightHearth(sl, host.getHomePos(), host.getHomeFacingDir());
+        SimEvents.event(guest, "합류", String.format("#%d 거처로 입주 @%d,%d",
+                host.getId(), host.getHomePos().getX(), host.getHomePos().getZ()));
     }
 
     /**
@@ -676,6 +684,8 @@ public class MimicEntity extends PathfinderMob {
         this.buildReachTicks = 0;
         other.building = true;
         other.buildReachTicks = 0;
+        SimEvents.event(this, "건축", String.format("신축 시작 @%d,%d 방향=%s (배우자 #%d) 성향 %s×%s",
+                home.getX(), home.getZ(), facing, other.getId(), da, db));
     }
 
     /** 빈 거처(꺼진 모닥불)에 부부가 입주 — 모닥불 재점화. */
@@ -748,6 +758,8 @@ public class MimicEntity extends PathfinderMob {
                     .setValue(MimicHearthBlock.LIT, Boolean.FALSE));
             ABANDONED_HOMES.add(new int[] {homePos.getX(), homePos.getY(), homePos.getZ(),
                     facing.get2DDataValue()});
+            SimEvents.event(this, "폐가", String.format("모닥불 끔 @%d,%d (저장고는 남아 재사용 시 계승)",
+                    homePos.getX(), homePos.getZ()));
         }
     }
 
@@ -1338,6 +1350,20 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
+     * 등장 소개 — 로그가 켜져 있으면 개체당 1회, 변수 전부(성별·단계·세대·발현 특성·육아·짝고름)를
+     * 남긴다. 로그를 켜는 순간 살아있는 전 개체가 한 번씩 자기소개 → 이후 사건 로그의 대조표가 된다.
+     */
+    private void introTick() {
+        if (introLogged || individual == null || !SimEvents.enabled()) {
+            return;
+        }
+        introLogged = true;
+        SimEvents.event(this, "등장", String.format("세대%d 특성[%s] 육아=%s 짝고름=%s",
+                individual.generation(), traitStr(individual),
+                individual.parentingCare().label(), individual.mateChoice().label()));
+    }
+
+    /**
      * 개인 허기 틱 (식량 v2, R1). 활동(취침0·대기0.4·이동1·사냥1.5·전투2)·특성·부상 차등으로 보유 H를
      * 연속(소수) 소모. <b>H는 배부름+소지 식량의 통합 추상</b>이라, H=0은 "소지 식량 고갈"이며 유예
      * ({@link FoodEconomy#GRACE_TICKS}) 초과 시 굶주림 피해 — 채집·급식으로 H>0이 되면 즉시 풀린다.
@@ -1554,6 +1580,15 @@ public class MimicEntity extends PathfinderMob {
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, holdSum, need,
                     deposited, withdrawn);
+            // R4 동원 전이: 저장고 넉넉↔부족이 뒤집힐 때만 1회 기록(가족 채집 합류/휴식 판단 근거).
+            int ms = larder >= need * 2.0 ? 0 : 1;
+            if (ms != mobilizedState) {
+                mobilizedState = ms;
+                SimEvents.note(sl, "동원", String.format("@%d,%d %s (저장고%.0f vs 기준%.1f)",
+                        homePos.getX(), homePos.getZ(),
+                        ms == 1 ? "저장고 부족 → 온 가족 채집 합류" : "저장고 넉넉 → 비제공자 휴식",
+                        larder, need * 2.0));
+            }
         }
     }
 
@@ -1625,8 +1660,27 @@ public class MimicEntity extends PathfinderMob {
         lastBirthTick = level().getGameTime();
         childrenBorn++;
         StageObserver.record(this.getId(), "birth");
-        SimEvents.event(this, "출산", "자식 #" + child.getId() + " 세대" + gen
-                + " · 부친 #" + father.getId() + " (누적 " + childrenBorn + ") — 잉여식량 확보");
+        // 신생아 변수를 정확히 기록: 성별·세대·발현 특성·부모 — 유전 흐름 검증의 근거.
+        SimEvents.event(this, "출산", String.format(
+                "자식 #%d(%s) 세대%d 특성[%s] · 부친 #%d 모친 #%d (누적 %d)",
+                child.getId(), childInd.sex() == Sex.FEMALE ? "여" : "남", gen,
+                traitStr(childInd), father.getId(), getId(), childrenBorn));
+    }
+
+    /** 발현 특성 한글 나열(로그용) — 없으면 "무특성". */
+    private static String traitStr(Individual ind) {
+        var traits = ExpressionResolver.expressedTraits(ind);
+        if (traits.isEmpty()) {
+            return "무특성";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (var t : traits) {
+            if (sb.length() > 0) {
+                sb.append('·');
+            }
+            sb.append(t.koreanName());
+        }
+        return sb.toString();
     }
 
     public void setFastSettle(boolean fast) {

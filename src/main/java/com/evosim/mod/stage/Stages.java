@@ -365,13 +365,13 @@ public final class Stages {
             if (male != null) {
                 male.setHomePos(home); // 이미 정착(짝짓기 생략) → 바로 번식 관찰
                 male.setFastSettle(true);
-                male.setDayHarvest(10.0); // 잉여식량 확보 → 밤 정산 번식 게이트 통과
+                male.setDayHarvest(20.0); // 잉여 확보 → 번식 게이트(비용3+하루소모+성년수+1≈12) 여유 통과
                 run.track(male);
             }
             if (female != null) {
                 female.setHomePos(home);
                 female.setFastSettle(true);
-                female.setDayHarvest(10.0);
+                female.setDayHarvest(20.0);
                 run.watch(female);
             }
         }

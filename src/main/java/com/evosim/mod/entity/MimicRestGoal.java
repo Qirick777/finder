@@ -36,6 +36,10 @@ public class MimicRestGoal extends Goal {
         if (mob.hurtTime > 0 || mob.getLastHurtByMob() != null || mob.getTarget() != null) {
             return false;
         }
+        // R6: 위급(소지 고갈)이면 자지 않는다 — 저장고에 밥 있으면 귀가·인출, 없으면 밤샘 채집.
+        if (mob.isCritical()) {
+            return false;
+        }
         if (Schedule.phaseAt(ind, mob.level().getDayTime()) != Schedule.Phase.SLEEP) {
             return false;
         }

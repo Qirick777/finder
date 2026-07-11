@@ -1,0 +1,180 @@
+package com.evosim.core;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * 식량 경제 v2 (연속 저장고 + 개인 보유). 기존 "밤 18000틱 1회 정산"을 대체하는 계산의 심장 — 전부 순수.
+ *
+ * <p><b>H(holding)는 배부름과 소지 식량의 통합 추상이다.</b> 따라서 '위급'은 배고픔이 아니라
+ * <b>소지 식량 고갈</b>이며, 채집 성공 즉시 아사 클럭이 풀린다. 거처 저장고 L은 <b>정수 단위로만</b>
+ * 입출금하고(비정수 잔여는 개인이 소지), 소모는 소수로 연속 차감한다.
+ *
+ * <p>규칙 요약(R1~R6): 소모(R1) → 채집×성별배율(R2) → 집 정산: 여분 정수 입금 + 남편→자식→아내
+ * 순 급식(R3) → 저장고 부족 시 가족 채집 합류(R4) → 출산 비용 차감형 번식 판정(R5) → 위급 시
+ * 수면 무시 생존 행동(R6). 표현층은 이 함수들의 결과에 이동·연출만 입힌다(§18).
+ */
+public final class FoodEconomy {
+
+    // ── H 밴드·임계 ──
+    /** 급식 발동 트리거 — 이 미만이면 저장고에서 채운다. */
+    public static final double FILL_TRIGGER = 1.0;
+    /** 급식 종료 목표 — 여기 이상이 될 때까지 정수 단위로 채움. 임시값, food/생존시뮬로 확정. */
+    public static final double FILL_TARGET = 1.5;
+    /** 이 이상의 정수 여분은 거처 저장고에 입금. */
+    public static final double BAND_HIGH = 2.0;
+    /** 위급 — 소지 식량 고갈 임박(R6 발동·굶주림 판정). */
+    public static final double CRITICAL = 0.3;
+    /** 귀가 goal 발동 임계(급식 직후 재귀가 핑퐁 방지, 히스테리시스). 임시값. */
+    public static final double RETURN_LOW = 0.8;
+
+    // ── 채집 ──
+    /** 1트립당 기본 수확. 임시값, food/생존시뮬로 확정.
+     *  손계산: 남성 2.0×1.5×3트립=9.0/일 vs 가족(성인2+유아1) 소모 6.9/일 → 잉여 +2.1.
+     *  여성 2.0×0.5×3트립=3.0/일 = 본인 기준 소모와 동률(자급 경계선). */
+    public static final double BASE_YIELD = 2.0;
+    /** 성별 채집 배율 — 남성 혼자 3인 부양 가능하게(외벌이 설계). */
+    public static final double MALE_FORAGE = 1.5;
+    public static final double FEMALE_FORAGE = 0.5;
+
+    // ── 번식 ──
+    /** 출산 시 저장고에서 차감하는 비용(연쇄 출산 제동). 임시값, food/출산비용으로 검증. */
+    public static final double BIRTH_COST = 3.0;
+
+    // ── 표현층 타이밍 상수(단일 출처 유지를 위해 여기 정의) ──
+    /** 아사 유예(틱) — H=0 지속이 이 틱을 넘으면 굶주림 피해 시작. 임시값, 게임 관찰로 확정. */
+    public static final int GRACE_TICKS = 1200;
+    /** 가족 정산 주기(틱, 스태거). 유아 소모 0.9/일=1200틱당 0.045라 충분히 촘촘. 임시값. */
+    public static final int FAMILY_TICK_INTERVAL = 1200;
+
+    private FoodEconomy() {
+    }
+
+    /** 하루 기준 소모(단계). 활동일 ~3회 귀가 트립 템포를 만드는 값. */
+    static double baseConsumption(LifeStage s) {
+        return switch (s) {
+            case ADULT -> 3.0;
+            case BOY -> 1.5;
+            case INFANT -> 0.9;
+        };
+    }
+
+    /**
+     * 소모율(식량/일) = 기준(단계) × 활동배율 × 특성배율 (+ 부상 회복 가산 0.5).
+     * 표현층이 Δt/24000 을 곱해 틱마다 H에서 차감한다.
+     */
+    public static double consumptionPerDay(LifeStage stage, Activity act, Individual ind, boolean healing) {
+        double c = baseConsumption(stage) * act.mult * traitMult(ind);
+        if (healing) {
+            c += 0.5;
+        }
+        return Math.max(0.0, c);
+    }
+
+    /**
+     * 채집 수확 배율 = 성별(남 1.5 / 여 0.5) × 기존 채집배율({@link Multipliers#gather} —
+     * 약초학자·손재주 등 보정특성 포함). 보정특성이 잉여↑ → 자식↑로 이어진다.
+     */
+    public static double forageYieldMult(Individual ind) {
+        double sexM = ind.sex() == Sex.MALE ? MALE_FORAGE : FEMALE_FORAGE;
+        return sexM * Multipliers.gather(ind);
+    }
+
+    /** 1트립 기대 수확 = 기본 수확 × 채집 수확 배율. */
+    public static double tripYield(Individual ind) {
+        return BASE_YIELD * forageYieldMult(ind);
+    }
+
+    /**
+     * 집 정산(R3) — <b>집에 있는(home)</b> 구성원만 대상으로, 우선순위 리스트 순서대로:
+     * ① H≥{@link #BAND_HIGH}인 여분을 정수 단위로 저장고에 입금.
+     * ② 원래 H<{@link #FILL_TRIGGER}였던 구성원만, H≥{@link #FILL_TARGET}이 될 때까지 정수 인출
+     * (히스테리시스 — 밴드 중간값은 건드리지 않아 진동을 막는다).
+     *
+     * @param familyInPriority 남편 → 자식(태어난 순) → 아내 순으로 정렬된 전체 가족
+     * @return 갱신된 저장고 (H는 Eater에 in-place 반영). 정수 입출금만 하므로 L의 정수성 보존.
+     */
+    public static double settleHome(double larder, List<Eater> familyInPriority) {
+        for (Eater e : familyInPriority) { // ① 입금: 여분 정수만
+            while (e.home && e.holding >= BAND_HIGH) {
+                larder += 1.0;
+                e.holding -= 1.0;
+            }
+        }
+        for (Eater e : familyInPriority) { // ② 분배: 트리거 미만이었던 구성원만, 목표까지
+            if (!e.home || e.holding >= FILL_TRIGGER) {
+                continue;
+            }
+            while (e.holding < FILL_TARGET && larder >= 1.0) {
+                larder -= 1.0;
+                e.holding += 1.0;
+            }
+        }
+        return larder;
+    }
+
+    /**
+     * 번식 판정(R5) — 출산 비용을 <b>선차감한 뒤에도</b> (가족 하루소모 + 성년수+1 ± 특성)의
+     * 여유가 남을 때만 참. 비용 없는 스냅샷 판정의 연쇄 출산을 {@link #BIRTH_COST}가 제동한다.
+     * 굶주림 판정은 {@link #anyStarvingHome}(집에 있는 구성원 한정)을 쓸 것.
+     */
+    public static boolean canReproduce(double larder, double familyDailyNeed,
+                                       int adultCount, double reproTraitAdj, boolean anyStarving) {
+        if (anyStarving) {
+            return false;
+        }
+        return (larder - BIRTH_COST - familyDailyNeed) >= (adultCount + 1) + reproTraitAdj;
+    }
+
+    /**
+     * 굶주림 판정(B-1) — <b>settleHome 이후에도</b> H<{@link #CRITICAL}인 <b>home=true</b> 구성원만.
+     * 밖에 있는 구성원은 급식받을 수 없으므로 제외(사냥 중 일시 위급이 번식을 노이즈성 차단 방지).
+     */
+    public static boolean anyStarvingHome(List<Eater> family) {
+        for (Eater e : family) {
+            if (e.home && e.holding < CRITICAL) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 저장고 시작값 — 정수 올림(정수 입출금 불변식과 충돌하는 비정수 사장분 방지). */
+    public static double initialLarder(double familyDailyNeed) {
+        return Math.ceil(familyDailyNeed);
+    }
+
+    /** 가족 명목 하루소모 합(이동 기준·부상 제외) — 번식 예비·저장고 넉넉 판정의 기준값. */
+    public static double nominalDailyNeed(List<Eater> family) {
+        double sum = 0.0;
+        for (Eater e : family) {
+            sum += consumptionPerDay(e.stage, Activity.MOVE, e.ind, false);
+        }
+        return sum;
+    }
+
+    private static double traitMult(Individual ind) {
+        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        double m = 1.0;
+        if (t.contains(Trait.STRONG)) m *= 1.2;
+        if (t.contains(Trait.WEAK)) m *= 0.8;
+        if (t.contains(Trait.DILIGENT)) m *= 1.1;
+        if (t.contains(Trait.LAZY)) m *= 0.9;
+        return m;
+    }
+
+    /** 정산 단위 — 개체 + 단계 + 보유 H + 집에있음. H만 가변(은닉 상태 없음 → 결정론). */
+    public static final class Eater {
+        public final Individual ind;
+        public final LifeStage stage;
+        public double holding;
+        public boolean home;
+
+        public Eater(Individual ind, LifeStage stage, double holding, boolean home) {
+            this.ind = ind;
+            this.stage = stage;
+            this.holding = holding;
+            this.home = home;
+        }
+    }
+}

@@ -60,6 +60,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="roaming"      # 특성별 활동반경(이주/애향/고독/군집)
 ./gradlew evotest --args="ability"      # 능력특성 재분류(성향 슬롯 공유)·언변 매력
 ./gradlew evotest --args="berry"        # 옆 정원 베리: 예비·번식 뺀 잉여로만 심기(넉넉할수록 여러 그루)
+./gradlew evotest --args="food"         # 식량 경제 v2: 연속 저장고+개인 보유·성별 채집 배율·출산 비용·생존 시뮬
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 

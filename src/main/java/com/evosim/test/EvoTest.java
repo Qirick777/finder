@@ -3,7 +3,9 @@ package com.evosim.test;
 import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
+import com.evosim.core.Activity;
 import com.evosim.core.BerryEconomy;
+import com.evosim.core.FoodEconomy;
 import com.evosim.core.Combat;
 import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
@@ -107,9 +109,10 @@ public final class EvoTest {
             case "roaming" -> roaming(report);
             case "ability" -> ability(report);
             case "berry" -> berry(report);
+            case "food" -> food(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -138,6 +141,7 @@ public final class EvoTest {
         roaming(report);
         ability(report);
         berry(report);
+        food(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1402,6 +1406,212 @@ public final class EvoTest {
         boolean ok = b1 && b2 && b3 && b4 && b5 && b6;
         report.add("berry/잉여배분", ok, "예비·번식 뺀 잔여로만 심기(넉넉할수록 여러 그루·상한)",
                 ok ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest food — 식량 경제 v2 (연속 저장고+개인 보유, 성별 채집 배율, 출산 비용)
+    //   ※ 순수 경제 시뮬 — 길찾기(제때 귀가)는 표현층 관찰 대상이라 여기선 "정산 시 집" 가정.
+    // ──────────────────────────────────────────────────────────────
+    private static void food(Report report) {
+        Individual man = one(Sex.MALE);
+        Individual woman = one(Sex.FEMALE);
+
+        // [food/소모] 단계·활동·특성·부상별 소모율
+        boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, false), 3.0)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.SLEEP, man, false), 0.0)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.IDLE, man, false), 1.2)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.BOY, Activity.MOVE, man, false), 1.5)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.INFANT, Activity.MOVE, man, false), 0.9)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, true), 3.5)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.STRONG)), false), 3.6)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.LAZY)), false), 2.7);
+        report.add("food/소모", c1, "성인3.0·소년1.5·유아0.9 × 활동(취침0·대기0.4) × 특성 +부상0.5",
+                c1 ? "정상" : "어긋남");
+
+        // [food/배율] 남성 3인 부양·여성 자급 경계·보정특성 잉여↑
+        double familyNeed = 3.0 + 3.0 + 0.9; // 성인2 + 유아1 명목
+        boolean y1 = close(FoodEconomy.tripYield(man), 3.0)            // 남 2.0×1.5
+                && FoodEconomy.tripYield(man) * 3 >= familyNeed         // 3트립 9.0 ≥ 6.9
+                && close(FoodEconomy.tripYield(woman), 1.0)             // 여 2.0×0.5 → 3트립=본인 소모
+                && FoodEconomy.tripYield(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST)))
+                        > FoodEconomy.tripYield(man);                   // 보정특성 → 잉여↑
+        report.add("food/배율", y1, "남 3.0/트립(3인 부양)·여 1.0(자급 경계)·약초학자 가산",
+                y1 ? "정상" : "어긋남");
+
+        // [food/밴드] 정수 입금·목표까지 인출, H 밴드 유지
+        {
+            var dad = new FoodEconomy.Eater(man, LifeStage.ADULT, 2.7, true);   // 여분 → 입금
+            var mom = new FoodEconomy.Eater(woman, LifeStage.ADULT, 0.5, true); // 트리거 미만 → 인출
+            var out = new FoodEconomy.Eater(woman, LifeStage.ADULT, 0.5, false); // 집 밖 → 건드리지 않음
+            double l = FoodEconomy.settleHome(3.0, java.util.List.of(dad, mom, out));
+            boolean b = close(dad.holding, 1.7) && close(mom.holding, 1.5)
+                    && close(out.holding, 0.5) && close(l, 3.0) && isInt(l);
+            report.add("food/밴드", b, "여분 정수 입금 → 1.7 / 0.5→1.5 인출 / 집 밖 불변 / L 정수",
+                    b ? "정상" : String.format("dad %.2f mom %.2f L %.2f", dad.holding, mom.holding, l));
+        }
+
+        // [food/우선순위] 기근: 저장고 2 vs 배고픈 3명 → 남편→자식만 급식, 아내 굶음
+        {
+            var dad = new FoodEconomy.Eater(man, LifeStage.ADULT, 0.5, true);
+            var kid = new FoodEconomy.Eater(man, LifeStage.BOY, 0.5, true);
+            var mom = new FoodEconomy.Eater(woman, LifeStage.ADULT, 0.5, true);
+            double l = FoodEconomy.settleHome(2.0, java.util.List.of(dad, kid, mom));
+            boolean b = close(dad.holding, 1.5) && close(kid.holding, 1.5)
+                    && close(mom.holding, 0.5) && close(l, 0.0);
+            report.add("food/우선순위", b, "기근 시 남편→자식→아내 순 급식(아내 최후)",
+                    b ? "정상" : "어긋남");
+        }
+
+        // [food/번식] 출산비용 선차감 경계값 + 굶주림(집 한정) 게이트
+        {
+            double need = 6.9; // 성인2+유아1
+            boolean b = FoodEconomy.canReproduce(13.0, need, 2, 0, false)      // 13−3−6.9=3.1 ≥ 3
+                    && !FoodEconomy.canReproduce(12.0, need, 2, 0, false)      // 2.1 < 3
+                    && !FoodEconomy.canReproduce(13.0, need, 2, 0, true)       // 굶주림 차단
+                    && FoodEconomy.anyStarvingHome(java.util.List.of(
+                            new FoodEconomy.Eater(man, LifeStage.ADULT, 0.2, true)))
+                    && !FoodEconomy.anyStarvingHome(java.util.List.of(
+                            new FoodEconomy.Eater(man, LifeStage.ADULT, 0.2, false))); // 밖 = 제외
+            report.add("food/번식", b, "(L−출산비용−하루소모)≥성년수+1 · 굶주림은 집 구성원만",
+                    b ? "정상" : "어긋남");
+        }
+
+        // [food/출산비용] 연쇄 출산 제동: 출산 직후 L−3 → 즉시 재출산 불가
+        {
+            double l = 13.0;
+            boolean first = FoodEconomy.canReproduce(l, 6.9, 2, 0, false);
+            l -= FoodEconomy.BIRTH_COST;
+            boolean second = FoodEconomy.canReproduce(l, 6.9, 2, 0, false);
+            boolean b = first && !second && isInt(l);
+            report.add("food/출산비용", b, "출산 시 L−3.0 차감 → 같은 잉여로 연쇄 출산 불가",
+                    b ? "정상" : "어긋남");
+        }
+
+        // [food/히스테리시스] 밴드 중간값 불간섭·채움 후 안정(진동 없음)
+        {
+            var mid = new FoodEconomy.Eater(man, LifeStage.ADULT, 1.2, true);  // 트리거~목표 사이
+            double l1 = FoodEconomy.settleHome(5.0, java.util.List.of(mid));
+            var low = new FoodEconomy.Eater(man, LifeStage.ADULT, 0.99, true);
+            double l2 = FoodEconomy.settleHome(5.0, java.util.List.of(low));   // → 1.99
+            double l3 = FoodEconomy.settleHome(l2, java.util.List.of(low));    // 재정산 → 불변
+            boolean b = close(mid.holding, 1.2) && close(l1, 5.0)
+                    && close(low.holding, 1.99) && close(l2, 4.0) && close(l3, 4.0);
+            report.add("food/히스테리시스", b, "1.0~1.5 사이 불간섭 · 0.99→1.99 후 재정산 불변",
+                    b ? "정상" : "어긋남");
+        }
+
+        // [food/생존시뮬] 부부+유아 100일: 남성 외벌이(9.0/일)로 무아사·출산상한 도달
+        {
+            SimOut s = foodSim(100, true, 1);
+            boolean b = !s.starved && s.births == 5 && s.larderIntegerAlways && s.minLarder >= 0.0;
+            report.add("food/생존시뮬", b,
+                    "남성 외벌이 100일 무아사 · 출산 5회(상한) · L 항상 정수·비음수",
+                    b ? String.format("출산 %d회 · 최종 L %.0f", s.births, s.finalLarder)
+                      : String.format("아사 %s · 출산 %d · 정수 %s", s.starved, s.births, s.larderIntegerAlways));
+        }
+
+        // [food/과부시뮬] 육아 구속 과부(수입 0)+유아 → 예상된 붕괴(허용 경로 회귀)
+        {
+            SimOut s = foodSim(30, false, 1);
+            boolean b = s.starved && s.firstStarveDay > 2; // 시작 L(정수 올림)이 며칠은 버팀
+            report.add("food/과부시뮬", b, "수입 0 과부 가구는 시작 저장고 소진 후 붕괴(허용 경로)",
+                    b ? String.format("%d일차 고갈 — 예상대로", s.firstStarveDay)
+                      : String.format("아사 %s · 고갈일 %d", s.starved, s.firstStarveDay));
+        }
+
+        // [food/정수불변식] 시작값 올림·정산 반복 후에도 L 정수
+        {
+            boolean b = isInt(FoodEconomy.initialLarder(6.9)) && close(FoodEconomy.initialLarder(6.9), 7.0)
+                    && isInt(FoodEconomy.initialLarder(3.0));
+            report.add("food/정수불변식", b, "시작 L=ceil(하루소모) 정수 · 정산은 정수 입출금만",
+                    b ? "정상" : "어긋남");
+        }
+    }
+
+    /** 순수 경제 시뮬 결과. */
+    private static final class SimOut {
+        boolean starved;
+        int firstStarveDay = -1;
+        int births;
+        boolean larderIntegerAlways = true;
+        double minLarder = Double.MAX_VALUE;
+        double finalLarder;
+    }
+
+    /**
+     * 부부(또는 과부)+유아 가구의 순수 경제 시뮬. 하루=20구간(1200틱). 채집자는 노동 8구간에
+     * 하루 3트립 수확을 나눠 벌고, 정산은 매 구간(모두 집 가정 — 길찾기는 표현층 몫).
+     * 출산: 밤 구간에 canReproduce+쿨다운 3일+상한 5 → 유아 추가·BIRTH_COST 차감.
+     */
+    private static SimOut foodSim(int days, boolean hasProvider, int infants) {
+        SimOut out = new SimOut();
+        Individual man = one(Sex.MALE);
+        Individual woman = one(Sex.FEMALE);
+        java.util.List<FoodEconomy.Eater> fam = new java.util.ArrayList<>();
+        FoodEconomy.Eater provider = null;
+        if (hasProvider) {
+            provider = new FoodEconomy.Eater(man, LifeStage.ADULT, 1.5, true);
+            fam.add(provider);
+        }
+        FoodEconomy.Eater wife = new FoodEconomy.Eater(woman, LifeStage.ADULT, 1.5, true);
+        for (int i = 0; i < infants; i++) {
+            fam.add(new FoodEconomy.Eater(one(Sex.FEMALE), LifeStage.INFANT, 1.5, true));
+        }
+        fam.add(wife); // 우선순위: 남편 → 자식 → 아내
+
+        double larder = FoodEconomy.initialLarder(FoodEconomy.nominalDailyNeed(fam));
+        int lastBirthDay = -100;
+        double perTripIncome = FoodEconomy.tripYield(man) * 3 / 8.0; // 노동 8구간에 3트립 분산
+
+        for (int day = 0; day < days; day++) {
+            for (int slot = 0; slot < 20; slot++) {
+                // 활동: 채집자는 노동 8구간 MOVE, 4구간 IDLE, 8구간 SLEEP. 비채집자 IDLE 12·SLEEP 8.
+                for (FoodEconomy.Eater e : fam) {
+                    Activity act;
+                    if (e == provider) {
+                        act = slot < 8 ? Activity.MOVE : (slot < 12 ? Activity.IDLE : Activity.SLEEP);
+                    } else {
+                        act = slot < 12 ? Activity.IDLE : Activity.SLEEP;
+                    }
+                    e.holding -= FoodEconomy.consumptionPerDay(e.stage, act, e.ind, false) / 20.0;
+                    if (e.holding <= 0.0) {
+                        e.holding = 0.0;
+                        out.starved = true;
+                        if (out.firstStarveDay < 0) {
+                            out.firstStarveDay = day;
+                        }
+                    }
+                }
+                if (provider != null && slot < 8) {
+                    provider.holding += perTripIncome; // 채집 수입(R2)
+                }
+                larder = FoodEconomy.settleHome(larder, fam); // R3 (모두 집 가정)
+                out.minLarder = Math.min(out.minLarder, larder);
+                if (!isInt(larder)) {
+                    out.larderIntegerAlways = false;
+                }
+                // R5: 밤 구간(15) 하루 1회 판정
+                if (slot == 15 && hasProvider && out.births < 5 && day - lastBirthDay >= 3) {
+                    double need = FoodEconomy.nominalDailyNeed(fam);
+                    boolean starving = FoodEconomy.anyStarvingHome(fam);
+                    if (FoodEconomy.canReproduce(larder, need, 2, 0, starving)) {
+                        larder -= FoodEconomy.BIRTH_COST;
+                        fam.add(fam.size() - 1, // 아내 앞(자식 자리)에 삽입
+                                new FoodEconomy.Eater(one(Sex.FEMALE), LifeStage.INFANT, 1.5, true));
+                        out.births++;
+                        lastBirthDay = day;
+                    }
+                }
+            }
+        }
+        out.finalLarder = larder;
+        return out;
+    }
+
+    private static boolean isInt(double v) {
+        return Math.abs(v - Math.round(v)) < 1e-9;
     }
 
     /** 성별 + 등급 특성 하나만 가진 검증용 개체. */

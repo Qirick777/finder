@@ -1,9 +1,11 @@
 package com.evosim.mod.entity;
 
 import com.evosim.core.ExpressionResolver;
+import com.evosim.core.FoodEconomy;
 import com.evosim.core.Individual;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
+import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
 import com.evosim.core.Trait;
 import com.evosim.mod.log.SimEvents;
@@ -29,7 +31,9 @@ import java.util.EnumSet;
  *       채집 사이 <b>쿨타임</b>으로 한 번에 다 밀어버려 즉각 소멸하는 것을 막는다.</li>
  * </ul>
  *
- * <p>부순 블록은 드랍 없이 제거되고, 벌인 채집·사냥량이 그날의 {@code dayHarvest}로 쌓여 밤 정산에 쓰인다.
+ * <p>부순 블록은 드랍 없이 제거되고, 벌인 채집·사냥량이 <b>소지분 H</b>에 쌓인다(성별 배율 — 남 1.5×/여 0.5×).
+ * H≥2가 되면 귀가 goal이 저장고에 입금한다(식량 경제 v2). 저장고가 궁하면 배회시간·비제공자도 채집 합류(R4),
+ * 위급인데 저장고도 비면 시간대 무시 채집 강행(R6).
  */
 public class MimicForageGoal extends Goal {
 
@@ -64,7 +68,19 @@ public class MimicForageGoal extends Goal {
         if (mob.isCaregiverBound()) {
             return false; // 육아 중인 어미는 채집하러 안 나감(§4 남편 채집·아내 육아)
         }
-        return Schedule.phaseAt(ind, mob.level().getDayTime()) == Schedule.Phase.WORK;
+        // R6/A-3: 위급(소지 고갈) — 저장고에 밥 있으면 귀가가 우선(MimicReturnGoal),
+        // 저장고도 비었을 때만 배회·밤·취침 무시하고 채집을 강행한다.
+        if (mob.isCritical()) {
+            return !mob.larderHasFood();
+        }
+        Schedule.Phase phase = Schedule.phaseAt(ind, mob.level().getDayTime());
+        if (phase == Schedule.Phase.WORK) {
+            return mob.isProviderRole() || !mob.larderComfortable(); // R4: 넉넉하면 비제공자는 쉼
+        }
+        if (phase == Schedule.Phase.WANDER) {
+            return !mob.larderComfortable(); // R4 확장: 저장고 궁하면 배회시간에도 온 가족 채집
+        }
+        return false;
     }
 
     @Override
@@ -108,7 +124,9 @@ public class MimicForageGoal extends Goal {
                 mob.doHurtTarget(huntTarget);
                 attackCooldown = ATTACK_COOLDOWN;
                 if (!huntTarget.isAlive()) {
-                    double food = HUNT_FOOD * Multipliers.hunt(ind);
+                    double sexM = ind.sex() == Sex.MALE
+                            ? FoodEconomy.MALE_FORAGE : FoodEconomy.FEMALE_FORAGE;
+                    double food = HUNT_FOOD * Multipliers.hunt(ind) * sexM;
                     mob.addHarvest(food);
                     SimEvents.event(mob, "사냥", String.format("동물 처치 → 식량 +%.2f", food));
                     huntTarget = null;
@@ -134,14 +152,14 @@ public class MimicForageGoal extends Goal {
                 BlockState ts = mob.level().getBlockState(gatherTarget);
                 if (isRipeBerry(ts)) {
                     // 다 익은 베리는 부수지 않고 수확 → age 1 로 되돌려 재성장(바닐라 수확).
-                    double food = BERRY_FOOD * Multipliers.gather(ind);
+                    double food = BERRY_FOOD * FoodEconomy.forageYieldMult(ind); // 성별×특성 배율
                     mob.addHarvest(food);
                     mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));
                     mob.swing(InteractionHand.MAIN_HAND);
                     SimEvents.event(mob, "수확", String.format("옆 정원 베리 → 식량 +%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
-                    double food = GATHER_FOOD * Multipliers.gather(ind);
+                    double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind); // 남 1.5× / 여 0.5×
                     mob.addHarvest(food);
                     gatherCooldown = GATHER_COOLDOWN;
                 }

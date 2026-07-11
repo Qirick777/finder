@@ -3,7 +3,6 @@ package com.evosim.mod.item;
 import com.evosim.core.Category;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Individual;
-import com.evosim.core.Reproduction;
 import com.evosim.core.Sex;
 import com.evosim.core.Tag;
 import com.evosim.core.Trait;
@@ -177,9 +176,9 @@ public class TraitScannerItem extends Item {
                 .withStyle(ChatFormatting.AQUA), false);
 
         player.displayClientMessage(Component.literal(String.format(
-                        "식량: 오늘수확 %.2f · 지난정산잉여 %.1f · %s (잉여≥%.1f면 번식)",
-                        mimic.getDayHarvest(), mimic.getLastSurplus(),
-                        mimic.wasLastFed() ? "먹음" : "굶음", Reproduction.BASE_THRESHOLD))
+                        "식량: 보유 %.2f · 거처 저장고 %.1f · %s (저장고 여유 시 번식)",
+                        mimic.getHolding(), mimic.getLastSurplus(),
+                        mimic.wasLastFed() ? "양호" : "위급(굶는 중)"))
                 .withStyle(mimic.wasLastFed() ? ChatFormatting.GREEN : ChatFormatting.RED), false);
     }
 
@@ -215,13 +214,13 @@ public class TraitScannerItem extends Item {
         player.displayClientMessage(Component.literal(
                         "거처 (" + home.getX() + "," + home.getY() + "," + home.getZ() + ") · 가족 " + fam.size() + "명")
                 .withStyle(ChatFormatting.GREEN), false);
-        double todayHarvest = 0.0;
+        double carried = 0.0;
         for (MimicEntity m : fam) {
-            todayHarvest += m.getDayHarvest();
+            carried += m.getHolding();
         }
         player.displayClientMessage(Component.literal(String.format(
-                        "오늘 누적수확 %.2f · 지난 밤 정산잉여 %.1f (밤 %d시경 정산)",
-                        todayHarvest, mimic.getLastSurplus(), 18))
+                        "가족 소지 합 %.2f · 거처 저장고 %.1f (수시 정산 — 정수 입출금)",
+                        carried, mimic.getLastSurplus()))
                 .withStyle(ChatFormatting.GOLD), false);
     }
 

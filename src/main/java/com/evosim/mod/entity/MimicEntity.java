@@ -1,10 +1,10 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.Activity;
 import com.evosim.core.Courtship;
-import com.evosim.core.DailyCycle;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.FoodEconomy;
 import com.evosim.core.HomeResolution;
-import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
@@ -131,7 +131,7 @@ public class MimicEntity extends PathfinderMob {
     private static final double WANDER_PERCEPT_PER = 4.0;
     private static final double COURT_CONTACT = 2.5;      // 이 거리면 구애 요청
 
-    // 번식(§6): 마지막 출산 시각 + 출산 수. 실제 발동은 밤 정산의 잉여식량 게이트(settlementTick).
+    // 번식(§6): 마지막 출산 시각 + 출산 수. 실제 발동은 가족 정산의 저장고 게이트(familyTick).
     private long lastBirthTick = -100_000L;
     private int childrenBorn = 0;
     private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시)
@@ -146,15 +146,19 @@ public class MimicEntity extends PathfinderMob {
     private static final int CARE_DEATH = 3;       // 연속 방치 임계 → 아사 (평상시 3일)
     private static final double FEED_RADIUS = 5.0; // 이 반경 내 성인이 있으면 먹여줌
 
-    // 식량 사이클(§4 §6): 낮에 수확 누적 → 밤에 가족 정산(DailyCycle) → 잉여로 번식 게이트.
-    private double dayHarvest = 0.0;            // 오늘 채집/사냥 누적(밤 정산 후 0)
-    private double dayActivity = 0.0;           // 오늘 활동 가산 소모(이동·전투)
-    private double lastSurplus = 0.0;           // 마지막 정산 후 가족 창고 잔량(스캐너·번식 표시)
-    private boolean lastFed = true;             // 마지막 정산에서 먹었나(스캐너 표시)
-    private long lastSettleDay = Long.MIN_VALUE; // 마지막 정산한 절대 일자(하루 1회 보장)
-    private boolean fastSettle = false;         // 무대 검증용 초고속 정산(틱 주기)
-    private static final int SETTLE_TIME = 18000;    // 하루 중 밤 정산 시각(취침 중 — 귀가 완료 후)
-    private static final int FAST_SETTLE_INTERVAL = 40; // fast 모드 정산 주기(틱)
+    // 식량 경제 v2 (FoodEconomy): 개인 보유 H(배부름+소지 통합) + 거처 저장고 L(정수 입출금).
+    private double holding = 1.5;               // H — 시작 1.5(밴드 [1,2) 안, 콜드스타트 완충)
+    private int hungerGraceTicks = 0;           // H=0 지속 틱(아사 유예 클럭, NBT 저장 — B-4)
+    private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
+    private boolean lastFed = true;             // 위급 아님(스캐너 표시)
+    private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
+    private double cachedFamilyNeed = 6.0;      // 가족틱이 갱신하는 가족 하루소모 캐시(goal용)
+    private boolean cachedProvider = true;      // 가족틱이 갱신하는 제공자 역할 캐시(R4)
+    private static final int HUNGER_INTERVAL = 100;       // 소모 주기(틱, 스태거)
+    private static final int FAST_HUNGER_INTERVAL = 10;   // fast 모드 소모 주기
+    private static final double FAST_TIME_SCALE = 600.0;  // fast: 40틱 ≈ 1일 압축
+    private static final int FAST_STARVE_GRACE = 40;      // fast 모드 아사 유예(틱)
+    private static final int FAST_SETTLE_INTERVAL = 40;   // fast 모드 가족 정산 주기(틱)
 
     // 기준값 — 생애단계·성별 배율의 곱으로 실제 속성 산출(설계서 §7 §1).
     private static final double BASE_SPEED = 0.28D;
@@ -212,6 +216,8 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
         this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
+        this.goalSelector.addGoal(3, new MimicReturnGoal(this));    // 식량 귀가: 넣으러/꺼내러(v2, 밥이 구애보다 먼저)
+        this.goalSelector.addGoal(3, new MimicShareGoal(this));     // 가족 나눔: 위급 식구에게 배달(v2 B)
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
@@ -433,6 +439,9 @@ public class MimicEntity extends PathfinderMob {
         if (isUnderThreat()) {
             return; // 위험 중엔 회복 안 함
         }
+        if (holding <= 0.0) {
+            return; // 굶는 중엔 회복 없음(재생이 아사 피해를 상쇄해 교착되는 것 방지)
+        }
         if (++regenTimer < REGEN_INTERVAL) {
             return;
         }
@@ -452,7 +461,8 @@ public class MimicEntity extends PathfinderMob {
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
-            settlementTick();  // 밤: 가족 정산 → 잉여로 번식(§4 §6). 낮 채집/사냥은 MimicForageGoal 담당
+            hungerTick();      // 식량 v2: 개인 보유 연속 소모(활동·특성·부상 차등) + 아사 클럭
+            familyTick();      // 식량 v2: 대표가 주기 정산(입금·급식·번식·베리) — 18000 의존 제거
             berryDemoTick();   // /evosim berry 실연: 심기→성장→수확을 실시간으로 진행
             infantCareTick();
             regenTick();       // 회복력(강건/병약) 등급 비례 재생(위험 없을 때)
@@ -917,21 +927,6 @@ public class MimicEntity extends PathfinderMob {
         return c;
     }
 
-    /** 가족 하루 소모량 합(예비식량 = 잉여에서 남길 양). */
-    private static double familyReserve(Feeding.Household h) {
-        double r = 0.0;
-        if (h.father != null) {
-            r += h.father.consumption();
-        }
-        for (Feeding.Member c : h.children) {
-            r += c.consumption();
-        }
-        for (Feeding.Member w : h.wives) {
-            r += w.consumption();
-        }
-        return r;
-    }
-
     // ── /evosim berry 실연(實演): 아무것도 미리 깔지 않고, 심기→성장→수확을 실시간으로 보여준다 ──
     private int berryDemoTicks = 0;
 
@@ -1342,121 +1337,183 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 밤 배치 정산 + 식량 게이트 번식 (설계서 §4 §6). 하루 한 번(정산 시각), 가족의 <b>대표(같은 거처
-     * 최소 id 성년)</b>가 가정을 꾸려 {@link DailyCycle#settleFamily}를 돌린다. 결과대로 굶주림·아사·먹임을
-     * 반영하고, 잉여가 임계 이상이면 그때만 자식을 낳는다("식량 확보 시 번식").
+     * 개인 허기 틱 (식량 v2, R1). 활동(취침0·대기0.4·이동1·사냥1.5·전투2)·특성·부상 차등으로 보유 H를
+     * 연속(소수) 소모. <b>H는 배부름+소지 식량의 통합 추상</b>이라, H=0은 "소지 식량 고갈"이며 유예
+     * ({@link FoodEconomy#GRACE_TICKS}) 초과 시 굶주림 피해 — 채집·급식으로 H>0이 되면 즉시 풀린다.
      */
-    private void settlementTick() {
-        if (individual == null || getStage() != LifeStage.ADULT || building) {
-            return; // 정산은 성년이 주도(건축 중엔 대기)
+    private void hungerTick() {
+        if (individual == null) {
+            return;
         }
-        long day = level().getDayTime() / 24000L;
-        if (fastSettle) {
-            if ((level().getGameTime() + getId()) % FAST_SETTLE_INTERVAL != 0) {
-                return;
+        int interval = fastSettle ? FAST_HUNGER_INTERVAL : HUNGER_INTERVAL;
+        if ((level().getGameTime() + getId()) % interval != 0) {
+            return;
+        }
+        double scale = fastSettle ? FAST_TIME_SCALE : 1.0;
+        // fast 무대는 시간 압축이라 취침 0배율이 끼면 검증이 멈춘다 → 이동 기준으로 고정.
+        Activity act = fastSettle ? Activity.MOVE : deriveActivity();
+        double perDay = FoodEconomy.consumptionPerDay(getStage(), act, individual,
+                getHealth() < getMaxHealth());
+        holding = Math.max(0.0, holding - perDay * interval * scale / 24000.0);
+        if (holding > 0.0) {
+            hungerGraceTicks = 0;
+            return;
+        }
+        hungerGraceTicks += interval; // 틱 단위 누적(B-4) — NBT 저장으로 재로그인 리셋 방지
+        int grace = fastSettle ? FAST_STARVE_GRACE : FoodEconomy.GRACE_TICKS;
+        if (hungerGraceTicks > grace) {
+            hurt(damageSources().starve(), fastSettle ? 2.0F : 0.5F); // 임시값, 게임 관찰로 확정
+            if (isDeadOrDying()) {
+                StageObserver.record(getId(), "settle:starved");
+                SimEvents.event(this, "아사", "소지 식량 고갈 지속 → 굶어 죽음");
             }
-        } else {
-            long tod = level().getDayTime() % 24000L;
-            if (day == lastSettleDay || tod < SETTLE_TIME) {
-                return;
-            }
+        }
+    }
+
+    /** 현재 상태 → 활동 강도(소모 배율). 전투 > 취침(위급이면 R6로 깨어 있어 제외) > 이동 > 대기. */
+    public Activity deriveActivity() {
+        if (isUnderThreat()) {
+            return Activity.COMBAT;
+        }
+        if (individual != null && !isCritical()
+                && Schedule.phaseAt(individual, level().getDayTime()) == Schedule.Phase.SLEEP) {
+            return Activity.SLEEP;
+        }
+        return getNavigation().isInProgress() ? Activity.MOVE : Activity.IDLE;
+    }
+
+    /**
+     * 가족 정산 틱 (식량 v2, R3·R5). {@link FoodEconomy#FAMILY_TICK_INTERVAL} 주기(스태거)로 <b>대표</b>가
+     * ① 집에 있는 구성원의 여분 정수를 저장고에 입금 ② 남편→자식→아내 순으로 배고픈 구성원 급식
+     * ③ 출산 비용 선차감형 번식 판정 ④ 남는 저장고로 옆 정원 베리. 18000틱 시각 의존이 없어
+     * "정산 창을 놓치면 번식 불가" 문제가 사라진다.
+     */
+    private void familyTick() {
+        if (individual == null || building) {
+            return;
+        }
+        int interval = fastSettle ? FAST_SETTLE_INTERVAL : FoodEconomy.FAMILY_TICK_INTERVAL;
+        if ((level().getGameTime() + getId()) % interval != 0) {
+            return;
         }
         if (!(level() instanceof ServerLevel sl)) {
             return;
         }
-        runSettlement(sl, false);
+        runFamilySettle(sl, false);
     }
 
-    /** 점검용 — 시각·주기·대표 게이트를 건너뛰고 이 미믹이 즉시 한 번 밤 정산(번식·옆 정원 베리 포함)을 돌린다. */
+    /** 점검용 — 주기·대표 게이트를 건너뛰고 즉시 1회 가족 정산(입금·급식·번식·베리 포함). */
     public void debugSettleOnce() {
         if (level() instanceof ServerLevel sl) {
-            runSettlement(sl, true);
+            runFamilySettle(sl, true);
         }
     }
 
-    /** 밤 정산 실체: 가정 구성 → 우선순위 분배·아사·번식·옆 정원 베리. settlementTick·debugSettleOnce 공용. */
-    private void runSettlement(ServerLevel sl, boolean force) {
-        long day = level().getDayTime() / 24000L;
+    /** 가족 정산 실체 — 순수 {@link FoodEconomy#settleHome}에 배선만 입힌다. */
+    private void runFamilySettle(ServerLevel sl, boolean force) {
         List<MimicEntity> fam = householdMembers();
-        MimicEntity driver = lowestIdAdult(fam);
-        if (!force && driver != this) {
-            return; // 대표만 정산(중복 방지). 비대표는 대표가 lastSettleDay 를 찍어줌
+        if (!force && settleLeader(fam) != this) {
+            return; // 대표만 실행(중복 방지)
         }
 
-        // 가정 구성: 첫 성년 남성=남편, 나머지 성년 여성=아내, 미성년=자식.
-        Feeding.Household h = new Feeding.Household();
-        java.util.IdentityHashMap<Feeding.Member, MimicEntity> back = new java.util.IdentityHashMap<>();
+        // 우선순위 구성: 남편(UUID 최소 성년 남성) → 자식(미성년) → 아내(그 외 성년).
         MimicEntity father = null;
         for (MimicEntity m : fam) {
-            if (m.getIndividual() == null) {
-                continue;
-            }
-            if (father == null && m.getStage() == LifeStage.ADULT && !m.isFemale()) {
+            if (m.getIndividual() != null && m.getStage() == LifeStage.ADULT && !m.isFemale()
+                    && (father == null || m.getUUID().compareTo(father.getUUID()) < 0)) {
                 father = m;
             }
         }
+        List<MimicEntity> ordered = new ArrayList<>(fam.size());
+        if (father != null) {
+            ordered.add(father);
+        }
         for (MimicEntity m : fam) {
-            Individual mi = m.getIndividual();
-            if (mi == null) {
-                continue;
-            }
-            Feeding.Member mem = new Feeding.Member(mi, m.getStage(), m.dayHarvest, m.dayActivity);
-            back.put(mem, m);
-            if (m == father) {
-                h.father = mem;
-            } else if (m.getStage() == LifeStage.ADULT) {
-                h.wives.add(mem);
-            } else {
-                h.children.add(mem);
+            if (m.getIndividual() != null && m.getStage() != LifeStage.ADULT) {
+                ordered.add(m);
             }
         }
-        if (h.father == null && !h.wives.isEmpty()) {
-            // 남편 없는 가정(홀어미/독신녀): 대표를 남편 슬롯에 올려 스스로 먼저 먹게 한다.
-            Feeding.Member head = h.wives.remove(0);
-            h.father = head;
-        }
-
-        DailyCycle.DayResult res = DailyCycle.settleFamily(h);
-
-        // 결과 반영: 사망 → 제거, 생존 → 수확 카운터 리셋 + 먹음/굶음 기록.
-        for (Feeding.Member m : res.feeding.died) {
-            MimicEntity e = back.get(m);
-            if (e != null) {
-                StageObserver.record(e.getId(), "settle:starved");
-                SimEvents.event(e, "아사", "밤 정산 식량 부족 → 사망");
-                e.discard();
+        for (MimicEntity m : fam) {
+            if (m.getIndividual() != null && m.getStage() == LifeStage.ADULT && m != father) {
+                ordered.add(m);
             }
         }
-        boolean starvedAny = false;
-        for (var entry : back.entrySet()) {
-            MimicEntity e = entry.getValue();
-            boolean fed = res.feeding.fed.contains(entry.getKey());
-            e.dayHarvest = 0.0;
-            e.dayActivity = 0.0;
-            e.lastFed = fed;
-            e.lastSurplus = res.surplus;
-            e.lastSettleDay = day;
-            if (!fed) {
-                starvedAny = true;
+        if (ordered.isEmpty()) {
+            return;
+        }
+
+        List<FoodEconomy.Eater> eaters = new ArrayList<>(ordered.size());
+        for (MimicEntity m : ordered) {
+            eaters.add(new FoodEconomy.Eater(m.getIndividual(), m.getStage(), m.holding, m.isHome()));
+        }
+        double need = FoodEconomy.nominalDailyNeed(eaters);
+
+        LarderStore store = null;
+        double larder = 0.0;
+        if (homePos != null) {
+            store = LarderStore.get(sl);
+            // 시작 L = ceil(하루소모) 정수(B-3). 무대(fast)는 인위 세팅이라 0에서 시작.
+            larder = store.getOrInit(homePos, fastSettle ? 0.0 : FoodEconomy.initialLarder(need));
+        }
+        larder = FoodEconomy.settleHome(larder, eaters);
+
+        // 결과 반영 + goal 캐시 갱신(채집 goal이 매 틱 가족 스캔 없이 판단하도록).
+        int adults = 0;
+        boolean infantFed = false;
+        for (int i = 0; i < ordered.size(); i++) {
+            MimicEntity m = ordered.get(i);
+            FoodEconomy.Eater e = eaters.get(i);
+            if (m.getStage() == LifeStage.INFANT && e.holding > m.holding + 1.0E-9) {
+                infantFed = true;
+            }
+            m.holding = e.holding;
+            m.lastSurplus = larder;
+            m.lastFed = !m.isCritical();
+            m.cachedFamilyNeed = need;
+            m.cachedProvider = (m == father) || (father == null && m.getStage() == LifeStage.ADULT);
+            if (m.getStage() == LifeStage.ADULT) {
+                adults++;
             }
         }
-        SimEvents.note(sl, "정산", String.format(
-                "가족 %d명 · 잉여 %.1f · 먹음 %d · 굶음 %d · 번식해금 %s",
-                back.size(), res.surplus, res.feeding.fed.size(), res.feeding.starved.size(),
-                res.reproductionUnlocked ? "O" : "X"));
+        boolean starving = FoodEconomy.anyStarvingHome(eaters);
 
-        // 식량 게이트 번식: 잉여≥임계일 때만 (설계서 §6). 굶은 가정은 절대 번식 안 함.
-        if (res.reproductionUnlocked && !starvedAny) {
-            tryReproduce(sl, father);
+        // D 연출: 유아가 저장고에서 채워졌으면 어미의 행위로 귀속(숫자는 동일 — 로그만).
+        if (infantFed) {
+            MimicEntity mother = firstAdultFemale(ordered);
+            SimEvents.event(mother != null ? mother : this, "육아", "저장고에서 꺼내 아기를 먹임");
+        }
+        // B-2: 과부 가구 붕괴는 허용 경로 — 로그만 남긴다(구제는 설계 결정 대기).
+        if (father == null && starving && homePos != null) {
+            SimEvents.note(sl, "과부가구", "남편 없는 가구 굶주림 진행(허용된 붕괴 경로) — 거처 "
+                    + homePos.toShortString());
         }
 
-        // 옆 정원 베리: 최하위 우선순위. 먹이고(정산 완료)·하루 예비·번식 몫을 뺀 잉여로만 심는다.
-        // 넉넉할수록 여러 그루, 상한 BERRY_CAP. 굶은 밤엔 잉여가 없어 자동으로 0그루.
+        // R5 번식: (L − 출산비용 − 하루소모) ≥ 성년수+1(±특성) & 무굶주림 & 쿨다운·상한·과밀.
+        if (homePos != null && father != null && father.getIndividual() != null) {
+            MimicEntity mother = firstAdultFemale(ordered);
+            if (mother != null && mother.getIndividual() != null) {
+                double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
+                        - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출
+                long now = level().getGameTime();
+                boolean cooldownOk = now - mother.lastBirthTick
+                        >= (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
+                boolean underLimit = mother.childrenBorn
+                        < Reproduction.birthLimit(mother.getIndividual(), father.getIndividual());
+                boolean underPop = sl.getEntitiesOfClass(MimicEntity.class,
+                        getBoundingBox().inflate(48.0)).size() <= LOCAL_POP_CAP;
+                if (cooldownOk && underLimit && underPop
+                        && FoodEconomy.canReproduce(larder, need, adults, adj, starving)) {
+                    larder -= FoodEconomy.BIRTH_COST; // 출산 비용 차감(A-2) — 연쇄 출산 제동
+                    mother.spawnChild(sl, father);
+                }
+            }
+        }
+
+        // 옆 정원 베리: 최하위 — 하루소모·번식 몫(비용+임계)을 뺀 잔여로만.
         if (homePos != null) {
             int bushCount = countBerries(sl);
-            double reserve = familyReserve(h);
-            double reproReserve = Double.isInfinite(res.reproThreshold) ? 0.0 : res.reproThreshold;
-            int n = BerryEconomy.plant(res.surplus, reserve, reproReserve, bushCount, BERRY_CAP);
+            double reproReserve = FoodEconomy.BIRTH_COST + adults + 1;
+            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP);
             if (n > 0) {
                 int done = plantBerries(sl, n);
                 if (done > 0) {
@@ -1464,7 +1521,36 @@ public class MimicEntity extends PathfinderMob {
                             "옆 정원 +" + done + " (누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
                 }
             }
+            store.set(homePos, larder);
         }
+    }
+
+    /** 대표 선출(A-4, 결정론): 살아있는 <b>UUID 최소 성년</b>, 성년 없으면 UUID 최소 구성원. 매번 재계산. */
+    private static MimicEntity settleLeader(List<MimicEntity> fam) {
+        MimicEntity bestAdult = null;
+        MimicEntity best = null;
+        for (MimicEntity m : fam) {
+            if (!m.isAlive() || m.getIndividual() == null) {
+                continue;
+            }
+            if (best == null || m.getUUID().compareTo(best.getUUID()) < 0) {
+                best = m;
+            }
+            if (m.getStage() == LifeStage.ADULT
+                    && (bestAdult == null || m.getUUID().compareTo(bestAdult.getUUID()) < 0)) {
+                bestAdult = m;
+            }
+        }
+        return bestAdult != null ? bestAdult : best;
+    }
+
+    private static MimicEntity firstAdultFemale(List<MimicEntity> ordered) {
+        for (MimicEntity m : ordered) {
+            if (m.isFemale() && m.getStage() == LifeStage.ADULT) {
+                return m;
+            }
+        }
+        return null;
     }
 
     /** 같은 거처(또는 독신이면 자기 자신)를 공유하는 가족 구성원. */
@@ -1485,43 +1571,7 @@ public class MimicEntity extends PathfinderMob {
         return fam;
     }
 
-    private static MimicEntity lowestIdAdult(List<MimicEntity> fam) {
-        MimicEntity best = null;
-        for (MimicEntity m : fam) {
-            if (m.getStage() == LifeStage.ADULT
-                    && (best == null || m.getId() < best.getId())) {
-                best = m;
-            }
-        }
-        return best;
-    }
-
-    /** 정산 잉여가 확보됐을 때만 호출되는 실제 출산 (쿨다운·출산상한 내). */
-    private void tryReproduce(ServerLevel sl, MimicEntity father) {
-        MimicEntity mother = null;
-        for (MimicEntity m : householdMembers()) {
-            if (m.isFemale() && m.getStage() == LifeStage.ADULT && m.getIndividual() != null) {
-                mother = m;
-                break;
-            }
-        }
-        if (mother == null || father == null || father.getIndividual() == null) {
-            return;
-        }
-        long now = level().getGameTime();
-        if (now - mother.lastBirthTick < (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L) {
-            return; // 여성 쿨다운(3일)
-        }
-        if (mother.childrenBorn >= Reproduction.birthLimit(mother.getIndividual(), father.getIndividual())) {
-            return; // 출산 상한
-        }
-        if (sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0)).size() > LOCAL_POP_CAP) {
-            return; // 지역 과밀(임시)
-        }
-        mother.spawnChild(sl, father);
-    }
-
-    /** 자식 하나를 낳아 거처에 배치 (밤 정산 잉여 확보 후). 어미 기준으로 기록. */
+    /** 자식 하나를 낳아 거처에 배치 (저장고 잉여 확보 후). 어미 기준으로 기록. */
     private void spawnChild(ServerLevel sl, MimicEntity father) {
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int gen = Math.max(individual.generation(), father.getIndividual().generation()) + 1;
@@ -1555,17 +1605,77 @@ public class MimicEntity extends PathfinderMob {
         return fastSettle;
     }
 
-    /** 채집/사냥으로 확보한 식량을 오늘치에 더한다 (MimicForageGoal). */
+    /** 채집/사냥으로 확보한 식량을 소지분 H에 더한다(R2). 방랑자(집 없음)는 밴드 상한에서 컷. */
     public void addHarvest(double food) {
-        this.dayHarvest += food;
+        holding += food;
+        if (homePos == null && holding > FoodEconomy.BAND_HIGH) {
+            holding = FoodEconomy.BAND_HIGH; // 입금할 곳이 없으니 초과분은 버려짐(과다 확장 방지)
+        }
     }
 
+    /** 무대 세팅용 — 보유 H를 직접 지정(구 setDayHarvest 호환). */
     public void setDayHarvest(double harvest) {
-        this.dayHarvest = harvest;
+        this.holding = harvest;
     }
 
     public double getDayHarvest() {
-        return dayHarvest;
+        return holding;
+    }
+
+    public double getHolding() {
+        return holding;
+    }
+
+    /** 위급(R6) — 소지 식량 고갈 임박. */
+    public boolean isCritical() {
+        return holding < FoodEconomy.CRITICAL;
+    }
+
+    /** 거처 반경 안인가(정산의 home 판정 — 길찾기 아님, 거리 체크 한 줄). */
+    public boolean isHome() {
+        return homePos != null && blockPosition().distSqr(homePos) <= 36.0;
+    }
+
+    /** 저장고에 정수 1개 이상 있나 — R6/A-3의 "귀가 vs 채집 강행" 분기. */
+    public boolean larderHasFood() {
+        return homePos != null && level() instanceof ServerLevel sl
+                && LarderStore.get(sl).get(homePos) >= 1.0;
+    }
+
+    /** 저장고 넉넉(R4) — 가족 하루소모 2일치 이상이면 비제공자는 쉼. */
+    public boolean larderComfortable() {
+        return homePos != null && level() instanceof ServerLevel sl
+                && LarderStore.get(sl).get(homePos) >= cachedFamilyNeed * 2.0;
+    }
+
+    /** 제공자 역할(가족틱이 갱신) — 남편 또는 성년 홀로 가장. R4에서 항상 채집. */
+    public boolean isProviderRole() {
+        return cachedProvider;
+    }
+
+    /** 귀가 도착 시 즉석 입출금 — 가족틱(1200틱)을 기다리지 않고 순수 settleHome을 자신 1인으로. */
+    public void selfSettle(ServerLevel sl) {
+        if (homePos == null || individual == null) {
+            return;
+        }
+        LarderStore store = LarderStore.get(sl);
+        double larder = store.getOrInit(homePos,
+                fastSettle ? 0.0 : FoodEconomy.initialLarder(cachedFamilyNeed));
+        FoodEconomy.Eater self = new FoodEconomy.Eater(individual, getStage(), holding, true);
+        larder = FoodEconomy.settleHome(larder, List.of(self));
+        holding = self.holding;
+        store.set(homePos, larder);
+    }
+
+    /** 위급 식구에게 소지분을 나눠준다(B 연출, 순수 재분배 — L 안 거침). */
+    public void shareFoodTo(MimicEntity target, double amount) {
+        double give = Math.min(amount, holding);
+        if (give <= 0.0) {
+            return;
+        }
+        holding -= give;
+        target.holding += give;
+        target.hungerGraceTicks = 0;
     }
 
     public double getLastSurplus() {
@@ -1744,11 +1854,10 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("CareHunger", careHunger);
         tag.putLong("LastCareDay", lastCareDay);
         tag.putBoolean("FastCare", fastCare);
-        tag.putDouble("DayHarvest", dayHarvest);
-        tag.putDouble("DayActivity", dayActivity);
+        tag.putDouble("Holding", holding);
+        tag.putInt("HungerGrace", hungerGraceTicks); // 재로그인해도 아사 클럭 유지(B-4)
         tag.putDouble("LastSurplus", lastSurplus);
         tag.putBoolean("LastFed", lastFed);
-        tag.putLong("LastSettleDay", lastSettleDay);
         tag.putBoolean("FastSettle", fastSettle);
         tag.putLong("SpouseId", spouseId);
         tag.putBoolean("Widowed", widowed);
@@ -1789,14 +1898,11 @@ public class MimicEntity extends PathfinderMob {
             lastCareDay = tag.getLong("LastCareDay");
         }
         fastCare = tag.getBoolean("FastCare");
-        dayHarvest = tag.getDouble("DayHarvest");
-        dayActivity = tag.getDouble("DayActivity");
+        holding = tag.contains("Holding") ? tag.getDouble("Holding") : 1.5; // 구 세이브 호환(시작값)
+        hungerGraceTicks = tag.getInt("HungerGrace");
         lastSurplus = tag.getDouble("LastSurplus");
         if (tag.contains("LastFed")) {
             lastFed = tag.getBoolean("LastFed");
-        }
-        if (tag.contains("LastSettleDay")) {
-            lastSettleDay = tag.getLong("LastSettleDay");
         }
         fastSettle = tag.getBoolean("FastSettle");
         spouseId = tag.getLong("SpouseId");

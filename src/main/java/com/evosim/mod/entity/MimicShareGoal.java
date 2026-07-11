@@ -1,0 +1,96 @@
+package com.evosim.mod.entity;
+
+import com.evosim.core.FoodEconomy;
+import com.evosim.mod.log.SimEvents;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.ai.goal.Goal;
+
+import java.util.EnumSet;
+
+/**
+ * 가족 나눔 goal (식량 경제 v2, B 연출). 근처 <b>위급(H<0.3)</b> 식구에게 여유 있는(H≥1.5) 식구가
+ * 다가가 소지분 일부를 건넨다 — "food flows to whoever needs it most"의 보이는 겉모습.
+ * 저장고를 거치지 않는 순수 소지분 재분배라 정수 불변식과 무관하다.
+ *
+ * <p>안전망: 집에 못 돌아온 위급 식구·저장고 소진 뒤 굶는 가장을 가족이 배달로 살린다(④·⑤ 완충).
+ */
+public class MimicShareGoal extends Goal {
+
+    private static final double SHARE_RANGE = 16.0;  // 이 안의 가족만 도움
+    private static final double GIVE_AMOUNT = 0.5;   // 1회 전달량(소수 OK — H는 연속)
+    private static final int COOLDOWN = 200;         // 전달 간 쿨타임(틱)
+
+    private final MimicEntity mob;
+    private MimicEntity needy;
+    private int cooldown;
+
+    public MimicShareGoal(MimicEntity mob) {
+        this.mob = mob;
+        this.setFlags(EnumSet.of(Goal.Flag.MOVE));
+    }
+
+    @Override
+    public boolean canUse() {
+        if (cooldown > 0) {
+            cooldown--;
+            return false;
+        }
+        if (mob.getIndividual() == null || mob.isBuilding() || mob.isFastSettle()
+                || mob.getHolding() < FoodEconomy.FILL_TARGET) {
+            return false; // 자기가 여유(≥1.5) 있을 때만 나눔
+        }
+        needy = findNeedy();
+        return needy != null;
+    }
+
+    @Override
+    public boolean canContinueToUse() {
+        return needy != null && needy.isAlive() && needy.isCritical()
+                && mob.getHolding() >= FoodEconomy.FILL_TARGET - GIVE_AMOUNT;
+    }
+
+    @Override
+    public void stop() {
+        needy = null;
+    }
+
+    @Override
+    public void tick() {
+        if (needy == null) {
+            return;
+        }
+        mob.getLookControl().setLookAt(needy, 30.0F, 30.0F);
+        if (mob.distanceToSqr(needy) > 2.25) {
+            mob.getNavigation().moveTo(needy, 1.1);
+            return;
+        }
+        mob.swing(InteractionHand.MAIN_HAND);
+        mob.shareFoodTo(needy, GIVE_AMOUNT);
+        SimEvents.event(mob, "나눔", String.format("굶는 식구 #%d 에게 식량 %.1f 건넴",
+                needy.getId(), GIVE_AMOUNT));
+        cooldown = COOLDOWN;
+        needy = null;
+    }
+
+    /** 같은 거처 가족(또는 방랑 배우자) 중 가장 가까운 위급 식구. */
+    private MimicEntity findNeedy() {
+        MimicEntity best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (MimicEntity m : mob.level().getEntitiesOfClass(
+                MimicEntity.class, mob.getBoundingBox().inflate(SHARE_RANGE))) {
+            if (m == mob || !m.isAlive() || m.getIndividual() == null || !m.isCritical()) {
+                continue;
+            }
+            boolean family = mob.getHomePos() != null && mob.getHomePos().equals(m.getHomePos());
+            if (!family) {
+                continue;
+            }
+            double d = mob.distanceToSqr(m);
+            if (d < bestDist) {
+                bestDist = d;
+                best = m;
+            }
+        }
+        return best;
+    }
+}

@@ -1557,9 +1557,9 @@ public class MimicEntity extends PathfinderMob {
                 boolean underPop = sl.getEntitiesOfClass(MimicEntity.class,
                         getBoundingBox().inflate(48.0)).size() <= LOCAL_POP_CAP;
                 if (cooldownOk && underLimit && underPop
-                        && FoodEconomy.canReproduce(larder, need, adults, adj, starving)) {
-                    larder -= FoodEconomy.BIRTH_COST; // 출산 비용 차감(A-2) — 연쇄 출산 제동
-                    mother.spawnChild(sl, father);
+                        && FoodEconomy.canReproduce(larder, need, adults, adj, starving)
+                        && mother.spawnChild(sl, father)) {
+                    larder -= FoodEconomy.BIRTH_COST; // 비용은 출산이 실제 성사됐을 때만 차감(결과 기반)
                 }
             }
         }
@@ -1638,8 +1638,8 @@ public class MimicEntity extends PathfinderMob {
         return fam;
     }
 
-    /** 자식 하나를 낳아 거처에 배치 (저장고 잉여 확보 후). 어미 기준으로 기록. */
-    private void spawnChild(ServerLevel sl, MimicEntity father) {
+    /** 자식 하나를 낳아 거처에 배치 (저장고 잉여 확보 후). 어미 기준 기록. 실제 성사 여부 반환. */
+    private boolean spawnChild(ServerLevel sl, MimicEntity father) {
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int gen = Math.max(individual.generation(), father.getIndividual().generation()) + 1;
         long childId = Math.abs(getRandom().nextLong() | 1L);
@@ -1647,7 +1647,7 @@ public class MimicEntity extends PathfinderMob {
 
         MimicEntity child = ModEntities.MIMIC.get().create(sl);
         if (child == null) {
-            return;
+            return false; // 생성 실패 — 비용도 기록도 없음(시도는 남기지 않는다)
         }
         child.setIndividual(childInd);
         child.setStage(LifeStage.INFANT);
@@ -1665,6 +1665,7 @@ public class MimicEntity extends PathfinderMob {
                 "자식 #%d(%s) 세대%d 특성[%s] · 부친 #%d 모친 #%d (누적 %d)",
                 child.getId(), childInd.sex() == Sex.FEMALE ? "여" : "남", gen,
                 traitStr(childInd), father.getId(), getId(), childrenBorn));
+        return true;
     }
 
     /** 발현 특성 한글 나열(로그용) — 없으면 "무특성". */
@@ -1762,15 +1763,20 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 위급 식구에게 소지분을 나눠준다(B 연출, 순수 재분배 — L 안 거침). */
-    public void shareFoodTo(MimicEntity target, double amount) {
+    /**
+     * 위급 식구에게 소지분을 나눠준다(B 연출, 순수 재분배 — L 안 거침).
+     *
+     * @return <b>실제로 전달된 양</b>(보유 부족 시 요청보다 적거나 0) — 로그는 이 결과값만 기록할 것.
+     */
+    public double shareFoodTo(MimicEntity target, double amount) {
         double give = Math.min(amount, holding);
         if (give <= 0.0) {
-            return;
+            return 0.0;
         }
         holding -= give;
         target.holding += give;
         target.hungerGraceTicks = 0;
+        return give;
     }
 
     public double getLastSurplus() {

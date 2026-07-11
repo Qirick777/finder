@@ -64,10 +64,12 @@ public class MimicShareGoal extends Goal {
             mob.getNavigation().moveTo(needy, 1.1);
             return;
         }
-        mob.swing(InteractionHand.MAIN_HAND);
-        mob.shareFoodTo(needy, GIVE_AMOUNT);
-        SimEvents.event(mob, "나눔", String.format("굶는 식구 #%d 에게 식량 %.1f 건넴",
-                needy.getId(), GIVE_AMOUNT));
+        double given = mob.shareFoodTo(needy, GIVE_AMOUNT); // 실제 전달량(0이면 못 준 것)
+        if (given > 0.0) {
+            mob.swing(InteractionHand.MAIN_HAND);
+            SimEvents.event(mob, "나눔", String.format("굶는 식구 #%d 에게 식량 %.2f 건넴",
+                    needy.getId(), given)); // 결과값만 기록 — 시도·고정값 금지
+        }
         cooldown = COOLDOWN;
         needy = null;
     }

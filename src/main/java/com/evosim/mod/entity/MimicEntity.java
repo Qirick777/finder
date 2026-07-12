@@ -577,10 +577,11 @@ public class MimicEntity extends PathfinderMob {
                 MimicEntity nextWife = null;
                 if (!isFemale() && individual != null) {
                     for (MimicEntity m : householdMembers()) {
-                        if (m != this && m.isFemale() && m.getStage() == LifeStage.ADULT
+                        if (m != this && m.isFemale() && m.isAlive()
                                 && m.getIndividual() != null && m.spouseId == individual.id()
-                                && m.isAlive()) {
-                            nextWife = m;
+                                && (m.getStage() == LifeStage.ADULT
+                                        || m.getStage() == LifeStage.ELDER)) {
+                            nextWife = m; // 노년 둘째 부인도 승계 대상(아내 포지션 유지)
                             break;
                         }
                     }
@@ -795,15 +796,17 @@ public class MimicEntity extends PathfinderMob {
         return eaters.isEmpty() ? cachedFamilyNeed : FoodEconomy.nominalDailyNeed(eaters);
     }
 
-    /** 현재 아내들(같은 거처·성년 여성·배우자 링크가 나를 가리킴) — 일부다처 게이트 입력. */
+    /** 현재 아내들(같은 거처·배우자 링크가 나를 가리키는 성년·노년 여성) — 일부다처 게이트 입력.
+     *  노년 아내 포함 — 나이 들었다고 아내 수·질투 게이트에서 빠지면 상한·용인 심사가 뚫린다. */
     private List<Individual> currentWives() {
         List<Individual> wives = new ArrayList<>();
         if (individual == null) {
             return wives;
         }
         for (MimicEntity m : householdMembers()) {
-            if (m != this && m.isFemale() && m.getStage() == LifeStage.ADULT
-                    && m.getIndividual() != null && m.spouseId == individual.id()) {
+            if (m != this && m.isFemale() && m.getIndividual() != null
+                    && m.spouseId == individual.id()
+                    && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
                 wives.add(m.getIndividual());
             }
         }
@@ -1709,13 +1712,15 @@ public class MimicEntity extends PathfinderMob {
             return; // 대표만 실행(중복 방지)
         }
 
-        // 우선순위 구성: 남편(혼인 링크 보유 성년 남성 우선, 동급이면 UUID 최소) → 자식(미성년) → 아내(그 외 성년).
+        // 우선순위 구성: 남편(혼인 링크 보유 남성 우선, 동급이면 UUID 최소) → 자식(미성년) → 아내(그 외 성년·노년).
         // 혼인 우선 — 성년 아들이 UUID 순으로 아버지를 밀어내면 어미 탐색(spouseId 대조)이 조용히 실패해
-        // 번식이 막히는 결함 방지.
+        // 번식이 막히는 결함 방지. 노년도 가장 자격 유지 — 노년은 나이(배율·번식 종료)일 뿐,
+        // 남편·아내 포지션은 혼인 링크가 있는 한 그대로다.
         MimicEntity father = null;
         boolean fatherMarried = false;
         for (MimicEntity m : fam) {
-            if (m.getIndividual() == null || m.getStage() != LifeStage.ADULT || m.isFemale()) {
+            if (m.getIndividual() == null || m.isFemale()
+                    || (m.getStage() != LifeStage.ADULT && m.getStage() != LifeStage.ELDER)) {
                 continue;
             }
             boolean married = hasWifeIn(fam, m);
@@ -1730,12 +1735,14 @@ public class MimicEntity extends PathfinderMob {
             ordered.add(father);
         }
         for (MimicEntity m : fam) {
-            if (m.getIndividual() != null && m.getStage() != LifeStage.ADULT) {
-                ordered.add(m);
+            if (m.getIndividual() != null
+                    && (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)) {
+                ordered.add(m); // 자식 칸 = 미성년만(노년은 성년 칸 — 자식 취급 종료)
             }
         }
         for (MimicEntity m : fam) {
-            if (m.getIndividual() != null && m.getStage() == LifeStage.ADULT && m != father) {
+            if (m.getIndividual() != null && m != father
+                    && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
                 ordered.add(m);
             }
         }
@@ -1808,15 +1815,8 @@ public class MimicEntity extends PathfinderMob {
             SimEvents.event(mother != null ? mother : this, "육아", "저장고에서 꺼내 아기를 먹임");
         }
         // B-2: 과부 가구 붕괴는 허용 경로 — 로그만 남긴다(구제는 설계 결정 대기).
-        // 성년 여성이 있고 남성(성년·노년 모두)이 없을 때만 — 노부부/노년 남편 가구를 과부로 오기록 방지.
-        boolean anyMale = false;
-        for (MimicEntity m : ordered) {
-            if (!m.isFemale() && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
-                anyMale = true;
-                break;
-            }
-        }
-        if (father == null && !anyMale && adults > 0 && starving && homePos != null) {
+        // 가장 선출이 노년 남성도 포함하므로 father==null = 남성(성년·노년) 전무. 성년 여성 있는 가구만.
+        if (father == null && adults > 0 && starving && homePos != null) {
             SimEvents.note(sl, "과부가구", "남편 없는 가구 굶주림 진행(허용된 붕괴 경로) — 거처 "
                     + homePos.toShortString());
         }
@@ -1824,7 +1824,9 @@ public class MimicEntity extends PathfinderMob {
         // R5 번식: (L − 출산비용 − 하루소모) ≥ 성년수+1(±특성) & 무굶주림 & 쿨다운·상한·과밀.
         // 어미 = 아버지와 실제 혼인한 아내 중 출산이 가장 오래된 쪽(일부다처 교대 출산).
         // 성년 딸(미혼 동거)은 배우자 링크가 없어 제외 — 부녀 교배 방지.
-        if (homePos != null && father != null && father.getIndividual() != null) {
+        // 노년 가장은 번식만 제외(청년기=번식기 설계) — 가장 포지션·급식 순서·동원 기준은 유지.
+        if (homePos != null && father != null && father.getIndividual() != null
+                && father.getStage() == LifeStage.ADULT) {
             MimicEntity mother = null;
             for (MimicEntity w : ordered) {
                 if (w.isFemale() && w.getStage() == LifeStage.ADULT && w.getIndividual() != null
@@ -2081,13 +2083,13 @@ public class MimicEntity extends PathfinderMob {
         return bestAdult != null ? bestAdult : best;
     }
 
-    /** fam 안에 이 남성을 배우자로 가리키는 성년 여성이 있나 — 가장(아버지) 선출의 혼인 우선 기준. */
+    /** fam 안에 이 남성을 배우자로 가리키는 아내(성년·노년)가 있나 — 가장(아버지) 선출의 혼인 우선 기준. */
     private static boolean hasWifeIn(List<MimicEntity> fam, MimicEntity male) {
         long id = male.getIndividual().id();
         for (MimicEntity w : fam) {
-            if (w != male && w.isFemale() && w.getStage() == LifeStage.ADULT
-                    && w.getIndividual() != null && w.spouseId == id) {
-                return true;
+            if (w != male && w.isFemale() && w.getIndividual() != null && w.spouseId == id
+                    && (w.getStage() == LifeStage.ADULT || w.getStage() == LifeStage.ELDER)) {
+                return true; // 노년 아내도 아내 포지션 유지(노년=나이일 뿐)
             }
         }
         return false;

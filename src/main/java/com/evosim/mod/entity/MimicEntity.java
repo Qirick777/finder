@@ -1921,6 +1921,12 @@ public class MimicEntity extends PathfinderMob {
         if (grown == 0) {
             return false;
         }
+        // 안전핀: 명단이 나 혼자인데 배우자가 실제로 살아있으면 스캔 절단(원거리 고립) 의심 —
+        // 가족을 두고 단독 이주(폐가화 동반)하지 않는다. 사별·미혼 1인 가구는 spouseAlive=false라
+        // 정상적으로 이주 가능. 절단은 일시적(리시 복귀 후 정상 명단으로 재판정).
+        if (fam.size() == 1 && fam.get(0).spouseAlive()) {
+            return false;
+        }
         long[] arr = new long[success.size()];
         for (int i = 0; i < arr.length; i++) {
             arr[i] = success.get(i);
@@ -2137,10 +2143,11 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 같은 거처(또는 독신이면 자기 자신)를 공유하는 가족 구성원 — <b>거처 중심</b> 반경 48 스캔.
+     * 같은 거처(또는 독신이면 자기 자신)를 공유하는 가족 구성원 — <b>거처 중심</b> 반경 96 스캔.
      * 개체 중심 스캔(과거 24)은 부부가 반대편으로 채집 나가면 서로 안 보여 가구가 둘로 쪼개졌다
      * (대표 중복 정산·아버지 부재 오판·과부가구 오탐). 거처 중심이면 누가 호출해도 같은 명단이 나온다.
-     * 48보다 멀리 나간 성원은 이번 정산에서 빠질 뿐(귀가 시 selfSettle) 가구 자체는 갈라지지 않는다.
+     * 반경 96 = {@link Roaming} 최대 활동반경(이주자×고독 32×2×1.5) — 리시 안의 성원은 항상 잡혀
+     * "전원이 스캔 밖 → 각자 1인 가구 오판" 절단이 구조적으로 없다.
      */
     private List<MimicEntity> householdMembers() {
         List<MimicEntity> fam = new ArrayList<>();
@@ -2149,7 +2156,7 @@ public class MimicEntity extends PathfinderMob {
             return fam;
         }
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
-                new net.minecraft.world.phys.AABB(homePos).inflate(48.0))) {
+                new net.minecraft.world.phys.AABB(homePos).inflate(96.0))) {
             if (m.getIndividual() != null && homePos.equals(m.getHomePos())) {
                 fam.add(m);
             }

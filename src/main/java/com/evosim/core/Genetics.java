@@ -154,6 +154,8 @@ public final class Genetics {
         }
         child.setMateChoiceMale(mm);
         child.setMateChoiceFemale(mf);
+        // 직계 조상 명단(부모+양가 병합) — 근친 회피의 조부모-손주 이상 차단 근거(§13-E).
+        child.setAncestorIds(Kinship.combineAncestors(a, b));
         return child;
     }
 

@@ -164,6 +164,7 @@ public class MimicEntity extends PathfinderMob {
     private long courtTravelUntil = 0L;         // 구혼 여행 만료 시각(NBT)
     private long courtTravelTarget = 0L;        // 구혼 여행 목적지(타향 모닥불, BlockPos.asLong, NBT)
     private BlockPos visitAnchor = null;        // 노인 방문 임시 앵커(ElderVisitGoal 설정 — 휘발)
+    private boolean hearthRegistered = false;   // 로드 첫 틱에 켜진 모닥불 전역 목록 재등록(휘발)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
@@ -503,6 +504,14 @@ public class MimicEntity extends PathfinderMob {
             if (settledTick == 0L) {
                 settledTick = level().getGameTime(); // 구 세이브 호환 — 로드 직후 즉시 이주 방지
             }
+            if (!hearthRegistered) {
+                hearthRegistered = true;
+                // 리로드 복구: 켜진 모닥불 전역 목록(LIT_HEARTHS)은 휘발이라, 로드 첫 틱에 자기
+                // 거처가 켜져 있으면 재등록 — 구혼 여행 목적지가 리로드 후 전멸하는 문제 방지.
+                if (homePos != null && hearthLitAt(homePos)) {
+                    hearthLit(homePos, true);
+                }
+            }
             growthTick();
             observeTooYoung();
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
@@ -545,12 +554,9 @@ public class MimicEntity extends PathfinderMob {
      * 모은다 — 실제 구애 시도(이동·요청)는 배회 시간의 {@link MimicCourtshipGoal}가 한다.
      */
     private void mateTick() {
-        if (individual == null || getStage() != LifeStage.ADULT) {
-            mateState = MateState.IDLE;
-            return;
-        }
         // 구혼 여행 만료 잔재 정리: 빈손 귀환인데 그 사이 가족이 이주해 고향이 폐가(모닥불 꺼짐)면
         // 폐가에 홀로 좌초되지 않게 방랑자로 전환(구애 풀 합류·재정착 경로).
+        // 성년 게이트보다 먼저 — 여행 중 노년 전이돼도 잔재가 남지 않게.
         if (courtTravelTarget != 0L && level().getGameTime() >= courtTravelUntil) {
             endCourtTravel();
             if (homePos != null && !hearthLitAt(homePos)) {
@@ -559,6 +565,10 @@ public class MimicEntity extends PathfinderMob {
                 SimEvents.event(this, "구혼여행", String.format(
                         "빈손 만료 — 고향 @%d,%d 은 폐가 → 방랑 전환", gone.getX(), gone.getZ()));
             }
+        }
+        if (individual == null || getStage() != LifeStage.ADULT) {
+            mateState = MateState.IDLE;
+            return;
         }
         // 사별 감지: 배우자가 살아있지 않으면 과부/홀아비 → 재구애 참여.
         // 일부다처 승계: 본처가 죽어도 같은 거처에 다른 아내가 있으면 그쪽으로 재링크(홀아비 아님).
@@ -1798,7 +1808,15 @@ public class MimicEntity extends PathfinderMob {
             SimEvents.event(mother != null ? mother : this, "육아", "저장고에서 꺼내 아기를 먹임");
         }
         // B-2: 과부 가구 붕괴는 허용 경로 — 로그만 남긴다(구제는 설계 결정 대기).
-        if (father == null && starving && homePos != null) {
+        // 성년 여성이 있고 남성(성년·노년 모두)이 없을 때만 — 노부부/노년 남편 가구를 과부로 오기록 방지.
+        boolean anyMale = false;
+        for (MimicEntity m : ordered) {
+            if (!m.isFemale() && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
+                anyMale = true;
+                break;
+            }
+        }
+        if (father == null && !anyMale && adults > 0 && starving && homePos != null) {
             SimEvents.note(sl, "과부가구", "남편 없는 가구 굶주림 진행(허용된 붕괴 경로) — 거처 "
                     + homePos.toShortString());
         }
@@ -2543,6 +2561,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("FastSettle", fastSettle);
         tag.putLong("SpouseId", spouseId);
         tag.putBoolean("Widowed", widowed);
+        tag.putLong("LonelySince", lonelySinceTick); // 족외혼 클럭 — 리로드로 3일 재대기 방지
         tag.putByte("HomeFacing", homeFacing);
         tag.putBoolean("Building", building);
         if (individual != null) {
@@ -2593,6 +2612,7 @@ public class MimicEntity extends PathfinderMob {
         fastSettle = tag.getBoolean("FastSettle");
         spouseId = tag.getLong("SpouseId");
         widowed = tag.getBoolean("Widowed");
+        lonelySinceTick = tag.contains("LonelySince") ? tag.getLong("LonelySince") : -1L;
         homeFacing = tag.getByte("HomeFacing");
         building = tag.getBoolean("Building");
         if (tag.contains("Individual")) {

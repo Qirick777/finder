@@ -34,6 +34,9 @@ public final class IndividualNbt {
         t.putInt("Hunger", ind.hungerCount());
         t.putString("PCareM", ind.parentingCareMale().name());
         t.putString("PCareF", ind.parentingCareFemale().name());
+        t.putString("MChM", ind.mateChoiceMale().name());   // 짝 까다로움 슬롯 — 누락돼 있던 영속
+        t.putString("MChF", ind.mateChoiceFemale().name());
+        t.putLongArray("Anc", ind.ancestorIds());           // 직계 조상 명단(근친 회피 §13-E)
 
         ListTag list = new ListTag();
         for (TraitInstance ti : ind.allTraits()) {
@@ -64,6 +67,9 @@ public final class IndividualNbt {
         ind.setHungerCount(t.getInt("Hunger"));
         ind.setParentingCareMale(parentingOr(t.getString("PCareM")));
         ind.setParentingCareFemale(parentingOr(t.getString("PCareF")));
+        ind.setMateChoiceMale(mateChoiceOr(t.getString("MChM")));
+        ind.setMateChoiceFemale(mateChoiceOr(t.getString("MChF")));
+        ind.setAncestorIds(t.getLongArray("Anc")); // 없으면 빈 배열(구 세이브 호환)
 
         ListTag list = t.getList("Traits", TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) {
@@ -92,6 +98,14 @@ public final class IndividualNbt {
             return ParentingClass.valueOf(s);
         } catch (IllegalArgumentException e) {
             return ParentingClass.MODERATE;
+        }
+    }
+
+    private static com.evosim.core.MateChoiceClass mateChoiceOr(String s) {
+        try {
+            return com.evosim.core.MateChoiceClass.valueOf(s);
+        } catch (IllegalArgumentException e) {
+            return com.evosim.core.MateChoiceClass.NEUTRAL; // 구 세이브(빈 문자열) 포함
         }
     }
 

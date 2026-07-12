@@ -33,6 +33,10 @@ public final class Individual {
     private MateChoiceClass mateChoiceMale = MateChoiceClass.NEUTRAL;
     private MateChoiceClass mateChoiceFemale = MateChoiceClass.NEUTRAL;
 
+    // 직계 조상 ID 명단(부모→조부모→… BFS 순, 상한 Kinship.ANCESTOR_CAP) — 근친 회피의 직계
+    // 차단 근거(조부모-손주 등). breed 가 양가 명단을 병합해 채운다. 1세대·구 세이브는 빈 배열.
+    private long[] ancestorIds = new long[0];
+
     public Individual(long id, Sex sex, long parentAId, long parentBId, int generation) {
         this.id = id;
         this.sex = sex;
@@ -138,5 +142,14 @@ public final class Individual {
     /** 이 개체 성별에서 실제 발동하는 짝 선정 까다로움 (성별에 맞는 슬롯). */
     public MateChoiceClass mateChoice() {
         return sex == Sex.MALE ? mateChoiceMale : mateChoiceFemale;
+    }
+
+    /** 직계 조상 ID 명단(부모→조부모→… BFS 순). 비어 있으면 1세대 또는 구 세이브. */
+    public long[] ancestorIds() {
+        return ancestorIds;
+    }
+
+    public void setAncestorIds(long[] ids) {
+        this.ancestorIds = ids != null ? ids : new long[0];
     }
 }

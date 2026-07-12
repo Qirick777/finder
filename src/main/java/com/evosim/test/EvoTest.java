@@ -841,6 +841,30 @@ public final class EvoTest {
                 && !Kinship.isRelated(g1a, g1b); // 1세대는 부모 0 공유해도 근친 아님
         report.add("mating/근친회피", kin, "형제·부모자식 회피·사촌/1세대 허용",
                 kin ? "정상" : "어긋남");
+
+        // 6b) 직계 조상 차단 — breed 가 조상 명단(부모+양가 병합)을 저장 → 조부모·증조까지 금지,
+        //     사촌(방계)은 여전히 허용(격리 집단 번식 보전). "가족 링크 겹침"의 사전 계산판.
+        DeterministicRng krng = new DeterministicRng(77);
+        Individual out1 = new Individual(21, Sex.FEMALE, 0, 0, 1);
+        Individual out2 = new Individual(22, Sex.FEMALE, 0, 0, 1);
+        Individual out3 = new Individual(23, Sex.MALE, 0, 0, 1);
+        Individual p1 = Genetics.breed(30, g1a, g1b, krng, 2, null);   // g1a·g1b 의 자식
+        Individual p2 = Genetics.breed(33, g1a, g1b, krng, 2, null);   // p1 의 형제
+        Individual gc = Genetics.breed(31, p1, out1, krng, 3, null);   // 손주(g1a 기준)
+        Individual ggc = Genetics.breed(32, gc, out3, krng, 4, null);  // 증손
+        Individual cz = Genetics.breed(34, p2, out2, krng, 3, null);   // gc 의 사촌
+        boolean lineal = Kinship.isRelated(g1a, gc)        // 조부-손주 금지
+                && Kinship.isRelated(g1b, gc)              // 조모-손주 금지
+                && Kinship.isRelated(g1a, ggc)             // 증조-증손 금지
+                && Kinship.isRelated(p1, gc)               // 부모-자식(기존) 유지
+                && !Kinship.isRelated(gc, cz)              // 사촌 허용 유지
+                && !Kinship.isRelated(gc, out2)            // 무관 개체 허용
+                && gc.ancestorIds().length == 4            // 명단 = 부모2 + 조부모2 (0 미상 제외)
+                && ggc.ancestorIds().length == 6;          // 부모2 + 부계 조상4(out3 쪽은 미상 0)
+        report.add("mating/직계차단", lineal,
+                "조부모·증조-직계 금지 / 사촌·무관 허용 / 조상 명단 병합 저장",
+                lineal ? "정상" : String.format("손주명단 %d개 · 증손명단 %d개",
+                        gc.ancestorIds().length, ggc.ancestorIds().length));
     }
 
     // ──────────────────────────────────────────────────────────────

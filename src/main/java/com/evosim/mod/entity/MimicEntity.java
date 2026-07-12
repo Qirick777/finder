@@ -1172,6 +1172,28 @@ public class MimicEntity extends PathfinderMob {
                 || s.is(Blocks.PODZOL) || s.is(Blocks.FARMLAND);
     }
 
+    /**
+     * 점검용 — 옆 정원의 베리 덤불을 전부 제거하고 제거 수 반환. 검증 스텝이 같은 자리에서
+     * 재실행될 때 이전 실행의 잔재가 "심은 수 = 현재 그루" 회계 대조를 깨는 것을 막는다
+     * (탐지 범위는 countBerries 와 동일한 타일·dy).
+     */
+    public int debugClearBerries(ServerLevel sl) {
+        if (homePos == null) {
+            return 0;
+        }
+        int cleared = 0;
+        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+            for (int dy = 3; dy >= -3; dy--) {
+                BlockPos p = tile.offset(0, dy, 0);
+                if (sl.getBlockState(p).is(Blocks.SWEET_BERRY_BUSH)) {
+                    sl.setBlockAndUpdate(p, Blocks.AIR.defaultBlockState());
+                    cleared++;
+                }
+            }
+        }
+        return cleared;
+    }
+
     /** 거처 옆 정원의 베리 그루 수. */
     public int countBerries(ServerLevel sl) {
         if (homePos == null) {

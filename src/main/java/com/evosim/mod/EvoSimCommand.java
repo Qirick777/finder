@@ -448,6 +448,7 @@ public final class EvoSimCommand {
         m.debugSettleWithTent(home, Direction.NORTH);
         f.debugSettleWithTent(home, Direction.NORTH);
         m.debugMarryTo(f);
+        m.debugClearBerries(level); // 재실행 잔재 제거 — "심은 수 = 현재 그루" 회계 대조 전제 복구
         LarderStore.get(level).set(home, 20.0); // 게이트(≈12) 여유 통과 직전
         level.setDayTime(4000L);
         m.debugSettleOnce(); // 즉시 정산 → 출산 판정
@@ -644,6 +645,7 @@ public final class EvoSimCommand {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
+                c[0].debugClearBerries(level); // 재실행 잔재 제거(회계 대조 전제)
                 LarderStore.get(level).set(home, 20.0);
                 level.setDayTime(4000L);
                 c[0].debugSettleOnce();

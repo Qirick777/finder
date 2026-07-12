@@ -32,6 +32,7 @@ public final class Multipliers {
         if (t.contains(Trait.RECKLESS)) m -= 0.1;         // 무모 자원×0.9
         if (t.contains(Trait.GATHERER)) m += 0.3;         // 채집꾼 채집사거리↑
         if (t.contains(Trait.HUNTER)) m -= 0.1;           // 사냥꾼 채집딜레이
+        if (t.contains(Trait.BASIC_EDUCATION)) m += 0.1;  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         return Math.max(0.0, m);
     }
 
@@ -51,6 +52,8 @@ public final class Multipliers {
         if (t.contains(Trait.RECKLESS)) m -= 0.1;         // 무모 자원×0.9
         if (t.contains(Trait.HUNTER)) m += 0.3;           // 사냥꾼 동물데미지↑
         if (t.contains(Trait.GATHERER)) m -= 0.3;         // 채집꾼 데미지↓
+        if (t.contains(Trait.COMPETITIVE)) m += 0.2;      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
+        if (t.contains(Trait.BASIC_EDUCATION)) m += 0.1;  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         return Math.max(0.0, m);
     }
 
@@ -60,6 +63,7 @@ public final class Multipliers {
         double m = 1.0;
         if (t.contains(Trait.COOK)) m += 0.2;             // 요리사 ×1.2
         if (t.contains(Trait.BAD_COOK)) m -= 0.2;         // 요리치 ×0.8
+        if (t.contains(Trait.SPECIALIST_EDUCATION)) m += 0.15; // 전문교육 — 전문 기술(가공·저장)
         return Math.max(0.0, m);
     }
 

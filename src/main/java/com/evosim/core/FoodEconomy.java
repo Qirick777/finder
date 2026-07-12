@@ -95,8 +95,9 @@ public final class FoodEconomy {
      * @return 갱신된 저장고 (H는 Eater에 in-place 반영). 정수 입출금만 하므로 L의 정수성 보존.
      */
     public static double settleHome(double larder, List<Eater> familyInPriority) {
-        for (Eater e : familyInPriority) { // ① 입금: 여분 정수만
-            while (e.home && e.holding >= BAND_HIGH) {
+        for (Eater e : familyInPriority) { // ① 입금: 여분 정수만 — 무책임은 문턱 3.0(가족 몫 기여↓)
+            double depositAt = depositThreshold(e.ind);
+            while (e.home && e.holding >= depositAt) {
                 larder += 1.0;
                 e.holding -= 1.0;
             }
@@ -160,7 +161,50 @@ public final class FoodEconomy {
         if (t.contains(Trait.WEAK)) m *= 0.8;
         if (t.contains(Trait.DILIGENT)) m *= 1.1;
         if (t.contains(Trait.LAZY)) m *= 0.9;
+        if (t.contains(Trait.NO_MATERNAL)) m *= 0.9; // 모성애없음 — 돌봄에 에너지 안 씀(본인 소모↓)
         return m;
+    }
+
+    // ── 특성 효과 노브(전부 순수·evotest 대조) ──
+
+    /** 나눔 자격 문턱(이기/이타 축) — 이타는 여유 없어도 나눔, 이기는 나눔 안 함. */
+    public static double shareThreshold(Individual ind) {
+        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        if (t.contains(Trait.SELFISH)) return Double.POSITIVE_INFINITY;
+        if (t.contains(Trait.ALTRUISTIC)) return 1.0;
+        return FILL_TARGET;
+    }
+
+    /** 나눔 1회 전달량(관대/인색 축). */
+    public static double shareAmount(Individual ind) {
+        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        if (t.contains(Trait.GENEROUS)) return 0.75;
+        if (t.contains(Trait.STINGY)) return 0.25;
+        return 0.5;
+    }
+
+    /** 입금 문턱(책임감 축) — 무책임은 3까지 들고 다니며 가족 저장고 기여가 줄어든다. */
+    public static double depositThreshold(Individual ind) {
+        return ExpressionResolver.isExpressed(ind, Trait.IRRESPONSIBLE) ? 3.0 : BAND_HIGH;
+    }
+
+    /** 저장고 "넉넉" 기준 일수(시간지향 축) — 미래지향은 더 모아야 쉬고, 현재지향은 일찍 쉰다(R4). */
+    public static double comfortDays(Individual ind) {
+        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        if (t.contains(Trait.FUTURE_ORIENTED)) return 3.0;
+        if (t.contains(Trait.PRESENT_ORIENTED)) return 1.0;
+        return 2.0;
+    }
+
+    /**
+     * 모성애 축 — <b>어미의 특성</b>이 자식(유아·소년)의 허기 효율을 바꾼다.
+     * 강함(+1): 자식 소모 ×0.7(적은 식량으로 적정 허기) / 없음(−1): ×1.3(돌봄 부실) / 중립·성년 1.0.
+     */
+    public static double maternalHungerMult(LifeStage stage, int maternalCare) {
+        if (stage == LifeStage.ADULT || maternalCare == 0) {
+            return 1.0;
+        }
+        return maternalCare > 0 ? 0.7 : 1.3;
     }
 
     /** 정산 단위 — 개체 + 단계 + 보유 H + 집에있음. H만 가변(은닉 상태 없음 → 결정론). */

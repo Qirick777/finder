@@ -30,12 +30,15 @@ public final class Reproduction {
     }
 
     /**
-     * 출산 상한 (설계서 §6): 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3. (기본 5, 최소 0)
+     * 출산 상한 (설계서 §6): 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3.
+     * 아이선호 축: 아이선호 각 +1 / 아이불호 각 −1. (기본 5, 최소 0)
      */
     public static int birthLimit(Individual female, Individual male) {
         int limit = BASE_BIRTH_LIMIT
                 + 2 * has(female, Trait.PROLIFIC) + has(male, Trait.PROLIFIC)
-                - has(female, Trait.INFERTILE) - 2 * has(male, Trait.INFERTILE);
+                - has(female, Trait.INFERTILE) - 2 * has(male, Trait.INFERTILE)
+                + has(female, Trait.CHILD_LOVING) + has(male, Trait.CHILD_LOVING)
+                - has(female, Trait.CHILD_AVERSE) - has(male, Trait.CHILD_AVERSE);
         return Math.max(0, limit);
     }
 

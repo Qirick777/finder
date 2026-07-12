@@ -26,6 +26,22 @@ public final class SurvivalRules {
         return stage == LifeStage.ADULT;
     }
 
+    /**
+     * 성장 기간 배율 (혼기·모성애 축). 조혼 소년은 20% 빨리 성년(조기 혼인),
+     * 어미가 모성애강함(+1)이면 자식 성장 ×1.25(품에 오래) / 모성애없음(−1)이면 ×0.8(빨리 독립).
+     * 표현층 growthTick이 단계 임계에 곱한다 — 순수라 evotest로 값 대조.
+     */
+    public static double growthMult(LifeStage stage, Individual ind, int maternalCare) {
+        double m = 1.0;
+        if (stage == LifeStage.BOY && ExpressionResolver.isExpressed(ind, Trait.EARLY_MARRIAGE)) {
+            m *= 0.8;
+        }
+        if (stage != LifeStage.ADULT && maternalCare != 0) {
+            m *= maternalCare > 0 ? 1.25 : 0.8;
+        }
+        return m;
+    }
+
     /** 채집 가능? 성년, 또는 만혼 발현 소년 (설계서 §7 소년기 채집). */
     public static boolean canGather(LifeStage stage, Individual ind) {
         if (stage == LifeStage.ADULT) {

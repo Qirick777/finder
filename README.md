@@ -62,6 +62,7 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="berry"        # 옆 정원 베리: 예비·번식 뺀 잉여로만 심기(넉넉할수록 여러 그루)
 ./gradlew evotest --args="food"         # 식량 경제 v2: 연속 저장고+개인 보유·성별 채집 배율·출산 비용·생존 시뮬
 ./gradlew evotest --args="famine"       # 기근→이주 판정(결과 기반·오탐 가드)·정찰 방위 결정론
+./gradlew evotest --args="traitfx"      # 무기능이던 특성 14종의 효과 노브(나눔·책임·아이선호·교육·투자·시간지향·혼기·모성애)
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 

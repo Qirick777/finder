@@ -166,6 +166,7 @@ public class MimicEntity extends PathfinderMob {
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
     private double cachedFamilyNeed = 6.0;      // 가족틱이 갱신하는 가족 하루소모 캐시(goal용)
     private boolean cachedProvider = true;      // 가족틱이 갱신하는 제공자 역할 캐시(R4)
+    private int cachedMaternal = 0;             // 어미 모성애 캐시(+1 강함/−1 없음) — 자식 허기·성장에 적용
     private static final int HUNGER_INTERVAL = 100;       // 소모 주기(틱, 스태거)
     private static final int FAST_HUNGER_INTERVAL = 10;   // fast 모드 소모 주기
     private static final double FAST_TIME_SCALE = 600.0;  // fast: 40틱 ≈ 1일 압축
@@ -1475,7 +1476,8 @@ public class MimicEntity extends PathfinderMob {
         // fast 무대는 시간 압축이라 취침 0배율이 끼면 검증이 멈춘다 → 이동 기준으로 고정.
         Activity act = fastSettle ? Activity.MOVE : deriveActivity();
         double perDay = FoodEconomy.consumptionPerDay(getStage(), act, individual,
-                getHealth() < getMaxHealth());
+                getHealth() < getMaxHealth())
+                * FoodEconomy.maternalHungerMult(getStage(), cachedMaternal); // 모성애 축(자식 허기 효율)
         holding = Math.max(0.0, holding - perDay * interval * scale / 24000.0);
         // 위급 전이 로그(1회) — 진입 시 대응 방향(귀가/강행)까지 남겨 밸런싱 근거로.
         boolean crit = isCritical();
@@ -1594,6 +1596,13 @@ public class MimicEntity extends PathfinderMob {
         larder = FoodEconomy.settleHome(larder, eaters);
 
         // 결과 반영 + goal 캐시 갱신(채집 goal이 매 틱 가족 스캔 없이 판단하도록).
+        MimicEntity motherOf = firstAdultFemale(ordered);
+        int maternal = 0; // 어미 모성애(+1 강함/−1 없음) — 자식 허기·성장 캐시
+        if (motherOf != null && motherOf.getIndividual() != null) {
+            var mt = ExpressionResolver.expressedTraits(motherOf.getIndividual());
+            maternal = mt.contains(com.evosim.core.Trait.STRONG_MATERNAL) ? 1
+                    : mt.contains(com.evosim.core.Trait.NO_MATERNAL) ? -1 : 0;
+        }
         int adults = 0;
         int boys = 0;
         int infants = 0;
@@ -1618,6 +1627,7 @@ public class MimicEntity extends PathfinderMob {
             m.lastFed = !m.isCritical();
             m.cachedFamilyNeed = need;
             m.cachedProvider = (m == father) || (father == null && m.getStage() == LifeStage.ADULT);
+            m.cachedMaternal = maternal;
             holdSum += m.holding;
             switch (m.getStage()) {
                 case ADULT -> adults++;
@@ -1659,11 +1669,12 @@ public class MimicEntity extends PathfinderMob {
             }
         }
 
-        // 옆 정원 베리: 최하위 — 하루소모·번식 몫(비용+임계)을 뺀 잔여로만.
+        // 옆 정원 베리: 최하위 — 하루소모·번식 몫(비용+임계)을 뺀 잔여로만. 투자 성향이 속도를 가른다.
         if (homePos != null) {
             int bushCount = countBerries(sl);
             double reproReserve = FoodEconomy.BIRTH_COST + adults + 1;
-            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP);
+            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP,
+                    BerryEconomy.costMult(individual));
             if (n > 0) {
                 int done = plantBerries(sl, n);
                 if (done > 0) {
@@ -1675,14 +1686,15 @@ public class MimicEntity extends PathfinderMob {
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, holdSum, need,
                     deposited, withdrawn);
-            // R4 동원 전이: 저장고 넉넉↔부족이 뒤집힐 때만 1회 기록(가족 채집 합류/휴식 판단 근거).
-            int ms = larder >= need * 2.0 ? 0 : 1;
+            // R4 동원 전이: 저장고 넉넉↔부족이 뒤집힐 때만 1회 기록. 기준 일수는 대표의 시간지향 특성.
+            double comfort = need * FoodEconomy.comfortDays(individual);
+            int ms = larder >= comfort ? 0 : 1;
             if (ms != mobilizedState) {
                 mobilizedState = ms;
                 SimEvents.note(sl, "동원", String.format("@%d,%d %s (저장고%.0f vs 기준%.1f)",
                         homePos.getX(), homePos.getZ(),
                         ms == 1 ? "저장고 부족 → 온 가족 채집 합류" : "저장고 넉넉 → 비제공자 휴식",
-                        larder, need * 2.0));
+                        larder, comfort));
             }
             // 기근 → 이주(이주 설계 §1–3): 채집자 전원 무수확 + 비축 바닥 + 쿨다운 경과 → 인지거리 외곽.
             if (!fastSettle && shouldFamilyMigrate(fam, larder, need)) {
@@ -1983,10 +1995,11 @@ public class MimicEntity extends PathfinderMob {
                 && LarderStore.get(sl).get(homePos) >= 1.0;
     }
 
-    /** 저장고 넉넉(R4) — 가족 하루소모 2일치 이상이면 비제공자는 쉼. */
+    /** 저장고 넉넉(R4) — 가족 하루소모 × 시간지향 일수(미래3/기본2/현재1) 이상이면 비제공자는 쉼. */
     public boolean larderComfortable() {
-        return homePos != null && level() instanceof ServerLevel sl
-                && LarderStore.get(sl).get(homePos) >= cachedFamilyNeed * 2.0;
+        return homePos != null && level() instanceof ServerLevel sl && individual != null
+                && LarderStore.get(sl).get(homePos)
+                        >= cachedFamilyNeed * FoodEconomy.comfortDays(individual);
     }
 
     /** 제공자 역할(가족틱이 갱신) — 남편 또는 성년 홀로 가장. R4에서 항상 채집. */
@@ -2141,7 +2154,10 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         growthTicks++;
-        int threshold = fastGrowth ? 40 : (stage == LifeStage.INFANT ? 2 * 24000 : 3 * 24000);
+        // 성장 임계 × 혼기·모성애 배율(조혼 소년 0.8 / 모성애강함 1.25 / 없음 0.8). fast 무대는 고정.
+        int threshold = fastGrowth ? 40
+                : (int) ((stage == LifeStage.INFANT ? 2 * 24000 : 3 * 24000)
+                        * SurvivalRules.growthMult(stage, individual, cachedMaternal));
         if (growthTicks >= threshold) {
             growthTicks = 0;
             LifeStage next = stage == LifeStage.INFANT ? LifeStage.BOY : LifeStage.ADULT;

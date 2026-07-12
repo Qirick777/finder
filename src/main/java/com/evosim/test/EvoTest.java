@@ -112,9 +112,10 @@ public final class EvoTest {
             case "berry" -> berry(report);
             case "food" -> food(report);
             case "famine" -> famine(report);
+            case "traitfx" -> traitfx(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -145,6 +146,7 @@ public final class EvoTest {
         berry(report);
         food(report);
         famine(report);
+        traitfx(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1556,6 +1558,84 @@ public final class EvoTest {
         boolean d3 = Famine.bestDirection(new int[] {0, 0, 0, 0}) == -1;     // 전부 0 → 폴백 신호
         report.add("famine/방향", d1 && d2 && d3, "풀 최다 방위·동률 앞 인덱스·전부0=-1",
                 (d1 && d2 && d3) ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest traitfx — 무기능 특성 14종의 효과(전부 순수 노브 — 육안 테스트 불필요)
+    // ──────────────────────────────────────────────────────────────
+    private static void traitfx(Report report) {
+        Individual plain = one(Sex.MALE);
+
+        // 나눔(이기/이타)·나눔범위(관대/인색)
+        boolean s1 = close(FoodEconomy.shareThreshold(one(Sex.MALE, TraitInstance.of(Trait.ALTRUISTIC))), 1.0)
+                && close(FoodEconomy.shareThreshold(plain), 1.5)
+                && Double.isInfinite(FoodEconomy.shareThreshold(one(Sex.MALE, TraitInstance.of(Trait.SELFISH))))
+                && close(FoodEconomy.shareAmount(one(Sex.MALE, TraitInstance.of(Trait.GENEROUS))), 0.75)
+                && close(FoodEconomy.shareAmount(one(Sex.MALE, TraitInstance.of(Trait.STINGY))), 0.25)
+                && close(FoodEconomy.shareAmount(plain), 0.5);
+        report.add("traitfx/나눔", s1, "문턱 이타1.0·기본1.5·이기∞ / 전달량 관대0.75·기본0.5·인색0.25",
+                s1 ? "정상" : "어긋남");
+
+        // 책임감(무책임) — 문턱 3.0 + settleHome 통합(2.5로는 입금 없음, 3.2면 1개만)
+        var irr = new FoodEconomy.Eater(one(Sex.MALE, TraitInstance.of(Trait.IRRESPONSIBLE)),
+                LifeStage.ADULT, 2.5, true);
+        double l1 = FoodEconomy.settleHome(0.0, java.util.List.of(irr));
+        var irr2 = new FoodEconomy.Eater(one(Sex.MALE, TraitInstance.of(Trait.IRRESPONSIBLE)),
+                LifeStage.ADULT, 3.2, true);
+        double l2 = FoodEconomy.settleHome(0.0, java.util.List.of(irr2));
+        boolean r1 = close(FoodEconomy.depositThreshold(plain), 2.0)
+                && close(FoodEconomy.depositThreshold(irr.ind), 3.0)
+                && close(irr.holding, 2.5) && close(l1, 0.0)      // 2.5 < 3.0 → 입금 안 함
+                && close(irr2.holding, 2.2) && close(l2, 1.0);    // 3.2 → 1개만 입금
+        report.add("traitfx/책임감", r1, "무책임 입금문턱 3.0 — 2.5 들고 다님·3.2면 1개만 저장",
+                r1 ? "정상" : "어긋남");
+
+        // 아이선호(선호/불호) — 출산 상한 ±1
+        boolean c1 = Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.CHILD_LOVING)), plain) == 6
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.CHILD_AVERSE)), plain) == 4
+                && Reproduction.birthLimit(one(Sex.FEMALE), plain) == 5;
+        report.add("traitfx/아이선호", c1, "출산 상한 선호+1(6)·기본5·불호−1(4)", c1 ? "정상" : "어긋남");
+
+        // 경쟁·교육 — 배율 한 줄들
+        boolean m1 = close(Multipliers.hunt(one(Sex.MALE, TraitInstance.of(Trait.COMPETITIVE))), 1.2)
+                && close(Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.BASIC_EDUCATION))), 1.1)
+                && close(Multipliers.hunt(one(Sex.MALE, TraitInstance.of(Trait.BASIC_EDUCATION))), 1.1)
+                && close(Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.SPECIALIST_EDUCATION))), 1.15);
+        report.add("traitfx/경쟁교육", m1, "경쟁 사냥+0.2 / 기본교육 채집·사냥+0.1 / 전문교육 저장+0.15",
+                m1 ? "정상" : "어긋남");
+
+        // 투자(장기/신속) — 베리 정원 조성 속도
+        boolean b1 = close(BerryEconomy.costMult(one(Sex.MALE, TraitInstance.of(Trait.LONG_INVESTMENT))), 0.5)
+                && close(BerryEconomy.costMult(one(Sex.MALE, TraitInstance.of(Trait.QUICK_INVESTMENT))), 2.0)
+                && close(BerryEconomy.costMult(plain), 1.0)
+                && BerryEconomy.plant(10, 2, 2.5, 0, 8, 0.5) == 8   // 잔여5.5/0.5=11 → 상한 8
+                && BerryEconomy.plant(10, 2, 2.5, 0, 8, 2.0) == 2;  // 5.5/2 = 2그루
+        report.add("traitfx/투자", b1, "장기투자 ×0.5(정원 2배 속도)·신속투자 ×2 — 같은 잉여 8그루 vs 2그루",
+                b1 ? "정상" : "어긋남");
+
+        // 시간지향(미래/현재) — R4 넉넉 기준 일수
+        boolean t1 = close(FoodEconomy.comfortDays(one(Sex.MALE, TraitInstance.of(Trait.FUTURE_ORIENTED))), 3.0)
+                && close(FoodEconomy.comfortDays(one(Sex.MALE, TraitInstance.of(Trait.PRESENT_ORIENTED))), 1.0)
+                && close(FoodEconomy.comfortDays(plain), 2.0);
+        report.add("traitfx/시간지향", t1, "넉넉 기준 미래3일·기본2일·현재1일(일찍 쉼/늦게 쉼)",
+                t1 ? "정상" : "어긋남");
+
+        // 혼기(조혼)·모성애(강함/없음) — 성장·허기 효율·본인 소모
+        boolean g1 = close(SurvivalRules.growthMult(LifeStage.BOY,
+                        one(Sex.MALE, TraitInstance.of(Trait.EARLY_MARRIAGE)), 0), 0.8)
+                && close(SurvivalRules.growthMult(LifeStage.INFANT, plain, 1), 1.25)  // 강함 → 품에 오래
+                && close(SurvivalRules.growthMult(LifeStage.BOY, plain, -1), 0.8)     // 없음 → 빨리 독립
+                && close(SurvivalRules.growthMult(LifeStage.BOY,
+                        one(Sex.MALE, TraitInstance.of(Trait.EARLY_MARRIAGE)), -1), 0.64)
+                && close(SurvivalRules.growthMult(LifeStage.ADULT, plain, 1), 1.0);
+        boolean g2 = close(FoodEconomy.maternalHungerMult(LifeStage.INFANT, 1), 0.7)  // 적게 먹어도 채워짐
+                && close(FoodEconomy.maternalHungerMult(LifeStage.BOY, -1), 1.3)      // 돌봄 부실 → 더 소모
+                && close(FoodEconomy.maternalHungerMult(LifeStage.ADULT, 1), 1.0)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.FEMALE, TraitInstance.of(Trait.NO_MATERNAL)), false), 2.7); // 본인 ×0.9
+        report.add("traitfx/혼기모성", g1 && g2,
+                "조혼 소년기 0.8 / 강함 성장1.25·자식소모0.7 / 없음 성장0.8·자식소모1.3·본인0.9",
+                (g1 && g2) ? "정상" : "어긋남");
     }
 
     /** 순수 경제 시뮬 결과. */

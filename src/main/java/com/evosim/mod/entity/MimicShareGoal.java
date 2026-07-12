@@ -17,8 +17,9 @@ import java.util.EnumSet;
 public class MimicShareGoal extends Goal {
 
     private static final double SHARE_RANGE = 16.0;  // 이 안의 가족만 도움
-    private static final double GIVE_AMOUNT = 0.5;   // 1회 전달량(소수 OK — H는 연속)
     private static final int COOLDOWN = 200;         // 전달 간 쿨타임(틱)
+    // 전달량·자격 문턱은 특성 노브: FoodEconomy.shareAmount(관대0.75/기본0.5/인색0.25) ·
+    // shareThreshold(이타1.0/기본1.5/이기∞=나눔 안 함) — 순수 함수라 evotest로 값 검증.
 
     private final MimicEntity mob;
     private MimicEntity needy;
@@ -36,8 +37,8 @@ public class MimicShareGoal extends Goal {
             return false;
         }
         if (mob.getIndividual() == null || mob.isBuilding() || mob.isFastSettle()
-                || mob.getHolding() < FoodEconomy.FILL_TARGET) {
-            return false; // 자기가 여유(≥1.5) 있을 때만 나눔
+                || mob.getHolding() < FoodEconomy.shareThreshold(mob.getIndividual())) {
+            return false; // 자격 문턱(이타 1.0 / 기본 1.5 / 이기 ∞ = 절대 안 나눔) 미달
         }
         needy = findNeedy();
         return needy != null;
@@ -46,7 +47,9 @@ public class MimicShareGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         return needy != null && needy.isAlive() && needy.isCritical()
-                && mob.getHolding() >= FoodEconomy.FILL_TARGET - GIVE_AMOUNT;
+                && mob.getIndividual() != null
+                && mob.getHolding() >= FoodEconomy.shareThreshold(mob.getIndividual())
+                        - FoodEconomy.shareAmount(mob.getIndividual());
     }
 
     @Override
@@ -64,7 +67,8 @@ public class MimicShareGoal extends Goal {
             mob.getNavigation().moveTo(needy, 1.1);
             return;
         }
-        double given = mob.shareFoodTo(needy, GIVE_AMOUNT); // 실제 전달량(0이면 못 준 것)
+        double given = mob.shareFoodTo(needy,
+                FoodEconomy.shareAmount(mob.getIndividual())); // 실제 전달량(0이면 못 준 것)
         if (given > 0.0) {
             mob.swing(InteractionHand.MAIN_HAND);
             SimEvents.event(mob, "나눔", String.format("굶는 식구 #%d 에게 식량 %.2f 건넴",

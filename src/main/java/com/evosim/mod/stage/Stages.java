@@ -374,6 +374,9 @@ public final class Stages {
                 female.setDayHarvest(20.0);
                 run.watch(female);
             }
+            if (male != null && female != null) {
+                male.debugMarryTo(female); // 어미 선택이 실혼인(배우자 링크)을 요구 — 부부 확정
+            }
         }
     }
 

@@ -1754,13 +1754,25 @@ public class MimicEntity extends PathfinderMob {
 
         abandonHome(sl); // 모닥불 끔·재사용 목록 등록(폐가 로그 포함)
 
+        // 업는 성년 목록: 어미 우선, 그 외 성년 순 — 유아가 여럿이면 순환 배정(부모가 나눠 업음).
+        // 성년 여성이 없는 가족(홀아비+유아)도 아버지가 업어 좌초 방치가 없다.
         MimicEntity mother = firstAdultFemale(fam);
+        List<MimicEntity> carriers = new ArrayList<>();
+        if (mother != null) {
+            carriers.add(mother);
+        }
+        for (MimicEntity m : fam) {
+            if (m.getStage() == LifeStage.ADULT && m != mother) {
+                carriers.add(m);
+            }
+        }
         int builders = 0;
+        int nextCarrier = 0;
         for (MimicEntity m : fam) {
             m.setHomePos(newHome); // settledTick 갱신 → 재이주 쿨다운 시작
             m.homeFacing = (byte) facing.get2DDataValue();
-            if (m.getStage() == LifeStage.INFANT && mother != null) {
-                m.startRiding(mother, true); // 유아는 어미가 업고 이동
+            if (m.getStage() == LifeStage.INFANT && !carriers.isEmpty()) {
+                m.startRiding(carriers.get(nextCarrier++ % carriers.size()), true);
             } else if (m.getStage() == LifeStage.ADULT && builders < 2) {
                 m.building = true; // 부부(최대 2)가 신축 담당 — 기존 buildTick 파이프라인
                 m.buildReachTicks = 0;

@@ -1,5 +1,6 @@
 package com.evosim.mod;
 
+import com.evosim.core.BerryEconomy;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
@@ -450,7 +451,8 @@ public final class EvoSimCommand {
         LarderStore.get(level).set(home, 20.0); // 게이트(≈12) 여유 통과 직전
         level.setDayTime(4000L);
         m.debugSettleOnce(); // 즉시 정산 → 출산 판정
-        // 수치 즉시 판별: 저장고 20→17(출산비용 3 차감) && 거처 귀속 유아 1명 등장.
+        // 수치 즉시 판별: 저장고 20 → 17(출산비용 3) − 베리비용(심은 그루 실측 × 그루당 비용) 회계 일치
+        // && 거처 귀속 유아 1명 등장. 베리도 이제 저장고를 실제 차감하므로 기대값에 반영(회계 대조).
         double after = LarderStore.get(level).get(home);
         int infants = 0;
         for (MimicEntity e : level.getEntitiesOfClass(MimicEntity.class,
@@ -459,11 +461,23 @@ public final class EvoSimCommand {
                 infants++;
             }
         }
-        boolean ok = infants == 1 && Math.abs(after - 17.0) < 1.0E-6;
+        int bCost = berryCost(level, m);
+        double expect = 17.0 - bCost;
+        boolean ok = infants == 1 && Math.abs(after - expect) < 1.0E-6;
         tell(ctx.getSource(), String.format(
-                "번식 판별 — 저장고 20 → %.0f (기대 17) · 유아 %d명 (기대 1) ⇒ %s",
-                after, infants, ok ? "✅ 성공" : "❌ 실패"));
+                "번식 판별 — 저장고 20 → %.0f (기대 %.0f = 17 − 베리비용 %d) · 유아 %d명 (기대 1) ⇒ %s",
+                after, expect, bCost, infants, ok ? "✅ 성공" : "❌ 실패"));
         return ok ? 1 : 0;
+    }
+
+    /** 정산이 심은 베리의 실제 저장고 차감액 — 본 코드와 동일 공식으로 회계 대조(결과값 기반 판정). */
+    private static int berryCost(ServerLevel level, MimicEntity leader) {
+        int bushes = leader.countBerries(level);
+        if (bushes <= 0) {
+            return 0;
+        }
+        return Math.max(1, (int) Math.round(
+                bushes * BerryEconomy.BUSH_COST * BerryEconomy.costMult(leader.getIndividual())));
     }
 
     /** 육아 급식(D) 즉시 연출: 배고픈 유아(H=0.5)+저장고 5 → 정산 강제 → 어미 급식 판별. */
@@ -556,7 +570,9 @@ public final class EvoSimCommand {
         if (bride == null) {
             return 0;
         }
-        LarderStore.get(level).set(home, 21.0); // 부양 증명(하루소모 6 × 3일 = 18 이상)
+        // 부양 증명(하루소모 6 × 3일 = 18) 여유 통과: 감시 창 동안 가족틱이 자연 개입해 출산(−3)·
+        // 베리(−최대 8)로 저장고를 깎아도 게이트가 흔들리지 않게 40으로(경계값 21은 이제 flaky).
+        LarderStore.get(level).set(home, 40.0);
         level.setDayTime(9000L); // 배회 시간 — 구애 goal 활동
         LiveCheck.watch(ctx.getSource(), "중혼", 1200,
                 () -> String.format("신부 %s · 거처 %s · 저장고 %.0f",
@@ -565,8 +581,8 @@ public final class EvoSimCommand {
                         LarderStore.get(level).get(home)),
                 () -> !bride.isSingleAdult() && home.equals(bride.getHomePos()));
         tell(ctx.getSource(), "중혼 연출 — 주변 독신남 0·기혼남만 후보(감점에도 유일 후보). 기대: 신부가 "
-                + "구애 → 아내 용인(인색·경쟁 없음)+저장고 21≥18 → 수락·합류. 아내에 인색 특성을 준 거절 "
-                + "케이스는 /evosim checkall 12단계에 포함.");
+                + "구애 → 아내 용인(인색·경쟁 없음)+저장고 40≥부양선(하루소모×3) → 수락·합류. 아내에 인색 "
+                + "특성을 준 거절 케이스는 /evosim checkall 12단계에 포함.");
         return 1;
     }
 
@@ -620,7 +636,7 @@ public final class EvoSimCommand {
                     () -> c[1].getHolding() >= 0.6 && c[0].getHolding() <= 1.8,
                     () -> discard(c)));
         }
-        // [3] 번식·베리 — 저장고 20→17 + 유아 1 + (참고: 베리 그루)
+        // [3] 번식·베리 — 저장고 20 → 17(출산비용 3) − 베리비용(심은 그루 실측) 회계 일치 + 유아 1
         {
             BlockPos home = ground(level, b, 3);
             MimicEntity[] c = new MimicEntity[2];
@@ -631,9 +647,11 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 20.0);
                 level.setDayTime(4000L);
                 c[0].debugSettleOnce();
-            }, () -> String.format("저장고 %.0f(기대17) 유아 %d(기대1) 베리 %d",
-                    LarderStore.get(level).get(home), infantsAt(level, home), c[0].countBerries(level)),
-                    () -> Math.abs(LarderStore.get(level).get(home) - 17.0) < 1.0E-6
+            }, () -> String.format("저장고 %.0f(기대 %.0f=17−베리비용) 유아 %d(기대1) 베리 %d",
+                    LarderStore.get(level).get(home), 17.0 - berryCost(level, c[0]),
+                    infantsAt(level, home), c[0].countBerries(level)),
+                    () -> Math.abs(LarderStore.get(level).get(home)
+                            - (17.0 - berryCost(level, c[0]))) < 1.0E-6
                             && infantsAt(level, home) == 1,
                     () -> discardFamily(level, home, c)));
         }
@@ -762,7 +780,9 @@ public final class EvoSimCommand {
                 c[0] = cc[0];
                 c[1] = cc[1];
                 c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
-                LarderStore.get(level).set(home, 21.0); // 부양 증명(6×3일=18 이상)
+                // 부양 증명(6×3일=18) 여유 통과 — 감시 창 중 가족틱의 출산(−3)·베리(−최대 8) 자연
+                // 개입에도 게이트 유지(경계값 21은 베리 실차감 도입 후 flaky).
+                LarderStore.get(level).set(home, 40.0);
                 level.setDayTime(9000L);
             }, () -> String.format("신부 %s · 합류 %s · 저장고 %.0f",
                     c[2].isSingleAdult() ? "독신" : "혼인",
@@ -779,7 +799,9 @@ public final class EvoSimCommand {
                 c[0] = cc[0];
                 c[1] = cc[1];
                 c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
-                LarderStore.get(level).set(home, 21.0); // 부양은 충분 — 아내 특성만이 거절 사유
+                // 부양은 넉넉히(40) — 감시 창 중 저장고가 자연 감소해 '부양 미달'로도 거절되면
+                // 인색 게이트가 고장나도 통과하는 위양성이 생기므로, 거절 사유를 아내 특성 하나로 고정.
+                LarderStore.get(level).set(home, 40.0);
                 level.setDayTime(9000L);
             }, () -> String.format("신부 %s(계속 독신이어야 성공)",
                     c[2].isSingleAdult() ? "독신" : "혼인"),

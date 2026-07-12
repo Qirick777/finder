@@ -42,8 +42,17 @@ public class MimicReturnGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        return wantsTrip()
-                && mob.blockPosition().distSqr(mob.getHomePos()) > ARRIVE_DIST_SQ;
+        if (!wantsTrip()) {
+            return false;
+        }
+        if (mob.blockPosition().distSqr(mob.getHomePos()) <= ARRIVE_DIST_SQ) {
+            // 이미 집 안 — 이동 goal 없이 즉석 입출금(집에 서 있으면 배고파도 인출을 못 하던 결함 방지).
+            if (mob.level() instanceof ServerLevel sl) {
+                mob.selfSettle(sl);
+            }
+            return false;
+        }
+        return true;
     }
 
     @Override

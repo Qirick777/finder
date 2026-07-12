@@ -163,6 +163,7 @@ public class MimicEntity extends PathfinderMob {
     private long lonelySinceTick = -1L;         // 짝 후보 0명 시작 시각(-1 = 후보 있음/미혼 아님)
     private long courtTravelUntil = 0L;         // 구혼 여행 만료 시각(NBT)
     private long courtTravelTarget = 0L;        // 구혼 여행 목적지(타향 모닥불, BlockPos.asLong, NBT)
+    private BlockPos visitAnchor = null;        // 노인 방문 임시 앵커(ElderVisitGoal 설정 — 휘발)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
@@ -310,7 +311,15 @@ public class MimicEntity extends PathfinderMob {
         if (isCourtTravel()) {
             return BlockPos.of(courtTravelTarget); // 리시가 그 마을까지 끌고 가는 캐러밴 엔진
         }
+        if (visitAnchor != null) {
+            return visitAnchor; // 노인 마실 — 활동반경 밖 자식 집도 리시가 끌고 간다(구혼 여행과 동일 패턴)
+        }
         return homePos != null ? homePos : getBirthPos();
+    }
+
+    /** 노인 방문 goal 이 설정하는 임시 앵커(null = 해제) — 리시가 자식 집으로 끌게 한다. */
+    public void setVisitAnchor(@Nullable BlockPos pos) {
+        this.visitAnchor = pos;
     }
 
     /** 활동반경(블록) — 특성별 차등({@link Roaming}). 개체 없으면 기본값. */
@@ -398,12 +407,12 @@ public class MimicEntity extends PathfinderMob {
         return n;
     }
 
-    /** 배우자가 아직 살아있나(거처/근처에 같은 Individual.id 존재). */
+    /** 배우자가 아직 살아있나(거처/근처에 같은 Individual.id 존재). 반경 128 — 이주성 부부의 낮 분산(최대 활동반경 합)에도 오탐 없게. */
     private boolean spouseAlive() {
         if (spouseId == 0L) {
             return false;
         }
-        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(64.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(128.0))) {
             if (m != this && m.isAlive() && m.getIndividual() != null
                     && m.getIndividual().id() == spouseId) {
                 return true;
@@ -530,6 +539,17 @@ public class MimicEntity extends PathfinderMob {
             mateState = MateState.IDLE;
             return;
         }
+        // 구혼 여행 만료 잔재 정리: 빈손 귀환인데 그 사이 가족이 이주해 고향이 폐가(모닥불 꺼짐)면
+        // 폐가에 홀로 좌초되지 않게 방랑자로 전환(구애 풀 합류·재정착 경로).
+        if (courtTravelTarget != 0L && level().getGameTime() >= courtTravelUntil) {
+            endCourtTravel();
+            if (homePos != null && !hearthLitAt(homePos)) {
+                BlockPos gone = homePos;
+                setHomePos(null);
+                SimEvents.event(this, "구혼여행", String.format(
+                        "빈손 만료 — 고향 @%d,%d 은 폐가 → 방랑 전환", gone.getX(), gone.getZ()));
+            }
+        }
         // 사별 감지: 배우자가 살아있지 않으면 과부/홀아비 → 재구애 참여.
         // 일부다처 승계: 본처가 죽어도 같은 거처에 다른 아내가 있으면 그쪽으로 재링크(홀아비 아님).
         if (spouseId != 0L && !widowed && (level().getGameTime() + getId()) % 40 == 0) {
@@ -585,11 +605,14 @@ public class MimicEntity extends PathfinderMob {
 
     /** 구혼 여행 시작 — 가장 가까운 타향 모닥불을 임시 앵커로(리시가 그 마을까지 끌고 간다). */
     private void startCourtTravel() {
-        lonelySinceTick = -1L;
         long target = nearestForeignHearth();
         if (target == 0L) {
-            return; // 알려진 타향 없음 — 다음 주기 재시도
+            // 알려진 타향 없음 — 외로움 클럭을 통째로 되감지 않고 반나절 뒤 재시도 지점으로만 되감기
+            // (여기서 -1로 리셋하면 실패할 때마다 3일을 다시 다 기다리는 버그).
+            lonelySinceTick = level().getGameTime() - Famine.LONELY_TRAVEL_AFTER + 12000L;
+            return;
         }
+        lonelySinceTick = -1L;
         courtTravelTarget = target;
         courtTravelUntil = level().getGameTime() + Famine.TRAVEL_DURATION;
         BlockPos t = BlockPos.of(target);
@@ -620,6 +643,13 @@ public class MimicEntity extends PathfinderMob {
                 LIT_HEARTHS.remove(0); // 가지치기(오래된 항목부터)
             }
         }
+    }
+
+    /** 이 거처의 모닥불이 켜져 있나(블록 실측 — 폐가 판정). */
+    private boolean hearthLitAt(BlockPos home) {
+        BlockPos hp = HomeStructure.hearthPos(home, getHomeFacingDir());
+        var st = level().getBlockState(hp);
+        return st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT);
     }
 
     /** 자기 마을(반경 48) 밖에서 가장 가까운 켜진 모닥불. 없으면 0. */
@@ -688,7 +718,7 @@ public class MimicEntity extends PathfinderMob {
                     && suitor.isFemale() && suitor.isSingleAdult()
                     && homePos != null && level() instanceof ServerLevel sl) {
                 double larder = LarderStore.get(sl).get(homePos);
-                if (Polygyny.canAccept(currentWives(), larder, cachedFamilyNeed)) {
+                if (Polygyny.canAccept(currentWives(), larder, liveFamilyNeed())) {
                     logCourt(suitor, true, Multipliers.charmScore(individual, si), 1,
                             Math.max(1, candidates.size()), 100);
                     marrySecond(suitor);
@@ -732,6 +762,17 @@ public class MimicEntity extends PathfinderMob {
                 "미믹#" + getId(), accepted, charm, rank, pool, percent));
         SimEvents.event(suitor, "구애", String.format("%s — 상대 #%d · 매력%d 순위%d/%d 확률%d%%",
                 accepted ? "성사" : "거절", getId(), charm, rank, pool, percent));
+    }
+
+    /** 실시간 가족 하루소모 — 중혼 부양 증명 게이트용(가족틱 캐시 부패로 인한 과소·과대 판정 방지). */
+    private double liveFamilyNeed() {
+        List<FoodEconomy.Eater> eaters = new ArrayList<>();
+        for (MimicEntity m : householdMembers()) {
+            if (m.getIndividual() != null) {
+                eaters.add(new FoodEconomy.Eater(m.getIndividual(), m.getStage(), m.holding, m.isHome()));
+            }
+        }
+        return eaters.isEmpty() ? cachedFamilyNeed : FoodEconomy.nominalDailyNeed(eaters);
     }
 
     /** 현재 아내들(같은 거처·성년 여성·배우자 링크가 나를 가리킴) — 일부다처 게이트 입력. */
@@ -798,13 +839,30 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** guest를 host의 거처로 입주. guest가 단독 거처주였다면 그 집은 폐기(모닥불 끔). */
+    /** guest를 host의 거처로 입주. guest가 단독 거처주였다면 그 집은 폐기(모닥불 끔) — 그 집의 미성년 자식(과부 재혼 등)도 함께 데려온다(좌초 방지). */
     private static void moveInto(ServerLevel sl, MimicEntity host, MimicEntity guest) {
-        if (guest.getHomePos() != null && guest.homeStatus() == MateHome.Status.LONE_OWNER) {
+        BlockPos guestOldHome = guest.getHomePos();
+        boolean wasLoneOwner = guestOldHome != null
+                && guest.homeStatus() == MateHome.Status.LONE_OWNER;
+        if (wasLoneOwner) {
             guest.abandonHome(sl); // 원래 단독 거처 폐기
         }
         guest.setHomePos(host.getHomePos());
         guest.homeFacing = host.homeFacing;
+        if (wasLoneOwner && guest.getIndividual() != null) {
+            long gid = guest.getIndividual().id();
+            for (MimicEntity c : sl.getEntitiesOfClass(MimicEntity.class,
+                    new net.minecraft.world.phys.AABB(guestOldHome).inflate(48.0))) {
+                if (c.isAlive() && c.getIndividual() != null
+                        && (c.getStage() == LifeStage.INFANT || c.getStage() == LifeStage.BOY)
+                        && guestOldHome.equals(c.getHomePos())
+                        && (c.getIndividual().parentAId() == gid
+                                || c.getIndividual().parentBId() == gid)) {
+                    c.setHomePos(host.getHomePos());
+                    c.homeFacing = host.homeFacing;
+                }
+            }
+        }
         relightHearth(sl, host.getHomePos(), host.getHomeFacingDir());
         SimEvents.event(guest, "합류", String.format("#%d 거처로 입주 @%d,%d",
                 host.getId(), host.getHomePos().getX(), host.getHomePos().getZ()));
@@ -1631,12 +1689,20 @@ public class MimicEntity extends PathfinderMob {
             return; // 대표만 실행(중복 방지)
         }
 
-        // 우선순위 구성: 남편(UUID 최소 성년 남성) → 자식(미성년) → 아내(그 외 성년).
+        // 우선순위 구성: 남편(혼인 링크 보유 성년 남성 우선, 동급이면 UUID 최소) → 자식(미성년) → 아내(그 외 성년).
+        // 혼인 우선 — 성년 아들이 UUID 순으로 아버지를 밀어내면 어미 탐색(spouseId 대조)이 조용히 실패해
+        // 번식이 막히는 결함 방지.
         MimicEntity father = null;
+        boolean fatherMarried = false;
         for (MimicEntity m : fam) {
-            if (m.getIndividual() != null && m.getStage() == LifeStage.ADULT && !m.isFemale()
-                    && (father == null || m.getUUID().compareTo(father.getUUID()) < 0)) {
+            if (m.getIndividual() == null || m.getStage() != LifeStage.ADULT || m.isFemale()) {
+                continue;
+            }
+            boolean married = hasWifeIn(fam, m);
+            if (father == null || (married && !fatherMarried)
+                    || (married == fatherMarried && m.getUUID().compareTo(father.getUUID()) < 0)) {
                 father = m;
+                fatherMarried = married;
             }
         }
         List<MimicEntity> ordered = new ArrayList<>(fam.size());
@@ -1761,13 +1827,18 @@ public class MimicEntity extends PathfinderMob {
         if (homePos != null) {
             int bushCount = countBerries(sl);
             double reproReserve = FoodEconomy.BIRTH_COST + adults + 1;
-            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP,
-                    BerryEconomy.costMult(individual));
+            double costMult = BerryEconomy.costMult(individual);
+            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP, costMult);
             if (n > 0) {
                 int done = plantBerries(sl, n);
                 if (done > 0) {
-                    SimEvents.event(this, "베리",
-                            "옆 정원 +" + done + " (누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
+                    // 심은 만큼 저장고에서 실제 차감(정수 반올림 — L 정수 불변식 유지). 차감 없인
+                    // 저장고가 그대로인 채 베리만 늘어 공짜 식량 생성(착취 경로)이 된다.
+                    int cost = Math.max(1, (int) Math.round(done * BerryEconomy.BUSH_COST * costMult));
+                    larder = Math.max(0.0, larder - cost);
+                    SimEvents.event(this, "베리", "옆 정원 +" + done + " (비용 " + cost
+                            + " → 저장고 " + String.format("%.0f", larder)
+                            + " · 누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
                 }
             }
             store.set(homePos, larder);
@@ -1793,20 +1864,29 @@ public class MimicEntity extends PathfinderMob {
 
     // ── 이주(기근·동반 이주·족외혼) — 판정은 순수 Famine, 여기는 배선 ──
 
-    /** 가족 기근 판정 — 채집 가능(비육아·비건축) 성원들의 성공 시각을 모아 순수 판정에 위임. */
+    /** 가족 기근 판정 — 채집 가능(비육아·비건축) 성원들의 성공 시각을 모아 순수 판정에 위임.
+     *  정착 시각은 성년·노년만 집계(신생아 출생이 setHomePos로 쿨다운을 계속 리셋하는 결함 방지).
+     *  인솔 성년·노년이 하나도 없는 가구는 이주하지 않는다(아이들만의 캐러밴 좌초 방지). */
     private boolean shouldFamilyMigrate(List<MimicEntity> fam, double larder, double need) {
         long now = level().getGameTime();
         long settled = 0L;
+        int grown = 0;
         List<Long> success = new ArrayList<>();
         for (MimicEntity m : fam) {
             if (m.getIndividual() == null) {
                 continue;
             }
-            settled = Math.max(settled, m.settledTick);
+            if (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER) {
+                grown++;
+                settled = Math.max(settled, m.settledTick);
+            }
             if (SurvivalRules.canGather(m.getStage(), m.getIndividual())
                     && !m.isCaregiverBound() && !m.isBuilding()) {
                 success.add(m.lastForageSuccessTick);
             }
+        }
+        if (grown == 0) {
+            return false;
         }
         long[] arr = new long[success.size()];
         for (int i = 0; i < arr.length; i++) {
@@ -1844,6 +1924,8 @@ public class MimicEntity extends PathfinderMob {
         double left = store.get(oldHome);
         int packed = 0;
         for (MimicEntity m : fam) {
+            // 밴드 상한을 일시 초과(최대 2.99)해도 무손실 — 거처 보유자는 addHarvest 컷이 없고,
+            // 도착 정산이 여분 정수를 새 저장고에 그대로 입금한다(감사 LOW-6 검토 결과: 기각).
             while (left >= 1.0 && m.holding < FoodEconomy.BAND_HIGH) {
                 left -= 1.0;
                 m.holding += 1.0;
@@ -1862,8 +1944,8 @@ public class MimicEntity extends PathfinderMob {
             carriers.add(mother);
         }
         for (MimicEntity m : fam) {
-            if (m.getStage() == LifeStage.ADULT && m != mother) {
-                carriers.add(m);
+            if ((m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER) && m != mother) {
+                carriers.add(m); // 노년도 업기·건축 가능 — 노부부 가구가 천막 없이 좌초하지 않게
             }
         }
         int builders = 0;
@@ -1873,7 +1955,8 @@ public class MimicEntity extends PathfinderMob {
             m.homeFacing = (byte) facing.get2DDataValue();
             if (m.getStage() == LifeStage.INFANT && !carriers.isEmpty()) {
                 m.startRiding(carriers.get(nextCarrier++ % carriers.size()), true);
-            } else if (m.getStage() == LifeStage.ADULT && builders < 2) {
+            } else if ((m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
+                    && builders < 2) {
                 m.building = true; // 부부(최대 2)가 신축 담당 — 기존 buildTick 파이프라인
                 m.buildReachTicks = 0;
                 builders++;
@@ -1943,12 +2026,13 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 대표 선출(A-4, 결정론): 살아있는 <b>UUID 최소 성년</b>, 성년 없으면 UUID 최소 구성원. 매번 재계산. */
+    /** 대표 선출(A-4, 결정론): 살아있는 <b>UUID 최소 성년</b>, 성년 없으면 UUID 최소 구성원. 매번 재계산.
+     *  건축 중 성원은 제외 — 대표가 건축 중이면 familyTick 자체가 건너뛰어 온 가족 정산이 멎기 때문. */
     private static MimicEntity settleLeader(List<MimicEntity> fam) {
         MimicEntity bestAdult = null;
         MimicEntity best = null;
         for (MimicEntity m : fam) {
-            if (!m.isAlive() || m.getIndividual() == null) {
+            if (!m.isAlive() || m.getIndividual() == null || m.isBuilding()) {
                 continue;
             }
             if (best == null || m.getUUID().compareTo(best.getUUID()) < 0) {
@@ -1962,6 +2046,18 @@ public class MimicEntity extends PathfinderMob {
         return bestAdult != null ? bestAdult : best;
     }
 
+    /** fam 안에 이 남성을 배우자로 가리키는 성년 여성이 있나 — 가장(아버지) 선출의 혼인 우선 기준. */
+    private static boolean hasWifeIn(List<MimicEntity> fam, MimicEntity male) {
+        long id = male.getIndividual().id();
+        for (MimicEntity w : fam) {
+            if (w != male && w.isFemale() && w.getStage() == LifeStage.ADULT
+                    && w.getIndividual() != null && w.spouseId == id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static MimicEntity firstAdultFemale(List<MimicEntity> ordered) {
         for (MimicEntity m : ordered) {
             if (m.isFemale() && m.getStage() == LifeStage.ADULT) {
@@ -1971,14 +2067,20 @@ public class MimicEntity extends PathfinderMob {
         return null;
     }
 
-    /** 같은 거처(또는 독신이면 자기 자신)를 공유하는 가족 구성원. */
+    /**
+     * 같은 거처(또는 독신이면 자기 자신)를 공유하는 가족 구성원 — <b>거처 중심</b> 반경 48 스캔.
+     * 개체 중심 스캔(과거 24)은 부부가 반대편으로 채집 나가면 서로 안 보여 가구가 둘로 쪼개졌다
+     * (대표 중복 정산·아버지 부재 오판·과부가구 오탐). 거처 중심이면 누가 호출해도 같은 명단이 나온다.
+     * 48보다 멀리 나간 성원은 이번 정산에서 빠질 뿐(귀가 시 selfSettle) 가구 자체는 갈라지지 않는다.
+     */
     private List<MimicEntity> householdMembers() {
         List<MimicEntity> fam = new ArrayList<>();
         if (homePos == null) {
             fam.add(this); // 방랑자 = 1인 가정(자급자족)
             return fam;
         }
-        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(homePos).inflate(48.0))) {
             if (m.getIndividual() != null && homePos.equals(m.getHomePos())) {
                 fam.add(m);
             }

@@ -1,5 +1,6 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.FoodEconomy;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Schedule;
 import net.minecraft.core.BlockPos;
@@ -44,6 +45,7 @@ public class ElderVisitGoal extends Goal {
     public boolean canUse() {
         if (mob.getStage() != LifeStage.ELDER || mob.getIndividual() == null
                 || mob.isFastSettle() || mob.isBuilding()
+                || mob.getHolding() < FoodEconomy.RETURN_LOW // 배고픔 — 마실보다 귀가·인출 먼저
                 || !(mob.level() instanceof ServerLevel sl)) {
             return false;
         }
@@ -62,9 +64,18 @@ public class ElderVisitGoal extends Goal {
     }
 
     @Override
+    public void start() {
+        // 자식 집이 활동반경(리시) 밖일 수 있으므로 구혼 여행과 같은 앵커 패턴 — 리시가 목적지로 끌게 한다.
+        mob.setVisitAnchor(target);
+    }
+
+    @Override
     public boolean canContinueToUse() {
         if (target == null || mob.getStage() != LifeStage.ELDER || mob.getIndividual() == null) {
             return false;
+        }
+        if (mob.getHolding() < FoodEconomy.RETURN_LOW) {
+            return false; // 배고픔 — 머묾을 끊고 귀가·인출(ReturnGoal)에 양보(마실 중 아사 방지)
         }
         Schedule.Phase phase = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime());
         if (phase != Schedule.Phase.WORK && phase != Schedule.Phase.WANDER) {
@@ -75,6 +86,7 @@ public class ElderVisitGoal extends Goal {
 
     @Override
     public void stop() {
+        mob.setVisitAnchor(null); // 리시 앵커 원복(거처)
         target = null;
         targetHasInfant = false;
         loiter = 0;

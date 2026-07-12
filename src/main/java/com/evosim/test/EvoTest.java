@@ -4,6 +4,7 @@ import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
 import com.evosim.core.Activity;
+import com.evosim.core.Elder;
 import com.evosim.core.Famine;
 import com.evosim.core.BerryEconomy;
 import com.evosim.core.FoodEconomy;
@@ -115,9 +116,10 @@ public final class EvoTest {
             case "famine" -> famine(report);
             case "traitfx" -> traitfx(report);
             case "polygyny" -> polygyny(report);
+            case "elder" -> elder(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -150,6 +152,7 @@ public final class EvoTest {
         famine(report);
         traitfx(report);
         polygyny(report);
+        elder(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1661,6 +1664,51 @@ public final class EvoTest {
         report.add("polygyny/게이트", g1 && g2,
                 "아내 용인(인색·경쟁 없음)·저장고 3일치·상한 2처 전부 통과 시만 수락 — 기혼 감점 2",
                 (g1 && g2) ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest elder — 노년기: 쿼터 노동·공유 자격·기간·소모·속도·모성애 누출 차단
+    // ──────────────────────────────────────────────────────────────
+    private static void elder(Report report) {
+        Individual plain = one(Sex.MALE);
+        Individual resp = one(Sex.MALE, TraitInstance.of(Trait.OVER_RESPONSIBLE));
+        Individual irre = one(Sex.MALE, TraitInstance.of(Trait.IRRESPONSIBLE));
+
+        // 쿼터: 기본=필요 / 책임=+2 / 무책임=필요(대신 공유 없음) / 부지런·게으름 곱
+        boolean q1 = close(Elder.dailyQuota(plain, 2.0), 2.0)
+                && close(Elder.dailyQuota(resp, 2.0), 4.0)
+                && close(Elder.dailyQuota(irre, 2.0), 2.0)
+                && close(Elder.dailyQuota(one(Sex.MALE, TraitInstance.of(Trait.OVER_RESPONSIBLE),
+                        TraitInstance.of(Trait.DILIGENT)), 2.0), 4.8)
+                && close(Elder.dailyQuota(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), 2.0), 1.6);
+        report.add("elder/쿼터", q1, "기본2.0·책임4.0·무책임2.0·책임부지런4.8·게으름1.6",
+                q1 ? "정상" : "어긋남");
+
+        // 공유 자격·노년 기간
+        boolean s1 = Elder.sharesLeftover(plain) && Elder.sharesLeftover(resp)
+                && !Elder.sharesLeftover(irre)
+                && Elder.elderDays(plain) == 8
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 10
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 6;
+        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 8일(강건10/병약6)",
+                s1 ? "정상" : "어긋남");
+
+        // 능력치: 소모 2.0 · 속도 0.8 · 채집·전투 가능 · 수확 배율 상수 0.5
+        boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ELDER, Activity.MOVE, plain, false), 2.0)
+                && close(SurvivalRules.moveSpeedFactor(LifeStage.ELDER), 0.8)
+                && SurvivalRules.canGather(LifeStage.ELDER, plain)
+                && SurvivalRules.canFight(LifeStage.ELDER)
+                && close(Elder.FORAGE_MULT, 0.5) && Elder.WORK_END == 6000;
+        report.add("elder/능력치", c1, "소모2.0·속도0.8·채집/전투 가능·수확0.5·노동마감6000",
+                c1 ? "정상" : "어긋남");
+
+        // 모성애 배율 누출 차단: 노년은 자식 취급 금지(허기·성장 모두 1.0)
+        boolean m1 = close(FoodEconomy.maternalHungerMult(LifeStage.ELDER, 1), 1.0)
+                && close(FoodEconomy.maternalHungerMult(LifeStage.ELDER, -1), 1.0)
+                && close(SurvivalRules.growthMult(LifeStage.ELDER, plain, 1), 1.0)
+                && close(FoodEconomy.maternalHungerMult(LifeStage.INFANT, 1), 0.7); // 자식은 유지
+        report.add("elder/모성애차단", m1, "노년은 어미 배율 비적용(1.0) — 유아·소년만 적용 유지",
+                m1 ? "정상" : "어긋남");
     }
 
     /** 순수 경제 시뮬 결과. */

@@ -65,6 +65,7 @@ public class SimClockItem extends Item {
                 case ADULT -> adult++;
                 case BOY -> boy++;
                 case INFANT -> infant++;
+                case ELDER -> adult++; // 시계 요약엔 성년에 합산(간이)
             }
             if (m.isWanderer()) {
                 wanderer++;

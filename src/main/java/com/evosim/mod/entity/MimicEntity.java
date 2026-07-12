@@ -3,6 +3,7 @@ package com.evosim.mod.entity;
 import com.evosim.core.Activity;
 import com.evosim.core.Courtship;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.Elder;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Famine;
 import com.evosim.core.FoodEconomy;
@@ -168,6 +169,8 @@ public class MimicEntity extends PathfinderMob {
     private double cachedFamilyNeed = 6.0;      // 가족틱이 갱신하는 가족 하루소모 캐시(goal용)
     private boolean cachedProvider = true;      // 가족틱이 갱신하는 제공자 역할 캐시(R4)
     private int cachedMaternal = 0;             // 어미 모성애 캐시(+1 강함/−1 없음) — 자식 허기·성장에 적용
+    private double dayGathered = 0.0;           // 오늘 채집 누적(노년 쿼터 판정 — 휘발)
+    private long gatherDay = -1L;               // dayGathered 의 날짜(바뀌면 리셋)
     private static final int HUNGER_INTERVAL = 100;       // 소모 주기(틱, 스태거)
     private static final int FAST_HUNGER_INTERVAL = 10;   // fast 모드 소모 주기
     private static final double FAST_TIME_SCALE = 600.0;  // fast: 40틱 ≈ 1일 압축
@@ -230,8 +233,9 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
         this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
+        this.goalSelector.addGoal(2, new MimicShareGoal(this));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
+        this.goalSelector.addGoal(3, new ElderVisitGoal(this));     // 노인 방문: 자식 집 배달·마실 육아(Return보다 앞)
         this.goalSelector.addGoal(3, new MimicReturnGoal(this));    // 식량 귀가: 넣으러/꺼내러(v2, 밥이 구애보다 먼저)
-        this.goalSelector.addGoal(3, new MimicShareGoal(this));     // 가족 나눔: 위급 식구에게 배달(v2 B)
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
@@ -1679,6 +1683,7 @@ public class MimicEntity extends PathfinderMob {
         int adults = 0;
         int boys = 0;
         int infants = 0;
+        int elders = 0;
         int deposited = 0;
         int withdrawn = 0;
         double holdSum = 0.0;
@@ -1706,6 +1711,7 @@ public class MimicEntity extends PathfinderMob {
                 case ADULT -> adults++;
                 case BOY -> boys++;
                 case INFANT -> infants++;
+                case ELDER -> elders++; // 번식 성년수(adults)에 불포함 — 임계 왜곡 방지
             }
         }
         boolean starving = FoodEconomy.anyStarvingHome(eaters);
@@ -1766,7 +1772,7 @@ public class MimicEntity extends PathfinderMob {
             }
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
-            SimEvents.household(sl, homePos, larder, adults, boys, infants, holdSum, need,
+            SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,
                     deposited, withdrawn);
             // R4 동원 전이: 저장고 넉넉↔부족이 뒤집힐 때만 1회 기록. 기준 일수는 대표의 시간지향 특성.
             double comfort = need * FoodEconomy.comfortDays(individual);
@@ -2042,10 +2048,56 @@ public class MimicEntity extends PathfinderMob {
         holding += food;
         if (food > 0.0) {
             lastForageSuccessTick = level().getGameTime(); // 기근 판정 근거(결과 기반)
+            long day = level().getGameTime() / 24000L;
+            if (day != gatherDay) {
+                gatherDay = day;
+                dayGathered = 0.0;
+            }
+            dayGathered += food; // 노년 쿼터 판정용 일일 누적
         }
         if ((homePos == null || isCourtTravel()) && holding > FoodEconomy.BAND_HIGH) {
             holding = FoodEconomy.BAND_HIGH; // 입금할 곳이 없으니(방랑/여행) 초과분은 버려짐
         }
+    }
+
+    /** 노년 쿼터 충족? — 오늘 채집 누적 ≥ dailyQuota(책임+2·부지런/게으름 반영)면 쉼. */
+    public boolean elderQuotaMet() {
+        if (getStage() != LifeStage.ELDER || individual == null) {
+            return false;
+        }
+        if (level().getGameTime() / 24000L != gatherDay) {
+            return false; // 새 날 — 아직 아무것도 못 범
+        }
+        double ownNeed = FoodEconomy.consumptionPerDay(LifeStage.ELDER, Activity.MOVE, individual, false);
+        return dayGathered >= Elder.dailyQuota(individual, ownNeed);
+    }
+
+    /** 배달 자격(가드② 포함) — 노년·공유형·잉여 있음·자기 저장고가 부부 하루소모 이상. */
+    public boolean canDeliverSurplus(ServerLevel sl) {
+        return getStage() == LifeStage.ELDER && individual != null
+                && Elder.sharesLeftover(individual)
+                && holding >= FoodEconomy.BAND_HIGH
+                && homePos != null
+                && LarderStore.get(sl).get(homePos) >= cachedFamilyNeed * Elder.HOME_RESERVE_DAYS;
+    }
+
+    /** 잉여 정수를 대상 거처 저장고에 입금(노인 방문 배달). 실제 입금 개수 반환 — 결과값만 로그. */
+    public int deliverSurplusTo(ServerLevel sl, BlockPos childHome) {
+        LarderStore store = LarderStore.get(sl);
+        double larder = store.get(childHome);
+        double before = larder;
+        int given = 0;
+        while (holding >= FoodEconomy.BAND_HIGH) {
+            holding -= 1.0;
+            larder += 1.0;
+            given++;
+        }
+        if (given > 0) {
+            store.set(childHome, larder);
+            SimEvents.event(this, "노인공유", String.format("자식 집 @%d,%d 저장고 %.0f→%.0f (+%d)",
+                    childHome.getX(), childHome.getZ(), before, larder, given));
+        }
+        return given;
     }
 
     /** 무대 세팅용 — 보유 H를 직접 지정(구 setDayHarvest 호환). */
@@ -2235,21 +2287,38 @@ public class MimicEntity extends PathfinderMob {
     /** 생애단계 성장 (설계서 §7). 임계 틱 경과 시 다음 단계로 전환하고 무대 검증에 보고. */
     private void growthTick() {
         LifeStage stage = getStage();
-        if (stage == LifeStage.ADULT) {
+        growthTicks++;
+        // 단계별 임계: 유아 2일·소년 3일(혼기·모성애 배율) · 청년 35일 · 노년 8일±특성. fast 무대 40틱.
+        int threshold;
+        switch (stage) {
+            case INFANT -> threshold = fastGrowth ? 40
+                    : (int) (2 * 24000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+            case BOY -> threshold = fastGrowth ? 40
+                    : (int) (3 * 24000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+            case ADULT -> threshold = fastGrowth ? 40 : Elder.ADULT_DAYS * 24000;
+            case ELDER -> threshold = fastGrowth ? 40
+                    : (individual != null ? Elder.elderDays(individual) : Elder.ELDER_BASE_DAYS) * 24000;
+            default -> throw new IllegalStateException();
+        }
+        if (growthTicks < threshold) {
             return;
         }
-        growthTicks++;
-        // 성장 임계 × 혼기·모성애 배율(조혼 소년 0.8 / 모성애강함 1.25 / 없음 0.8). fast 무대는 고정.
-        int threshold = fastGrowth ? 40
-                : (int) ((stage == LifeStage.INFANT ? 2 * 24000 : 3 * 24000)
-                        * SurvivalRules.growthMult(stage, individual, cachedMaternal));
-        if (growthTicks >= threshold) {
-            growthTicks = 0;
-            LifeStage next = stage == LifeStage.INFANT ? LifeStage.BOY : LifeStage.ADULT;
-            setStage(next);
-            com.evosim.mod.stage.StageObserver.record(this.getId(), "grow:" + next.name());
-            SimEvents.event(this, "성장", stageKo(stage) + "→" + stageKo(next));
+        growthTicks = 0;
+        if (stage == LifeStage.ELDER) { // 노년 마감 → 자연사(소지 H는 함께 소멸, 저장고·건물은 유산)
+            com.evosim.mod.stage.StageObserver.record(this.getId(), "elder:died");
+            SimEvents.event(this, "자연사", String.format("노년 마감 — 세대%d · 자식 %d명",
+                    individual != null ? individual.generation() : 0, childrenBorn));
+            discard();
+            return;
         }
+        LifeStage next = switch (stage) {
+            case INFANT -> LifeStage.BOY;
+            case BOY -> LifeStage.ADULT;
+            default -> LifeStage.ELDER; // ADULT → 노년
+        };
+        setStage(next);
+        com.evosim.mod.stage.StageObserver.record(this.getId(), "grow:" + next.name());
+        SimEvents.event(this, "성장", stageKo(stage) + "→" + stageKo(next));
     }
 
     /** 사망 순간 관찰 로그 (누가·무엇에·어디서 죽었나 §14). 전투 사망·몬스터 처치 등 원인 포함. */
@@ -2276,6 +2345,7 @@ public class MimicEntity extends PathfinderMob {
             case INFANT -> "유아";
             case BOY -> "소년";
             case ADULT -> "성년";
+            case ELDER -> "노년";
         };
     }
 

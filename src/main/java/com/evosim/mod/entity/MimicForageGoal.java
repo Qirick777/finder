@@ -1,8 +1,10 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.Elder;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.FoodEconomy;
 import com.evosim.core.Individual;
+import com.evosim.core.LifeStage;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Schedule;
 import com.evosim.core.Sex;
@@ -74,6 +76,11 @@ public class MimicForageGoal extends Goal {
             return !mob.larderHasFood();
         }
         Schedule.Phase phase = Schedule.phaseAt(ind, mob.level().getDayTime());
+        // 노년 쿼터 노동: 노동시간(마감 6000) 안에서 하루 필요량(dailyQuota)만 벌고 쉼. R4 동원 제외.
+        if (mob.getStage() == LifeStage.ELDER) {
+            long tod = mob.level().getDayTime() % 24000L;
+            return phase == Schedule.Phase.WORK && tod < Elder.WORK_END && !mob.elderQuotaMet();
+        }
         if (phase == Schedule.Phase.WORK) {
             return mob.isProviderRole() || !mob.larderComfortable(); // R4: 넉넉하면 비제공자는 쉼
         }
@@ -126,7 +133,7 @@ public class MimicForageGoal extends Goal {
                 if (!huntTarget.isAlive()) {
                     double sexM = ind.sex() == Sex.MALE
                             ? FoodEconomy.MALE_FORAGE : FoodEconomy.FEMALE_FORAGE;
-                    double food = HUNT_FOOD * Multipliers.hunt(ind) * sexM;
+                    double food = HUNT_FOOD * Multipliers.hunt(ind) * sexM * stageMult();
                     mob.addHarvest(food);
                     SimEvents.event(mob, "사냥", String.format("동물 처치 → 식량 +%.2f", food));
                     huntTarget = null;
@@ -152,14 +159,14 @@ public class MimicForageGoal extends Goal {
                 BlockState ts = mob.level().getBlockState(gatherTarget);
                 if (isRipeBerry(ts)) {
                     // 다 익은 베리는 부수지 않고 수확 → age 1 로 되돌려 재성장(바닐라 수확).
-                    double food = BERRY_FOOD * FoodEconomy.forageYieldMult(ind); // 성별×특성 배율
+                    double food = BERRY_FOOD * FoodEconomy.forageYieldMult(ind) * stageMult();
                     mob.addHarvest(food);
                     mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));
                     mob.swing(InteractionHand.MAIN_HAND);
                     SimEvents.event(mob, "수확", String.format("옆 정원 베리 → 식량 +%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
-                    double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind); // 남 1.5× / 여 0.5×
+                    double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind) * stageMult();
                     mob.addHarvest(food);
                     SimEvents.event(mob, "채집", String.format("+%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
@@ -172,6 +179,11 @@ public class MimicForageGoal extends Goal {
             return;
         }
         idleWander(); // 채집물도 동물도 없으면 돌아다니며 탐색
+    }
+
+    /** 단계 수확 배율 — 노년 0.5(노쇠). */
+    private double stageMult() {
+        return mob.getStage() == LifeStage.ELDER ? Elder.FORAGE_MULT : 1.0;
     }
 
     private void idleWander() {

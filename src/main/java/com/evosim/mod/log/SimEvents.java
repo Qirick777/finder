@@ -104,15 +104,15 @@ public final class SimEvents {
      * 시간축으로 쌓여 "식량이 얼마나 늘었는지"의 근간 시계열이 된다.
      */
     public static void household(Level lv, BlockPos home, double larder, int adults, int boys,
-                                 int infants, double holdingSum, double need,
+                                 int infants, int elders, double holdingSum, double need,
                                  int deposited, int withdrawn) {
         if (!enabled) {
             return;
         }
         note(lv, "가계", String.format(
-                "@%d,%d 저장고%.0f 가족%d(성%d·소%d·유%d) 소지합%.1f 하루소모%.1f 입금%d 인출%d",
-                home.getX(), home.getZ(), larder, adults + boys + infants, adults, boys, infants,
-                holdingSum, need, deposited, withdrawn));
+                "@%d,%d 저장고%.0f 가족%d(성%d·소%d·유%d·노%d) 소지합%.1f 하루소모%.1f 입금%d 인출%d",
+                home.getX(), home.getZ(), larder, adults + boys + infants + elders, adults, boys,
+                infants, elders, holdingSum, need, deposited, withdrawn));
     }
 
     /** 인구 조사 — 상태 스냅샷 + <b>식량 통계</b>(저장고합·소지합·위급 수). 하루 1회 시계열. */
@@ -123,6 +123,7 @@ public final class SimEvents {
         int adult = 0;
         int boy = 0;
         int infant = 0;
+        int old = 0;
         int wanderer = 0;
         int critical = 0;
         int careMale = 0;   // 육아 성향(무시 아님) 성년 남성 — 자연선택 관측: 세대에 걸쳐 0으로 수렴 예상
@@ -136,6 +137,7 @@ public final class SimEvents {
                 case ADULT -> adult++;
                 case BOY -> boy++;
                 case INFANT -> infant++;
+                case ELDER -> old++;
             }
             if (m.isWanderer()) {
                 wanderer++;
@@ -171,8 +173,8 @@ public final class SimEvents {
         }
         int total = mimics.size();
         note(lv, "인구", String.format(
-                "총%d(성%d·소%d·유%d) 방랑%d 거처%d 세대%s | 저장고합%.0f 소지합%.1f 위급%d | 육아성향 남%d·여%d",
-                total, adult, boy, infant, wanderer, homes.size(),
+                "총%d(성%d·소%d·유%d·노%d) 방랑%d 거처%d 세대%s | 저장고합%.0f 소지합%.1f 위급%d | 육아성향 남%d·여%d",
+                total, adult, boy, infant, old, wanderer, homes.size(),
                 total == 0 ? "-" : (minGen + "~" + maxGen), larderSum, holdSum, critical,
                 careMale, careFemale));
     }
@@ -216,6 +218,7 @@ public final class SimEvents {
             case INFANT -> "유";
             case BOY -> "소";
             case ADULT -> "성";
+            case ELDER -> "노";
         };
     }
 }

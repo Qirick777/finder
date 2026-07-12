@@ -82,6 +82,7 @@ public class TraitScannerItem extends Item {
             case INFANT -> "유아";
             case BOY -> "소년";
             case ADULT -> "성년";
+            case ELDER -> "노년";
         };
         player.displayClientMessage(Component.literal(
                         "=== 미믹 #" + mimic.getId() + " [" + sexLabel + " · " + stageLabel

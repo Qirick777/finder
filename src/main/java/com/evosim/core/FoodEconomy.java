@@ -54,6 +54,7 @@ public final class FoodEconomy {
     static double baseConsumption(LifeStage s) {
         return switch (s) {
             case ADULT -> 3.0;
+            case ELDER -> Elder.CONSUMPTION; // 노년 2.0 — 적게 먹음
             case BOY -> 1.5;
             case INFANT -> 0.9;
         };
@@ -201,8 +202,8 @@ public final class FoodEconomy {
      * 강함(+1): 자식 소모 ×0.7(적은 식량으로 적정 허기) / 없음(−1): ×1.3(돌봄 부실) / 중립·성년 1.0.
      */
     public static double maternalHungerMult(LifeStage stage, int maternalCare) {
-        if (stage == LifeStage.ADULT || maternalCare == 0) {
-            return 1.0;
+        if ((stage != LifeStage.INFANT && stage != LifeStage.BOY) || maternalCare == 0) {
+            return 1.0; // 자식 단계에만 적용 — 노년이 자식 취급되는 누출 방지
         }
         return maternalCare > 0 ? 0.7 : 1.3;
     }

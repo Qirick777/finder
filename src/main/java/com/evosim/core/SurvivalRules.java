@@ -21,9 +21,9 @@ public final class SurvivalRules {
     private SurvivalRules() {
     }
 
-    /** 전투 가능? 성년만 (설계서 §7). */
+    /** 전투 가능? 청년·노년 (설계서 §7 — 노년은 신체 페널티만, 완전 무방비는 아님). */
     public static boolean canFight(LifeStage stage) {
-        return stage == LifeStage.ADULT;
+        return stage == LifeStage.ADULT || stage == LifeStage.ELDER;
     }
 
     /**
@@ -36,16 +36,16 @@ public final class SurvivalRules {
         if (stage == LifeStage.BOY && ExpressionResolver.isExpressed(ind, Trait.EARLY_MARRIAGE)) {
             m *= 0.8;
         }
-        if (stage != LifeStage.ADULT && maternalCare != 0) {
-            m *= maternalCare > 0 ? 1.25 : 0.8;
+        if ((stage == LifeStage.INFANT || stage == LifeStage.BOY) && maternalCare != 0) {
+            m *= maternalCare > 0 ? 1.25 : 0.8; // 자식 단계에만 — 노년 진입에 어미 배율 누출 방지
         }
         return m;
     }
 
     /** 채집 가능? 성년, 또는 만혼 발현 소년 (설계서 §7 소년기 채집). */
     public static boolean canGather(LifeStage stage, Individual ind) {
-        if (stage == LifeStage.ADULT) {
-            return true;
+        if (stage == LifeStage.ADULT || stage == LifeStage.ELDER) {
+            return true; // 노년도 채집 가능(수확 ×0.5·쿼터 노동은 표현층)
         }
         return stage == LifeStage.BOY && ExpressionResolver.isExpressed(ind, Trait.LATE_MARRIAGE);
     }
@@ -60,12 +60,13 @@ public final class SurvivalRules {
         return stage != LifeStage.INFANT;
     }
 
-    /** 생애단계 이동속도 배율 — 유아 거의 정지, 소년 느림, 성년 기본. */
+    /** 생애단계 이동속도 배율 — 유아 거의 정지, 소년 느림, 청년 기본, 노년 노쇠. */
     public static double moveSpeedFactor(LifeStage stage) {
         return switch (stage) {
             case INFANT -> 0.05;
             case BOY -> 0.6;
             case ADULT -> 1.0;
+            case ELDER -> Elder.SPEED_MULT; // 0.8
         };
     }
 

@@ -127,6 +127,7 @@ public final class EvoLogCommand {
             case INFANT -> "유";
             case BOY -> "소";
             case ADULT -> "성";
+            case ELDER -> "노";
         };
     }
 

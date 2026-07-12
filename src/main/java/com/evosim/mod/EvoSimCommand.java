@@ -87,6 +87,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("r6").executes(EvoSimCommand::stageR6))
                 .then(Commands.literal("suitor").executes(EvoSimCommand::stageSuitor))
                 .then(Commands.literal("polygamy").executes(EvoSimCommand::stagePolygamy))
+                .then(Commands.literal("elder").executes(EvoSimCommand::stageElder))
+                .then(Commands.literal("eldercare").executes(EvoSimCommand::stageElderCare))
                 .then(Commands.literal("checkall").executes(EvoSimCommand::stageCheckAll)));
     }
 
@@ -781,11 +783,177 @@ public final class EvoSimCommand {
                     () -> discard(c)));
         }
 
+        // [13] 노년 전이·자연사 — fast 성장: 노년 경유(상태) 후 사망(결과값: isAlive)
+        {
+            BlockPos spot = ground(level, b, 13);
+            MimicEntity[] c = new MimicEntity[1];
+            boolean[] sawElder = new boolean[1];
+            steps.add(new VerifySuite.Step("노년 전이·자연사", 400, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
+                c[0].setFastGrowth(true);
+                level.setDayTime(2000L);
+            }, () -> {
+                if (c[0].getStage() == LifeStage.ELDER) {
+                    sawElder[0] = true;
+                }
+                return String.format("단계 %s · 노년경유 %s · 생존 %s",
+                        stageName(c[0].getStage()), sawElder[0] ? "O" : "X", c[0].isAlive() ? "O" : "X");
+            }, () -> {
+                if (c[0].getStage() == LifeStage.ELDER) {
+                    sawElder[0] = true;
+                }
+                return sawElder[0] && !c[0].isAlive();
+            }, () -> discard(c)));
+        }
+        // [14] 노인 공유(책임) — 자식 집 저장고 0→2 실측
+        {
+            BlockPos homeE = ground(level, b, 14);
+            BlockPos homeC = homeE.offset(16, 0, 0);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("노인 공유(책임)", 1200, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE), Sex.MALE, Trait.OVER_RESPONSIBLE);
+                c[0].setStage(LifeStage.ELDER);
+                c[0].debugSettleWithTent(homeE, Direction.NORTH);
+                LarderStore.get(level).set(homeE, 8.0); // 가드② 통과
+                c[0].debugSetHolding(3.5);              // 잉여 2개 — 배달 직전
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(homeC), c[0], Sex.MALE);
+                c[1].debugSettleWithTent(homeC, Direction.NORTH);
+                c[2] = stagedInfant(level, homeC, Sex.FEMALE);
+                LarderStore.get(level).set(homeC, 0.0);
+                level.setDayTime(2000L);
+            }, () -> String.format("자식집 저장고 %.0f(기대 2) · 노인 H %.2f",
+                    LarderStore.get(level).get(homeC), c[0].getHolding()),
+                    () -> LarderStore.get(level).get(homeC) >= 2.0 - 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [15] 노인 무공유(무책임) — 금지 결과 감시: 자식 집 저장고가 늘면 실패
+        {
+            BlockPos homeE = ground(level, b, 15);
+            BlockPos homeC = homeE.offset(16, 0, 0);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("노인 무공유(무책임)", 600, true, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE), Sex.MALE, Trait.IRRESPONSIBLE);
+                c[0].setStage(LifeStage.ELDER);
+                c[0].debugSettleWithTent(homeE, Direction.NORTH);
+                LarderStore.get(level).set(homeE, 8.0);
+                c[0].debugSetHolding(3.5); // 잉여는 있으나 무책임 → 나누면 안 됨
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(homeC), c[0], Sex.MALE);
+                c[1].debugSettleWithTent(homeC, Direction.NORTH);
+                c[2] = stagedInfant(level, homeC, Sex.FEMALE);
+                LarderStore.get(level).set(homeC, 0.0);
+                level.setDayTime(2000L);
+            }, () -> String.format("자식집 저장고 %.0f(0 유지여야 성공)", LarderStore.get(level).get(homeC)),
+                    () -> LarderStore.get(level).get(homeC) > 1.0E-6, // ← 금지 결과(공유 발생)
+                    () -> discard(c)));
+        }
+        // [16] 마실 육아 — 노인만 곁에 있는 fastCare 유아가 방치 아사하지 않으면 성공(금지 결과=유아 사망)
+        {
+            BlockPos homeE = ground(level, b, 16);
+            BlockPos homeC = homeE.offset(10, 0, 0);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("마실 육아(손자 생존)", 400, true, () -> {
+                // 노인은 자기 집 없이 유아 곁에서 시작(마실 상태) — 대상 식별은 부모 링크+유아 대조.
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeC).add(1, 0, 0), Sex.MALE);
+                c[0].setStage(LifeStage.ELDER);
+                MimicEntity child = spawnChildOf(level, Vec3.atBottomCenterOf(homeC), c[0], Sex.MALE);
+                child.debugSettleWithTent(homeC, Direction.NORTH);
+                child.teleportTo(homeC.getX() + 100.5, homeC.getY(), homeC.getZ() + 0.5); // 부모는 먼 곳
+                c[1] = child;
+                c[2] = stagedInfant(level, homeC, Sex.FEMALE);
+                c[2].setFastCare(true); // 20틱마다 급식 판정 — 성인 없으면 3회(60틱) 만에 아사
+                LarderStore.get(level).set(homeC, 3.0);
+                level.setDayTime(2000L);
+            }, () -> String.format("유아 %s · 노인↔유아 %.0f블록 (유아 생존 유지여야 성공)",
+                    c[2].isAlive() ? "생존" : "사망",
+                    Math.sqrt(c[0].blockPosition().distSqr(c[2].blockPosition()))),
+                    () -> !c[2].isAlive(), // ← 금지 결과(방치 아사)
+                    () -> discard(c)));
+        }
+
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 12단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
-                + "결과값(H·저장고·좌표·혼인 상태)의 변화로만 판정. 끝에 ✅/❌ 요약. (6번은 주변에 풀이 "
-                + "있어야 함 — 초원에서 실행 권장)");
+        tell(ctx.getSource(), "원트랙 검증 시작 — 16단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
+                + "결과값(H·저장고·좌표·혼인·생존 상태)의 변화로만 판정. 끝에 ✅/❌ 요약. (6번은 주변에 "
+                + "풀이 있어야 함 — 초원에서 실행 권장)");
         return 1;
+    }
+
+    /** 노년 전이·자연사 즉시 판별: fast 성장 성년 → 노년 경유(상태 실측) → 사망. */
+    private static int stageElder(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        MimicEntity e = spawnAdult(level, b.add(-4, 0, 0), Sex.MALE);
+        if (e == null) {
+            return 0;
+        }
+        e.setFastGrowth(true); // 단계당 40틱 — 성년→노년(2초)→자연사(4초)
+        boolean[] sawElder = new boolean[1];
+        LiveCheck.watch(ctx.getSource(), "노년·자연사", 400,
+                () -> {
+                    if (e.getStage() == LifeStage.ELDER) {
+                        sawElder[0] = true;
+                    }
+                    return String.format("단계 %s · 노년경유 %s · 생존 %s",
+                            stageName(e.getStage()), sawElder[0] ? "O" : "X", e.isAlive() ? "O" : "X");
+                },
+                () -> {
+                    if (e.getStage() == LifeStage.ELDER) {
+                        sawElder[0] = true;
+                    }
+                    return sawElder[0] && !e.isAlive(); // 결과값: 노년을 거쳐 실제로 죽었는가
+                });
+        tell(ctx.getSource(), "노년 판별 — 기대: 약 2초 뒤 성년→노년([성장]), 다시 약 2초 뒤 [자연사]. "
+                + "노년을 거치지 않거나 살아있으면 실패.");
+        return 1;
+    }
+
+    /** 노인 공유·마실 육아 즉시 판별: 책임 노인(잉여 H=3.5) + 친자식 집(유아) → 그 집 저장고 증가 실측. */
+    private static int stageElderCare(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos homeE = BlockPos.containing(b.add(-6, 0, -8));
+        BlockPos homeC = BlockPos.containing(b.add(-6, 0, 8)); // 자식 집 — 16블록 거리
+        MimicEntity elder = spawnAdult(level, Vec3.atBottomCenterOf(homeE), Sex.MALE,
+                Trait.OVER_RESPONSIBLE); // 책임 — 잉여 목표·배달형
+        if (elder == null) {
+            return 0;
+        }
+        elder.setStage(LifeStage.ELDER);
+        elder.debugSettleWithTent(homeE, Direction.NORTH);
+        LarderStore.get(level).set(homeE, 8.0);  // 가드②(자기 저장고 ≥ 하루소모) 통과
+        elder.debugSetHolding(3.5);              // 잉여 정수 2개 → 배달 직전
+        MimicEntity child = spawnChildOf(level, Vec3.atBottomCenterOf(homeC), elder, Sex.MALE);
+        child.debugSettleWithTent(homeC, Direction.NORTH);
+        stagedInfant(level, homeC, Sex.FEMALE);  // 손자(유아) — 마실 우선 대상
+        LarderStore.get(level).set(homeC, 0.0);
+        level.setDayTime(2000L); // 노동 시간(마감 6000 전)
+        LiveCheck.watch(ctx.getSource(), "노인공유", 1200,
+                () -> String.format("자식집 저장고 %.0f(시작 0·기대 2) · 노인 H %.2f(시작 3.5) · 노인↔자식집 %.0f블록",
+                        LarderStore.get(level).get(homeC), elder.getHolding(),
+                        Math.sqrt(elder.blockPosition().distSqr(homeC))),
+                () -> LarderStore.get(level).get(homeC) >= 2.0 - 1.0E-6); // 결과값: 자식 저장고 실증가
+        tell(ctx.getSource(), "노인 공유 판별 — 기대: 책임 노인이 자식 집(유아 있음)으로 걸어가 [노인공유] "
+                + "저장고 0→2, 이후 유아 곁 머묾(마실 육아). 저장고가 안 늘면 실패.");
+        return 1;
+    }
+
+    /** 스테이징용 — 부모 링크가 걸린 성년 자식 소환(노인 방문 대상 성립 검증용). */
+    private static MimicEntity spawnChildOf(ServerLevel level, Vec3 pos, MimicEntity parent, Sex sex) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            throw new IllegalStateException("자식 스폰 실패");
+        }
+        Individual p = parent.getIndividual();
+        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        Individual ind = new Individual(id, sex, p.id(), 0, p.generation() + 1);
+        e.setIndividual(ind);
+        e.setStage(LifeStage.ADULT);
+        e.moveTo(pos.x, pos.y, pos.z, 0f, 0f);
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
+        return e;
     }
 
     /** 정착 부부 헬퍼 — 천막+혼인, 아내 추가 특성 지정 가능(질투 케이스). */
@@ -950,6 +1118,7 @@ public final class EvoSimCommand {
             case INFANT -> "infant";
             case BOY -> "boy";
             case ADULT -> "adult";
+            case ELDER -> "elder";
         };
     }
 }

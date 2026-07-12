@@ -21,6 +21,7 @@ public final class Feeding {
     static double baseConsumption(LifeStage stage) {
         return switch (stage) {
             case ADULT -> 1.0;
+            case ELDER -> 0.7; // 레거시(구 정산) — 실사용은 FoodEconomy(2.0)
             case BOY -> 0.5;
             case INFANT -> 0.3;
         };

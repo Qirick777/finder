@@ -31,8 +31,8 @@ public class MimicReturnGoal extends Goal {
 
     private boolean wantsTrip() {
         if (mob.getHomePos() == null || mob.getIndividual() == null
-                || mob.isBuilding() || mob.isFastSettle()) {
-            return false;
+                || mob.isBuilding() || mob.isFastSettle() || mob.isCourtTravel()) {
+            return false; // 구혼 여행 중엔 귀가로 끌지 않음(노상 자급 — H 상한 컷)
         }
         if (mob.getHolding() >= FoodEconomy.BAND_HIGH) {
             return true; // 여분 정수 → 넣으러

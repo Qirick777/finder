@@ -4,6 +4,7 @@ import com.evosim.core.Activity;
 import com.evosim.core.Courtship;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.ExpressionResolver;
+import com.evosim.core.Famine;
 import com.evosim.core.FoodEconomy;
 import com.evosim.core.HomeResolution;
 import com.evosim.core.Genetics;
@@ -153,6 +154,13 @@ public class MimicEntity extends PathfinderMob {
     private boolean wasCritical = false;        // 위급 전이 감지(로그 1회용, 휘발)
     private boolean introLogged = false;        // 등장(개체 변수) 로그 1회용 — 로그 ON 상태에서만 소모
     private int mobilizedState = -1;            // R4 동원 전이 감지(-1 미정 / 0 넉넉 / 1 동원)
+
+    // 이주(기근 감지·족외혼 구혼 여행) — Famine 순수 판정에 넘길 시각들. 0 = 미초기화(첫 틱에 now).
+    private long lastForageSuccessTick = 0L;    // 마지막 채집/사냥/수확 성공(NBT — 기근 판정 근거)
+    private long settledTick = 0L;              // 마지막 정착(setHomePos) 시각(NBT — 재이주 쿨다운)
+    private long lonelySinceTick = -1L;         // 짝 후보 0명 시작 시각(-1 = 후보 있음/미혼 아님)
+    private long courtTravelUntil = 0L;         // 구혼 여행 만료 시각(NBT)
+    private long courtTravelTarget = 0L;        // 구혼 여행 목적지(타향 모닥불, BlockPos.asLong, NBT)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
@@ -276,6 +284,7 @@ public class MimicEntity extends PathfinderMob {
 
     public void setHomePos(@Nullable BlockPos pos) {
         this.homePos = pos;
+        this.settledTick = level().getGameTime(); // 정착 시각 — 재이주 쿨다운 기준(기근 오탐 방지)
     }
 
     /** 태어난 위치 — 없으면 현재 위치로 지연 확정(1세대·스폰 개체). 애향심 신축 앵커. */
@@ -290,8 +299,11 @@ public class MimicEntity extends PathfinderMob {
         this.birthPos = pos;
     }
 
-    /** 활동반경 앵커 — 거처가 있으면 거처, 없으면(방랑자) 태어난 곳. 리시가 이 지점 반경으로 묶는다. */
+    /** 활동반경 앵커 — 구혼 여행 중엔 타향 모닥불, 평소엔 거처(없으면 태어난 곳). 리시가 이 반경으로 묶는다. */
     public BlockPos roamAnchor() {
+        if (isCourtTravel()) {
+            return BlockPos.of(courtTravelTarget); // 리시가 그 마을까지 끌고 가는 캐러밴 엔진
+        }
         return homePos != null ? homePos : getBirthPos();
     }
 
@@ -460,11 +472,22 @@ public class MimicEntity extends PathfinderMob {
             if (birthPos == null) {
                 birthPos = blockPosition(); // 스폰 위치 확정(1세대 정착 기준)
             }
+            if (lastForageSuccessTick == 0L) {
+                lastForageSuccessTick = level().getGameTime(); // 미초기화(신규/구세이브) → 지금부터 계측
+            }
+            if (settledTick == 0L) {
+                settledTick = level().getGameTime(); // 구 세이브 호환 — 로드 직후 즉시 이주 방지
+            }
             growthTick();
             observeTooYoung();
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
+            // 이주 중 업힌 유아: 어미가 새 거처 반경에 들면 내려줌(도착).
+            if (getStage() == LifeStage.INFANT && isPassenger()
+                    && getVehicle() instanceof MimicEntity carrier && carrier.isHome()) {
+                stopRiding();
+            }
             introTick();       // 관찰 로그: 개체 변수(성별·세대·특성) 1회 소개 — 유전 검증 근거
             hungerTick();      // 식량 v2: 개인 보유 연속 소모(활동·특성·부상 차등) + 아사 클럭
             familyTick();      // 식량 v2: 대표가 주기 정산(입금·급식·번식·베리) — 18000 의존 제거
@@ -524,7 +547,74 @@ public class MimicEntity extends PathfinderMob {
             if (mateState == MateState.IDLE || mateState == MateState.PAIRED) {
                 mateState = MateState.SEARCHING;
             }
+            // 족외혼(이주 설계 §3-B): 비근친 후보 0명이 오래가면 타향 모닥불로 구혼 여행.
+            if (candidates.isEmpty() && homePos != null && !isCourtTravel()) {
+                if (lonelySinceTick < 0L) {
+                    lonelySinceTick = level().getGameTime();
+                } else if (level().getGameTime() - lonelySinceTick > Famine.LONELY_TRAVEL_AFTER) {
+                    startCourtTravel();
+                }
+            } else if (!candidates.isEmpty()) {
+                lonelySinceTick = -1L;
+            }
         }
+    }
+
+    /** 구혼 여행 시작 — 가장 가까운 타향 모닥불을 임시 앵커로(리시가 그 마을까지 끌고 간다). */
+    private void startCourtTravel() {
+        lonelySinceTick = -1L;
+        long target = nearestForeignHearth();
+        if (target == 0L) {
+            return; // 알려진 타향 없음 — 다음 주기 재시도
+        }
+        courtTravelTarget = target;
+        courtTravelUntil = level().getGameTime() + Famine.TRAVEL_DURATION;
+        BlockPos t = BlockPos.of(target);
+        SimEvents.event(this, "구혼여행", String.format("비근친 후보 0 지속 → 타향 모닥불 @%d,%d 로 출발",
+                t.getX(), t.getZ()));
+    }
+
+    /** 구혼 여행 중인가 — 여행 중엔 리시 앵커가 타향 모닥불, 귀가·취침 goal은 물러난다. */
+    public boolean isCourtTravel() {
+        return courtTravelTarget != 0L && level().getGameTime() < courtTravelUntil;
+    }
+
+    private void endCourtTravel() {
+        courtTravelTarget = 0L;
+        courtTravelUntil = 0L;
+        lonelySinceTick = -1L;
+    }
+
+    // 켜진 모닥불 전역 목록(구혼 여행 목적지) — ABANDONED_HOMES처럼 휘발성(재점화 이벤트로 복구).
+    private static final List<Long> LIT_HEARTHS = new ArrayList<>();
+
+    private static void hearthLit(BlockPos home, boolean lit) {
+        Long key = home.asLong();
+        LIT_HEARTHS.remove(key);
+        if (lit) {
+            LIT_HEARTHS.add(key);
+            if (LIT_HEARTHS.size() > 64) {
+                LIT_HEARTHS.remove(0); // 가지치기(오래된 항목부터)
+            }
+        }
+    }
+
+    /** 자기 마을(반경 48) 밖에서 가장 가까운 켜진 모닥불. 없으면 0. */
+    private long nearestForeignHearth() {
+        long best = 0L;
+        double bestD = Double.MAX_VALUE;
+        for (long h : LIT_HEARTHS) {
+            BlockPos p = BlockPos.of(h);
+            if (homePos != null && p.distSqr(homePos) < 48.0 * 48.0) {
+                continue; // 자기 마을권 — 이미 인지 범위에서 찾아봤음
+            }
+            double d = p.distSqr(blockPosition());
+            if (d < bestD && d < 512.0 * 512.0) {
+                bestD = d;
+                best = h;
+            }
+        }
+        return best;
     }
 
     /** 인식 범위 내 이성 독신 성년(비근친·비거절)을 후보로 추가하고 매력 내림차순 유지. */
@@ -609,6 +699,8 @@ public class MimicEntity extends PathfinderMob {
         other.setMateState(MateState.PAIRED);
         courtTargetId = -1;
         other.setCourtTargetId(-1);
+        endCourtTravel();       // 구혼 여행 목적 달성 — 정착은 아래 resolveHome이 처리
+        other.endCourtTravel();
         heartEffect(this);
         heartEffect(other);
         if (level() instanceof ServerLevel sl) {
@@ -756,6 +848,7 @@ public class MimicEntity extends PathfinderMob {
         if (sl.getBlockState(hp).getBlock() instanceof MimicHearthBlock) {
             sl.setBlockAndUpdate(hp, sl.getBlockState(hp)
                     .setValue(MimicHearthBlock.LIT, Boolean.FALSE));
+            hearthLit(homePos, false);
             ABANDONED_HOMES.add(new int[] {homePos.getX(), homePos.getY(), homePos.getZ(),
                     facing.get2DDataValue()});
             SimEvents.event(this, "폐가", String.format("모닥불 끔 @%d,%d (저장고는 남아 재사용 시 계승)",
@@ -999,6 +1092,7 @@ public class MimicEntity extends PathfinderMob {
                     .setValue(MimicHearthBlock.LIT, lit)
                     .setValue(MimicHearthBlock.FACING, facing));
         }
+        hearthLit(home, lit); // 켜진 모닥불 전역 목록 갱신(구혼 여행 목적지)
     }
 
     /**
@@ -1250,6 +1344,7 @@ public class MimicEntity extends PathfinderMob {
             var st = sl.getBlockState(hp);
             if (st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT)) {
                 sl.setBlockAndUpdate(hp, st.setValue(MimicHearthBlock.LIT, Boolean.FALSE));
+                hearthLit(home, false);
                 ABANDONED_HOMES.add(new int[] {home.getX(), home.getY(), home.getZ(), facing});
             }
         }
@@ -1589,6 +1684,140 @@ public class MimicEntity extends PathfinderMob {
                         ms == 1 ? "저장고 부족 → 온 가족 채집 합류" : "저장고 넉넉 → 비제공자 휴식",
                         larder, need * 2.0));
             }
+            // 기근 → 이주(이주 설계 §1–3): 채집자 전원 무수확 + 비축 바닥 + 쿨다운 경과 → 인지거리 외곽.
+            if (!fastSettle && shouldFamilyMigrate(fam, larder, need)) {
+                migrate(sl, fam);
+            }
+        }
+    }
+
+    // ── 이주(기근·동반 이주·족외혼) — 판정은 순수 Famine, 여기는 배선 ──
+
+    /** 가족 기근 판정 — 채집 가능(비육아·비건축) 성원들의 성공 시각을 모아 순수 판정에 위임. */
+    private boolean shouldFamilyMigrate(List<MimicEntity> fam, double larder, double need) {
+        long now = level().getGameTime();
+        long settled = 0L;
+        List<Long> success = new ArrayList<>();
+        for (MimicEntity m : fam) {
+            if (m.getIndividual() == null) {
+                continue;
+            }
+            settled = Math.max(settled, m.settledTick);
+            if (SurvivalRules.canGather(m.getStage(), m.getIndividual())
+                    && !m.isCaregiverBound() && !m.isBuilding()) {
+                success.add(m.lastForageSuccessTick);
+            }
+        }
+        long[] arr = new long[success.size()];
+        for (int i = 0; i < arr.length; i++) {
+            arr[i] = success.get(i);
+        }
+        return Famine.shouldMigrate(now, settled, arr, larder, need);
+    }
+
+    /**
+     * 기근 이주 실행 — ① 목적지(마을 합의 동참 or 정찰·등록) ② 부지 선정(MIN_GAP) ③ 여행식량 인출
+     * (남는 저장고는 폐가 유산) ④ 폐가화 → 전 가족 새 거처 귀속(리시가 캐러밴을 끈다) → 부부가 신축.
+     * 유아는 어미가 업고 이동(방치 아사 방지), 도착하면 내려줌.
+     */
+    private void migrate(ServerLevel sl, List<MimicEntity> fam) {
+        BlockPos oldHome = homePos;
+        long now = level().getGameTime();
+
+        MigrationDest consensus = MigrationDest.get(sl);
+        BlockPos dest = consensus.resolve(oldHome, now);
+        boolean pioneer = dest == null;
+        if (pioneer) {
+            dest = scoutDestination(sl, oldHome);
+            consensus.register(oldHome, dest, now); // 길잡이 — 이후 이주 가족이 동참(캐러밴)
+        }
+
+        DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
+        int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, 8,
+                collectExistingHomes(sl), Settlement.MIN_GAP, rng);
+        Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
+        int baseY = terrainBaseY(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), facing);
+        BlockPos newHome = new BlockPos(xz[0], baseY, xz[1]);
+
+        // 여행 식량: 저장고에서 각자 상한(2)까지 정수 인출 — 남는 몫은 폐가 유산(재사용 시 계승).
+        LarderStore store = LarderStore.get(sl);
+        double left = store.get(oldHome);
+        int packed = 0;
+        for (MimicEntity m : fam) {
+            while (left >= 1.0 && m.holding < FoodEconomy.BAND_HIGH) {
+                left -= 1.0;
+                m.holding += 1.0;
+                packed++;
+            }
+        }
+        store.set(oldHome, left);
+
+        abandonHome(sl); // 모닥불 끔·재사용 목록 등록(폐가 로그 포함)
+
+        MimicEntity mother = firstAdultFemale(fam);
+        int builders = 0;
+        for (MimicEntity m : fam) {
+            m.setHomePos(newHome); // settledTick 갱신 → 재이주 쿨다운 시작
+            m.homeFacing = (byte) facing.get2DDataValue();
+            if (m.getStage() == LifeStage.INFANT && mother != null) {
+                m.startRiding(mother, true); // 유아는 어미가 업고 이동
+            } else if (m.getStage() == LifeStage.ADULT && builders < 2) {
+                m.building = true; // 부부(최대 2)가 신축 담당 — 기존 buildTick 파이프라인
+                m.buildReachTicks = 0;
+                builders++;
+            }
+        }
+        store.set(newHome, 0.0); // 새 저장고는 0에서 — 이주 반복으로 공짜 식량이 생기지 않게(착취 방지)
+        flattenSite(sl, newHome, facing);
+
+        SimEvents.event(this, "이주", String.format(
+                "기근 → @%d,%d 출발 → @%d,%d 정착 · 가족%d · 여행식량 %d개%s",
+                oldHome.getX(), oldHome.getZ(), newHome.getX(), newHome.getZ(),
+                fam.size(), packed, pioneer ? " (길잡이·합의 등록)" : " (마을 합의 동참)"));
+    }
+
+    /** 8방위 × (활동반경×2) 지점의 풀 표본 → 최다 방위로 목적지(전부 0이면 무작위 — 잔류=죽음). */
+    private BlockPos scoutDestination(ServerLevel sl, BlockPos from) {
+        double dist = roamRadius() * Famine.MIGRATE_DISTANCE_MULT;
+        int[] counts = new int[8];
+        for (int d = 0; d < 8; d++) {
+            double ang = d * Math.PI / 4.0;
+            counts[d] = sampleGrass(sl,
+                    from.getX() + (int) Math.round(Math.cos(ang) * dist),
+                    from.getZ() + (int) Math.round(Math.sin(ang) * dist));
+        }
+        int best = Famine.bestDirection(counts);
+        if (best < 0) {
+            best = getRandom().nextInt(8);
+        }
+        double ang = best * Math.PI / 4.0;
+        return new BlockPos(from.getX() + (int) Math.round(Math.cos(ang) * dist), from.getY(),
+                from.getZ() + (int) Math.round(Math.sin(ang) * dist));
+    }
+
+    /** 지점 주변 ±12 무작위 24표본 중 채집 가능한 풀 개수(정찰 — findForage와 같은 표본 방식). */
+    private int sampleGrass(ServerLevel sl, int cx, int cz) {
+        int found = 0;
+        for (int i = 0; i < 24; i++) {
+            int x = cx + getRandom().nextInt(25) - 12;
+            int z = cz + getRandom().nextInt(25) - 12;
+            BlockPos p = sl.getHeightmapPos(SURFACE_MAP, new BlockPos(x, 0, z));
+            var s = sl.getBlockState(p);
+            if (s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS) || s.is(Blocks.FERN)) {
+                found++;
+            }
+        }
+        return found;
+    }
+
+    /** 점검용 — 온 가족을 즉시 기근 조건으로(성공·정착 시각 과거화, 저장고 비움). /evosim exodus. */
+    public void debugForceFamine(ServerLevel sl) {
+        for (MimicEntity m : householdMembers()) {
+            m.lastForageSuccessTick = level().getGameTime() - Famine.STARVE_WINDOW - 1000L;
+            m.settledTick = level().getGameTime() - Famine.RESETTLE_COOLDOWN - 1000L;
+        }
+        if (homePos != null) {
+            LarderStore.get(sl).set(homePos, 0.0);
         }
     }
 
@@ -1695,8 +1924,11 @@ public class MimicEntity extends PathfinderMob {
     /** 채집/사냥으로 확보한 식량을 소지분 H에 더한다(R2). 방랑자(집 없음)는 밴드 상한에서 컷. */
     public void addHarvest(double food) {
         holding += food;
-        if (homePos == null && holding > FoodEconomy.BAND_HIGH) {
-            holding = FoodEconomy.BAND_HIGH; // 입금할 곳이 없으니 초과분은 버려짐(과다 확장 방지)
+        if (food > 0.0) {
+            lastForageSuccessTick = level().getGameTime(); // 기근 판정 근거(결과 기반)
+        }
+        if ((homePos == null || isCourtTravel()) && holding > FoodEconomy.BAND_HIGH) {
+            holding = FoodEconomy.BAND_HIGH; // 입금할 곳이 없으니(방랑/여행) 초과분은 버려짐
         }
     }
 
@@ -1957,6 +2189,10 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("FastCare", fastCare);
         tag.putDouble("Holding", holding);
         tag.putInt("HungerGrace", hungerGraceTicks); // 재로그인해도 아사 클럭 유지(B-4)
+        tag.putLong("LastForage", lastForageSuccessTick);
+        tag.putLong("SettledTick", settledTick);
+        tag.putLong("TravelUntil", courtTravelUntil);
+        tag.putLong("TravelTarget", courtTravelTarget);
         tag.putDouble("LastSurplus", lastSurplus);
         tag.putBoolean("LastFed", lastFed);
         tag.putBoolean("FastSettle", fastSettle);
@@ -2001,6 +2237,10 @@ public class MimicEntity extends PathfinderMob {
         fastCare = tag.getBoolean("FastCare");
         holding = tag.contains("Holding") ? tag.getDouble("Holding") : 1.5; // 구 세이브 호환(시작값)
         hungerGraceTicks = tag.getInt("HungerGrace");
+        lastForageSuccessTick = tag.getLong("LastForage"); // 0(구 세이브)이면 첫 틱에 now로 초기화
+        settledTick = tag.getLong("SettledTick");
+        courtTravelUntil = tag.getLong("TravelUntil");
+        courtTravelTarget = tag.getLong("TravelTarget");
         lastSurplus = tag.getDouble("LastSurplus");
         if (tag.contains("LastFed")) {
             lastFed = tag.getBoolean("LastFed");

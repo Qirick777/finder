@@ -30,12 +30,18 @@ public class MimicHomeGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (mob.isCourtTravel()) {
+            return false; // 구혼 여행 중 — 밤에도 타향에 머묾(리시 앵커가 그쪽)
+        }
         BlockPos home = mob.getHomePos();
         return home != null && homeTime() && mob.blockPosition().distSqr(home) > 9.0; // 3블록 밖이면 귀환
     }
 
     @Override
     public boolean canContinueToUse() {
+        if (mob.isCourtTravel()) {
+            return false;
+        }
         BlockPos home = mob.getHomePos();
         return home != null && homeTime() && mob.blockPosition().distSqr(home) > 4.0;
     }

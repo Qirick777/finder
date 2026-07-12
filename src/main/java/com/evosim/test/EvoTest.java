@@ -4,6 +4,7 @@ import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
 import com.evosim.core.Category;
 import com.evosim.core.Activity;
+import com.evosim.core.Famine;
 import com.evosim.core.BerryEconomy;
 import com.evosim.core.FoodEconomy;
 import com.evosim.core.Combat;
@@ -110,9 +111,10 @@ public final class EvoTest {
             case "ability" -> ability(report);
             case "berry" -> berry(report);
             case "food" -> food(report);
+            case "famine" -> famine(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -142,6 +144,7 @@ public final class EvoTest {
         ability(report);
         berry(report);
         food(report);
+        famine(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1528,6 +1531,31 @@ public final class EvoTest {
             report.add("food/정수불변식", b, "시작 L=ceil(하루소모) 정수 · 정산은 정수 입출금만",
                     b ? "정상" : "어긋남");
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest famine — 기근→이주 판정(결과 기반·오탐 가드) + 방위 선택 결정론
+    // ──────────────────────────────────────────────────────────────
+    private static void famine(Report report) {
+        long now = 200_000L;
+        long settled = 100_000L;                    // 쿨다운(48000) 훨씬 경과
+        long stale = now - 30_000L;                 // 성공 없음(창 24000 초과)
+        long fresh = now - 10_000L;                 // 최근 성공(창 이내)
+
+        boolean f1 = Famine.shouldMigrate(now, settled, new long[] {stale, stale}, 2.0, 6.9);   // 기근 → 이주
+        boolean f2 = !Famine.shouldMigrate(now, settled, new long[] {stale, fresh}, 2.0, 6.9);  // 한 명은 벌이 중 → 잔류
+        boolean f3 = !Famine.shouldMigrate(now, settled, new long[] {stale}, 20.0, 6.9);        // 비축 넉넉 → 잔류
+        boolean f4 = !Famine.shouldMigrate(now, now - 10_000L, new long[] {stale}, 0.0, 6.9);   // 갓 정착 → 유예
+        boolean f5 = !Famine.shouldMigrate(now, settled, new long[] {}, 0.0, 6.9);              // 채집자 0(과부) → 제자리
+        report.add("famine/판정", f1 && f2 && f3 && f4 && f5,
+                "전원 무수확+비축 바닥+쿨다운 경과일 때만 이주(과부·갓정착·벌이중 제외)",
+                (f1 && f2 && f3 && f4 && f5) ? "정상" : "어긋남");
+
+        boolean d1 = Famine.bestDirection(new int[] {0, 3, 7, 2}) == 2;      // 최다 방위
+        boolean d2 = Famine.bestDirection(new int[] {5, 1, 5, 0}) == 0;      // 동률 → 앞 인덱스(결정론)
+        boolean d3 = Famine.bestDirection(new int[] {0, 0, 0, 0}) == -1;     // 전부 0 → 폴백 신호
+        report.add("famine/방향", d1 && d2 && d3, "풀 최다 방위·동률 앞 인덱스·전부0=-1",
+                (d1 && d2 && d3) ? "정상" : "어긋남");
     }
 
     /** 순수 경제 시뮬 결과. */

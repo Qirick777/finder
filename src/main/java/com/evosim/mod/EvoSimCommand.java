@@ -72,7 +72,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("reuse").executes(EvoSimCommand::stageReuse))
                 .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate))
                 .then(Commands.literal("berry").executes(EvoSimCommand::stageBerry))
-                .then(Commands.literal("food").executes(EvoSimCommand::stageFood)));
+                .then(Commands.literal("food").executes(EvoSimCommand::stageFood))
+                .then(Commands.literal("exodus").executes(EvoSimCommand::stageExodus)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -309,6 +310,38 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), "식량 관찰 시작: 부부 정착 + 관찰 로그 자동 ON(evosim-events.log). "
                 + "남편이 채집(여 0.5×/남 1.5×)→H≥2면 귀가 입금, 배고프면(H<0.8) 인출. 가계 시계열은 "
                 + "1분/가구, 인구+식량 통계는 매일 아침 자동 기록. 즉석 확인: /evolog food · /evolog dump");
+        return 1;
+    }
+
+    /**
+     * 이주 원터치 관찰: 두 부부 마을 + <b>즉시 기근</b> + 로그 자동 ON. 첫 가족이 목적지 정찰·등록
+     * (길잡이) → 둘째 가족이 같은 목적지에 동참(캐러밴) → 폐가 2채·새 마을 신축을 로그로 확인.
+     */
+    private static int stageExodus(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos homeA = BlockPos.containing(b.add(-8, 0, -6));
+        BlockPos homeB = BlockPos.containing(b.add(-8, 0, 6));
+        MimicEntity m1 = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+        MimicEntity f1 = spawnAdult(level, Vec3.atBottomCenterOf(homeA).add(0.5, 0, 0), Sex.FEMALE);
+        MimicEntity m2 = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
+        MimicEntity f2 = spawnAdult(level, Vec3.atBottomCenterOf(homeB).add(0.5, 0, 0), Sex.FEMALE);
+        if (m1 != null && f1 != null && m2 != null && f2 != null) {
+            m1.debugSettleWithTent(homeA, Direction.NORTH);
+            f1.debugSettleWithTent(homeA, Direction.NORTH);
+            m1.debugMarryTo(f1);
+            m2.debugSettleWithTent(homeB, Direction.NORTH);
+            f2.debugSettleWithTent(homeB, Direction.NORTH);
+            m2.debugMarryTo(f2);
+            m1.debugForceFamine(level); // 정착 뒤에 호출(정착이 쿨다운을 리셋하므로 순서 중요)
+            m2.debugForceFamine(level);
+        }
+        level.setDayTime(1000L);
+        tell(ctx.getSource(), "이주 관찰: 두 부부 마을이 즉시 기근 상태. 가족틱(≈1분)마다 판정 → 첫 가족이 "
+                + "활동반경×2 바깥을 정찰해 목적지 등록(로그 [이주] 길잡이), 둘째 가족은 같은 목적지 동참"
+                + "(캐러밴). 옛집 2채는 모닥불 꺼진 폐가([폐가], 저장고 유산 남음), 새 부지에 천막 신축"
+                + "([건축완료]). /evolog dump 로 진행 확인.");
         return 1;
     }
 

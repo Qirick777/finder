@@ -7,6 +7,7 @@ import com.evosim.core.Activity;
 import com.evosim.core.Famine;
 import com.evosim.core.BerryEconomy;
 import com.evosim.core.FoodEconomy;
+import com.evosim.core.Polygyny;
 import com.evosim.core.Combat;
 import com.evosim.core.Courtship;
 import com.evosim.core.DailyCycle;
@@ -113,9 +114,10 @@ public final class EvoTest {
             case "food" -> food(report);
             case "famine" -> famine(report);
             case "traitfx" -> traitfx(report);
+            case "polygyny" -> polygyny(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -147,6 +149,7 @@ public final class EvoTest {
         food(report);
         famine(report);
         traitfx(report);
+        polygyny(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
     }
 
@@ -1635,6 +1638,28 @@ public final class EvoTest {
                         one(Sex.FEMALE, TraitInstance.of(Trait.NO_MATERNAL)), false), 2.7); // 본인 ×0.9
         report.add("traitfx/혼기모성", g1 && g2,
                 "조혼 소년기 0.8 / 강함 성장1.25·자식소모0.7 / 없음 성장0.8·자식소모1.3·본인0.9",
+                (g1 && g2) ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest polygyny — 일부다처 게이트(아내 용인·부양 증명·상한, 기본 수락)
+    // ──────────────────────────────────────────────────────────────
+    private static void polygyny(Report report) {
+        Individual tolerant = one(Sex.FEMALE);
+        Individual stingy = one(Sex.FEMALE, TraitInstance.of(Trait.STINGY));
+        Individual competitive = one(Sex.FEMALE, TraitInstance.of(Trait.COMPETITIVE));
+        double need = 6.9; // 성인2+유아1 — 부양 기준 = ×3일 = 20.7
+
+        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 21.0, need)          // 전부 통과 → 수락
+                && !Polygyny.canAccept(java.util.List.of(stingy), 30.0, need)             // 인색 아내 → 거절
+                && !Polygyny.canAccept(java.util.List.of(competitive), 30.0, need)        // 경쟁 아내 → 거절
+                && !Polygyny.canAccept(java.util.List.of(tolerant), 20.0, need)           // 부양 미달 → 거절
+                && !Polygyny.canAccept(java.util.List.of(tolerant, tolerant), 99.0, need); // 상한 2처 → 거절
+        boolean g2 = Polygyny.wifeObjects(stingy) && Polygyny.wifeObjects(competitive)
+                && !Polygyny.wifeObjects(tolerant)
+                && Polygyny.MARRIED_CHARM_PENALTY == 2 && Polygyny.MAX_WIVES == 2;
+        report.add("polygyny/게이트", g1 && g2,
+                "아내 용인(인색·경쟁 없음)·저장고 3일치·상한 2처 전부 통과 시만 수락 — 기혼 감점 2",
                 (g1 && g2) ? "정상" : "어긋남");
     }
 

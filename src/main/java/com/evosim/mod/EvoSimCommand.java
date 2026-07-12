@@ -12,6 +12,10 @@ import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.LiveCheck;
+import com.evosim.mod.stage.VerifySuite;
+
+import java.util.ArrayList;
+import java.util.List;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -81,7 +85,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("birth").executes(EvoSimCommand::stageBirth))
                 .then(Commands.literal("care").executes(EvoSimCommand::stageCare))
                 .then(Commands.literal("r6").executes(EvoSimCommand::stageR6))
-                .then(Commands.literal("suitor").executes(EvoSimCommand::stageSuitor)));
+                .then(Commands.literal("suitor").executes(EvoSimCommand::stageSuitor))
+                .then(Commands.literal("polygamy").executes(EvoSimCommand::stagePolygamy))
+                .then(Commands.literal("checkall").executes(EvoSimCommand::stageCheckAll)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -533,6 +539,304 @@ public final class EvoSimCommand {
                 + "동쪽(64블록)으로 계속 걸어감 → 도착 후 [구애] 성사 → [짝성립] → 정착([합류]/신축). "
                 + "출발 로그가 없거나 자기 집 주변만 맴돌면 실패.");
         return 1;
+    }
+
+    /** 중혼(일부다처) 즉시 연출: 관용 아내 부부 + 부양 증명 저장고 + 독신 여성 → 수치로 성립 판별. */
+    private static int stagePolygamy(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity[] couple = coupleAt(level, home);
+        MimicEntity bride = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
+        if (bride == null) {
+            return 0;
+        }
+        LarderStore.get(level).set(home, 21.0); // 부양 증명(하루소모 6 × 3일 = 18 이상)
+        level.setDayTime(9000L); // 배회 시간 — 구애 goal 활동
+        LiveCheck.watch(ctx.getSource(), "중혼", 1200,
+                () -> String.format("신부 %s · 거처 %s · 저장고 %.0f",
+                        bride.isSingleAdult() ? "독신" : "혼인",
+                        home.equals(bride.getHomePos()) ? "합류" : "미합류",
+                        LarderStore.get(level).get(home)),
+                () -> !bride.isSingleAdult() && home.equals(bride.getHomePos()));
+        tell(ctx.getSource(), "중혼 연출 — 주변 독신남 0·기혼남만 후보(감점에도 유일 후보). 기대: 신부가 "
+                + "구애 → 아내 용인(인색·경쟁 없음)+저장고 21≥18 → 수락·합류. 아내에 인색 특성을 준 거절 "
+                + "케이스는 /evosim checkall 12단계에 포함.");
+        return 1;
+    }
+
+    /**
+     * 원트랙 전체 검증: 미검증 기능 12단계를 한 명령으로 차례차례 — 각 단계는 "발동 직전" 조건을 즉각
+     * 조성하고, 별도 감지가 <b>결과값 변화만</b> 보고 ✅/❌ 판정(호출 여부 아님). 끝에 요약 출력.
+     */
+    private static int stageCheckAll(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        List<VerifySuite.Step> steps = new ArrayList<>();
+
+        // [1] 입금·인출 — 남편 H2.5→[1,2)·아내 H0.7→≥1.5 (결과값: H·저장고)
+        {
+            BlockPos home = ground(level, b, 1);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("입금·인출", 600, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                LarderStore.get(level).set(home, 3.0);
+                c[0].teleportTo(home.getX() + 8.5, home.getY(), home.getZ() + 0.5);
+                c[1].teleportTo(home.getX() - 8.5, home.getY(), home.getZ() + 0.5);
+                c[0].debugSetHolding(2.5);
+                c[1].debugSetHolding(0.7);
+                level.setDayTime(4000L);
+            }, () -> String.format("남편H %.2f(시작2.5) 아내H %.2f(시작0.7) 저장고 %.0f",
+                    c[0].getHolding(), c[1].getHolding(), LarderStore.get(level).get(home)),
+                    () -> c[0].getHolding() >= 1.0 && c[0].getHolding() < 2.0 && c[1].getHolding() >= 1.5,
+                    () -> discard(c)));
+        }
+        // [2] 나눔 — 아내 0.25→≥0.6(자가 채집 불가 상승폭)·남편 ≤1.8
+        {
+            BlockPos home = ground(level, b, 2);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("가족 나눔", 400, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                LarderStore.get(level).set(home, 0.0);
+                c[0].debugSetHolding(2.0);
+                c[1].debugSetHolding(0.25);
+                level.setDayTime(4000L);
+            }, () -> String.format("아내H %.2f(시작0.25) 남편H %.2f(시작2.0)",
+                    c[1].getHolding(), c[0].getHolding()),
+                    () -> c[1].getHolding() >= 0.6 && c[0].getHolding() <= 1.8,
+                    () -> discard(c)));
+        }
+        // [3] 번식·베리 — 저장고 20→17 + 유아 1 + (참고: 베리 그루)
+        {
+            BlockPos home = ground(level, b, 3);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("번식+출산비용", 100, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                LarderStore.get(level).set(home, 20.0);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("저장고 %.0f(기대17) 유아 %d(기대1) 베리 %d",
+                    LarderStore.get(level).get(home), infantsAt(level, home), c[0].countBerries(level)),
+                    () -> Math.abs(LarderStore.get(level).get(home) - 17.0) < 1.0E-6
+                            && infantsAt(level, home) == 1,
+                    () -> discardFamily(level, home, c)));
+        }
+        // [4] 육아 급식 — 유아 0.5→1.5 · 저장고 5→4
+        {
+            BlockPos home = ground(level, b, 4);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("육아 급식", 100, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = stagedInfant(level, home, Sex.FEMALE);
+                c[2].debugSetHolding(0.5);
+                LarderStore.get(level).set(home, 5.0);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("유아H %.2f(기대1.5) 저장고 %.0f(기대4)",
+                    c[2].getHolding(), LarderStore.get(level).get(home)),
+                    () -> c[2].getHolding() >= 1.5 - 1.0E-9
+                            && Math.abs(LarderStore.get(level).get(home) - 4.0) < 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [5] R6 귀가 인출 — 밤·위급·저장고 있음 → H≥1.5·저장고 3→2
+        {
+            BlockPos home = ground(level, b, 5);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("R6 위급 귀가", 600, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(6, 0, 0), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(0.25);
+                level.setDayTime(15000L); // 취침 시간 — 평소라면 자야 함
+            }, () -> String.format("H %.2f(시작0.25) 저장고 %.0f(시작3)",
+                    c[0].getHolding(), LarderStore.get(level).get(home)),
+                    () -> c[0].getHolding() >= 1.5
+                            && Math.abs(LarderStore.get(level).get(home) - 2.0) < 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [6] R6 채집 강행 — 밤·위급·저장고 없음 → H가 채집으로 회복(주변 풀 필요 — 환경 의존)
+        {
+            BlockPos home = ground(level, b, 6);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("R6 채집 강행(풀 필요)", 900, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 0.0);
+                c[0].debugSetHolding(0.25);
+                level.setDayTime(15000L);
+            }, () -> String.format("H %.2f(시작0.25 — 채집 회복 대기)", c[0].getHolding()),
+                    () -> c[0].getHolding() > 0.35,
+                    () -> discard(c)));
+        }
+        // [7] 아사 클럭 — fast 압축(채집 차단) H0.1 → 유예 초과 후 체력 실감소
+        {
+            BlockPos spot = ground(level, b, 7);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("아사 클럭(피해 발생)", 400, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
+                c[0].setFastSettle(true); // 시간 압축 + 채집 goal 차단 → 자가 구조 불가(결정론)
+                c[0].debugSetHolding(0.1);
+            }, () -> String.format("H %.2f · 체력 %.1f/%.1f",
+                    c[0].getHolding(), c[0].getHealth(), c[0].getMaxHealth()),
+                    () -> !c[0].isAlive() || c[0].getHealth() < c[0].getMaxHealth() - 0.5,
+                    () -> discard(c)));
+        }
+        // [8] 이주 — 두 가구+유아: 거처 좌표가 실제로 바뀌고, 두 새 거처가 같은 목적지권, 유아 업힘
+        {
+            BlockPos homeA = ground(level, b, 8);
+            BlockPos homeB = homeA.offset(12, 0, 0);
+            MimicEntity[] c = new MimicEntity[5];
+            steps.add(new VerifySuite.Step("이주(캐러밴·유아 업기)", 200, false, () -> {
+                MimicEntity[] f1 = coupleAt(level, homeA);
+                MimicEntity[] f2 = coupleAt(level, homeB);
+                c[0] = f1[0];
+                c[1] = f1[1];
+                c[2] = f2[0];
+                c[3] = f2[1];
+                c[4] = stagedInfant(level, homeA, Sex.MALE);
+                level.setDayTime(1000L);
+                c[0].debugForceFamine(level);
+                c[2].debugForceFamine(level);
+                c[0].debugSettleOnce(); // 길잡이
+                c[2].debugSettleOnce(); // 동참
+            }, () -> String.format("가구A %s 가구B %s 두 새집 거리 %.0f 유아 업힘 %s",
+                    homeA.equals(c[0].getHomePos()) ? "잔류" : "이동",
+                    homeB.equals(c[2].getHomePos()) ? "잔류" : "이동",
+                    c[0].getHomePos() != null && c[2].getHomePos() != null
+                            ? Math.sqrt(c[0].getHomePos().distSqr(c[2].getHomePos())) : -1,
+                    c[4].isPassenger() ? "O" : "X"),
+                    () -> c[0].getHomePos() != null && !homeA.equals(c[0].getHomePos())
+                            && c[2].getHomePos() != null && !homeB.equals(c[2].getHomePos())
+                            && c[0].getHomePos().distSqr(c[2].getHomePos()) <= 96.0 * 96.0
+                            && c[4].isPassenger(),
+                    () -> discard(c)));
+        }
+        // [9]·[10] 구혼 여행 — 64블록 이동(좌표 실측) → 혼인 상태 변화
+        {
+            BlockPos homeA = ground(level, b, 9);
+            BlockPos homeB = homeA.offset(0, 0, 56);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("구혼 여행: 이동", 1800, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+                c[0].debugSettleWithTent(homeA, Direction.NORTH);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.FEMALE);
+                c[1].debugSettleWithTent(homeB, Direction.NORTH);
+                c[0].debugForceLonely();
+                level.setDayTime(8200L); // 배회 — 도착 후 바로 구애 가능
+            }, () -> String.format("남성↔타향 거리 %.0f(시작 56)",
+                    Math.sqrt(c[0].blockPosition().distSqr(homeB))),
+                    () -> c[0].blockPosition().distSqr(homeB) <= 24.0 * 24.0,
+                    () -> { /* [10]과 공유 — 정리 없음 */ }));
+            steps.add(new VerifySuite.Step("구혼 여행: 성사", 1200, false, () -> {
+            }, () -> String.format("남성 %s · 여성 %s",
+                    c[0].isSingleAdult() ? "독신" : "혼인", c[1].isSingleAdult() ? "독신" : "혼인"),
+                    () -> !c[0].isSingleAdult(),
+                    () -> discard(c)));
+        }
+        // [11] 중혼 성사 — 관용 아내 + 저장고 21 → 신부 혼인·합류
+        {
+            BlockPos home = ground(level, b, 11);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("중혼 성사(관용 아내)", 1200, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
+                LarderStore.get(level).set(home, 21.0); // 부양 증명(6×3일=18 이상)
+                level.setDayTime(9000L);
+            }, () -> String.format("신부 %s · 합류 %s · 저장고 %.0f",
+                    c[2].isSingleAdult() ? "독신" : "혼인",
+                    home.equals(c[2].getHomePos()) ? "O" : "X", LarderStore.get(level).get(home)),
+                    () -> !c[2].isSingleAdult() && home.equals(c[2].getHomePos()),
+                    () -> discard(c)));
+        }
+        // [12] 중혼 거절(질투 아내) — 금지 결과 감시: 제한 시간 내 혼인이 일어나면 실패
+        {
+            BlockPos home = ground(level, b, 12);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("중혼 거절(인색 아내)", 600, true, () -> {
+                MimicEntity[] cc = coupleAt(level, home, Trait.STINGY); // 질투 게이트
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
+                LarderStore.get(level).set(home, 21.0); // 부양은 충분 — 아내 특성만이 거절 사유
+                level.setDayTime(9000L);
+            }, () -> String.format("신부 %s(계속 독신이어야 성공)",
+                    c[2].isSingleAdult() ? "독신" : "혼인"),
+                    () -> !c[2].isSingleAdult(), // ← 금지 결과(혼인)가 감지되면 실패
+                    () -> discard(c)));
+        }
+
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "원트랙 검증 시작 — 12단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
+                + "결과값(H·저장고·좌표·혼인 상태)의 변화로만 판정. 끝에 ✅/❌ 요약. (6번은 주변에 풀이 "
+                + "있어야 함 — 초원에서 실행 권장)");
+        return 1;
+    }
+
+    /** 정착 부부 헬퍼 — 천막+혼인, 아내 추가 특성 지정 가능(질투 케이스). */
+    private static MimicEntity[] coupleAt(ServerLevel level, BlockPos home, Trait... wifeTraits) {
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE, wifeTraits);
+        if (m == null || f == null) {
+            throw new IllegalStateException("부부 스폰 실패");
+        }
+        m.debugSettleWithTent(home, Direction.NORTH);
+        f.debugSettleWithTent(home, Direction.NORTH);
+        m.debugMarryTo(f);
+        return new MimicEntity[] {m, f};
+    }
+
+    /** 지형 높이에 맞춘 검증 슬롯 좌표(슬롯당 z+64 — 인식·나눔 범위 밖으로 격리). */
+    private static BlockPos ground(ServerLevel level, Vec3 b, int slot) {
+        BlockPos p = BlockPos.containing(b.add(-8, 0, slot * 64));
+        return level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p);
+    }
+
+    private static int infantsAt(ServerLevel level, BlockPos home) {
+        int n = 0;
+        for (MimicEntity e : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(home).inflate(8.0))) {
+            if (e.getStage() == LifeStage.INFANT && home.equals(e.getHomePos())) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 무대 개체 정리(널 허용). */
+    private static void discard(MimicEntity... es) {
+        for (MimicEntity e : es) {
+            if (e != null && e.isAlive()) {
+                e.discard();
+            }
+        }
+    }
+
+    /** 무대 가족 정리 — 무대 중 태어난 유아까지 포함해 제거. */
+    private static void discardFamily(ServerLevel level, BlockPos home, MimicEntity... es) {
+        discard(es);
+        for (MimicEntity e : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(home).inflate(12.0))) {
+            if (home.equals(e.getHomePos())) {
+                e.discard();
+            }
+        }
     }
 
     /** 스테이징용 유아 소환 — 거처 귀속 + 개체 반환. */

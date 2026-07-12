@@ -15,6 +15,7 @@ import com.evosim.core.MateHome;
 import com.evosim.core.BerryEconomy;
 import com.evosim.core.Multipliers;
 import com.evosim.core.Physique;
+import com.evosim.core.Polygyny;
 import com.evosim.core.ParentingClass;
 import com.evosim.core.Reproduction;
 import com.evosim.core.Roaming;
@@ -526,10 +527,27 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         // 사별 감지: 배우자가 살아있지 않으면 과부/홀아비 → 재구애 참여.
+        // 일부다처 승계: 본처가 죽어도 같은 거처에 다른 아내가 있으면 그쪽으로 재링크(홀아비 아님).
         if (spouseId != 0L && !widowed && (level().getGameTime() + getId()) % 40 == 0) {
             if (!spouseAlive()) {
-                widowed = true;
-                mateState = MateState.SEARCHING;
+                MimicEntity nextWife = null;
+                if (!isFemale() && individual != null) {
+                    for (MimicEntity m : householdMembers()) {
+                        if (m != this && m.isFemale() && m.getStage() == LifeStage.ADULT
+                                && m.getIndividual() != null && m.spouseId == individual.id()
+                                && m.isAlive()) {
+                            nextWife = m;
+                            break;
+                        }
+                    }
+                }
+                if (nextWife != null) {
+                    spouseId = nextWife.getIndividual().id(); // 승계 — 재구애 없이 혼인 유지
+                    SimEvents.event(this, "승계", "본처 사망 → 둘째 부인 #" + nextWife.getId() + " 승계");
+                } else {
+                    widowed = true;
+                    mateState = MateState.SEARCHING;
+                }
             }
         }
         if (building) {
@@ -625,8 +643,13 @@ public class MimicEntity extends PathfinderMob {
                 ? WORK_PERCEPT_BASE + lvl * WORK_PERCEPT_PER
                 : WANDER_PERCEPT_BASE + lvl * WANDER_PERCEPT_PER;
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(range))) {
-            if (m == this || m.getIndividual() == null || !m.isSingleAdult()
-                    || m.isFemale() == isFemale()) {
+            if (m == this || m.getIndividual() == null || m.isFemale() == isFemale()) {
+                continue;
+            }
+            // 일부다처: 여성은 기혼 성년 남성도 잠재 짝으로 고려(감점 등록). 남성 인식은 독신만(그대로).
+            boolean marriedMale = isFemale() && !m.isFemale() && !m.isSingleAdult()
+                    && m.getStage() == LifeStage.ADULT && !m.isBuilding();
+            if (!m.isSingleAdult() && !marriedMale) {
                 continue;
             }
             int id = m.getId();
@@ -636,7 +659,9 @@ public class MimicEntity extends PathfinderMob {
             if (Kinship.isRelated(individual, m.getIndividual())) {
                 continue; // 근친 회피 §13-E
             }
-            candidateCharm.put(id, Multipliers.charmScore(individual, m.getIndividual()));
+            int charm = Multipliers.charmScore(individual, m.getIndividual())
+                    - (marriedMale ? Polygyny.MARRIED_CHARM_PENALTY : 0); // 기혼 감점 — 독신 우선
+            candidateCharm.put(id, charm);
             candidates.add(id);
         }
         candidates.sort((x, y) -> Integer.compare(
@@ -653,6 +678,20 @@ public class MimicEntity extends PathfinderMob {
             return false;
         }
         if (!isSingleAdult() || building) {
+            // 일부다처: 기혼 성년 남성이 독신 여성의 구애를 받으면 게이트(상한·아내 질투·부양 증명)
+            // 전부 통과 시 기본 수락 — 통과 못 하면 기존처럼 자동 거절.
+            if (!building && !isFemale() && getStage() == LifeStage.ADULT
+                    && suitor.isFemale() && suitor.isSingleAdult()
+                    && homePos != null && level() instanceof ServerLevel sl) {
+                double larder = LarderStore.get(sl).get(homePos);
+                if (Polygyny.canAccept(currentWives(), larder, cachedFamilyNeed)) {
+                    logCourt(suitor, true, Multipliers.charmScore(individual, si), 1,
+                            Math.max(1, candidates.size()), 100);
+                    marrySecond(suitor);
+                    return true;
+                }
+                SimEvents.event(suitor, "구애", "중혼 거절 — 상한/아내 질투(인색·경쟁)/부양 미달 중 하나");
+            }
             return false; // 이미 짝 있음/건축 중 → 자동 거절
         }
         // 상호구애 특례: 내가 이 상대를 구애 중이면 판정 없이 성사.
@@ -689,6 +728,37 @@ public class MimicEntity extends PathfinderMob {
                 "미믹#" + getId(), accepted, charm, rank, pool, percent));
         SimEvents.event(suitor, "구애", String.format("%s — 상대 #%d · 매력%d 순위%d/%d 확률%d%%",
                 accepted ? "성사" : "거절", getId(), charm, rank, pool, percent));
+    }
+
+    /** 현재 아내들(같은 거처·성년 여성·배우자 링크가 나를 가리킴) — 일부다처 게이트 입력. */
+    private List<Individual> currentWives() {
+        List<Individual> wives = new ArrayList<>();
+        if (individual == null) {
+            return wives;
+        }
+        for (MimicEntity m : householdMembers()) {
+            if (m != this && m.isFemale() && m.getStage() == LifeStage.ADULT
+                    && m.getIndividual() != null && m.spouseId == individual.id()) {
+                wives.add(m.getIndividual());
+            }
+        }
+        return wives;
+    }
+
+    /** 둘째 부인 합류 — 신부만 링크 갱신(남편 spouseId는 본처 유지), 거처 합류는 기존 moveInto 재사용. */
+    private void marrySecond(MimicEntity bride) {
+        bride.setSpouse(individual.id());
+        bride.setMateState(MateState.PAIRED);
+        bride.setCourtTargetId(-1);
+        bride.endCourtTravel();
+        heartEffect(this);
+        heartEffect(bride);
+        if (level() instanceof ServerLevel sl) {
+            moveInto(sl, this, bride); // 홀거처주였으면 그 집은 폐가화(기존 규칙)
+        }
+        StageObserver.record(getId(), "mating:polygyny");
+        SimEvents.event(this, "중혼", "둘째 부인 #" + bride.getId()
+                + " 합류 — 아내 용인·저장고 부양 증명 통과 (아내 " + (currentWives().size()) + "명)");
     }
 
     /** 짝 성사 — 배우자 링크 + 거처 귀속(재혼/분가/신축) 결정. */
@@ -1369,8 +1439,11 @@ public class MimicEntity extends PathfinderMob {
         int best = Integer.MIN_VALUE;
         for (int id : candidates) {
             Entity e = sl.getEntity(id);
-            if (!(e instanceof MimicEntity m) || !m.isAlive() || !m.isSingleAdult()
-                    || m.getIndividual() == null) {
+            // 유효 대상: 독신 성년, 또는 (내가 여성일 때) 기혼 성년 남성(일부다처 후보).
+            boolean validMarried = e instanceof MimicEntity mm && isFemale() && !mm.isFemale()
+                    && mm.getStage() == LifeStage.ADULT && !mm.isBuilding();
+            if (!(e instanceof MimicEntity m) || !m.isAlive() || m.getIndividual() == null
+                    || (!m.isSingleAdult() && !validMarried)) {
                 remove.add(id);
                 continue;
             }
@@ -1649,8 +1722,17 @@ public class MimicEntity extends PathfinderMob {
         }
 
         // R5 번식: (L − 출산비용 − 하루소모) ≥ 성년수+1(±특성) & 무굶주림 & 쿨다운·상한·과밀.
+        // 어미 = 아버지와 실제 혼인한 아내 중 출산이 가장 오래된 쪽(일부다처 교대 출산).
+        // 성년 딸(미혼 동거)은 배우자 링크가 없어 제외 — 부녀 교배 방지.
         if (homePos != null && father != null && father.getIndividual() != null) {
-            MimicEntity mother = firstAdultFemale(ordered);
+            MimicEntity mother = null;
+            for (MimicEntity w : ordered) {
+                if (w.isFemale() && w.getStage() == LifeStage.ADULT && w.getIndividual() != null
+                        && w.spouseId == father.getIndividual().id()
+                        && (mother == null || w.lastBirthTick < mother.lastBirthTick)) {
+                    mother = w;
+                }
+            }
             if (mother != null && mother.getIndividual() != null) {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
                         - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출

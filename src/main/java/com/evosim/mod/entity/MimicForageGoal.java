@@ -66,7 +66,7 @@ public class MimicForageGoal extends Goal {
             return false; // 유아·일반소년은 자급 불가
         }
         if (mob.isCaregiverBound()) {
-            return false; // 육아 중인 어미는 채집하러 안 나감(§4 남편 채집·아내 육아)
+            return false; // 육아 구속 중인 부모(성별 무관 — 클래스가 결정)는 채집 안 나감
         }
         // R6/A-3: 위급(소지 고갈) — 저장고에 밥 있으면 귀가가 우선(MimicReturnGoal),
         // 저장고도 비었을 때만 배회·밤·취침 무시하고 채집을 강행한다.

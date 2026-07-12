@@ -2187,9 +2187,12 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
-    /** 지금 육아에 매인 어미인가 (유아 자식 + 무시 아닌 육아 클래스). 이때는 채집 대신 육아. */
+    /**
+     * 지금 육아에 매인 부모인가 (유아 자식 + 무시 아닌 육아 클래스 — <b>성별 무관</b>). 이때는 채집 대신
+     * 육아. 남성이 매이면 채집 1.5×를 버리는 셈 → 경제가 남무심·여적극 조합을 자연선택하는지 관측 대상.
+     */
     public boolean isCaregiverBound() {
-        if (!isFemale() || getStage() != LifeStage.ADULT || homePos == null || individual == null) {
+        if (getStage() != LifeStage.ADULT || homePos == null || individual == null) {
             return false;
         }
         if (individual.parentingCare() == ParentingClass.NEGLECTFUL) {

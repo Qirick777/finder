@@ -1,6 +1,7 @@
 package com.evosim.mod.log;
 
 import com.evosim.core.LifeStage;
+import com.evosim.core.ParentingClass;
 import com.evosim.core.Schedule;
 import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MimicEntity;
@@ -124,6 +125,8 @@ public final class SimEvents {
         int infant = 0;
         int wanderer = 0;
         int critical = 0;
+        int careMale = 0;   // 육아 성향(무시 아님) 성년 남성 — 자연선택 관측: 세대에 걸쳐 0으로 수렴 예상
+        int careFemale = 0; // 동 여성 — 유지·증가 예상(남무심·여적극 선택 가설)
         double holdSum = 0.0;
         int minGen = Integer.MAX_VALUE;
         int maxGen = 0;
@@ -136,6 +139,14 @@ public final class SimEvents {
             }
             if (m.isWanderer()) {
                 wanderer++;
+            }
+            if (m.getStage() == LifeStage.ADULT && m.getIndividual() != null
+                    && m.getIndividual().parentingCare() != ParentingClass.NEGLECTFUL) {
+                if (m.isFemale()) {
+                    careFemale++;
+                } else {
+                    careMale++;
+                }
             }
             holdSum += m.getHolding();
             if (m.isCritical()) {
@@ -160,9 +171,10 @@ public final class SimEvents {
         }
         int total = mimics.size();
         note(lv, "인구", String.format(
-                "총%d(성%d·소%d·유%d) 방랑%d 거처%d 세대%s | 저장고합%.0f 소지합%.1f 위급%d",
+                "총%d(성%d·소%d·유%d) 방랑%d 거처%d 세대%s | 저장고합%.0f 소지합%.1f 위급%d | 육아성향 남%d·여%d",
                 total, adult, boy, infant, wanderer, homes.size(),
-                total == 0 ? "-" : (minGen + "~" + maxGen), larderSum, holdSum, critical));
+                total == 0 ? "-" : (minGen + "~" + maxGen), larderSum, holdSum, critical,
+                careMale, careFemale));
     }
 
     public static synchronized int memorySize() {

@@ -46,9 +46,6 @@ public class MigrationDest extends SavedData {
         return tag;
     }
 
-    /** 목적지가 출발지와 사실상 같은 자리면 합의 무효(정찰) — 기근지로 "제자리 이주"하는 순환 방지. */
-    public static final double TOO_CLOSE = 48.0;
-
     /** 유효한 합의가 있고 출발지가 같은 마을권이면 목적지 반환, 아니면 null(직접 정찰). */
     public BlockPos resolve(BlockPos from, long now) {
         if (!present || now - registeredTick > VALID_TICKS) {
@@ -59,8 +56,11 @@ public class MigrationDest extends SavedData {
             return null; // 다른 마을 — 각자 정찰
         }
         BlockPos dest = BlockPos.of(destPos);
-        if (from.distSqr(dest) < TOO_CLOSE * TOO_CLOSE) {
-            return null; // 낡은 합의가 지금 굶는 바로 그 자리를 가리킴 — 따라가면 기근지 회귀
+        // 출발지가 origin 보다 dest 에 더 가깝다 = 이미 목적지권에 정착한 가족(연쇄 이주)이
+        // 낡은 합의를 따라 굶는 자리로 "제자리 이주"하려는 것 — 기각(각자 정찰). 상수 문턱은
+        // 캐러밴 정착 산포(8~58)와 최소 이주거리(24)를 동시에 만족 못 해 비교 판정으로 대체.
+        if (from.distSqr(dest) < from.distSqr(origin)) {
+            return null;
         }
         return dest;
     }

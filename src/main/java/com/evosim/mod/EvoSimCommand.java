@@ -7,6 +7,7 @@ import com.evosim.core.LifeStage;
 import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
+import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
@@ -73,7 +74,13 @@ public final class EvoSimCommand {
                 .then(Commands.literal("migrate").executes(EvoSimCommand::stageMigrate))
                 .then(Commands.literal("berry").executes(EvoSimCommand::stageBerry))
                 .then(Commands.literal("food").executes(EvoSimCommand::stageFood))
-                .then(Commands.literal("exodus").executes(EvoSimCommand::stageExodus)));
+                .then(Commands.literal("exodus").executes(EvoSimCommand::stageExodus))
+                .then(Commands.literal("trip").executes(EvoSimCommand::stageTrip))
+                .then(Commands.literal("share").executes(EvoSimCommand::stageShare))
+                .then(Commands.literal("birth").executes(EvoSimCommand::stageBirth))
+                .then(Commands.literal("care").executes(EvoSimCommand::stageCare))
+                .then(Commands.literal("r6").executes(EvoSimCommand::stageR6))
+                .then(Commands.literal("suitor").executes(EvoSimCommand::stageSuitor)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -314,35 +321,209 @@ public final class EvoSimCommand {
     }
 
     /**
-     * 이주 원터치 관찰: 두 부부 마을 + <b>즉시 기근</b> + 로그 자동 ON. 첫 가족이 목적지 정찰·등록
-     * (길잡이) → 둘째 가족이 같은 목적지에 동참(캐러밴) → 폐가 2채·새 마을 신축을 로그로 확인.
+     * 이주 즉시 연출: 세 가구(부부+유아2 / 부부 / 홀아비+유아1)를 즉시 기근으로 만들고 정산을 바로
+     * 강제 → 명령 직후 [이주]가 터진다. 길잡이 등록→캐러밴 동참, 다둥이 분산 업기, 홀아비 업기,
+     * 폐가 3채·신축까지 한 번에 성공/실패 판별.
      */
     private static int stageExodus(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos homeA = BlockPos.containing(b.add(-8, 0, -6));
-        BlockPos homeB = BlockPos.containing(b.add(-8, 0, 6));
+        BlockPos homeA = BlockPos.containing(b.add(-8, 0, -12));
+        BlockPos homeB = BlockPos.containing(b.add(-8, 0, 0));
+        BlockPos homeC = BlockPos.containing(b.add(-8, 0, 12));
         MimicEntity m1 = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
         MimicEntity f1 = spawnAdult(level, Vec3.atBottomCenterOf(homeA).add(0.5, 0, 0), Sex.FEMALE);
         MimicEntity m2 = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
         MimicEntity f2 = spawnAdult(level, Vec3.atBottomCenterOf(homeB).add(0.5, 0, 0), Sex.FEMALE);
-        if (m1 != null && f1 != null && m2 != null && f2 != null) {
-            m1.debugSettleWithTent(homeA, Direction.NORTH);
-            f1.debugSettleWithTent(homeA, Direction.NORTH);
-            m1.debugMarryTo(f1);
-            m2.debugSettleWithTent(homeB, Direction.NORTH);
-            f2.debugSettleWithTent(homeB, Direction.NORTH);
-            m2.debugMarryTo(f2);
-            m1.debugForceFamine(level); // 정착 뒤에 호출(정착이 쿨다운을 리셋하므로 순서 중요)
-            m2.debugForceFamine(level);
+        MimicEntity m3 = spawnAdult(level, Vec3.atBottomCenterOf(homeC), Sex.MALE); // 홀아비
+        if (m1 == null || f1 == null || m2 == null || f2 == null || m3 == null) {
+            return 0;
         }
+        m1.debugSettleWithTent(homeA, Direction.NORTH);
+        f1.debugSettleWithTent(homeA, Direction.NORTH);
+        m1.debugMarryTo(f1);
+        m2.debugSettleWithTent(homeB, Direction.NORTH);
+        f2.debugSettleWithTent(homeB, Direction.NORTH);
+        m2.debugMarryTo(f2);
+        m3.debugSettleWithTent(homeC, Direction.NORTH);
+        // 유아: 가구A 2명(순환 배정 — 부모가 나눠 업는지), 가구C 1명(홀아비가 업는지).
+        stagedInfant(level, homeA, Sex.MALE);
+        stagedInfant(level, homeA, Sex.FEMALE);
+        stagedInfant(level, homeC, Sex.FEMALE);
+        m1.debugForceFamine(level); // 정착 뒤 호출(정착이 쿨다운을 리셋하므로 순서 중요)
+        m2.debugForceFamine(level);
+        m3.debugForceFamine(level);
         level.setDayTime(1000L);
-        tell(ctx.getSource(), "이주 관찰: 두 부부 마을이 즉시 기근 상태. 가족틱(≈1분)마다 판정 → 첫 가족이 "
-                + "활동반경×2 바깥을 정찰해 목적지 등록(로그 [이주] 길잡이), 둘째 가족은 같은 목적지 동참"
-                + "(캐러밴). 옛집 2채는 모닥불 꺼진 폐가([폐가], 저장고 유산 남음), 새 부지에 천막 신축"
-                + "([건축완료]). /evolog dump 로 진행 확인.");
+        m1.debugSettleOnce(); // 즉시 정산 강제 → 기근 판정 → [이주] 길잡이(정찰·합의 등록)
+        m2.debugSettleOnce(); // → [이주] 마을 합의 동참(캐러밴)
+        m3.debugSettleOnce(); // → 홀아비 이주(아버지가 유아 업기)
+        tell(ctx.getSource(), "이주 즉시 연출 완료 — 판별: ① [이주] 3건(첫 건만 '길잡이', 나머지 '동참'이면 "
+                + "캐러밴 성공) ② 가구A 유아 2명이 부모에게 나눠 업히고 가구C 유아가 홀아비에게 업혀 이동하면 "
+                + "성공(안 업히고 옛집에 남으면 실패) ③ [폐가] 3건 + 새 부지 [건축완료] ④ 유아가 새 천막 "
+                + "근처에서 자동 하차하면 성공. /evolog dump 30 으로 확인.");
         return 1;
+    }
+
+    /** 입금·인출 즉시 연출: 남편 H=2.5(여분) · 아내 H=0.7(부족)+저장고 3 — 수 초 내 결과 판별. */
+    private static int stageTrip(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home).add(8, 0, 0), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(-8, 0, 0), Sex.FEMALE);
+        if (m == null || f == null) {
+            return 0;
+        }
+        m.debugSettleWithTent(home, Direction.NORTH);
+        f.debugSettleWithTent(home, Direction.NORTH);
+        m.debugMarryTo(f);
+        LarderStore.get(level).set(home, 3.0);
+        m.debugSetHolding(2.5); // 여분 정수 → 즉시 "넣으러 귀가" 발동 직전
+        f.debugSetHolding(0.7); // 귀가 임계(0.8) 미만 + 저장고 있음 → "꺼내러 귀가" 직전
+        level.setDayTime(4000L);
+        tell(ctx.getSource(), "입금·인출 연출 — 판별(수 초 내): 남편이 집으로 걸어와 [입금] 1개 저장 → "
+                + "저장고 4, 아내가 걸어와 [인출] 1개 꺼냄 → 저장고 3. 로그에 안 찍히거나 계속 채집만 하면 "
+                + "실패. /evolog dump 로 확인.");
+        return 1;
+    }
+
+    /** 나눔(B) 즉시 연출: 아내 위급(H=0.25)·남편 여유(H=2.0)·저장고 0(가족틱 개입 차단). */
+    private static int stageShare(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(2, 0, 0), Sex.FEMALE);
+        if (m == null || f == null) {
+            return 0;
+        }
+        m.debugSettleWithTent(home, Direction.NORTH);
+        f.debugSettleWithTent(home, Direction.NORTH);
+        m.debugMarryTo(f);
+        LarderStore.get(level).set(home, 0.0); // 저장고 비움 — 가족틱 급식이 아니라 '나눔'이 구하는지 본다
+        m.debugSetHolding(2.0);  // 여유(≥1.5) — 나눔 발동 자격
+        f.debugSetHolding(0.25); // 위급(<0.3) — 나눔 대상 직전
+        level.setDayTime(4000L);
+        tell(ctx.getSource(), "나눔 연출 — 판별(수 초 내): 아내 [위급] → 남편이 다가가 [나눔] 0.50 건넴 → "
+                + "아내 [회복]. 남편이 안 다가가거나 [나눔]이 안 찍히면 실패.");
+        return 1;
+    }
+
+    /** 번식 즉시 연출: 저장고 20 채우고 정산 강제 — 명령 직후 출산 여부 판별. */
+    private static int stageBirth(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
+        if (m == null || f == null) {
+            return 0;
+        }
+        m.debugSettleWithTent(home, Direction.NORTH);
+        f.debugSettleWithTent(home, Direction.NORTH);
+        m.debugMarryTo(f);
+        LarderStore.get(level).set(home, 20.0); // 게이트(≈12) 여유 통과 직전
+        level.setDayTime(4000L);
+        m.debugSettleOnce(); // 즉시 정산 → 출산 판정
+        tell(ctx.getSource(), "번식 연출 — 판별(즉시): 천막에 유아 1명 등장 + [출산] 로그(신생아 성별·세대·"
+                + "특성·부모). 다음 [가계]에서 저장고 20→17(출산비용 3 차감)이면 성공. 유아가 안 나오면 실패.");
+        return 1;
+    }
+
+    /** 육아 급식(D) 즉시 연출: 배고픈 유아(H=0.5)+저장고 5 → 정산 강제 → 어미 급식 판별. */
+    private static int stageCare(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
+        if (m == null || f == null) {
+            return 0;
+        }
+        m.debugSettleWithTent(home, Direction.NORTH);
+        f.debugSettleWithTent(home, Direction.NORTH);
+        m.debugMarryTo(f);
+        MimicEntity baby = stagedInfant(level, home, Sex.FEMALE);
+        if (baby != null) {
+            baby.debugSetHolding(0.5); // 채움 임계(1.0) 미만 — 급식 대상 직전
+        }
+        LarderStore.get(level).set(home, 5.0);
+        level.setDayTime(4000L);
+        m.debugSettleOnce(); // 즉시 정산 → 유아 급식
+        tell(ctx.getSource(), "육아 급식 연출 — 판별(즉시): [육아] '저장고에서 꺼내 아기를 먹임' 로그 + "
+                + "다음 [가계]에서 인출1·저장고 4면 성공. 검사봉으로 유아 보유 1.5 확인 가능. 로그 없으면 실패.");
+        return 1;
+    }
+
+    /** R6 위급 분기 즉시 연출: 밤에 위급 2명 — 저장고 없는 쪽은 채집 강행, 있는 쪽은 귀가 인출. */
+    private static int stageR6(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos homeA = BlockPos.containing(b.add(-6, 0, -6)); // 저장고 없음 → 채집 강행
+        BlockPos homeB = BlockPos.containing(b.add(-6, 0, 6));  // 저장고 있음 → 귀가 인출
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+        MimicEntity bb = spawnAdult(level, Vec3.atBottomCenterOf(homeB).add(6, 0, 0), Sex.MALE);
+        if (a == null || bb == null) {
+            return 0;
+        }
+        a.debugSettleWithTent(homeA, Direction.NORTH);
+        bb.debugSettleWithTent(homeB, Direction.NORTH);
+        LarderStore.get(level).set(homeA, 0.0);
+        LarderStore.get(level).set(homeB, 3.0);
+        a.debugSetHolding(0.25);  // 위급 + 밥 없음 → 밤에도 안 자고 채집해야 성공
+        bb.debugSetHolding(0.25); // 위급 + 밥 있음 → 귀가·인출해야 성공
+        level.setDayTime(15000L); // 취침 시간대 — 평소라면 자야 함
+        tell(ctx.getSource(), "R6 연출(밤) — 판별(수 초 내): A(북쪽 집)는 [위급] '저장고 없음(채집 강행)' 후 "
+                + "자지 않고 풀을 뜯어 [채집]→[회복]. B(남쪽 집)는 [위급] '저장고 있음(귀가)' 후 집으로 걸어와 "
+                + "[인출]→[회복]. 누워 자거나 위급인 채 가만있으면 실패.");
+        return 1;
+    }
+
+    /** 구혼 여행(족외혼) 즉시 연출: 64블록 떨어진 두 마을, 고립 남성을 즉시 출발 직전으로. */
+    private static int stageSuitor(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos homeA = BlockPos.containing(b.add(-6, 0, 0));
+        BlockPos homeB = BlockPos.containing(b.add(58, 0, 0)); // 64블록 동쪽 — 타향(48 초과)
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+        MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.FEMALE);
+        if (m == null || f == null) {
+            return 0;
+        }
+        m.debugSettleWithTent(homeA, Direction.NORTH);  // 모닥불 A 점화(등록)
+        f.debugSettleWithTent(homeB, Direction.NORTH);  // 모닥불 B 점화(등록) — 남성의 목적지
+        m.debugForceLonely(); // '오래 외로움' 강제 → 다음 인식 틱에 출발 직전
+        level.setDayTime(8200L); // 배회 시간 — 도착하면 바로 구애 가능
+        tell(ctx.getSource(), "구혼 여행 연출 — 판별: 즉시 [구혼여행] '타향 모닥불 @…로 출발' 로그 + 남성이 "
+                + "동쪽(64블록)으로 계속 걸어감 → 도착 후 [구애] 성사 → [짝성립] → 정착([합류]/신축). "
+                + "출발 로그가 없거나 자기 집 주변만 맴돌면 실패.");
+        return 1;
+    }
+
+    /** 스테이징용 유아 소환 — 거처 귀속 + 개체 반환. */
+    private static MimicEntity stagedInfant(ServerLevel level, BlockPos home, Sex sex) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            return null;
+        }
+        Individual ind = Genetics.randomFirstGen(
+                Math.abs((int) level.getGameTime()) + level.random.nextInt(100000),
+                new DeterministicRng(level.random.nextLong()), sex);
+        e.setIndividual(ind);
+        e.setStage(LifeStage.INFANT);
+        e.moveTo(home.getX() + 1.5, home.getY(), home.getZ() + 0.5, 0f, 0f);
+        e.setHomePos(home);
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
+        return e;
     }
 
     private static void spawnWild(ServerLevel level, Vec3 pos, Sex sex) {

@@ -1822,6 +1822,16 @@ public class MimicEntity extends PathfinderMob {
         return found;
     }
 
+    /** 점검용 — 보유 H 직접 지정(입금/인출/나눔/위급 "직전" 상황 연출). */
+    public void debugSetHolding(double h) {
+        this.holding = h;
+    }
+
+    /** 점검용 — 즉시 '오래 외로움' 상태로: 다음 mateTick에서 구혼 여행이 바로 출발. /evosim suitor. */
+    public void debugForceLonely() {
+        this.lonelySinceTick = level().getGameTime() - Famine.LONELY_TRAVEL_AFTER - 1000L;
+    }
+
     /** 점검용 — 온 가족을 즉시 기근 조건으로(성공·정착 시각 과거화, 저장고 비움). /evosim exodus. */
     public void debugForceFamine(ServerLevel sl) {
         for (MimicEntity m : householdMembers()) {

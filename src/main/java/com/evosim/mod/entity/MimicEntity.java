@@ -2232,8 +2232,9 @@ public class MimicEntity extends PathfinderMob {
 
     private boolean adultNear() {
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(FEED_RADIUS))) {
-            if (m != this && m.getStage() == LifeStage.ADULT && m.getIndividual() != null) {
-                return true;
+            if (m != this && m.getIndividual() != null
+                    && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
+                return true; // 노년도 돌봄 성인으로 인정 — 마실 육아(조부모)가 유효해지는 지점
             }
         }
         return false;

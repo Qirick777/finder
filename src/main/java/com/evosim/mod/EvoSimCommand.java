@@ -811,7 +811,9 @@ public final class EvoSimCommand {
             BlockPos homeC = homeE.offset(16, 0, 0);
             MimicEntity[] c = new MimicEntity[3];
             steps.add(new VerifySuite.Step("노인 공유(책임)", 1200, false, () -> {
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE), Sex.MALE, Trait.OVER_RESPONSIBLE);
+                // 집 반경 밖 스폰 — 가족틱의 자기 입금이 배달 잉여를 흡수하는 race 차단(결정론).
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE).add(8, 0, 4), Sex.MALE,
+                        Trait.OVER_RESPONSIBLE);
                 c[0].setStage(LifeStage.ELDER);
                 c[0].debugSettleWithTent(homeE, Direction.NORTH);
                 LarderStore.get(level).set(homeE, 8.0); // 가드② 통과
@@ -832,7 +834,8 @@ public final class EvoSimCommand {
             BlockPos homeC = homeE.offset(16, 0, 0);
             MimicEntity[] c = new MimicEntity[3];
             steps.add(new VerifySuite.Step("노인 무공유(무책임)", 600, true, () -> {
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE), Sex.MALE, Trait.IRRESPONSIBLE);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE).add(8, 0, 4), Sex.MALE,
+                        Trait.IRRESPONSIBLE);
                 c[0].setStage(LifeStage.ELDER);
                 c[0].debugSettleWithTent(homeE, Direction.NORTH);
                 LarderStore.get(level).set(homeE, 8.0);
@@ -914,7 +917,8 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         BlockPos homeE = BlockPos.containing(b.add(-6, 0, -8));
         BlockPos homeC = BlockPos.containing(b.add(-6, 0, 8)); // 자식 집 — 16블록 거리
-        MimicEntity elder = spawnAdult(level, Vec3.atBottomCenterOf(homeE), Sex.MALE,
+        // 노인은 집 반경(6) 밖에서 스폰 — 가족틱이 잉여를 자기 저장고로 흡수하는 경쟁(race) 차단.
+        MimicEntity elder = spawnAdult(level, Vec3.atBottomCenterOf(homeE).add(8, 0, 4), Sex.MALE,
                 Trait.OVER_RESPONSIBLE); // 책임 — 잉여 목표·배달형
         if (elder == null) {
             return 0;

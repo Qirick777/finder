@@ -391,16 +391,26 @@ public class MimicEntity extends PathfinderMob {
         if (homePos == null) {
             return MateHome.Status.WANDERER;
         }
-        return countAdultsAtHome() <= 1 ? MateHome.Status.LONE_OWNER : MateHome.Status.FAMILY_MEMBER;
+        return countOtherGrownAtHome() == 0 ? MateHome.Status.LONE_OWNER
+                : MateHome.Status.FAMILY_MEMBER;
     }
 
-    private int countAdultsAtHome() {
+    /**
+     * 나 말고 이 거처에 사는 성년·노년 수 — <b>거처 중심</b> 스캔(가구 스캔과 동일 원칙).
+     * 과거엔 개체 중심이라, 집에서 먼 곳에서 재혼이 성사되면 집의 성년 아들·노부모가 안 보여
+     * LONE_OWNER 오판 → 거주자 있는 집을 폐가화(모닥불 끔)했다. 노년 포함 — 노부모만 남는
+     * 집을 폐가로 만들지 않기 위함.
+     */
+    private int countOtherGrownAtHome() {
         if (homePos == null) {
             return 0;
         }
         int n = 0;
-        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0))) {
-            if (m.isAlive() && m.getStage() == LifeStage.ADULT && homePos.equals(m.getHomePos())) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(homePos).inflate(48.0))) {
+            if (m != this && m.isAlive()
+                    && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
+                    && homePos.equals(m.getHomePos())) {
                 n++;
             }
         }
@@ -1739,13 +1749,6 @@ public class MimicEntity extends PathfinderMob {
         larder = FoodEconomy.settleHome(larder, eaters);
 
         // 결과 반영 + goal 캐시 갱신(채집 goal이 매 틱 가족 스캔 없이 판단하도록).
-        MimicEntity motherOf = firstAdultFemale(ordered);
-        int maternal = 0; // 어미 모성애(+1 강함/−1 없음) — 자식 허기·성장 캐시
-        if (motherOf != null && motherOf.getIndividual() != null) {
-            var mt = ExpressionResolver.expressedTraits(motherOf.getIndividual());
-            maternal = mt.contains(com.evosim.core.Trait.STRONG_MATERNAL) ? 1
-                    : mt.contains(com.evosim.core.Trait.NO_MATERNAL) ? -1 : 0;
-        }
         int adults = 0;
         int boys = 0;
         int infants = 0;
@@ -1753,7 +1756,7 @@ public class MimicEntity extends PathfinderMob {
         int deposited = 0;
         int withdrawn = 0;
         double holdSum = 0.0;
-        boolean infantFed = false;
+        MimicEntity fedInfant = null;
         for (int i = 0; i < ordered.size(); i++) {
             MimicEntity m = ordered.get(i);
             FoodEconomy.Eater e = eaters.get(i);
@@ -1763,15 +1766,18 @@ public class MimicEntity extends PathfinderMob {
             } else if (delta <= -1.0 + 1.0E-9) {
                 deposited += (int) Math.round(-delta);
             }
-            if (m.getStage() == LifeStage.INFANT && delta > 1.0E-9) {
-                infantFed = true;
+            if (m.getStage() == LifeStage.INFANT && delta > 1.0E-9 && fedInfant == null) {
+                fedInfant = m;
             }
             m.holding = e.holding;
             m.lastSurplus = larder;
             m.lastFed = !m.isCritical();
             m.cachedFamilyNeed = need;
             m.cachedProvider = (m == father) || (father == null && m.getStage() == LifeStage.ADULT);
-            m.cachedMaternal = maternal;
+            // 모성애 축은 각 자식의 <b>친어미</b>(부모 링크 PA/PB)로 판정 — 명단 첫 성년 여성 추측은
+            // 성년 딸·(일부다처의) 다른 부인 특성이 남의 자식에게 적용되는 오류였다.
+            m.cachedMaternal = (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)
+                    ? maternalRank(motherIn(fam, m)) : 0;
             holdSum += m.holding;
             switch (m.getStage()) {
                 case ADULT -> adults++;
@@ -1782,9 +1788,13 @@ public class MimicEntity extends PathfinderMob {
         }
         boolean starving = FoodEconomy.anyStarvingHome(eaters);
 
-        // D 연출: 유아가 저장고에서 채워졌으면 어미의 행위로 귀속(숫자는 동일 — 로그만).
-        if (infantFed) {
-            MimicEntity mother = firstAdultFemale(ordered);
+        // D 연출: 유아가 저장고에서 채워졌으면 <b>친어미</b>(부모 링크)의 행위로 귀속(숫자는 동일 — 로그만).
+        // 친어미 부재 시 명단 첫 성년 여성(대리 양육), 그마저 없으면 대표.
+        if (fedInfant != null) {
+            MimicEntity mother = motherIn(fam, fedInfant);
+            if (mother == null) {
+                mother = firstAdultFemale(ordered);
+            }
             SimEvents.event(mother != null ? mother : this, "육아", "저장고에서 꺼내 아기를 먹임");
         }
         // B-2: 과부 가구 붕괴는 허용 경로 — 로그만 남긴다(구제는 설계 결정 대기).
@@ -1845,8 +1855,11 @@ public class MimicEntity extends PathfinderMob {
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,
                     deposited, withdrawn);
-            // R4 동원 전이: 저장고 넉넉↔부족이 뒤집힐 때만 1회 기록. 기준 일수는 대표의 시간지향 특성.
-            double comfort = need * FoodEconomy.comfortDays(individual);
+            // R4 동원 전이: 저장고 넉넉↔부족이 뒤집힐 때만 1회 기록. 기준 일수는 <b>가장</b>(혼인 링크
+            // 아버지)의 시간지향 특성 — 정산 실행자가 우연히 성년 아들이어도 기준이 흔들리지 않게.
+            double comfort = need * FoodEconomy.comfortDays(
+                    father != null && father.getIndividual() != null ? father.getIndividual()
+                            : individual);
             int ms = larder >= comfort ? 0 : 1;
             if (ms != mobilizedState) {
                 mobilizedState = ms;
@@ -1954,7 +1967,11 @@ public class MimicEntity extends PathfinderMob {
             m.setHomePos(newHome); // settledTick 갱신 → 재이주 쿨다운 시작
             m.homeFacing = (byte) facing.get2DDataValue();
             if (m.getStage() == LifeStage.INFANT && !carriers.isEmpty()) {
-                m.startRiding(carriers.get(nextCarrier++ % carriers.size()), true);
+                // 친어미(부모 링크)가 비어 있으면 그녀가 업고, 아니면 순환 배정(다둥이 분산 유지).
+                MimicEntity own = motherIn(fam, m);
+                MimicEntity ride = (own != null && own.getPassengers().isEmpty()) ? own
+                        : carriers.get(nextCarrier++ % carriers.size());
+                m.startRiding(ride, true);
             } else if ((m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
                     && builders < 2) {
                 m.building = true; // 부부(최대 2)가 신축 담당 — 기존 buildTick 파이프라인
@@ -2065,6 +2082,38 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         return null;
+    }
+
+    /**
+     * 아이의 <b>친어미</b> — 가구 명단에서 부모 링크(PA/PB)와 id가 일치하는 성년·노년 여성.
+     * 성별·나이·명단 순서로 추측하지 않는다(성년 딸/다른 부인 오인 방지). 없으면 null.
+     */
+    private static MimicEntity motherIn(List<MimicEntity> fam, MimicEntity child) {
+        if (child.getIndividual() == null) {
+            return null;
+        }
+        long pa = child.getIndividual().parentAId();
+        long pb = child.getIndividual().parentBId();
+        for (MimicEntity m : fam) {
+            if (m != child && m.isFemale() && m.getIndividual() != null
+                    && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
+                long id = m.getIndividual().id();
+                if (id == pa || id == pb) {
+                    return m;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 어미의 모성애 등급(+1 강함/−1 없음/0 기본·부재) — 자식 허기·성장 캐시 입력. */
+    private static int maternalRank(MimicEntity mother) {
+        if (mother == null || mother.getIndividual() == null) {
+            return 0;
+        }
+        var mt = ExpressionResolver.expressedTraits(mother.getIndividual());
+        return mt.contains(com.evosim.core.Trait.STRONG_MATERNAL) ? 1
+                : mt.contains(com.evosim.core.Trait.NO_MATERNAL) ? -1 : 0;
     }
 
     /**

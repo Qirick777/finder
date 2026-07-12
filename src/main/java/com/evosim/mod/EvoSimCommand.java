@@ -417,17 +417,19 @@ public final class EvoSimCommand {
         f.debugSettleWithTent(home, Direction.NORTH);
         m.debugMarryTo(f);
         LarderStore.get(level).set(home, 0.0); // 저장고 비움 — 가족틱 급식이 아니라 '나눔'이 구하는지 본다
-        m.debugSetHolding(2.0);  // 여유(≥1.5) — 나눔 발동 자격
+        // 남편 H는 1.9 — 입금 문턱(2.0) 미달이라 가족틱이 저장고에 넣어 아내를 구하는
+        // 우회 경로(위양성)가 원천 차단되고, 나눔 문턱(1.5)은 넘어 나눔만이 유일한 구조 경로.
+        m.debugSetHolding(1.9);
         f.debugSetHolding(0.25); // 위급(<0.3) — 나눔 대상 직전
         level.setDayTime(4000L);
         // 수치 자동 판별: 아내 H 0.25→≥0.6(0.5 받음 — 자가 채집으론 이 시간 내 불가능한 상승폭)
-        // && 남편 H 2.0→≤1.8(내어줌)이면 성공.
+        // && 남편 H 1.9→≤1.8(내어줌 — 자연 소모만으론 400틱 내 1.85까지밖에 안 떨어짐)이면 성공.
         LiveCheck.watch(ctx.getSource(), "나눔", 400,
-                () -> String.format("아내 H %.2f(시작 0.25·위급) · 남편 H %.2f(시작 2.00)",
+                () -> String.format("아내 H %.2f(시작 0.25·위급) · 남편 H %.2f(시작 1.90)",
                         f.getHolding(), m.getHolding()),
                 () -> f.getHolding() >= 0.6 && m.getHolding() <= 1.8);
         tell(ctx.getSource(), "나눔 연출 — 기대: 남편이 다가가 0.50 건넴 → 아내 H 0.25→0.75(위급 해제), "
-                + "남편 H 2.00→1.50. 아래 수치 중계로 자동 판정.");
+                + "남편 H 1.90→1.40. 아래 수치 중계로 자동 판정.");
         return 1;
     }
 
@@ -610,10 +612,10 @@ public final class EvoSimCommand {
                 c[0] = cc[0];
                 c[1] = cc[1];
                 LarderStore.get(level).set(home, 0.0);
-                c[0].debugSetHolding(2.0);
+                c[0].debugSetHolding(1.9); // 입금 문턱(2.0) 미달 — 가족틱 우회 구조(위양성) 차단
                 c[1].debugSetHolding(0.25);
                 level.setDayTime(4000L);
-            }, () -> String.format("아내H %.2f(시작0.25) 남편H %.2f(시작2.0)",
+            }, () -> String.format("아내H %.2f(시작0.25) 남편H %.2f(시작1.9)",
                     c[1].getHolding(), c[0].getHolding()),
                     () -> c[1].getHolding() >= 0.6 && c[0].getHolding() <= 1.8,
                     () -> discard(c)));
@@ -666,8 +668,10 @@ public final class EvoSimCommand {
                 level.setDayTime(15000L); // 취침 시간 — 평소라면 자야 함
             }, () -> String.format("H %.2f(시작0.25) 저장고 %.0f(시작3)",
                     c[0].getHolding(), LarderStore.get(level).get(home)),
-                    () -> c[0].getHolding() >= 1.5
-                            && Math.abs(LarderStore.get(level).get(home) - 2.0) < 1.0E-6,
+                    // 0.25→채움은 정수 2개 인출(1.25는 목표 1.5 미달) → H 2.25·L 1, 이후 재입금으로
+                    // H 1.25·L 2 로 진동 가능. 판정은 "실제로 먹었고(H≥1.2) 저장고가 줄었다(L<3)"로.
+                    () -> c[0].getHolding() >= 1.2
+                            && LarderStore.get(level).get(home) <= 2.0 + 1.0E-6,
                     () -> discard(c)));
         }
         // [6] R6 채집 강행 — 밤·위급·저장고 없음 → H가 채집으로 회복(주변 풀 필요 — 환경 의존)

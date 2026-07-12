@@ -11,6 +11,7 @@ import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
+import com.evosim.mod.stage.LiveCheck;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -383,9 +384,13 @@ public final class EvoSimCommand {
         m.debugSetHolding(2.5); // 여분 정수 → 즉시 "넣으러 귀가" 발동 직전
         f.debugSetHolding(0.7); // 귀가 임계(0.8) 미만 + 저장고 있음 → "꺼내러 귀가" 직전
         level.setDayTime(4000L);
-        tell(ctx.getSource(), "입금·인출 연출 — 판별(수 초 내): 남편이 집으로 걸어와 [입금] 1개 저장 → "
-                + "저장고 4, 아내가 걸어와 [인출] 1개 꺼냄 → 저장고 3. 로그에 안 찍히거나 계속 채집만 하면 "
-                + "실패. /evolog dump 로 확인.");
+        // 수치 자동 판별: 남편 H 2.5→[1,2)(입금) && 아내 H 0.7→≥1.5(인출)이면 성공. 2초마다 중계.
+        LiveCheck.watch(ctx.getSource(), "입금·인출", 600,
+                () -> String.format("남편 H %.2f(시작 2.50) · 아내 H %.2f(시작 0.70) · 저장고 %.0f(시작 3)",
+                        m.getHolding(), f.getHolding(), LarderStore.get(level).get(home)),
+                () -> m.getHolding() >= 1.0 && m.getHolding() < 2.0 && f.getHolding() >= 1.5);
+        tell(ctx.getSource(), "입금·인출 연출 — 기대: 남편 H 2.50→1.50(1개 입금), 아내 H 0.70→1.70(1개 인출), "
+                + "저장고 3→4→3. 아래 수치 중계로 자동 판정.");
         return 1;
     }
 
@@ -407,8 +412,14 @@ public final class EvoSimCommand {
         m.debugSetHolding(2.0);  // 여유(≥1.5) — 나눔 발동 자격
         f.debugSetHolding(0.25); // 위급(<0.3) — 나눔 대상 직전
         level.setDayTime(4000L);
-        tell(ctx.getSource(), "나눔 연출 — 판별(수 초 내): 아내 [위급] → 남편이 다가가 [나눔] 0.50 건넴 → "
-                + "아내 [회복]. 남편이 안 다가가거나 [나눔]이 안 찍히면 실패.");
+        // 수치 자동 판별: 아내 H 0.25→≥0.6(0.5 받음 — 자가 채집으론 이 시간 내 불가능한 상승폭)
+        // && 남편 H 2.0→≤1.8(내어줌)이면 성공.
+        LiveCheck.watch(ctx.getSource(), "나눔", 400,
+                () -> String.format("아내 H %.2f(시작 0.25·위급) · 남편 H %.2f(시작 2.00)",
+                        f.getHolding(), m.getHolding()),
+                () -> f.getHolding() >= 0.6 && m.getHolding() <= 1.8);
+        tell(ctx.getSource(), "나눔 연출 — 기대: 남편이 다가가 0.50 건넴 → 아내 H 0.25→0.75(위급 해제), "
+                + "남편 H 2.00→1.50. 아래 수치 중계로 자동 판정.");
         return 1;
     }
 
@@ -429,9 +440,20 @@ public final class EvoSimCommand {
         LarderStore.get(level).set(home, 20.0); // 게이트(≈12) 여유 통과 직전
         level.setDayTime(4000L);
         m.debugSettleOnce(); // 즉시 정산 → 출산 판정
-        tell(ctx.getSource(), "번식 연출 — 판별(즉시): 천막에 유아 1명 등장 + [출산] 로그(신생아 성별·세대·"
-                + "특성·부모). 다음 [가계]에서 저장고 20→17(출산비용 3 차감)이면 성공. 유아가 안 나오면 실패.");
-        return 1;
+        // 수치 즉시 판별: 저장고 20→17(출산비용 3 차감) && 거처 귀속 유아 1명 등장.
+        double after = LarderStore.get(level).get(home);
+        int infants = 0;
+        for (MimicEntity e : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(home).inflate(8.0))) {
+            if (e.getStage() == LifeStage.INFANT && home.equals(e.getHomePos())) {
+                infants++;
+            }
+        }
+        boolean ok = infants == 1 && Math.abs(after - 17.0) < 1.0E-6;
+        tell(ctx.getSource(), String.format(
+                "번식 판별 — 저장고 20 → %.0f (기대 17) · 유아 %d명 (기대 1) ⇒ %s",
+                after, infants, ok ? "✅ 성공" : "❌ 실패"));
+        return ok ? 1 : 0;
     }
 
     /** 육아 급식(D) 즉시 연출: 배고픈 유아(H=0.5)+저장고 5 → 정산 강제 → 어미 급식 판별. */
@@ -449,15 +471,21 @@ public final class EvoSimCommand {
         f.debugSettleWithTent(home, Direction.NORTH);
         m.debugMarryTo(f);
         MimicEntity baby = stagedInfant(level, home, Sex.FEMALE);
-        if (baby != null) {
-            baby.debugSetHolding(0.5); // 채움 임계(1.0) 미만 — 급식 대상 직전
+        if (baby == null) {
+            return 0;
         }
+        baby.debugSetHolding(0.5); // 채움 임계(1.0) 미만 — 급식 대상 직전
         LarderStore.get(level).set(home, 5.0);
         level.setDayTime(4000L);
         m.debugSettleOnce(); // 즉시 정산 → 유아 급식
-        tell(ctx.getSource(), "육아 급식 연출 — 판별(즉시): [육아] '저장고에서 꺼내 아기를 먹임' 로그 + "
-                + "다음 [가계]에서 인출1·저장고 4면 성공. 검사봉으로 유아 보유 1.5 확인 가능. 로그 없으면 실패.");
-        return 1;
+        // 수치 즉시 판별: 유아 H 0.5→1.5(정수 1개 급식·목표 도달) && 저장고 5→4.
+        double babyAfter = baby.getHolding();
+        double larderAfter = LarderStore.get(level).get(home);
+        boolean ok = babyAfter >= 1.5 - 1.0E-9 && Math.abs(larderAfter - 4.0) < 1.0E-6;
+        tell(ctx.getSource(), String.format(
+                "육아 급식 판별 — 유아 H 0.50 → %.2f (기대 1.50) · 저장고 5 → %.0f (기대 4) ⇒ %s",
+                babyAfter, larderAfter, ok ? "✅ 성공" : "❌ 실패"));
+        return ok ? 1 : 0;
     }
 
     /** R6 위급 분기 즉시 연출: 밤에 위급 2명 — 저장고 없는 쪽은 채집 강행, 있는 쪽은 귀가 인출. */

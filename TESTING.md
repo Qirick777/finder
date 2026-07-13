@@ -64,4 +64,5 @@ checkall 실패 단계만 아래 개별 명령으로 재현·역추적한다.
 
 BASE_YIELD(2.0) · BIRTH_COST(3.0) · FILL_TARGET(1.5)/RETURN_LOW(0.8) · GRACE_TICKS(1200) ·
 FAMILY_TICK_INTERVAL(1200) · 아사 피해량(0.5/100틱) · STARVE_WINDOW(1일)/RESETTLE_COOLDOWN(2일) ·
-LONELY_TRAVEL_AFTER(3일)/TRAVEL_DURATION(2일) · comfort(하루소모×2)
+LONELY_TRAVEL_AFTER(3일)/TRAVEL_DURATION(2일) · comfort(하루소모×2) ·
+돌봄 샘플 창(1000~12000)/간격(400틱)/하루 1회 래치 기준 — 육아 자연선택압 실측(19번과 연계) · ACCEPT_SCALE(0.7)/거절 쿨다운(1일)/눈낮춤 k−거절수

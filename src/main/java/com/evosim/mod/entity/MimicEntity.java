@@ -145,10 +145,13 @@ public class MimicEntity extends PathfinderMob {
 
     // 유아 돌봄/아사 (육아 클래스): 하루 급식 시각에 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
     private int careHunger = 0;
+    private boolean attendedToday = false;         // 오늘 낮에 성인이 곁에 있었나(래치 — NBT CareLatch)
     private long lastCareDay = Long.MIN_VALUE; // 마지막 급식 판정한 절대 일자(하루 1회 보장)
     private boolean fastCare = false;          // 무대 검증용 초고속 급식(틱 주기)
-    private static final int FEEDING_TIME = 13000; // 하루 중 급식 시각(밤, 가족 수렴 §4)
-    private static final int CARE_INTERVAL = 20;   // fast 모드 소모 주기(틱)
+    private static final int CARE_INTERVAL = 20;         // fast 모드 판정 주기(틱)
+    private static final long CARE_SAMPLE_START = 1000L;  // 낮 돌봄 샘플 창 시작(기상 무렵)
+    private static final long CARE_SAMPLE_END = 12000L;   // 낮 돌봄 샘플 창 끝(황혼 전) — [미확정]
+    private static final long CARE_SAMPLE_INTERVAL = 400L; // 샘플 간격(틱, 스태거) — [미확정]
     private static final int CARE_DEATH = 3;       // 연속 방치 임계 → 아사 (평상시 3일)
     private static final double FEED_RADIUS = 5.0; // 이 반경 내 성인이 있으면 먹여줌
 
@@ -2491,22 +2494,38 @@ public class MimicEntity extends PathfinderMob {
         if (getStage() != LifeStage.INFANT) {
             return;
         }
-        // 급식 타이밍: 평상시엔 하루 1회(급식 시각 이후), 무대 검증은 fast(틱 주기). 연산 절약.
-        boolean feedNow;
+        // 무대 검증(fastCare)은 종전 그대로 틱 주기 즉시 판정 — checkall ④⑯ 판정 불변.
         if (fastCare) {
-            feedNow = (level().getGameTime() + getId()) % CARE_INTERVAL == 0;
-        } else {
-            long day = level().getGameTime() / 24000L;
-            long timeOfDay = level().getDayTime() % 24000L;
-            feedNow = day != lastCareDay && timeOfDay >= FEEDING_TIME;
-            if (feedNow) {
-                lastCareDay = day;
+            if ((level().getGameTime() + getId()) % CARE_INTERVAL == 0) {
+                judgeCare(adultNear());
             }
-        }
-        if (!feedNow) {
             return;
         }
-        if (adultNear()) {
+        // 평상: "저녁 진입 첫 틱 1회 샘플"은 귀가 타이밍의 우연으로 정상 가족 유아가 죽고,
+        // 밤엔 온 가족이 모여 육아 특성이 생사를 못 가르던 결함 — 낮 시간대 다중 샘플로 교체.
+        // 낮 동안 한 번이라도 성인이 곁(5블록)에 있었으면 그날은 돌봄 래치, 날이 바뀔 때 평가.
+        // 시계는 절대시간(gameTime) 단일축 — 하늘 시계 정지 월드에서도 판정이 멈추지 않는다.
+        long now = level().getGameTime();
+        long day = now / 24000L;
+        long tod = now % 24000L;
+        if (lastCareDay == 0L) {
+            lastCareDay = day; // 미초기화(신생아·구 세이브) — 태어난 부분일은 관찰만, 평가 없음
+            return;
+        }
+        if (!attendedToday && tod >= CARE_SAMPLE_START && tod < CARE_SAMPLE_END
+                && (now + getId()) % CARE_SAMPLE_INTERVAL == 0 && adultNear()) {
+            attendedToday = true;
+        }
+        if (day != lastCareDay) {
+            lastCareDay = day;
+            judgeCare(attendedToday); // 전일 래치 평가 — 낮에 실제로 방치됐는가가 기준
+            attendedToday = false;
+        }
+    }
+
+    /** 하루 돌봄 판정의 공통 결말 — 로그 문구·관찰 태그는 종전과 동일(판정 시점만 바뀜). */
+    private void judgeCare(boolean attended) {
+        if (attended) {
             careHunger = 0;
             StageObserver.record(this.getId(), "infant:fed");
             SimEvents.event(this, "급식", "곁에 성인 있음 → 굶주림 0");
@@ -2613,6 +2632,10 @@ public class MimicEntity extends PathfinderMob {
             default -> LifeStage.ELDER; // ADULT → 노년
         };
         setStage(next);
+        if (stage == LifeStage.INFANT) {
+            careHunger = 0;        // 유아 전용 상태 청소 — 소년 이후 stale 값이 NBT 에 남지 않게
+            attendedToday = false;
+        }
         if (next == LifeStage.ELDER) {
             clearCourtshipPool(); // 노년 = 구애 은퇴 — 후보·거절 기록을 사망까지 들고 있지 않게
         }
@@ -2678,6 +2701,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("ChildrenBorn", childrenBorn);
         tag.putInt("CareHunger", careHunger);
         tag.putLong("LastCareDay", lastCareDay);
+        tag.putBoolean("CareLatch", attendedToday); // 낮 돌봄 래치 — 리로드로 그날 돌봄이 증발하지 않게
         tag.putBoolean("FastCare", fastCare);
         tag.putDouble("Holding", holding);
         tag.putInt("HungerGrace", hungerGraceTicks); // 재로그인해도 아사 클럭 유지(B-4)
@@ -2728,6 +2752,7 @@ public class MimicEntity extends PathfinderMob {
         if (tag.contains("LastCareDay")) {
             lastCareDay = tag.getLong("LastCareDay");
         }
+        attendedToday = tag.getBoolean("CareLatch");
         fastCare = tag.getBoolean("FastCare");
         holding = tag.contains("Holding") ? tag.getDouble("Holding") : 1.5; // 구 세이브 호환(시작값)
         hungerGraceTicks = tag.getInt("HungerGrace");

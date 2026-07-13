@@ -11,6 +11,7 @@ package com.evosim.core;
  *   <li><b>재빠름/굼뜸</b> → 이동 속도 (등급당 ±3%)</li>
  *   <li><b>천리안/근시안</b> → 감지 범위 (천리안 +8%/등급, 근시안 −6%/등급)</li>
  *   <li><b>강건/병약</b> → 회복(재생) (강건 +30%/등급, 병약 −15%/등급)</li>
+ *   <li><b>힘센/약함</b> → 공격력 (힘센 +8%/등급, 약함 −6%/등급) + 소모 (±4%/등급 — 균형추)</li>
  * </ul>
  *
  * <p>등급이 없으면(무발동) 배수 1.0(중립). 헤드리스 {@code /evotest physique}로 등급별 값을 손계산 대조.
@@ -23,6 +24,9 @@ public final class Physique {
     private static final double VISION_DOWN = 0.06;   // 근시안 등급당 감지 −
     private static final double RECOVERY_UP = 0.30;   // 강건 등급당 재생 +
     private static final double RECOVERY_DOWN = 0.15; // 병약 등급당 재생 −
+    private static final double STRENGTH_UP = 0.08;   // 힘센 등급당 공격 +
+    private static final double STRENGTH_DOWN = 0.06; // 약함 등급당 공격 −
+    private static final double APPETITE_PER = 0.04;  // 힘/약 등급당 소모 ±(V등급 = 종전 고정 ×1.2/×0.8)
 
     private Physique() {
     }
@@ -45,6 +49,16 @@ public final class Physique {
     /** 재생(회복) 배수 — 강건(+)/병약(−). 1.0 = 기본 재생. */
     public static double recovery(Individual ind) {
         return factor(ind, Trait.HARDY, RECOVERY_UP, Trait.SICKLY, RECOVERY_DOWN);
+    }
+
+    /** 공격력 배수 — 힘센(+8%/등급)/약함(−6%/등급). "잘 싸우지만 많이 먹는" 트레이드오프의 효과 쪽. */
+    public static double strength(Individual ind) {
+        return factor(ind, Trait.STRONG, STRENGTH_UP, Trait.WEAK, STRENGTH_DOWN);
+    }
+
+    /** 소모(식욕) 배수 — 힘셀수록 많이(+4%/등급)·약할수록 적게(−4%/등급) 먹는다(균형추 쪽). */
+    public static double appetite(Individual ind) {
+        return factor(ind, Trait.STRONG, APPETITE_PER, Trait.WEAK, APPETITE_PER);
     }
 
     /**

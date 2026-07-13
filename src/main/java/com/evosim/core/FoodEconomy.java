@@ -161,9 +161,7 @@ public final class FoodEconomy {
 
     private static double traitMult(Individual ind) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
-        double m = 1.0;
-        if (t.contains(Trait.STRONG)) m *= 1.2;
-        if (t.contains(Trait.WEAK)) m *= 0.8;
+        double m = Physique.appetite(ind); // 힘/약 등급 비례 소모(±4%/등급, V = 종전 ×1.2/×0.8)
         if (t.contains(Trait.DILIGENT)) m *= 1.1;
         if (t.contains(Trait.LAZY)) m *= 0.9;
         if (t.contains(Trait.NO_MATERNAL)) m *= 0.9; // 모성애없음 — 돌봄에 에너지 안 씀(본인 소모↓)

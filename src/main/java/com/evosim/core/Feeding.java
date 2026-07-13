@@ -46,8 +46,7 @@ public final class Feeding {
         public double consumption() {
             double c = baseConsumption(stage) + activity;
             var t = ExpressionResolver.expressedTraits(ind);
-            if (t.contains(Trait.STRONG)) c += 0.2;
-            if (t.contains(Trait.WEAK)) c -= 0.2;
+            c *= Physique.appetite(ind); // 힘/약 등급 비례(±4%/등급) — v2 costMult와 동일 함수
             if (t.contains(Trait.DILIGENT)) c += 0.1;
             if (t.contains(Trait.LAZY)) c -= 0.1;
             // v2 costMult와 대칭(페널티 특성의 반대급부) — 두 정산계가 같은 방향을 보게 유지

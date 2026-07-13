@@ -224,7 +224,10 @@ public class MimicEntity extends PathfinderMob {
         double fem = SurvivalRules.physicalFactor(isFemale() ? Sex.FEMALE : Sex.MALE);
         var attack = getAttribute(Attributes.ATTACK_DAMAGE);
         if (attack != null) {
-            attack.setBaseValue(BASE_ATTACK * fem);
+            // 힘 등급 배수(힘센 +8%/등급·약함 −6%/등급) — 소모 ±4%/등급(appetite)과 쌍을 이루는
+            // 트레이드오프의 효과 쪽. 성별 배율에 곱(무등급/무특성 1.0 = 종전과 동일).
+            double str = individual != null ? Physique.strength(individual) : 1.0;
+            attack.setBaseValue(BASE_ATTACK * fem * str);
         }
         var health = getAttribute(Attributes.MAX_HEALTH);
         if (health != null) {

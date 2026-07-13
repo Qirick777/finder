@@ -11,7 +11,10 @@ import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.MimicEntity;
+import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
+import com.evosim.mod.net.ModNetwork;
+import com.evosim.mod.net.StatsPacket;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.LiveCheck;
 import com.evosim.mod.stage.VerifySuite;
@@ -28,10 +31,12 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.network.PacketDistributor;
 
 /**
  * 게임 내 {@code /evosim} 명령어 — 무대 세팅(개체 소환). 렌더링·외형은 눈으로 확인하되 소환은 명령이 대신(설계서 §17).
@@ -93,7 +98,10 @@ public final class EvoSimCommand {
                 .then(Commands.literal("polygamy").executes(EvoSimCommand::stagePolygamy))
                 .then(Commands.literal("elder").executes(EvoSimCommand::stageElder))
                 .then(Commands.literal("eldercare").executes(EvoSimCommand::stageElderCare))
-                .then(Commands.literal("checkall").executes(EvoSimCommand::stageCheckAll)));
+                .then(Commands.literal("checkall").executes(EvoSimCommand::stageCheckAll))
+                // ── 인구 통계·혈통 (관찰, 무대 아님) ──
+                .then(Commands.literal("stats").executes(EvoSimCommand::stats))
+                .then(Commands.literal("legacy").executes(EvoSimCommand::legacy)));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -130,6 +138,33 @@ public final class EvoSimCommand {
         return pairs * 2;
     }
 
+    /** 인구 통계 GUI — 발현 특성 분포 그래프 + 최다 후손 랭킹(플레이어 전용, 무대 개체 제외). */
+    private static int stats(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            return legacy(ctx); // 콘솔 → 채팅 폴백(화면 없음)
+        }
+        StatsSnapshot snap = StatsSnapshot.build(ctx.getSource().getLevel());
+        ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new StatsPacket(snap));
+        return 1;
+    }
+
+    /** 최다 후손 랭킹 채팅 출력 — GUI 폴백(콘솔·로그 대조용). 원장 전수라 죽은 조상도 나온다. */
+    private static int legacy(CommandContext<CommandSourceStack> ctx) {
+        StatsSnapshot snap = StatsSnapshot.build(ctx.getSource().getLevel());
+        tell(ctx.getSource(), "최다 후손 랭킹 (생존 " + snap.living + "명 · 죽은 조상 포함)");
+        if (snap.tops.isEmpty()) {
+            tell(ctx.getSource(), "  아직 후손을 남긴 개체가 없습니다.");
+            return 0;
+        }
+        for (int i = 0; i < snap.tops.size(); i++) {
+            StatsSnapshot.Top t = snap.tops.get(i);
+            tell(ctx.getSource(), "  " + (i + 1) + "위 " + (t.female() ? "♀" : "♂") + " N" + t.serial()
+                    + (t.alive() ? " #" + t.entityId() : " (사망)") + " G" + t.gen()
+                    + " — 자식 " + t.children() + " · 후손 " + t.descendants());
+        }
+        return snap.tops.size();
+    }
+
     // ── 신규 기능 점검 스테이징 ──
 
     /** matingReady(서로 매력 매칭) 성년 하나 소환해 반환. */
@@ -157,6 +192,7 @@ public final class EvoSimCommand {
         e.setIndividual(ind);
         e.setStage(LifeStage.ADULT);
         e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
+        e.markStageActor(); // 검증 무대 개체 — 혈통 원장·통계 오염 방지(addFreshEntity 전 필수)
         e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
@@ -1163,6 +1199,7 @@ public final class EvoSimCommand {
         e.setIndividual(ind);
         e.setStage(LifeStage.ADULT);
         e.moveTo(pos.x, pos.y, pos.z, 0f, 0f);
+        e.markStageActor(); // 검증 무대 개체 — 혈통 원장·통계 오염 방지
         e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
@@ -1241,6 +1278,7 @@ public final class EvoSimCommand {
         e.setStage(LifeStage.INFANT);
         e.moveTo(home.getX() + 1.5, home.getY(), home.getZ() + 0.5, 0f, 0f);
         e.setHomePos(home);
+        e.markStageActor(); // 검증 무대 개체 — 혈통 원장·통계 오염 방지
         e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);

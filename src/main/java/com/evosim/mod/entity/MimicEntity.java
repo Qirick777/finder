@@ -171,6 +171,8 @@ public class MimicEntity extends PathfinderMob {
     private long courtTravelTarget = 0L;        // 구혼 여행 목적지(타향 모닥불, BlockPos.asLong, NBT)
     private BlockPos visitAnchor = null;        // 노인 방문 임시 앵커(ElderVisitGoal 설정 — 휘발)
     private boolean hearthRegistered = false;   // 로드 첫 틱에 켜진 모닥불 전역 목록 재등록(휘발)
+    private boolean stageActor = false;         // 검증 무대 개체 — 혈통 원장·인구 통계에서 제외(NBT)
+    private boolean ledgerChecked = false;      // 원장 등록 1회 시도 가드(휘발 — register 자체는 멱등)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
@@ -515,6 +517,14 @@ public class MimicEntity extends PathfinderMob {
             }
             if (settledTick == 0L) {
                 settledTick = level().getGameTime(); // 구 세이브 호환 — 로드 직후 즉시 이주 방지
+            }
+            if (!ledgerChecked && individual != null && level() instanceof ServerLevel sl0) {
+                // 혈통 원장 등록 — 첫 서버 틱(출생·스폰·구세이브 로드 모두 이 경로 통과, register 멱등).
+                // 무대 개체는 통계 오염 방지를 위해 제외(스폰 헬퍼가 addFreshEntity 전에 마킹).
+                ledgerChecked = true;
+                if (!stageActor) {
+                    FamilyLedger.get(sl0).register(individual, level().getGameTime() / 24000L);
+                }
             }
             if (!hearthRegistered) {
                 hearthRegistered = true;
@@ -1621,6 +1631,11 @@ public class MimicEntity extends PathfinderMob {
         byte facing = homeFacing;
         boolean destroy = reason.shouldDestroy();
         super.remove(reason);
+        if (destroy && individual != null && level() instanceof ServerLevel sld) {
+            // 혈통 원장 사망 마킹 — 전투사·아사·노년 소멸 전부 이 경로(청크 언로드는 destroy 아님).
+            // 무대 개체는 등록이 없어 markDead 가 무시한다.
+            FamilyLedger.get(sld).markDead(individual.id(), level().getGameTime() / 24000L);
+        }
         if (destroy && home != null && level() instanceof ServerLevel sl && !anyResidentAt(sl, home)) {
             BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(facing));
             var st = sl.getBlockState(hp);
@@ -2362,6 +2377,9 @@ public class MimicEntity extends PathfinderMob {
         }
         child.setIndividual(childInd);
         child.setStage(LifeStage.INFANT);
+        if (stageActor || father.stageActor) {
+            child.markStageActor(); // 무대 혈통 전파 — addFreshEntity 전이라 원장 미등록이 보장됨
+        }
         BlockPos where = homePos != null ? homePos : blockPosition();
         child.setHomePos(homePos);
         child.setBirthPos(where); // 태어난 위치 확정(애향심 신축 앵커·분가 기준)
@@ -2393,6 +2411,18 @@ public class MimicEntity extends PathfinderMob {
             sb.append(t.koreanName());
         }
         return sb.toString();
+    }
+
+    /**
+     * 검증 무대 개체 마킹 — 혈통 원장·인구 통계에서 제외된다. 스폰 헬퍼가
+     * {@code addFreshEntity} <b>전에</b> 호출해야 첫 틱 원장 등록을 피한다(등록 취소는 없음).
+     */
+    public void markStageActor() {
+        this.stageActor = true;
+    }
+
+    public boolean isStageActor() {
+        return stageActor;
     }
 
     public void setFastSettle(boolean fast) {
@@ -2787,6 +2817,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putDouble("LastSurplus", lastSurplus);
         tag.putBoolean("LastFed", lastFed);
         tag.putBoolean("FastSettle", fastSettle);
+        tag.putBoolean("StageActor", stageActor); // 무대 표식 유지 — 리로드 후 원장 재등록 방지
         tag.putLong("SpouseId", spouseId);
         tag.putBoolean("Widowed", widowed);
         tag.putLong("LonelySince", lonelySinceTick); // 족외혼 클럭 — 리로드로 3일 재대기 방지
@@ -2841,6 +2872,7 @@ public class MimicEntity extends PathfinderMob {
             lastFed = tag.getBoolean("LastFed");
         }
         fastSettle = tag.getBoolean("FastSettle");
+        stageActor = tag.getBoolean("StageActor");
         spouseId = tag.getLong("SpouseId");
         widowed = tag.getBoolean("Widowed");
         lonelySinceTick = tag.contains("LonelySince") ? tag.getLong("LonelySince") : -1L;

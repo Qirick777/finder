@@ -90,6 +90,7 @@ public final class Stages {
         e.setIndividual(ind);
         e.setStage(stage);
         e.moveTo(pos.x, pos.y, pos.z, 0.0F, 0.0F);
+        e.markStageActor(); // 검증 무대 개체 — 혈통 원장·인구 통계 오염 방지
         level.addFreshEntity(e);
         return e;
     }
@@ -262,6 +263,7 @@ public final class Stages {
         }
         e.moveTo(pos.x, pos.y, pos.z, 0.0F, 0.0F);
         // 실제 스폰 경로로 랜덤 개체 부여(finalizeSpawn → randomFirstGen).
+        e.markStageActor(); // 검증 무대 개체 — 혈통 원장·인구 통계 오염 방지
         e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);

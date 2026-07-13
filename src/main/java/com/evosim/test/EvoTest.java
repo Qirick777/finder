@@ -18,6 +18,7 @@ import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
+import com.evosim.core.Lineage;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
@@ -117,6 +118,7 @@ public final class EvoTest {
             case "traitfx" -> traitfx(report);
             case "polygyny" -> polygyny(report);
             case "elder" -> elder(report);
+            case "lineage" -> lineage(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
                     "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | all",
@@ -147,6 +149,7 @@ public final class EvoTest {
         physique(report);
         roaming(report);
         ability(report);
+        lineage(report);
         berry(report);
         food(report);
         famine(report);
@@ -1936,4 +1939,38 @@ public final class EvoTest {
     /** 검사 하나 — 기대 vs 실제 (설계서 §17 기록 형식). */
     public record Check(String id, boolean pass, String expected, String actual) {
     }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest lineage — 가계도 순수 연산 (조상 그리드·후손 수 중복 제거)
+    // ──────────────────────────────────────────────────────────────
+    private static void lineage(Report report) {
+        // 가계: 조부모 g1(1)·g2(2) → 부모 p1(10)·p2(11, 형제) / p1×외부미상 → c1(20)
+        //       p1×p2(근친 가정 아님 — 다이아몬드 검증용 형제혼 모형) → c2(21)
+        java.util.Map<Long, long[]> parents = new java.util.HashMap<>();
+        parents.put(10L, new long[] {1L, 2L});
+        parents.put(11L, new long[] {1L, 2L});
+        parents.put(20L, new long[] {10L, 0L});
+        parents.put(21L, new long[] {10L, 11L});
+
+        long[][] grid = Lineage.ancestorGrid(20L, 2, parents);
+        boolean g = grid[0][0] == 20L
+                && grid[1][0] == 10L && grid[1][1] == 0L              // 부모: p1 · 미상
+                && grid[2][0] == 1L && grid[2][1] == 2L               // p1 의 부모
+                && grid[2][2] == 0L && grid[2][3] == 0L;              // 미상의 부모는 미상
+        report.add("lineage/조상그리드", g,
+                "focus→부모→조부모 2^d 배치 · 미상(0) 전파",
+                g ? "정상" : java.util.Arrays.deepToString(grid));
+
+        var idx = Lineage.childrenIndex(parents);
+        // g1(1)의 후손 = {p1, p2, c1, c2} — c2 는 p1·p2 양쪽 경로로 닿지만 1번만 센다.
+        boolean d = Lineage.descendantCount(1L, idx) == 4
+                && Lineage.descendantCount(10L, idx) == 2   // c1, c2
+                && Lineage.descendantCount(20L, idx) == 0   // 자식 없음
+                && Lineage.childCount(1L, idx) == 2;        // 직접 자식 p1·p2
+        report.add("lineage/후손수", d,
+                "다이아몬드(양가 경로) 중복 제거 · 직접 자식 수",
+                d ? "정상" : String.format("g1후손 %d · p1후손 %d",
+                        Lineage.descendantCount(1L, idx), Lineage.descendantCount(10L, idx)));
+    }
+
 }

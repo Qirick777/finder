@@ -8,12 +8,16 @@ import com.evosim.core.Tag;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.MimicEntity;
+import com.evosim.mod.gui.PedigreeSnapshot;
+import com.evosim.mod.net.ModNetwork;
+import com.evosim.mod.net.PedigreePacket;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -22,6 +26,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.network.PacketDistributor;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -31,6 +36,7 @@ import java.util.Set;
 /**
  * 미믹 검사봉 (설계서 §14). 미믹을 우클릭하면 <b>현재 모드</b>의 정보를 채팅에 표시.
  * 쉬프트+스크롤로 모드 순환: 특성 / 짝 / 거처 / 가족 인벤토리.
+ * 쉬프트+우클릭 = 모드 무관 <b>가계도 GUI</b>(조상 3세대, 노드 클릭으로 위로 항해).
  */
 public class TraitScannerItem extends Item {
 
@@ -74,6 +80,21 @@ public class TraitScannerItem extends Item {
         }
         if (player.level().isClientSide) {
             return InteractionResult.SUCCESS;
+        }
+
+        // 웅크려 우클릭 = 모드 무관 가계도 열기 (§14). 스냅샷을 만들어 클라 화면 패킷으로 회신.
+        if (player.isShiftKeyDown()) {
+            if (mimic.isStageActor()) {
+                // 무대 개체는 원장 미등록(통계 오염 방지) — 전부 미상으로 그려지느니 이유를 말한다.
+                player.displayClientMessage(Component.literal(
+                        "검증 무대 개체 — 혈통 원장에 없어 가계도를 열 수 없습니다.")
+                        .withStyle(ChatFormatting.GRAY), true);
+            } else if (mimic.getIndividual() != null
+                    && player instanceof ServerPlayer sp && player.level() instanceof ServerLevel sl) {
+                ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> sp),
+                        new PedigreePacket(PedigreeSnapshot.build(sl, mimic.getIndividual().id())));
+            }
+            return InteractionResult.CONSUME;
         }
 
         ScannerMode mode = ScannerMode.of(stack);

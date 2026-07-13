@@ -593,6 +593,13 @@ public final class EvoTest {
         report.add("combat/진입", entry,
                 "용감 적극·겁쟁이 회피·중립 온것만", entry ? "정상" : "어긋남");
 
+        // ①b 유인 반경 배율: 조심성 0.75(눈에 덜 띔 — 감지 −3의 반대급부), 그 외 1.0
+        boolean aggro = close(Combat.aggroRangeMult(
+                        one(Sex.MALE, TraitInstance.of(Trait.CAUTIOUS))), 0.75)
+                && close(Combat.aggroRangeMult(neutral), 1.0)
+                && close(Combat.aggroRangeMult(brave), 1.0);
+        report.add("combat/유인배율", aggro, "조심성 0.75 · 그 외 1.0", aggro ? "정상" : "어긋남");
+
         // ② 퇴각: 무모 HOLD, 중립 하한→RETREAT, 신중 하한+가족→HOLD, 신중 하한+비가족→RETREAT
         boolean retreat = Combat.retreat(reckless, 0.1, false) == Combat.Retreat.HOLD
                 && Combat.retreat(neutral, 0.1, false) == Combat.Retreat.RETREAT

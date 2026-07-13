@@ -1,6 +1,7 @@
 package com.evosim.mod.entity;
 
 import com.evosim.core.Activity;
+import com.evosim.core.Combat;
 import com.evosim.core.Courtship;
 import com.evosim.core.DeterministicRng;
 import com.evosim.core.Elder;
@@ -564,7 +565,9 @@ public class MimicEntity extends PathfinderMob {
         // 미믹은 바닐라 좀비의 자연 표적이 아니라 이 함수가 유일한 어그로 공급원이다.
         // 원거리 능동 유인은 전투 가능 단계(성년·노년)만 — 유아·소년이 20블록 밖 좀비를 스스로
         // 끌어와 죽던 결함 제거. 비전투 단계는 근접 조우(4)에서만 노려져 밤 위협 자체는 유지.
-        double range = SurvivalRules.canFight(getStage()) ? ZOMBIE_AGGRO_RANGE : ZOMBIE_CLOSE_AGGRO;
+        // 조심성은 두 반경 모두 ×0.75(눈에 덜 띔 — 유일 공급원이라 실효 보장).
+        double range = (SurvivalRules.canFight(getStage()) ? ZOMBIE_AGGRO_RANGE : ZOMBIE_CLOSE_AGGRO)
+                * (individual != null ? Combat.aggroRangeMult(individual) : 1.0);
         for (Zombie z : level().getEntitiesOfClass(Zombie.class, getBoundingBox().inflate(range))) {
             var cur = z.getTarget();
             if (cur == null || !cur.isAlive()) {

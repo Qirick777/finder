@@ -80,6 +80,14 @@ public final class Combat {
         return Math.max(2.0, r);
     }
 
+    /**
+     * 좀비 유인(어그로) 반경 배율 — 조심성은 몸을 사려 눈에 덜 띈다(−25%, 감지 −3의 반대급부).
+     * 표현층 attractZombies 가 원거리·근접 두 반경 모두에 곱한다(2계층 일관).
+     */
+    public static double aggroRangeMult(Individual ind) {
+        return isExpr(ind, Trait.CAUTIOUS) ? 0.75 : 1.0;
+    }
+
     private static boolean isExpr(Individual ind, Trait t) {
         return ExpressionResolver.isExpressed(ind, t);
     }

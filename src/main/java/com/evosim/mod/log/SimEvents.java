@@ -49,12 +49,12 @@ public final class SimEvents {
         return logPath;
     }
 
-    /** 로그 on/off. 켤 때 파일을 새로 열고 헤더 기록. */
+    /** 로그 on/off. 켤 때 파일을 새로 열고 헤더 기록 — <b>파일이 실제로 열린 뒤에만</b> 켜짐으로
+     *  전환한다(실패 시 꺼진 채 남아 재호출이 곧 재시도 — 종전엔 켜짐 표시+무성 소실+재시도 불가). */
     public static synchronized void setEnabled(boolean on, Path gameDir) {
         if (on == enabled) {
             return;
         }
-        enabled = on;
         if (on) {
             try {
                 logPath = gameDir.resolve("evosim-events.log");
@@ -62,13 +62,19 @@ public final class SimEvents {
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND));
                 writer.println("=== EvoSim 관찰 로그 시작 ===");
                 writer.flush();
+                enabled = true; // 성공 후에만
             } catch (IOException e) {
                 writer = null;
+                enabled = false;
             }
-        } else if (writer != null) {
-            writer.println("=== 로그 종료 ===");
-            writer.close();
-            writer = null;
+        } else {
+            enabled = false;
+            if (writer != null) {
+                writer.println("=== 로그 종료 ===");
+                writer.close(); // close 가 잔여 버퍼 flush 포함 — 정상 종료는 무손실
+                writer = null;
+            }
+            pendingFlush = 0;
         }
     }
 
@@ -193,6 +199,11 @@ public final class SimEvents {
         MEMORY.clear();
     }
 
+    /** flush 묶음 크기 — 매 줄 flush 가 서버 틱을 사건마다 디스크에 묶던 부하를 제거.
+     *  크래시 시 최대 (이 값 − 1)줄 유실 가능(관찰용 로그의 수용 가능한 트레이드오프). */
+    private static final int FLUSH_EVERY = 20;
+    private static int pendingFlush = 0;
+
     private static synchronized void append(String line) {
         MEMORY.addLast(line);
         if (MEMORY.size() > MAX_MEM) {
@@ -200,7 +211,10 @@ public final class SimEvents {
         }
         if (writer != null) {
             writer.println(line);
-            writer.flush();
+            if (++pendingFlush >= FLUSH_EVERY) {
+                writer.flush();
+                pendingFlush = 0;
+            }
         }
     }
 

@@ -74,6 +74,13 @@ public class FamilyLedger extends SavedData {
         return recs.get(id);
     }
 
+    /** 검증 전용 정리 — checkall의 원장 등록 스텝이 만든 실기록을 회수(규칙 7: 세계 오염 금지). 멱등. */
+    public void debugRemove(long id) {
+        if (recs.remove(id) != null) {
+            setDirty();
+        }
+    }
+
     public Map<Long, Rec> all() {
         return recs;
     }

@@ -25,9 +25,14 @@ public final class VerifySuite {
     private static final int PROGRESS_INTERVAL = 60; // 3초마다 수치 중계
     private static final int STEP_GAP = 20;          // 단계 사이 정리 틈(틱)
 
-    /** 검증 한 단계 — setup(직전 조성) / progress(수치 한 줄) / pass(결과값 판정) / cleanup(개체 정리). */
+    /**
+     * 검증 한 단계 — setup(직전 조성) / progress(수치 한 줄) / pass(결과값 판정) / cleanup(개체 정리).
+     * name 은 영문 슬러그(로그·코드 위치 1:1), expect 는 판정식의 영문 사본(로그에서 판정식-코드
+     * 대칭이 보이게 — 규칙 10). 출력은 전부 영문: cmd 콘솔 한글 깨짐 회피.
+     */
     public static final class Step {
         final String name;
+        final String expect;
         final int timeout;
         final boolean passOnTimeout;
         final Runnable setup;
@@ -35,9 +40,10 @@ public final class VerifySuite {
         final Supplier<Boolean> pass;
         final Runnable cleanup;
 
-        public Step(String name, int timeout, boolean passOnTimeout, Runnable setup,
+        public Step(String name, String expect, int timeout, boolean passOnTimeout, Runnable setup,
                     Supplier<String> progress, Supplier<Boolean> pass, Runnable cleanup) {
             this.name = name;
+            this.expect = expect;
             this.timeout = timeout;
             this.passOnTimeout = passOnTimeout;
             this.setup = setup;
@@ -74,7 +80,9 @@ public final class VerifySuite {
         ticks = 0;
         gap = 0;
         stepStarted = false;
-        say("═══ 원트랙 검증 시작 — 총 " + list.size() + "단계 ═══", ChatFormatting.GOLD);
+        VerifyLog.open(source.getServer().getServerDirectory().toPath(),
+                "checkall steps=" + list.size());
+        say("=== VERIFY start - " + list.size() + " steps ===", ChatFormatting.GOLD);
         return true;
     }
 
@@ -93,12 +101,12 @@ public final class VerifySuite {
         }
         Step cur = steps.get(idx);
         if (!stepStarted) {
-            say(String.format("▶ [%d/%d] %s — 직전 조건 조성", idx + 1, steps.size(), cur.name),
+            say(String.format("> [%d/%d] %s - staging preconditions", idx + 1, steps.size(), cur.name),
                     ChatFormatting.GOLD);
             try {
                 cur.setup.run();
             } catch (Exception ex) {
-                finishStep(cur, false, "조성 실패: " + ex);
+                finishStep(cur, false, "setup_error", String.valueOf(ex));
                 return;
             }
             stepStarted = true;
@@ -110,32 +118,36 @@ public final class VerifySuite {
         try {
             hit = Boolean.TRUE.equals(cur.pass.get());
         } catch (Exception ex) {
-            finishStep(cur, false, "판정 중단(개체 소실): " + ex);
+            finishStep(cur, false, "judge_error", String.valueOf(ex));
             return;
         }
         if (cur.passOnTimeout) { // "금지 결과" 감시: 발생 → 실패, 무사 경과 → 성공
             if (hit) {
-                finishStep(cur, false, "금지 결과 발생 — " + safe(cur.progress));
+                finishStep(cur, false, "forbidden_result", safe(cur.progress));
             } else if (ticks >= cur.timeout) {
-                finishStep(cur, true, "금지 결과 없음(" + (cur.timeout / 20) + "초) — " + safe(cur.progress));
+                finishStep(cur, true, "no_forbidden_result", safe(cur.progress));
             } else if (ticks % PROGRESS_INTERVAL == 0) {
-                say("   " + (ticks / 20) + "초 — " + safe(cur.progress), ChatFormatting.GRAY);
+                say("   " + (ticks / 20) + "s - " + safe(cur.progress), ChatFormatting.GRAY);
             }
         } else {
             if (hit) {
-                finishStep(cur, true, (ticks / 20) + "초 — " + safe(cur.progress));
+                finishStep(cur, true, "result_met", safe(cur.progress));
             } else if (ticks >= cur.timeout) {
-                finishStep(cur, false, "제한 " + (cur.timeout / 20) + "초 초과 — " + safe(cur.progress));
+                finishStep(cur, false, "timeout", safe(cur.progress));
             } else if (ticks % PROGRESS_INTERVAL == 0) {
-                say("   " + (ticks / 20) + "초 — " + safe(cur.progress), ChatFormatting.GRAY);
+                say("   " + (ticks / 20) + "s - " + safe(cur.progress), ChatFormatting.GRAY);
             }
         }
     }
 
-    private static void finishStep(Step cur, boolean ok, String detail) {
-        String line = (ok ? "✅ " : "❌ ") + cur.name + " — " + detail;
+    private static void finishStep(Step cur, boolean ok, String reason, String detail) {
+        String line = String.format("[VERIFY %d/%d] %s %s | reason=%s | elapsed=%.1fs | %s | expect: %s",
+                idx + 1, steps.size(), ok ? "PASS" : "FAIL", cur.name, reason, ticks / 20.0,
+                detail, cur.expect);
         RESULTS.add(line);
-        say(line, ok ? ChatFormatting.GREEN : ChatFormatting.RED);
+        say((ok ? "✅ " : "❌ ") + cur.name + " | " + reason + " | " + detail,
+                ok ? ChatFormatting.GREEN : ChatFormatting.RED);
+        VerifyLog.result(line, ok);
         try {
             cur.cleanup.run();
         } catch (Exception ignored) {
@@ -147,12 +159,19 @@ public final class VerifySuite {
     }
 
     private static void summarize() {
-        long pass = RESULTS.stream().filter(r -> r.startsWith("✅")).count();
-        say("═══ 검증 완료 — ✅ " + pass + " / ❌ " + (RESULTS.size() - pass) + " ═══",
-                pass == RESULTS.size() ? ChatFormatting.GREEN : ChatFormatting.RED);
+        long pass = RESULTS.stream().filter(r -> r.contains("] PASS ")).count();
+        long fail = RESULTS.size() - pass;
+        StringBuilder failed = new StringBuilder();
         for (String r : RESULTS) {
-            say(r, r.startsWith("✅") ? ChatFormatting.DARK_GREEN : ChatFormatting.RED);
+            if (r.contains("] FAIL ")) {
+                failed.append(failed.length() > 0 ? ", " : "")
+                        .append(r.split(" FAIL ")[1].split(" \\|")[0]);
+            }
         }
+        String sum = "[VERIFY SUMMARY] " + pass + "/" + RESULTS.size() + " PASS"
+                + (fail > 0 ? ", " + fail + " FAIL: " + failed : "");
+        say(sum, pass == RESULTS.size() ? ChatFormatting.GREEN : ChatFormatting.RED);
+        VerifyLog.result(sum, fail == 0);
         steps = null;
         src = null;
     }
@@ -161,7 +180,7 @@ public final class VerifySuite {
         try {
             return s.get();
         } catch (Exception ex) {
-            return "(수치 조회 불가)";
+            return "(values unavailable)";
         }
     }
 

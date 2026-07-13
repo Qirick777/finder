@@ -45,6 +45,7 @@ public final class LiveCheck {
         e.pass = pass;
         e.cleanup = cleanup;
         ACTIVE.add(e);
+        VerifyLog.ensure(src.getServer().getServerDirectory().toPath());
         send(e, "판별 시작 — 시작값: " + safe(progress), ChatFormatting.GOLD);
     }
 
@@ -91,11 +92,15 @@ public final class LiveCheck {
             if (ok) {
                 send(e, "✅ 성공 (" + (e.ticks / 20) + "초) — 결과값: " + safe(e.progress),
                         ChatFormatting.GREEN);
+                VerifyLog.result(String.format("[VERIFY-LIVE] PASS %s | reason=result_met | "
+                        + "elapsed=%.1fs | %s", e.name, e.ticks / 20.0, safe(e.progress)), true);
                 it.remove();
                 finish(e);
             } else if (e.ticks >= e.timeout) {
                 send(e, "❌ 실패 (제한 " + (e.timeout / 20) + "초 초과) — 최종값: " + safe(e.progress),
                         ChatFormatting.RED);
+                VerifyLog.result(String.format("[VERIFY-LIVE] FAIL %s | reason=timeout | "
+                        + "elapsed=%.1fs | %s", e.name, e.ticks / 20.0, safe(e.progress)), false);
                 it.remove();
                 finish(e);
             } else if (e.ticks % PROGRESS_INTERVAL == 0) {

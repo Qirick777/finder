@@ -10,6 +10,7 @@ import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MigrationDest;
+import com.evosim.mod.entity.FamilyLedger;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
@@ -34,6 +35,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.PacketDistributor;
@@ -633,7 +635,7 @@ public final class EvoSimCommand {
         level.setDayTime(9000L); // 배회 시간 — 구애 goal 활동
         LiveCheck.watch(ctx.getSource(), "중혼", 1200,
                 () -> String.format("신부 %s · 거처 %s · 저장고 %.0f",
-                        bride.isSingleAdult() ? "독신" : "혼인",
+                        bride.isSingleAdult() ? "single" : "married",
                         home.equals(bride.getHomePos()) ? "합류" : "미합류",
                         LarderStore.get(level).get(home)),
                 () -> !bride.isSingleAdult() && home.equals(bride.getHomePos()),
@@ -663,7 +665,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 1);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("입금·인출", 600, false, () -> {
+            steps.add(new VerifySuite.Step("deposit_withdraw", "husband H in [1,2) & wife H >= 1.5 (deposit+withdraw)", 600, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -673,7 +675,7 @@ public final class EvoSimCommand {
                 c[0].debugSetHolding(2.5);
                 c[1].debugSetHolding(0.7);
                 level.setDayTime(4000L);
-            }, () -> String.format("남편H %.2f(시작2.5) 아내H %.2f(시작0.7) 저장고 %.0f",
+            }, () -> String.format("husbandH %.2f(start 2.5) wifeH %.2f(start 0.7) larder %.0f",
                     c[0].getHolding(), c[1].getHolding(), LarderStore.get(level).get(home)),
                     () -> c[0].getHolding() >= 1.0 && c[0].getHolding() < 2.0 && c[1].getHolding() >= 1.5,
                     () -> discard(c)));
@@ -682,7 +684,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 2);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("가족 나눔", 400, false, () -> {
+            steps.add(new VerifySuite.Step("family_share", "wife H >= 0.6 by share & husband H <= 1.8", 400, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -690,7 +692,7 @@ public final class EvoSimCommand {
                 c[0].debugSetHolding(1.9); // 입금 문턱(2.0) 미달 — 가족틱 우회 구조(위양성) 차단
                 c[1].debugSetHolding(0.25);
                 level.setDayTime(4000L);
-            }, () -> String.format("아내H %.2f(시작0.25) 남편H %.2f(시작1.9)",
+            }, () -> String.format("wifeH %.2f(start 0.25) husbandH %.2f(start 1.9)",
                     c[1].getHolding(), c[0].getHolding()),
                     () -> c[1].getHolding() >= 0.6 && c[0].getHolding() <= 1.8,
                     () -> discard(c)));
@@ -699,7 +701,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 3);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("번식+출산비용", 100, false, () -> {
+            steps.add(new VerifySuite.Step("birth_cost_accounting", "larder == 17 - berryCost & infants == 1", 100, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -707,7 +709,7 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 20.0);
                 level.setDayTime(4000L);
                 c[0].debugSettleOnce();
-            }, () -> String.format("저장고 %.0f(기대 %.0f=17−베리비용) 유아 %d(기대1) 베리 %d",
+            }, () -> String.format("larder %.0f(expect %.0f=17-berry) infants %d(expect 1) bushes %d",
                     LarderStore.get(level).get(home), 17.0 - berryCost(level, c[0]),
                     infantsAt(level, home), c[0].countBerries(level)),
                     () -> Math.abs(LarderStore.get(level).get(home)
@@ -719,7 +721,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 4);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("육아 급식", 100, false, () -> {
+            steps.add(new VerifySuite.Step("infant_feed", "infant H >= 1.5 & larder == 4", 100, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -728,7 +730,7 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 5.0);
                 level.setDayTime(4000L);
                 c[0].debugSettleOnce();
-            }, () -> String.format("유아H %.2f(기대1.5) 저장고 %.0f(기대4)",
+            }, () -> String.format("infantH %.2f(expect 1.5) larder %.0f(expect 4)",
                     c[2].getHolding(), LarderStore.get(level).get(home)),
                     () -> c[2].getHolding() >= 1.5 - 1.0E-9
                             && Math.abs(LarderStore.get(level).get(home) - 4.0) < 1.0E-6,
@@ -738,13 +740,13 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 5);
             MimicEntity[] c = new MimicEntity[1];
-            steps.add(new VerifySuite.Step("R6 위급 귀가", 600, false, () -> {
+            steps.add(new VerifySuite.Step("critical_home_withdraw", "H >= 1.2 & larder <= 2 (night+critical+stocked)", 600, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(6, 0, 0), Sex.MALE);
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 LarderStore.get(level).set(home, 3.0);
                 c[0].debugSetHolding(0.25);
                 level.setDayTime(15000L); // 취침 시간 — 평소라면 자야 함
-            }, () -> String.format("H %.2f(시작0.25) 저장고 %.0f(시작3)",
+            }, () -> String.format("H %.2f(start 0.25) larder %.0f(start 3)",
                     c[0].getHolding(), LarderStore.get(level).get(home)),
                     // 0.25→채움은 정수 2개 인출(1.25는 목표 1.5 미달) → H 2.25·L 1, 이후 재입금으로
                     // H 1.25·L 2 로 진동 가능. 판정은 "실제로 먹었고(H≥1.2) 저장고가 줄었다(L<3)"로.
@@ -756,13 +758,13 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 6);
             MimicEntity[] c = new MimicEntity[1];
-            steps.add(new VerifySuite.Step("R6 채집 강행(풀 필요)", 900, false, () -> {
+            steps.add(new VerifySuite.Step("critical_forage_grass", "H > 0.35 by forced night forage (needs grass nearby)", 900, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 LarderStore.get(level).set(home, 0.0);
                 c[0].debugSetHolding(0.25);
                 level.setDayTime(15000L);
-            }, () -> String.format("H %.2f(시작0.25 — 채집 회복 대기)", c[0].getHolding()),
+            }, () -> String.format("H %.2f(start 0.25, waiting forage recovery)", c[0].getHolding()),
                     () -> c[0].getHolding() > 0.35,
                     () -> discard(c)));
         }
@@ -770,11 +772,11 @@ public final class EvoSimCommand {
         {
             BlockPos spot = ground(level, b, 7);
             MimicEntity[] c = new MimicEntity[1];
-            steps.add(new VerifySuite.Step("아사 클럭(피해 발생)", 400, false, () -> {
+            steps.add(new VerifySuite.Step("starvation_clock", "dead or hp < max-0.5 after grace (foraging blocked)", 400, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
                 c[0].setFastSettle(true); // 시간 압축 + 채집 goal 차단 → 자가 구조 불가(결정론)
                 c[0].debugSetHolding(0.1);
-            }, () -> String.format("H %.2f · 체력 %.1f/%.1f",
+            }, () -> String.format("H %.2f hp %.1f/%.1f",
                     c[0].getHolding(), c[0].getHealth(), c[0].getMaxHealth()),
                     () -> !c[0].isAlive() || c[0].getHealth() < c[0].getMaxHealth() - 0.5,
                     () -> discard(c)));
@@ -784,7 +786,7 @@ public final class EvoSimCommand {
             BlockPos homeA = ground(level, b, 8);
             BlockPos homeB = homeA.offset(12, 0, 0);
             MimicEntity[] c = new MimicEntity[5];
-            steps.add(new VerifySuite.Step("이주(캐러밴·유아 업기)", 200, false, () -> {
+            steps.add(new VerifySuite.Step("migration_caravan", "both homes moved, new homes within 96, infant riding", 200, false, () -> {
                 MimicEntity[] f1 = coupleAt(level, homeA);
                 MimicEntity[] f2 = coupleAt(level, homeB);
                 c[0] = f1[0];
@@ -797,9 +799,9 @@ public final class EvoSimCommand {
                 c[2].debugForceFamine(level);
                 c[0].debugSettleOnce(); // 길잡이
                 c[2].debugSettleOnce(); // 동참
-            }, () -> String.format("가구A %s 가구B %s 두 새집 거리 %.0f 유아 업힘 %s",
-                    homeA.equals(c[0].getHomePos()) ? "잔류" : "이동",
-                    homeB.equals(c[2].getHomePos()) ? "잔류" : "이동",
+            }, () -> String.format("famA %s famB %s newHomeDist %.0f infantRiding %s",
+                    homeA.equals(c[0].getHomePos()) ? "stay" : "moved",
+                    homeB.equals(c[2].getHomePos()) ? "stay" : "moved",
                     c[0].getHomePos() != null && c[2].getHomePos() != null
                             ? Math.sqrt(c[0].getHomePos().distSqr(c[2].getHomePos())) : -1,
                     c[4].isPassenger() ? "O" : "X"),
@@ -814,20 +816,20 @@ public final class EvoSimCommand {
             BlockPos homeA = ground(level, b, 9);
             BlockPos homeB = homeA.offset(0, 0, 56);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("구혼 여행: 이동", 1800, false, () -> {
+            steps.add(new VerifySuite.Step("courtship_trip_travel", "lonely male reaches foreign hearth (<= 24 blocks)", 1800, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
                 c[0].debugSettleWithTent(homeA, Direction.NORTH);
                 c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.FEMALE);
                 c[1].debugSettleWithTent(homeB, Direction.NORTH);
                 c[0].debugForceLonely();
                 level.setDayTime(8200L); // 배회 — 도착 후 바로 구애 가능
-            }, () -> String.format("남성↔타향 거리 %.0f(시작 56)",
+            }, () -> String.format("male-foreign dist %.0f(start 56)",
                     Math.sqrt(c[0].blockPosition().distSqr(homeB))),
                     () -> c[0].blockPosition().distSqr(homeB) <= 24.0 * 24.0,
                     () -> { /* [10]과 공유 — 정리 없음 */ }));
-            steps.add(new VerifySuite.Step("구혼 여행: 성사", 1200, false, () -> {
-            }, () -> String.format("남성 %s · 여성 %s",
-                    c[0].isSingleAdult() ? "독신" : "혼인", c[1].isSingleAdult() ? "독신" : "혼인"),
+            steps.add(new VerifySuite.Step("courtship_trip_marriage", "traveler no longer single", 1200, false, () -> {
+            }, () -> String.format("male %s female %s",
+                    c[0].isSingleAdult() ? "single" : "married", c[1].isSingleAdult() ? "single" : "married"),
                     () -> !c[0].isSingleAdult(),
                     () -> discard(c)));
         }
@@ -835,7 +837,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 11);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("중혼 성사(관용 아내)", 1200, false, () -> {
+            steps.add(new VerifySuite.Step("polygamy_accept", "bride married & joined home (tolerant wife, larder 40)", 1200, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -844,8 +846,8 @@ public final class EvoSimCommand {
                 // 개입에도 게이트 유지(경계값 21은 베리 실차감 도입 후 flaky).
                 LarderStore.get(level).set(home, 40.0);
                 level.setDayTime(9000L);
-            }, () -> String.format("신부 %s · 합류 %s · 저장고 %.0f",
-                    c[2].isSingleAdult() ? "독신" : "혼인",
+            }, () -> String.format("bride %s joined %s larder %.0f",
+                    c[2].isSingleAdult() ? "single" : "married",
                     home.equals(c[2].getHomePos()) ? "O" : "X", LarderStore.get(level).get(home)),
                     () -> !c[2].isSingleAdult() && home.equals(c[2].getHomePos()),
                     () -> discard(c)));
@@ -854,7 +856,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 12);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("중혼 거절(인색 아내)", 600, true, () -> {
+            steps.add(new VerifySuite.Step("polygamy_reject", "bride must stay single (stingy wife gate)", 600, true, () -> {
                 MimicEntity[] cc = coupleAt(level, home, Trait.STINGY); // 질투 게이트
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -863,8 +865,8 @@ public final class EvoSimCommand {
                 // 인색 게이트가 고장나도 통과하는 위양성이 생기므로, 거절 사유를 아내 특성 하나로 고정.
                 LarderStore.get(level).set(home, 40.0);
                 level.setDayTime(9000L);
-            }, () -> String.format("신부 %s(계속 독신이어야 성공)",
-                    c[2].isSingleAdult() ? "독신" : "혼인"),
+            }, () -> String.format("bride %s(must stay single)",
+                    c[2].isSingleAdult() ? "single" : "married"),
                     () -> !c[2].isSingleAdult(), // ← 금지 결과(혼인)가 감지되면 실패
                     () -> discard(c)));
         }
@@ -874,7 +876,7 @@ public final class EvoSimCommand {
             BlockPos spot = ground(level, b, 13);
             MimicEntity[] c = new MimicEntity[1];
             boolean[] sawElder = new boolean[1];
-            steps.add(new VerifySuite.Step("노년 전이·자연사", 400, false, () -> {
+            steps.add(new VerifySuite.Step("elder_transition_death", "passes ELDER stage then dies naturally (fast growth)", 400, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
                 c[0].setFastGrowth(true);
                 level.setDayTime(2000L);
@@ -882,7 +884,7 @@ public final class EvoSimCommand {
                 if (c[0].getStage() == LifeStage.ELDER) {
                     sawElder[0] = true;
                 }
-                return String.format("단계 %s · 노년경유 %s · 생존 %s",
+                return String.format("stage %s elderSeen %s alive %s",
                         stageName(c[0].getStage()), sawElder[0] ? "O" : "X", c[0].isAlive() ? "O" : "X");
             }, () -> {
                 if (c[0].getStage() == LifeStage.ELDER) {
@@ -898,7 +900,7 @@ public final class EvoSimCommand {
             // 발동하는 거리로 검증(과거 16블록은 앵커 수정을 한 번도 밟지 않았다).
             BlockPos homeC = homeE.offset(40, 0, 0);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("노인 공유(책임)", 1200, false, () -> {
+            steps.add(new VerifySuite.Step("elder_share", "child home larder 0 -> >= 2 (responsible elder delivery)", 1200, false, () -> {
                 // 집 반경 밖 스폰 — 가족틱의 자기 입금이 배달 잉여를 흡수하는 race 차단(결정론).
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE).add(8, 0, 4), Sex.MALE,
                         Trait.OVER_RESPONSIBLE);
@@ -911,7 +913,7 @@ public final class EvoSimCommand {
                 c[2] = stagedInfant(level, homeC, Sex.FEMALE);
                 LarderStore.get(level).set(homeC, 0.0);
                 level.setDayTime(2000L);
-            }, () -> String.format("자식집 저장고 %.0f(기대 2) · 노인 H %.2f",
+            }, () -> String.format("childLarder %.0f(expect 2) elderH %.2f",
                     LarderStore.get(level).get(homeC), c[0].getHolding()),
                     () -> LarderStore.get(level).get(homeC) >= 2.0 - 1.0E-6,
                     () -> discard(c)));
@@ -921,7 +923,7 @@ public final class EvoSimCommand {
             BlockPos homeE = ground(level, b, 15);
             BlockPos homeC = homeE.offset(16, 0, 0);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("노인 무공유(무책임)", 600, true, () -> {
+            steps.add(new VerifySuite.Step("elder_no_share", "child home larder must stay 0 (irresponsible elder)", 600, true, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeE).add(8, 0, 4), Sex.MALE,
                         Trait.IRRESPONSIBLE);
                 c[0].setStage(LifeStage.ELDER);
@@ -933,7 +935,7 @@ public final class EvoSimCommand {
                 c[2] = stagedInfant(level, homeC, Sex.FEMALE);
                 LarderStore.get(level).set(homeC, 0.0);
                 level.setDayTime(2000L);
-            }, () -> String.format("자식집 저장고 %.0f(0 유지여야 성공)", LarderStore.get(level).get(homeC)),
+            }, () -> String.format("childLarder %.0f(must stay 0)", LarderStore.get(level).get(homeC)),
                     () -> LarderStore.get(level).get(homeC) > 1.0E-6, // ← 금지 결과(공유 발생)
                     () -> discard(c)));
         }
@@ -942,7 +944,7 @@ public final class EvoSimCommand {
             BlockPos homeE = ground(level, b, 16);
             BlockPos homeC = homeE.offset(10, 0, 0);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("마실 육아(손자 생존)", 400, true, () -> {
+            steps.add(new VerifySuite.Step("elder_visit_care", "infant must survive with visiting elder only", 400, true, () -> {
                 // 노인은 자기 집 없이 유아 곁에서 시작(마실 상태) — 대상 식별은 부모 링크+유아 대조.
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeC).add(1, 0, 0), Sex.MALE);
                 c[0].setStage(LifeStage.ELDER);
@@ -954,8 +956,8 @@ public final class EvoSimCommand {
                 c[2].setFastCare(true); // 20틱마다 급식 판정 — 성인 없으면 3회(60틱) 만에 아사
                 LarderStore.get(level).set(homeC, 3.0);
                 level.setDayTime(2000L);
-            }, () -> String.format("유아 %s · 노인↔유아 %.0f블록 (유아 생존 유지여야 성공)",
-                    c[2].isAlive() ? "생존" : "사망",
+            }, () -> String.format("infant %s elderDist %.0f(must survive)",
+                    c[2].isAlive() ? "alive" : "dead",
                     Math.sqrt(c[0].blockPosition().distSqr(c[2].blockPosition()))),
                     () -> !c[2].isAlive(), // ← 금지 결과(방치 아사)
                     () -> discard(c)));
@@ -966,13 +968,13 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 17);
             MimicEntity[] c = new MimicEntity[1];
-            steps.add(new VerifySuite.Step("집앞 즉석 인출", 60, false, () -> {
+            steps.add(new VerifySuite.Step("doorstep_withdraw", "H >= 1.5 & larder <= 2 without moving", 60, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 LarderStore.get(level).set(home, 3.0);
                 c[0].debugSetHolding(0.7); // 귀가 임계(0.8) 미만 + 이미 집 안(이동 불필요)
                 level.setDayTime(4000L);
-            }, () -> String.format("H %.2f(시작0.7·기대≥1.5) 저장고 %.0f(시작3·기대2)",
+            }, () -> String.format("H %.2f(start 0.7 expect>=1.5) larder %.0f(start 3 expect 2)",
                     c[0].getHolding(), LarderStore.get(level).get(home)),
                     () -> c[0].getHolding() >= 1.5 - 1.0E-9
                             && LarderStore.get(level).get(home) <= 2.0 + 1.0E-6,
@@ -983,7 +985,7 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 18);
             MimicEntity[] c = new MimicEntity[3];
-            steps.add(new VerifySuite.Step("혼인우선 가장(아들 동거)", 100, false, () -> {
+            steps.add(new VerifySuite.Step("head_priority_son", "accounting holds with adult son cohabiting & infants == 1", 100, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
@@ -993,7 +995,7 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 20.0);
                 level.setDayTime(4000L);
                 c[0].debugSettleOnce();
-            }, () -> String.format("저장고 %.0f(기대 %.0f) 유아 %d(기대1)",
+            }, () -> String.format("larder %.0f(expect %.0f) infants %d(expect 1)",
                     LarderStore.get(level).get(home), 17.0 - berryCost(level, c[0]),
                     infantsAt(level, home)),
                     () -> Math.abs(LarderStore.get(level).get(home)
@@ -1009,7 +1011,7 @@ public final class EvoSimCommand {
             Zombie[] z = new Zombie[1];
             long[] t0 = new long[1];
             boolean[] moved = new boolean[1];
-            steps.add(new VerifySuite.Step("전투 도주 해제(귀가)", 600, false, () -> {
+            steps.add(new VerifySuite.Step("combat_flee_release", "after zombie moved far, coward returns within 3 blocks of home", 600, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.COWARD);
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 level.setDayTime(15000L); // 밤 — 좀비 연소 방지
@@ -1020,9 +1022,9 @@ public final class EvoSimCommand {
                 level.addFreshEntity(z[0]);
                 t0[0] = level.getGameTime();
                 moved[0] = false;
-            }, () -> String.format("도주거리 %.0f블록 · 좀비 %s",
+            }, () -> String.format("fleeDist %.0f zombie %s",
                     Math.sqrt(c[0].blockPosition().distSqr(home)),
-                    moved[0] ? "원격(해제 국면)" : "인접(도주 국면)"),
+                    moved[0] ? "far(release)" : "near(fleeing)"),
                     () -> {
                         // 국면 전환: 60틱 도주 후 좀비를 120블록 밖으로(살아있는 채) — 과거 코드라면
                         // 그래도 계속 도망친다. 신 코드는 해제 → 리시·귀가로 집 3블록 내 복귀 = 성공.
@@ -1046,15 +1048,15 @@ public final class EvoSimCommand {
             BlockPos dest = home.offset(8, 0, 0);      // 합의 목적지 = 사실상 제자리
             BlockPos origin = home.offset(-60, 0, 0);  // 같은 마을권(256 내) 옛 출발지
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("제자리 합의 기각(이주)", 200, false, () -> {
+            steps.add(new VerifySuite.Step("stale_pact_reject", "new home > 32 blocks from stale pact destination", 200, false, () -> {
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
                 MigrationDest.get(level).register(origin, dest, level.getGameTime()); // 유효한 낡은 합의
                 c[0].debugForceFamine(level);
                 c[0].debugSettleOnce(); // 기근 → 이주. resolve 는 dest(8) < origin(60) 로 기각해야 함
-            }, () -> String.format("새집%s · 합의목적지와 %.0f블록",
-                    home.equals(c[0].getHomePos()) ? " 미이동" : " 이동",
+            }, () -> String.format("newHome%s pactDist %.0f",
+                    home.equals(c[0].getHomePos()) ? " not-moved" : " moved",
                     c[0].getHomePos() != null ? Math.sqrt(c[0].getHomePos().distSqr(dest)) : -1),
                     () -> c[0].getHomePos() != null && !home.equals(c[0].getHomePos())
                             && c[0].getHomePos().distSqr(dest) > 32.0 * 32.0,
@@ -1069,15 +1071,15 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 21);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("아이들만 이주 금지", 200, true, () -> {
+            steps.add(new VerifySuite.Step("children_only_no_migrate", "children-only household must not migrate", 200, true, () -> {
                 c[0] = stagedInfant(level, home, Sex.MALE);
                 c[1] = stagedInfant(level, home, Sex.FEMALE);
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 c[1].setHomePos(home);
                 c[0].debugForceFamine(level);
                 c[0].debugSettleOnce(); // 대표(아이)가 정산해도 grown==0 가드가 이주를 막아야 함
-            }, () -> String.format("거처 %s(유지여야 성공)",
-                    home.equals(c[0].getHomePos()) ? "유지" : "이동!"),
+            }, () -> String.format("home %s(must stay)",
+                    home.equals(c[0].getHomePos()) ? "kept" : "moved!"),
                     () -> c[0].getHomePos() == null || !home.equals(c[0].getHomePos()), // ← 금지 결과
                     () -> discardFamily(level, home, c)));
         }
@@ -1086,14 +1088,14 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 22);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("낮샘플 육아: 곁 생존", 400, true, () -> {
+            steps.add(new VerifySuite.Step("daycare_attended_survive", "infant with adult nearby must survive (compressed clock)", 400, true, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(1, 0, 0), Sex.FEMALE);
                 c[0].setNoAi(true); // 결정론 — 성인을 유아 곁에 고정(배회로 이탈하는 우연 제거)
                 c[1] = stagedInfant(level, home, Sex.MALE);
                 c[1].setNoAi(true);
                 c[1].debugSetCareTimeScale(600); // 하루=40틱 — 3일 방치면 ~160틱에 죽는 스케일
                 level.setDayTime(2000L);
-            }, () -> String.format("유아 %s (생존 유지여야 성공)", c[1].isAlive() ? "생존" : "사망"),
+            }, () -> String.format("infant %s(must survive)", c[1].isAlive() ? "alive" : "dead"),
                     () -> !c[1].isAlive(), // ← 금지 결과(곁에 성인인데 아사)
                     () -> discard(c)));
         }
@@ -1102,20 +1104,224 @@ public final class EvoSimCommand {
         {
             BlockPos home = ground(level, b, 23);
             MimicEntity[] c = new MimicEntity[1];
-            steps.add(new VerifySuite.Step("낮샘플 육아: 방치 아사", 400, false, () -> {
+            steps.add(new VerifySuite.Step("daycare_neglect_starve", "unattended infant dies within ~3 compressed days", 400, false, () -> {
                 c[0] = stagedInfant(level, home, Sex.FEMALE);
                 c[0].setNoAi(true);
                 c[0].debugSetCareTimeScale(600);
                 level.setDayTime(2000L);
-            }, () -> String.format("유아 %s · 방치 누적 관찰 중", c[0].isAlive() ? "생존" : "사망(기대 결과)"),
+            }, () -> String.format("infant %s(neglect accumulating)", c[0].isAlive() ? "alive" : "dead(expected)"),
                     () -> !c[0].isAlive(),
                     () -> discard(c)));
         }
 
+        // [24] 원장 등록·사망 — 비무대 개체가 첫 틱에 등록되고 파괴 시 사망일이 찍히는가.
+        //      pass 가 국면 전환(등록 확인 → 파괴)을 수행, cleanup 이 debugRemove 로 실기록 회수(규칙 7).
+        {
+            BlockPos spot = ground(level, b, 24);
+            MimicEntity[] c = new MimicEntity[1];
+            long[] iid = new long[1];
+            boolean[] discarded = new boolean[1];
+            steps.add(new VerifySuite.Step("ledger_register_death",
+                    "real mimic registered on first tick, diedDay >= 0 after destroy", 100, false, () -> {
+                c[0] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(spot), false, null, 0);
+                iid[0] = c[0].getIndividual().id();
+                discarded[0] = false;
+            }, () -> {
+                FamilyLedger.Rec r = FamilyLedger.get(level).get(iid[0]);
+                return String.format("registered %s diedDay %d discarded %s",
+                        r != null ? "yes" : "no", r == null ? -2 : (int) r.diedDay,
+                        discarded[0] ? "yes" : "no");
+            }, () -> {
+                FamilyLedger.Rec r = FamilyLedger.get(level).get(iid[0]);
+                if (r == null) {
+                    return false; // 아직 미등록 — 첫 틱 대기
+                }
+                if (!discarded[0]) {
+                    c[0].discard(); // 등록 확인 → 파괴(사망 마킹 경로)
+                    discarded[0] = true;
+                    return false;
+                }
+                return r.diedDay >= 0;
+            }, () -> {
+                discard(c);
+                FamilyLedger.get(level).debugRemove(iid[0]);
+            }));
+        }
+        // [25] 무대 제외 — 무대 개체는 시간이 지나도 원장에 등장하면 안 된다(금지 결과 감시).
+        {
+            BlockPos spot = ground(level, b, 25);
+            MimicEntity[] c = new MimicEntity[1];
+            long[] iid = new long[1];
+            steps.add(new VerifySuite.Step("ledger_stage_exclusion",
+                    "stage actor must never appear in ledger", 100, true, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
+                iid[0] = c[0].getIndividual().id();
+            }, () -> String.format("inLedger %s",
+                    FamilyLedger.get(level).get(iid[0]) != null ? "yes" : "no"),
+                    () -> FamilyLedger.get(level).get(iid[0]) != null, // ← 금지 결과
+                    () -> {
+                        discard(c);
+                        FamilyLedger.get(level).debugRemove(iid[0]);
+                    }));
+        }
+        // [26] 날로먹기 섭취 — 인출 1유닛에 H 1.2 회복: 0.7→1.9 (일반이면 1.7 — 0.2 차이로 판별).
+        {
+            BlockPos home = ground(level, b, 26);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("raw_eater_intake",
+                    "H 0.7 -> ~1.9 (1 unit x1.2, plain would be 1.7) & larder 3 -> 2", 60, false, () -> {
+                c[0] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(home), true, Trait.RAW_EATER, 0);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(0.7);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("H %.2f(start 0.7 expect ~1.9) larder %.0f(expect 2)",
+                    c[0].getHolding(), LarderStore.get(level).get(home)),
+                    () -> c[0].getHolding() >= 1.85 && c[0].getHolding() <= 1.95
+                            && Math.abs(LarderStore.get(level).get(home) - 2.0) < 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [27] 날로먹기 저장 — 입금 1유닛에 H 1.25 소요: 2.3→1.05, 저장고 3→4 (L 정수 유지).
+        {
+            BlockPos home = ground(level, b, 27);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("raw_eater_store",
+                    "H 2.3 -> ~1.05 (1 unit costs 1.25H) & larder 3 -> 4", 60, false, () -> {
+                c[0] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(home), true, Trait.RAW_EATER, 0);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(2.3);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("H %.2f(start 2.3 expect ~1.05) larder %.0f(expect 4)",
+                    c[0].getHolding(), LarderStore.get(level).get(home)),
+                    () -> c[0].getHolding() >= 1.0 && c[0].getHolding() <= 1.10
+                            && Math.abs(LarderStore.get(level).get(home) - 4.0) < 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [28][29] 힘 등급 공격 — 속성 실측(변수 변화 검증): 힘센V = 일반×1.4, 약함V = ×0.7. 즉시 판정.
+        {
+            BlockPos spot = ground(level, b, 28);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("strong_attack_attr",
+                    "ATTACK_DAMAGE of STRONG-V male == 1.4 x plain male", 40, false, () -> {
+                c[0] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(spot), true, Trait.STRONG, 5);
+                c[1] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(spot).add(2, 0, 0), true, null, 0);
+            }, () -> String.format("strongV %.2f plain %.2f",
+                    c[0].getAttributeValue(Attributes.ATTACK_DAMAGE),
+                    c[1].getAttributeValue(Attributes.ATTACK_DAMAGE)),
+                    () -> Math.abs(c[0].getAttributeValue(Attributes.ATTACK_DAMAGE)
+                            - 1.4 * c[1].getAttributeValue(Attributes.ATTACK_DAMAGE)) < 1.0E-6,
+                    () -> discard(c)));
+        }
+        {
+            BlockPos spot = ground(level, b, 29);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("weak_attack_attr",
+                    "ATTACK_DAMAGE of WEAK-V male == 0.7 x plain male", 40, false, () -> {
+                c[0] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(spot), true, Trait.WEAK, 5);
+                c[1] = spawnVerifyAdult(level, Vec3.atBottomCenterOf(spot).add(2, 0, 0), true, null, 0);
+            }, () -> String.format("weakV %.2f plain %.2f",
+                    c[0].getAttributeValue(Attributes.ATTACK_DAMAGE),
+                    c[1].getAttributeValue(Attributes.ATTACK_DAMAGE)),
+                    () -> Math.abs(c[0].getAttributeValue(Attributes.ATTACK_DAMAGE)
+                            - 0.7 * c[1].getAttributeValue(Attributes.ATTACK_DAMAGE)) < 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [30] 무모 번식 완화 — 게이트 경계 저장고 11(무모② 하한 10 통과 / 일반 12 미달) → 유아 1.
+        {
+            BlockPos home = ground(level, b, 30);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("reckless_threshold",
+                    "reckless couple breeds at larder 11 (gate 10 vs plain 12)", 100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.RECKLESS);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE,
+                        Trait.RECKLESS);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[1].debugSettleWithTent(home, Direction.NORTH);
+                c[0].debugMarryTo(c[1]);
+                c[0].debugClearBerries(level);
+                LarderStore.get(level).set(home, 11.0);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("infants %d(expect 1) larder %.0f",
+                    infantsAt(level, home), LarderStore.get(level).get(home)),
+                    () -> infantsAt(level, home) == 1,
+                    () -> discardFamily(level, home, c)));
+        }
+        // [31] 대조군 — 같은 저장고 11에서 일반 부부는 낳으면 안 된다(완화가 무모 전용임을 증명).
+        {
+            BlockPos home = ground(level, b, 31);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("threshold_control",
+                    "plain couple must NOT breed at larder 11", 150, true, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level);
+                LarderStore.get(level).set(home, 11.0);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("infants %d(must stay 0)", infantsAt(level, home)),
+                    () -> infantsAt(level, home) >= 1, // ← 금지 결과
+                    () -> discardFamily(level, home, c)));
+        }
+        // [32][33] 조심성 좀비 유인 — 양쪽 noAi 고정(결정론): 10블록에서 조심성(반경 9)은 절대 안
+        //      노려지고, 일반(반경 12)은 노려진다. attractZombies 가 유일 어그로 공급원이라 실효 보장.
+        {
+            BlockPos spot = ground(level, b, 32);
+            MimicEntity[] c = new MimicEntity[1];
+            Zombie[] z = new Zombie[1];
+            steps.add(new VerifySuite.Step("cautious_aggro",
+                    "zombie at 10 blocks must never target CAUTIOUS mimic (range 12x0.75=9)",
+                    200, true, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE, Trait.CAUTIOUS);
+                c[0].setNoAi(true);
+                level.setDayTime(15000L);
+                z[0] = EntityType.ZOMBIE.create(level);
+                z[0].moveTo(spot.getX() + 10.5, spot.getY(), spot.getZ() + 0.5, 0f, 0f);
+                z[0].setNoAi(true);
+                z[0].setPersistenceRequired();
+                level.addFreshEntity(z[0]);
+            }, () -> String.format("zombieTarget %s", z[0].getTarget() == c[0] ? "mimic!" : "none"),
+                    () -> z[0].getTarget() == c[0], // ← 금지 결과
+                    () -> {
+                        discard(c);
+                        if (z[0] != null && z[0].isAlive()) {
+                            z[0].discard();
+                        }
+                    }));
+        }
+        {
+            BlockPos spot = ground(level, b, 33);
+            MimicEntity[] c = new MimicEntity[1];
+            Zombie[] z = new Zombie[1];
+            steps.add(new VerifySuite.Step("aggro_control",
+                    "zombie at 10 blocks targets plain mimic (range 12)", 100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
+                c[0].setNoAi(true);
+                level.setDayTime(15000L);
+                z[0] = EntityType.ZOMBIE.create(level);
+                z[0].moveTo(spot.getX() + 10.5, spot.getY(), spot.getZ() + 0.5, 0f, 0f);
+                z[0].setNoAi(true);
+                z[0].setPersistenceRequired();
+                level.addFreshEntity(z[0]);
+            }, () -> String.format("zombieTarget %s", z[0].getTarget() == c[0] ? "mimic" : "none"),
+                    () -> z[0].getTarget() == c[0],
+                    () -> {
+                        discard(c);
+                        if (z[0] != null && z[0].isAlive()) {
+                            z[0].discard();
+                        }
+                    }));
+        }
+
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 23단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
-                + "결과값(H·저장고·좌표·혼인·생존 상태)의 변화로만 판정. 끝에 ✅/❌ 요약. (6번은 주변에 "
-                + "풀이 있어야 함 — 초원에서 실행 권장)");
+        tell(ctx.getSource(), "원트랙 검증 시작 — 33단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
+                + "결과값(H·저장고·좌표·혼인·생존·속성·원장)의 변화로만 판정. 끝에 ✅/❌ 요약. "
+                + "영문 결과는 콘솔(성공 녹/실패 적)과 evosim-verify.log 파일에 동시 기록. "
+                + "(6번은 주변에 풀이 있어야 함 — 초원에서 실행 권장)");
         return 1;
     }
 
@@ -1136,7 +1342,7 @@ public final class EvoSimCommand {
                     if (e.getStage() == LifeStage.ELDER) {
                         sawElder[0] = true;
                     }
-                    return String.format("단계 %s · 노년경유 %s · 생존 %s",
+                    return String.format("stage %s elderSeen %s alive %s",
                             stageName(e.getStage()), sawElder[0] ? "O" : "X", e.isAlive() ? "O" : "X");
                 },
                 () -> {
@@ -1263,6 +1469,28 @@ public final class EvoSimCommand {
                 e.discard();
             }
         }
+    }
+
+    /** 검증 전용 스폰 — 지정 특성 하나만(등급 지정 가능) 가진 성년 남성. stage=false 는 원장 등록
+     *  검증용 실개체(자연 개체와 같은 64비트 id 공간 — cleanup 이 원장에서 회수해야 함). */
+    private static MimicEntity spawnVerifyAdult(ServerLevel level, Vec3 pos, boolean stageActor,
+                                                Trait trait, int grade) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            throw new IllegalStateException("spawn failed");
+        }
+        Individual ind = new Individual(Math.abs(level.random.nextLong() | 1L), Sex.MALE, 0, 0, 1);
+        if (trait != null) {
+            ind.addTrait(grade > 0 ? TraitInstance.graded(trait, grade) : TraitInstance.of(trait));
+        }
+        e.setIndividual(ind);
+        e.setStage(LifeStage.ADULT);
+        e.moveTo(pos.x, pos.y, pos.z, 0f, 0f);
+        if (stageActor) {
+            e.markStageActor();
+        }
+        level.addFreshEntity(e);
+        return e;
     }
 
     /** 스테이징용 유아 소환 — 거처 귀속 + 개체 반환. */

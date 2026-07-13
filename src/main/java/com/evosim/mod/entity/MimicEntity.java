@@ -139,7 +139,8 @@ public class MimicEntity extends PathfinderMob {
     private long lastBirthTick = -100_000L;
     private int childrenBorn = 0;
     private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시)
-    private static final double ZOMBIE_AGGRO_RANGE = 20.0; // 이 안의 임자 없는 좀비가 미믹을 노림
+    private static final double ZOMBIE_AGGRO_RANGE = 12.0; // 전투 가능 성년·노년의 유인 반경 — 위협 판정(12)과 정합
+    private static final double ZOMBIE_CLOSE_AGGRO = 4.0;  // 유아·소년은 근접 조우만 — 원거리 자살 유인 제거, 밤 위협은 유지
 
     // 유아 돌봄/아사 (육아 클래스): 하루 급식 시각에 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
     private int careHunger = 0;
@@ -545,7 +546,11 @@ public class MimicEntity extends PathfinderMob {
         if ((level().getGameTime() + getId()) % 10 != 0) {
             return; // 스태거(부하 분산)
         }
-        for (Zombie z : level().getEntitiesOfClass(Zombie.class, getBoundingBox().inflate(ZOMBIE_AGGRO_RANGE))) {
+        // 미믹은 바닐라 좀비의 자연 표적이 아니라 이 함수가 유일한 어그로 공급원이다.
+        // 원거리 능동 유인은 전투 가능 단계(성년·노년)만 — 유아·소년이 20블록 밖 좀비를 스스로
+        // 끌어와 죽던 결함 제거. 비전투 단계는 근접 조우(4)에서만 노려져 밤 위협 자체는 유지.
+        double range = SurvivalRules.canFight(getStage()) ? ZOMBIE_AGGRO_RANGE : ZOMBIE_CLOSE_AGGRO;
+        for (Zombie z : level().getEntitiesOfClass(Zombie.class, getBoundingBox().inflate(range))) {
             var cur = z.getTarget();
             if (cur == null || !cur.isAlive()) {
                 z.setTarget(this);

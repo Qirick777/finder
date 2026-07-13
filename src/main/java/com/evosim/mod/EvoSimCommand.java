@@ -440,6 +440,7 @@ public final class EvoSimCommand {
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        discardFamily(level, home); // 재실행 개체 잔재 제거 — 이전 부부·유아가 남아 "유아 1" 판정 오염 방지
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
         if (m == null || f == null) {

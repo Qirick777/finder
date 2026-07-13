@@ -1071,10 +1071,16 @@ public class MimicEntity extends PathfinderMob {
             }
             BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(a[3]));
             var st = sl.getBlockState(hp);
-            if (!(st.getBlock() instanceof MimicHearthBlock) || st.getValue(MimicHearthBlock.LIT)) {
+            if (!(st.getBlock() instanceof MimicHearthBlock)) {
+                LarderStore.get(sl).remove(home); // 구조 자체가 소멸한 집 — 고아 저장고 함께 청소(M-9)
                 ABANDONED_HOMES.remove(i);
                 i--;         // 무효 항목 정리 후 계속 탐색 — 첫 꽝에서 포기해 뒤의 유효 폐가를
                 continue;    // 놓치고 신축하던(애향심 재사용 설계 훼손) 결함 수정
+            }
+            if (st.getValue(MimicHearthBlock.LIT)) {
+                ABANDONED_HOMES.remove(i);
+                i--;         // 재점화 = 새 가족 거주 중 — 목록에서만 빼고 저장고는 그 가족 것(유지)
+                continue;
             }
             if (anyResidentAt(sl, home)) {
                 continue;
@@ -1602,6 +1608,7 @@ public class MimicEntity extends PathfinderMob {
                 // 미완성 부지(모닥불은 완공 때 놓임)에서 마지막 건축자까지 죽음 — 폐가 목록은
                 // 모닥불을 요구해 영영 재사용 불가였으므로, 잔해(양털·울타리)를 철거해 자연 복원.
                 demolishUnfinished(sl, home, Direction.from2DDataValue(facing));
+                LarderStore.get(sl).remove(home); // 집이 사라졌으니 저장고 엔트리도(고아 방지, M-9)
             }
         }
     }

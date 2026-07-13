@@ -1843,6 +1843,12 @@ public class MimicEntity extends PathfinderMob {
             SimEvents.note(sl, "과부가구", "남편 없는 가구 굶주림 진행(허용된 붕괴 경로) — 거처 "
                     + homePos.toShortString());
         }
+        // 성년 없는 노년 가구(노부부·노인+미성년)의 굶주림도 관찰 기록 — 과부가구 조건(성년 여성
+        // 필요)에서 빠져 붕괴가 로그에 안 남던 관측 공백. 판정용 아님, 시계열 분석용 note.
+        if (adults == 0 && elders > 0 && starving && homePos != null) {
+            SimEvents.note(sl, "노년가구", "성년 없는 노년 가구 굶주림 진행 — 거처 "
+                    + homePos.toShortString());
+        }
 
         // R5 번식: (L − 출산비용 − 하루소모) ≥ 성년수+1(±특성) & 무굶주림 & 쿨다운·상한·과밀.
         // 어미 = 아버지와 실제 혼인한 아내 중 출산이 가장 오래된 쪽(일부다처 교대 출산).
@@ -1880,7 +1886,11 @@ public class MimicEntity extends PathfinderMob {
         if (homePos != null) {
             int bushCount = countBerries(sl);
             double reproReserve = FoodEconomy.BIRTH_COST + adults + 1;
-            double costMult = BerryEconomy.costMult(individual);
+            // 투자 성향 배율도 가장(혼인 링크 아버지) 기준 — R4 동원 기준과 귀속 통일(정산 실행
+            // 대표가 우연히 아내·아들이어도 정원 투자 속도가 흔들리지 않게). 가장 없으면 실행자.
+            double costMult = BerryEconomy.costMult(
+                    father != null && father.getIndividual() != null ? father.getIndividual()
+                            : individual);
             int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP, costMult);
             if (n > 0) {
                 int done = plantBerries(sl, n);

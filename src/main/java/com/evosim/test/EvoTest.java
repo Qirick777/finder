@@ -932,6 +932,27 @@ public final class EvoTest {
                         + Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)),
                                 one(Sex.FEMALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE))));
 
+        // 1b) 준비 임계(무모/신중): 무모 −1(덜 준비해도 낳음)·신중 +1(준비 더 함), 같은 축 반발이라
+        //     부부 조합으로만 만남 — 무모+신중 상쇄(기본 2.5), 무모+번식선호 극단 조합은 하한 0.5.
+        boolean prep = Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.RECKLESS)), f) == 1.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.RECKLESS)),
+                        one(Sex.FEMALE, TraitInstance.of(Trait.RECKLESS))) == 0.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.RECKLESS)),
+                        one(Sex.FEMALE, TraitInstance.of(Trait.PRUDENT))) == 2.5
+                && Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.PRUDENT)),
+                        one(Sex.FEMALE, TraitInstance.of(Trait.PRUDENT))) == 4.5
+                && Reproduction.threshold(
+                        one(Sex.MALE, TraitInstance.of(Trait.RECKLESS),
+                                TraitInstance.of(Trait.REPRODUCTION_EAGER)),
+                        one(Sex.FEMALE, TraitInstance.of(Trait.RECKLESS),
+                                TraitInstance.of(Trait.REPRODUCTION_EAGER))) == Reproduction.MIN_THRESHOLD;
+        report.add("reproduction/준비임계", prep,
+                "무모−1(둘 0.5)·신중+1(둘 4.5)·무모+신중 상쇄 2.5·무모②+선호② 하한 " + Reproduction.MIN_THRESHOLD,
+                prep ? "정상" : "무모한쪽 "
+                        + Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.RECKLESS)), f)
+                        + " · 상쇄 " + Reproduction.threshold(one(Sex.MALE, TraitInstance.of(Trait.RECKLESS)),
+                                one(Sex.FEMALE, TraitInstance.of(Trait.PRUDENT))));
+
         // 2) 출산 상한: 기본 5, 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3
         boolean lim = Reproduction.birthLimit(f, m) == 5
                 && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)), m) == 7

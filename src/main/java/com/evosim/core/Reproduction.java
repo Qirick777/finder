@@ -17,16 +17,25 @@ public final class Reproduction {
     private Reproduction() {
     }
 
+    /** 임계 하한 — 무모·번식선호가 겹쳐도 "잉여 0 무조건 통과"는 없게(기존 최저치와 동일). */
+    public static final double MIN_THRESHOLD = 0.5;
+
     /**
      * 번식 임계치 보정 (설계서 §6): 번식선호 한쪽 −1/둘 −2, 번식불호 한쪽 +1/둘 +6(사실상 번식 안 함).
+     * 무모 한쪽 −1/둘 −2(덜 준비해도 낳음) ↔ 신중 한쪽 +1/둘 +2(준비를 더 함) — 같은 축 반발이라
+     * 한 개체가 둘 다 못 가지며, 무모+신중 부부는 상쇄(0). 하한 {@link #MIN_THRESHOLD}.
      */
     public static double threshold(Individual a, Individual b) {
         int eager = has(a, Trait.REPRODUCTION_EAGER) + has(b, Trait.REPRODUCTION_EAGER);
         int averse = has(a, Trait.REPRODUCTION_AVERSE) + has(b, Trait.REPRODUCTION_AVERSE);
+        int reckless = has(a, Trait.RECKLESS) + has(b, Trait.RECKLESS);
+        int prudent = has(a, Trait.PRUDENT) + has(b, Trait.PRUDENT);
         double adj = 0;
         adj -= (eager == 2 ? 2 : eager); // 둘 −2 / 한쪽 −1
         adj += (averse == 2 ? 6 : averse); // 둘 +6 / 한쪽 +1
-        return BASE_THRESHOLD + adj;
+        adj -= reckless; // 무모 — 준비량 감소
+        adj += prudent;  // 신중 — 준비량 증가
+        return Math.max(MIN_THRESHOLD, BASE_THRESHOLD + adj);
     }
 
     /**

@@ -1814,7 +1814,10 @@ public class MimicEntity extends PathfinderMob {
         if (isUnderThreat()) {
             return Activity.COMBAT;
         }
-        if (individual != null && !isCritical()
+        // 실제로 쉬고 있을 때만 소모 0 — 시간대만 보고 SLEEP 처리하면 귀가 보행이 공짜 대사가 된다.
+        // 거처 보유자는 집 반경, 방랑자는 제자리(이동 없음)면 취침으로 인정(노숙).
+        boolean resting = homePos == null ? !getNavigation().isInProgress() : isHome();
+        if (individual != null && !isCritical() && resting
                 && Schedule.phaseAt(individual, level().getDayTime()) == Schedule.Phase.SLEEP) {
             return Activity.SLEEP;
         }
@@ -2720,7 +2723,9 @@ public class MimicEntity extends PathfinderMob {
         if (individual == null) {
             // 게임 스폰용(월드 랜덤 시드). 헤드리스 검증은 시드 고정 별도.
             DeterministicRng rng = new DeterministicRng(this.random.nextLong());
-            setIndividual(Genetics.randomFirstGen(this.getId(), rng));
+            // 1세대 id 도 자식과 같은 난수 long 공간으로(홀수·비영) — 엔티티 id(작은 정수)와의
+            // 공간 혼용이 이론상 조상 명단/배우자 링크 충돌을 만들 수 있던 것을 통일(L-9).
+            setIndividual(Genetics.randomFirstGen(Math.abs(this.random.nextLong() | 1L), rng));
         }
         return super.finalizeSpawn(level, difficulty, reason, data, tag);
     }

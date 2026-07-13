@@ -48,7 +48,7 @@ public enum Axis {
     ACQUISITION(Category.DISPOSITION, true),          // 획득: 사냥꾼 / 채집꾼
     DEXTERITY(Category.DISPOSITION, true),            // 손재주 / 곰손
     DIET(Category.DISPOSITION, true),                 // 채식 / 육식
-    COOKING(Category.DISPOSITION, true),              // 요리: 요리사 / 요리치
+    COOKING(Category.DISPOSITION, true),              // 요리: 요리사 / 날로먹기
     ELOQUENCE(Category.DISPOSITION, true),            // 언변: 달변가 / 눌변가 (기본 매력 ±1)
 
     // ── 선호 (PREFERENCE) — 반발 없음(exclusive=false), FAMILIARITY만 예외 ──

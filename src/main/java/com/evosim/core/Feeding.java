@@ -77,7 +77,7 @@ public final class Feeding {
     public static Result settle(Household h) {
         Result r = new Result();
 
-        // 1) 오늘 수확량 전부 → 가족 창고 합산 (요리사 ×1.2 / 요리치 ×0.8 여기서 적용).
+        // 1) 오늘 수확량 전부 → 가족 창고 합산 (요리사 ×1.2 / 날로먹기 ×0.8 여기서 적용).
         double storage = 0.0;
         for (Member m : order(h)) {
             storage += m.harvest * Multipliers.storage(m.ind);

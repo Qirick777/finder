@@ -9,6 +9,7 @@ import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.LarderStore;
+import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModEntities;
@@ -27,7 +28,9 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -855,7 +858,9 @@ public final class EvoSimCommand {
         // [14] 노인 공유(책임) — 자식 집 저장고 0→2 실측
         {
             BlockPos homeE = ground(level, b, 14);
-            BlockPos homeC = homeE.offset(16, 0, 0);
+            // 자식 집을 활동반경(32) 밖 40블록에 — 노인 방문의 리시 앵커(활동반경 밖 도달)가 실제로
+            // 발동하는 거리로 검증(과거 16블록은 앵커 수정을 한 번도 밟지 않았다).
+            BlockPos homeC = homeE.offset(40, 0, 0);
             MimicEntity[] c = new MimicEntity[3];
             steps.add(new VerifySuite.Step("노인 공유(책임)", 1200, false, () -> {
                 // 집 반경 밖 스폰 — 가족틱의 자기 입금이 배달 잉여를 흡수하는 race 차단(결정론).
@@ -920,8 +925,159 @@ public final class EvoSimCommand {
                     () -> discard(c)));
         }
 
+        // [17] 집앞 즉석 인출 — 집 안에 서 있는 배고픈 개체가 이동 없이 저장고에서 꺼내 먹는가
+        //     (결과값: H 0.7→≥1.5 · 저장고 3→2. 가족틱이 대신 처리할 확률 ~3%가 있으나 결과 동일 경로)
+        {
+            BlockPos home = ground(level, b, 17);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("집앞 즉석 인출", 60, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(0.7); // 귀가 임계(0.8) 미만 + 이미 집 안(이동 불필요)
+                level.setDayTime(4000L);
+            }, () -> String.format("H %.2f(시작0.7·기대≥1.5) 저장고 %.0f(시작3·기대2)",
+                    c[0].getHolding(), LarderStore.get(level).get(home)),
+                    () -> c[0].getHolding() >= 1.5 - 1.0E-9
+                            && LarderStore.get(level).get(home) <= 2.0 + 1.0E-6,
+                    () -> discard(c)));
+        }
+        // [18] 혼인우선 가장 — 성년 아들이 동거해도 번식이 막히지 않는가(과거: UUID 순으로 아들이
+        //     가장을 밀어내면 어미 탐색이 조용히 실패). 판정은 [3]과 같은 회계 항등식 + 유아 1.
+        {
+            BlockPos home = ground(level, b, 18);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("혼인우선 가장(아들 동거)", 100, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = spawnChildOf(level, Vec3.atBottomCenterOf(home).add(2, 0, 0), c[0], Sex.MALE);
+                c[2].debugSettleWithTent(home, Direction.NORTH); // 성년 아들 동거(미혼 — 부녀교배 방지 대조군)
+                c[0].debugClearBerries(level);
+                LarderStore.get(level).set(home, 20.0);
+                level.setDayTime(4000L);
+                c[0].debugSettleOnce();
+            }, () -> String.format("저장고 %.0f(기대 %.0f) 유아 %d(기대1)",
+                    LarderStore.get(level).get(home), 17.0 - berryCost(level, c[0]),
+                    infantsAt(level, home)),
+                    () -> Math.abs(LarderStore.get(level).get(home)
+                            - (17.0 - berryCost(level, c[0]))) < 1.0E-6
+                            && infantsAt(level, home) == 1,
+                    () -> discardFamily(level, home, c)));
+        }
+        // [19] 전투 도주 해제 — 겁쟁이가 좀비에게서 도망치다, 좀비가 멀어지면(어그로 무의미) 도주를
+        //     멈추고 귀가하는가(과거: 좀비가 살아있는 한 무한 도주). 결과값 = 귀가 좌표.
+        {
+            BlockPos home = ground(level, b, 19);
+            MimicEntity[] c = new MimicEntity[1];
+            Zombie[] z = new Zombie[1];
+            long[] t0 = new long[1];
+            boolean[] moved = new boolean[1];
+            steps.add(new VerifySuite.Step("전투 도주 해제(귀가)", 600, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.COWARD);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                level.setDayTime(15000L); // 밤 — 좀비 연소 방지
+                z[0] = EntityType.ZOMBIE.create(level);
+                z[0].moveTo(home.getX() + 4.5, home.getY(), home.getZ() + 0.5, 0f, 0f);
+                z[0].setPersistenceRequired();
+                z[0].setTarget(c[0]);
+                level.addFreshEntity(z[0]);
+                t0[0] = level.getGameTime();
+                moved[0] = false;
+            }, () -> String.format("도주거리 %.0f블록 · 좀비 %s",
+                    Math.sqrt(c[0].blockPosition().distSqr(home)),
+                    moved[0] ? "원격(해제 국면)" : "인접(도주 국면)"),
+                    () -> {
+                        // 국면 전환: 60틱 도주 후 좀비를 120블록 밖으로(살아있는 채) — 과거 코드라면
+                        // 그래도 계속 도망친다. 신 코드는 해제 → 리시·귀가로 집 3블록 내 복귀 = 성공.
+                        if (!moved[0] && level.getGameTime() - t0[0] > 60 && z[0] != null) {
+                            z[0].teleportTo(home.getX() + 120.5, home.getY(), home.getZ() + 0.5);
+                            moved[0] = true;
+                        }
+                        return moved[0] && c[0].blockPosition().distSqr(home) <= 9.0;
+                    },
+                    () -> {
+                        discard(c);
+                        if (z[0] != null && z[0].isAlive()) {
+                            z[0].discard();
+                        }
+                    }));
+        }
+        // [20] 제자리 합의 기각 — 낡은 이주 합의가 "지금 굶는 자리"를 가리키면 따라가지 않고 딴 곳을
+        //     정찰하는가. 결과값 = 새 거처가 합의 목적지에서 32블록 이상.
+        {
+            BlockPos home = ground(level, b, 20);
+            BlockPos dest = home.offset(8, 0, 0);      // 합의 목적지 = 사실상 제자리
+            BlockPos origin = home.offset(-60, 0, 0);  // 같은 마을권(256 내) 옛 출발지
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("제자리 합의 기각(이주)", 200, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                MigrationDest.get(level).register(origin, dest, level.getGameTime()); // 유효한 낡은 합의
+                c[0].debugForceFamine(level);
+                c[0].debugSettleOnce(); // 기근 → 이주. resolve 는 dest(8) < origin(60) 로 기각해야 함
+            }, () -> String.format("새집%s · 합의목적지와 %.0f블록",
+                    home.equals(c[0].getHomePos()) ? " 미이동" : " 이동",
+                    c[0].getHomePos() != null ? Math.sqrt(c[0].getHomePos().distSqr(dest)) : -1),
+                    () -> c[0].getHomePos() != null && !home.equals(c[0].getHomePos())
+                            && c[0].getHomePos().distSqr(dest) > 32.0 * 32.0,
+                    () -> {
+                        discardFamily(level, home, c);
+                        // 합의 잔재 만료 처리 — 이후 스텝·플레이에 오염 없게
+                        MigrationDest.get(level).register(origin, dest,
+                                level.getGameTime() - MigrationDest.VALID_TICKS - 1);
+                    }));
+        }
+        // [21] 아이들만 이주 금지 — 인솔 성년·노년 없는 가구는 기근이어도 이주하지 않는다(금지 결과 감시).
+        {
+            BlockPos home = ground(level, b, 21);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("아이들만 이주 금지", 200, true, () -> {
+                c[0] = stagedInfant(level, home, Sex.MALE);
+                c[1] = stagedInfant(level, home, Sex.FEMALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[1].setHomePos(home);
+                c[0].debugForceFamine(level);
+                c[0].debugSettleOnce(); // 대표(아이)가 정산해도 grown==0 가드가 이주를 막아야 함
+            }, () -> String.format("거처 %s(유지여야 성공)",
+                    home.equals(c[0].getHomePos()) ? "유지" : "이동!"),
+                    () -> c[0].getHomePos() == null || !home.equals(c[0].getHomePos()), // ← 금지 결과
+                    () -> discardFamily(level, home, c)));
+        }
+        // [22] 낮 샘플 육아: 곁에 성인 → 생존 — 압축 시계(하루 40틱)로 실경로(샘플·래치·롤오버)를
+        //     그대로 통과시켜, 어른이 곁에 있는 유아는 살아남는지(금지 결과 = 사망).
+        {
+            BlockPos home = ground(level, b, 22);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("낮샘플 육아: 곁 생존", 400, true, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(1, 0, 0), Sex.FEMALE);
+                c[0].setNoAi(true); // 결정론 — 성인을 유아 곁에 고정(배회로 이탈하는 우연 제거)
+                c[1] = stagedInfant(level, home, Sex.MALE);
+                c[1].setNoAi(true);
+                c[1].debugSetCareTimeScale(600); // 하루=40틱 — 3일 방치면 ~160틱에 죽는 스케일
+                level.setDayTime(2000L);
+            }, () -> String.format("유아 %s (생존 유지여야 성공)", c[1].isAlive() ? "생존" : "사망"),
+                    () -> !c[1].isAlive(), // ← 금지 결과(곁에 성인인데 아사)
+                    () -> discard(c)));
+        }
+        // [23] 낮 샘플 육아: 방치 아사 — 같은 압축 시계에서 성인이 아예 없으면 3일(≈160틱) 내 죽는가
+        //     (결과값 = 사망. [22]와 쌍으로 래치·롤오버·아사 카운터의 실경로를 완주시킨다).
+        {
+            BlockPos home = ground(level, b, 23);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("낮샘플 육아: 방치 아사", 400, false, () -> {
+                c[0] = stagedInfant(level, home, Sex.FEMALE);
+                c[0].setNoAi(true);
+                c[0].debugSetCareTimeScale(600);
+                level.setDayTime(2000L);
+            }, () -> String.format("유아 %s · 방치 누적 관찰 중", c[0].isAlive() ? "생존" : "사망(기대 결과)"),
+                    () -> !c[0].isAlive(),
+                    () -> discard(c)));
+        }
+
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 16단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
+        tell(ctx.getSource(), "원트랙 검증 시작 — 23단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
                 + "결과값(H·저장고·좌표·혼인·생존 상태)의 변화로만 판정. 끝에 ✅/❌ 요약. (6번은 주변에 "
                 + "풀이 있어야 함 — 초원에서 실행 권장)");
         return 1;
@@ -966,7 +1122,7 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
         BlockPos homeE = groundAt(level, b, -6, -8);
-        BlockPos homeC = groundAt(level, b, -6, 8); // 자식 집 — 16블록 거리
+        BlockPos homeC = groundAt(level, b, -6, 36); // 자식 집 — 44블록(활동반경 32 밖: 마실 앵커 실검증)
         discardFamily(level, homeE); // 재실행 잔재 정리(두 집 모두)
         discardFamily(level, homeC);
         // 노인은 집 반경(6) 밖에서 스폰 — 가족틱이 잉여를 자기 저장고로 흡수하는 경쟁(race) 차단.

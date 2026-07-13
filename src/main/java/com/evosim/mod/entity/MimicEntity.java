@@ -146,6 +146,7 @@ public class MimicEntity extends PathfinderMob {
     // 유아 돌봄/아사 (육아 클래스): 하루 급식 시각에 곁에 성인 없으면 굶주림↑, 임계 초과 시 아사.
     private int careHunger = 0;
     private boolean attendedToday = false;         // 오늘 낮에 성인이 곁에 있었나(래치 — NBT CareLatch)
+    private int careTimeScale = 1;                 // 검증용 시간 압축(1=평상) — 낮 샘플 실경로를 그대로 압축(휘발)
     private long lastCareDay = Long.MIN_VALUE; // 마지막 급식 판정한 절대 일자(하루 1회 보장)
     private boolean fastCare = false;          // 무대 검증용 초고속 급식(틱 주기)
     private static final int CARE_INTERVAL = 20;         // fast 모드 판정 주기(틱)
@@ -2566,15 +2567,20 @@ public class MimicEntity extends PathfinderMob {
         // 밤엔 온 가족이 모여 육아 특성이 생사를 못 가르던 결함 — 낮 시간대 다중 샘플로 교체.
         // 낮 동안 한 번이라도 성인이 곁(5블록)에 있었으면 그날은 돌봄 래치, 날이 바뀔 때 평가.
         // 시계는 절대시간(gameTime) 단일축 — 하늘 시계 정지 월드에서도 판정이 멈추지 않는다.
+        // careTimeScale 은 하루 길이·창·간격을 같은 비율로 압축할 뿐, 샘플→래치→롤오버 평가라는
+        // 실경로 코드를 그대로 지난다(검증 전용 훅이 별도 구현이 되지 않도록 — 규칙 9).
+        long dayLen = 24000L / careTimeScale;
         long now = level().getGameTime();
-        long day = now / 24000L;
-        long tod = now % 24000L;
+        long day = now / dayLen;
+        long tod = now % dayLen;
         if (lastCareDay == 0L) {
             lastCareDay = day; // 미초기화(신생아·구 세이브) — 태어난 부분일은 관찰만, 평가 없음
             return;
         }
-        if (!attendedToday && tod >= CARE_SAMPLE_START && tod < CARE_SAMPLE_END
-                && (now + getId()) % CARE_SAMPLE_INTERVAL == 0 && adultNear()) {
+        if (!attendedToday && tod >= CARE_SAMPLE_START / careTimeScale
+                && tod < CARE_SAMPLE_END / careTimeScale
+                && (now + getId()) % Math.max(1L, CARE_SAMPLE_INTERVAL / careTimeScale) == 0
+                && adultNear()) {
             attendedToday = true;
         }
         if (day != lastCareDay) {
@@ -2603,6 +2609,12 @@ public class MimicEntity extends PathfinderMob {
 
     public void setFastCare(boolean fast) {
         this.fastCare = fast;
+    }
+
+    /** 검증용 — 낮 샘플 육아의 시간 압축 배율(600 = 하루 40틱). 실경로(샘플·래치·롤오버)를 그대로 지난다. */
+    public void debugSetCareTimeScale(int scale) {
+        this.careTimeScale = Math.max(1, scale);
+        this.lastCareDay = 0L; // 압축 시계 기준으로 재초기화
     }
 
     private boolean adultNear() {

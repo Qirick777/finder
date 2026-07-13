@@ -32,8 +32,10 @@ public class MimicRestGoal extends Goal {
         if (ind == null) {
             return false;
         }
-        // 공격받는 중이면 취침 불가 → 즉시 일어남.
-        if (mob.hurtTime > 0 || mob.getLastHurtByMob() != null || mob.getTarget() != null) {
+        // 공격받는 중·불붙음이면 취침 불가 → 즉시 일어남. (isOnFire: 화염 피해는 간헐이라 hurtTime
+        // 만으로는 10틱 기상↔재취침 진동 — 불이 꺼질 때까지 깨어 있는다. getTarget 조건은 미믹이
+        // 자기 타깃을 설정하는 코드가 전무해 절대 참이 안 되는 죽은 조건이라 제거.)
+        if (mob.hurtTime > 0 || mob.getLastHurtByMob() != null || mob.isOnFire()) {
             return false;
         }
         // R6: 위급(소지 고갈)이면 자지 않는다 — 저장고에 밥 있으면 귀가·인출, 없으면 밤샘 채집.

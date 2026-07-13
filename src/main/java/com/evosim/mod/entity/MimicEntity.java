@@ -566,13 +566,12 @@ public class MimicEntity extends PathfinderMob {
                         "빈손 만료 — 고향 @%d,%d 은 폐가 → 방랑 전환", gone.getX(), gone.getZ()));
             }
         }
-        if (individual == null || getStage() != LifeStage.ADULT) {
-            mateState = MateState.IDLE;
-            return;
-        }
         // 사별 감지: 배우자가 살아있지 않으면 과부/홀아비 → 재구애 참여.
         // 일부다처 승계: 본처가 죽어도 같은 거처에 다른 아내가 있으면 그쪽으로 재링크(홀아비 아님).
-        if (spouseId != 0L && !widowed && (level().getGameTime() + getId()) % 40 == 0) {
+        // 성년 게이트보다 앞 — 노년도 사별·승계는 감지(포지션·표시 정확성). 재구애는 여전히
+        // 성년 전용(isSingleAdult 가 ADULT 한정 + 아래 게이트가 노년 mateState 를 IDLE 로).
+        if (individual != null && spouseId != 0L && !widowed
+                && (level().getGameTime() + getId()) % 40 == 0) {
             if (!spouseAlive()) {
                 MimicEntity nextWife = null;
                 if (!isFemale() && individual != null) {
@@ -591,9 +590,13 @@ public class MimicEntity extends PathfinderMob {
                     SimEvents.event(this, "승계", "본처 사망 → 둘째 부인 #" + nextWife.getId() + " 승계");
                 } else {
                     widowed = true;
-                    mateState = MateState.SEARCHING;
+                    mateState = MateState.SEARCHING; // 노년이면 바로 아래 게이트가 IDLE 로 되돌림
                 }
             }
+        }
+        if (individual == null || getStage() != LifeStage.ADULT) {
+            mateState = MateState.IDLE;
+            return; // 구애는 성년 전용 — 노년은 위 정리·사별 감지까지만
         }
         if (building) {
             return; // 건축 중엔 구애 안 함

@@ -957,7 +957,7 @@ public class MimicEntity extends PathfinderMob {
 
         // ② 신축 — 조합별 앵커(기준점)와 거리로 자리를 잡고 짓는 연출 시작.
         int[] anchor = buildAnchor(other, da, plan.anchor());
-        List<int[]> existing = collectExistingHomes(sl);
+        List<int[]> existing = collectExistingHomes(sl, anchor[0], anchor[2]);
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
                 existing, Settlement.MIN_GAP, rng);
@@ -1022,9 +1022,13 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 주변(그리고 폐기목록) 거처 좌표(x,z) — 겹침 회피용. */
-    private List<int[]> collectExistingHomes(ServerLevel sl) {
+    /** 앵커(실제 배치 기준점) 중심으로 수집 — 개체 중심 수집은 이주 거리(이주자 128~192)가 스캔을
+     *  넘어서면 목적지 주변 남의 집을 못 보고 겹쳐 짓던 결함(M-3). */
+    private List<int[]> collectExistingHomes(ServerLevel sl, int anchorX, int anchorZ) {
         List<int[]> existing = new ArrayList<>();
-        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(160.0))) {
+        var box = new net.minecraft.world.phys.AABB(
+                new BlockPos(anchorX, blockPosition().getY(), anchorZ)).inflate(160.0);
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, box)) {
             BlockPos h = m.getHomePos();
             if (h != null) {
                 existing.add(new int[] {h.getX(), h.getZ()});
@@ -1069,7 +1073,8 @@ public class MimicEntity extends PathfinderMob {
             var st = sl.getBlockState(hp);
             if (!(st.getBlock() instanceof MimicHearthBlock) || st.getValue(MimicHearthBlock.LIT)) {
                 ABANDONED_HOMES.remove(i);
-                return null; // 무효 항목 정리
+                i--;         // 무효 항목 정리 후 계속 탐색 — 첫 꽝에서 포기해 뒤의 유효 폐가를
+                continue;    // 놓치고 신축하던(애향심 재사용 설계 훼손) 결함 수정
             }
             if (anyResidentAt(sl, home)) {
                 continue;
@@ -1140,11 +1145,10 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 흙으로 메울 수 있는 칸인가(빈 칸·유체·풀·눈만 — 기존 지면은 건드리지 않음). */
+    /** 흙으로 메울 수 있는 칸인가(빈 칸·유체·교체 가능 초목 — 기존 지면은 건드리지 않음).
+     *  꽃 한 송이가 기단 메움을 막아 구멍이 나던 결함 — 설치 판정과 같은 초목 목록 공유. */
     private static boolean isFillable(net.minecraft.world.level.block.state.BlockState st) {
-        return st.isAir() || !st.getFluidState().isEmpty()
-                || st.is(Blocks.GRASS) || st.is(Blocks.TALL_GRASS)
-                || st.is(Blocks.FERN) || st.is(Blocks.LARGE_FERN) || st.is(Blocks.SNOW);
+        return st.isAir() || !st.getFluidState().isEmpty() || isClearableVegetation(st);
     }
 
     /** 파낼 수 있는 칸인가(자연 지형만 — 구조 블록·모닥불·기반암은 보호). */
@@ -1515,11 +1519,21 @@ public class MimicEntity extends PathfinderMob {
         return true;
     }
 
-    /** 그 자리에 부지 블록을 놓을 수 있나(빈 칸·풀·눈만 대체). */
+    /** 그 자리에 부지 블록을 놓을 수 있나(빈 칸·교체 가능 초목만 대체). 꽃·묘목·버섯·잎이
+     *  벽 칸을 차지하면 그 칸이 영영 미설치된 채 완공되던(구멍 난 천막) 결함 — 초목은 치운다. */
     private static boolean isPlaceable(ServerLevel sl, BlockPos pos) {
         var cur = sl.getBlockState(pos);
-        return cur.isAir() || cur.is(Blocks.GRASS) || cur.is(Blocks.TALL_GRASS)
-                || cur.is(Blocks.FERN) || cur.is(Blocks.SNOW);
+        return cur.isAir() || isClearableVegetation(cur);
+    }
+
+    /** 건축·메움이 밀어내도 되는 자연 초목(재생 가능·비구조물). */
+    private static boolean isClearableVegetation(net.minecraft.world.level.block.state.BlockState s) {
+        return s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS)
+                || s.is(Blocks.FERN) || s.is(Blocks.LARGE_FERN) || s.is(Blocks.SNOW)
+                || s.is(Blocks.DEAD_BUSH) || s.is(Blocks.BROWN_MUSHROOM) || s.is(Blocks.RED_MUSHROOM)
+                || s.is(net.minecraft.tags.BlockTags.FLOWERS)
+                || s.is(net.minecraft.tags.BlockTags.SAPLINGS)
+                || s.is(net.minecraft.tags.BlockTags.LEAVES); // 이웃 나무의 드리운 잎이 벽 칸 차지 방지
     }
 
     /** 그 칸에 나 아닌 다른 미믹이 있나(질식 방지 — 남을 파묻지 않음). */
@@ -1584,6 +1598,20 @@ public class MimicEntity extends PathfinderMob {
                 sl.setBlockAndUpdate(hp, st.setValue(MimicHearthBlock.LIT, Boolean.FALSE));
                 hearthLit(home, false);
                 ABANDONED_HOMES.add(new int[] {home.getX(), home.getY(), home.getZ(), facing});
+            } else if (building && !(st.getBlock() instanceof MimicHearthBlock)) {
+                // 미완성 부지(모닥불은 완공 때 놓임)에서 마지막 건축자까지 죽음 — 폐가 목록은
+                // 모닥불을 요구해 영영 재사용 불가였으므로, 잔해(양털·울타리)를 철거해 자연 복원.
+                demolishUnfinished(sl, home, Direction.from2DDataValue(facing));
+            }
+        }
+    }
+
+    /** 미완성 부지의 구조 토큰 블록만 철거(자연 지형·타인 블록은 무접촉). */
+    private static void demolishUnfinished(ServerLevel sl, BlockPos home, Direction facing) {
+        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
+            var cur = sl.getBlockState(p.pos());
+            if (cur.is(Blocks.WHITE_WOOL) || cur.is(Blocks.OAK_FENCE)) {
+                sl.setBlockAndUpdate(p.pos(), Blocks.AIR.defaultBlockState());
             }
         }
     }
@@ -2072,7 +2100,7 @@ public class MimicEntity extends PathfinderMob {
 
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, 8,
-                collectExistingHomes(sl), Settlement.MIN_GAP, rng);
+                collectExistingHomes(sl, dest.getX(), dest.getZ()), Settlement.MIN_GAP, rng);
         Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
         int baseY = terrainBaseY(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), facing);
         BlockPos newHome = new BlockPos(xz[0], baseY, xz[1]);

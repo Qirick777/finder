@@ -437,6 +437,12 @@ public class MimicEntity extends PathfinderMob {
         this.widowed = false;
     }
 
+    /** 두 개체가 배우자 링크로 묶여 있나 — 어느 한쪽이라도 상대를 가리키면 참(일부다처의 비대칭 링크 포함). */
+    public boolean isSpouseWith(MimicEntity other) {
+        return (individual != null && other.spouseId == individual.id())
+                || (other.getIndividual() != null && spouseId == other.getIndividual().id());
+    }
+
     public boolean isBuilding() {
         return building;
     }

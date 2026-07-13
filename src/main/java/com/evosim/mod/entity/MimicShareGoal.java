@@ -37,6 +37,7 @@ public class MimicShareGoal extends Goal {
             return false;
         }
         if (mob.getIndividual() == null || mob.isBuilding() || mob.isFastSettle()
+                || mob.isUnderThreat() // 동순위(2) 전투에 MOVE 양보 — 리시와 같은 규약(생존 > 나눔)
                 || mob.getHolding() < FoodEconomy.shareThreshold(mob.getIndividual())) {
             return false; // 자격 문턱(이타 1.0 / 기본 1.5 / 이기 ∞ = 절대 안 나눔) 미달
         }
@@ -48,6 +49,7 @@ public class MimicShareGoal extends Goal {
     public boolean canContinueToUse() {
         return needy != null && needy.isAlive() && needy.isCritical()
                 && mob.getIndividual() != null
+                && !mob.isUnderThreat() // 배달 중 피습 → 즉시 물러나 전투/도주에 양보
                 && mob.getHolding() >= FoodEconomy.shareThreshold(mob.getIndividual())
                         - FoodEconomy.shareAmount(mob.getIndividual());
     }
@@ -87,7 +89,10 @@ public class MimicShareGoal extends Goal {
             if (m == mob || !m.isAlive() || m.getIndividual() == null || !m.isCritical()) {
                 continue;
             }
-            boolean family = mob.getHomePos() != null && mob.getHomePos().equals(m.getHomePos());
+            // 가족 = 같은 거처 공유 또는 배우자 링크(방랑·미정착·구혼여행 중 배우자 포함 —
+            // 문서의 "방랑 배우자 배달" 안전망을 실제로 연결. homePos 만으로는 그들이 영영 제외됐다).
+            boolean family = (mob.getHomePos() != null && mob.getHomePos().equals(m.getHomePos()))
+                    || mob.isSpouseWith(m);
             if (!family) {
                 continue;
             }

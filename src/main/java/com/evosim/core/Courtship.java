@@ -21,7 +21,7 @@ public final class Courtship {
      * 실전 밸런싱 스케일 — 한쪽 구애의 최종 수락 확률에 곱해 <b>전체적으로 살짝 낮춘다</b>(1.0=원식).
      * 상호구애 자동 성사에는 적용하지 않는다. 값만 바꿔 난이도 조절.
      */
-    public static final double ACCEPT_SCALE = 0.8;
+    public static final double ACCEPT_SCALE = 0.7; // 0.8→0.7 밸런싱 하향(지시) — 눈낮춤(k 하향) 도입과 함께
 
     private Courtship() {
     }

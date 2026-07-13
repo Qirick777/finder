@@ -111,8 +111,8 @@ public class MimicEntity extends PathfinderMob {
     private int searchTimer = 0;                                        // 탐색 누적(틱)
     private final List<Integer> candidates = new ArrayList<>();         // 후보 id (매력 내림차순)
     private final Map<Integer, Integer> candidateCharm = new HashMap<>(); // id → 내 기준 매력
-    private final Set<Integer> rejectedBy = new HashSet<>();            // 내가 거절당한 상대 id(성혼·사별 시 정리)
-    private final Map<Integer, Long> approachRetryAt = new HashMap<>(); // 접근 실패 재시도 시각(일시 회피 — 휘발)
+    private final Map<Integer, Long> approachRetryAt = new HashMap<>(); // 재시도 시각(거절 1일·접근실패 2400틱 — 휘발)
+    private int rejectionsGiven = 0;                                    // 내가 발행한 거절 수(눈낮춤 §10 — NBT)
     private int courtTargetId = -1;                                     // 현재 구애 대상(상호구애 특례)
     private final List<CourtRecord> courtLog = new ArrayList<>();       // GUI 기록(최근 것 유지)
     private static final int COURT_LOG_MAX = 20;
@@ -724,9 +724,9 @@ public class MimicEntity extends PathfinderMob {
                 continue;
             }
             int id = m.getId();
-            if (rejectedBy.contains(id) || candidateCharm.containsKey(id)
+            if (candidateCharm.containsKey(id)
                     || approachRetryAt.getOrDefault(id, 0L) > level().getGameTime()) {
-                continue; // 거절당함(영구) / 이미 후보 / 접근 실패 쿨다운 중(일시)
+                continue; // 이미 후보 / 쿨다운 중(거절 1일·접근 실패 2400틱)
             }
             if (Kinship.isRelated(individual, m.getIndividual())) {
                 continue; // 근친 회피 §13-E
@@ -772,6 +772,7 @@ public class MimicEntity extends PathfinderMob {
             pairWith(suitor);
             return true;
         }
+        pruneCandidates(); // 판정 직전 유령 경쟁자(사망·기혼 전이) 제거 — n·better 부풀림에 의한 부당 거절 방지
         int charm = Multipliers.charmScore(individual, si);
         int n = candidates.size();
         int better = 0;
@@ -780,7 +781,9 @@ public class MimicEntity extends PathfinderMob {
                 better++;
             }
         }
-        int k = individual.mateChoice().k();
+        // 눈낮춤(§10 멸종 방지): 거절을 발행할수록 유효 k(까다로움)가 내려가 수락률이 점진 상승 —
+        // 까다로운 개체·척박한 후보군도 결국 맺어진다. 성혼 시 리셋. NBT 영속.
+        int k = Math.max(0, individual.mateChoice().k() - rejectionsGiven);
         double p = Courtship.acceptChance(better, n, k); // 밸런싱 스케일 적용값(GUI %도 이 값)
         boolean accept = getRandom().nextDouble() < p;
         logCourt(suitor, accept, charm, better + 1, n, (int) Math.round(p * 100));
@@ -788,7 +791,23 @@ public class MimicEntity extends PathfinderMob {
             pairWith(suitor);
             return true;
         }
+        rejectionsGiven++;
         return false;
+    }
+
+    /** 후보 풀에서 무효(사망·소멸·비자격) 항목 제거 — perceive 의 등록 자격과 동일 기준. */
+    private void pruneCandidates() {
+        candidates.removeIf(id -> {
+            var e = level().getEntity(id);
+            boolean valid = e instanceof MimicEntity mm && mm.isAlive() && mm.getIndividual() != null
+                    && (mm.isSingleAdult()
+                        || (isFemale() && !mm.isFemale() && mm.getStage() == LifeStage.ADULT
+                            && !mm.isBuilding())); // 일부다처: 여성의 기혼남 후보는 유지
+            if (!valid) {
+                candidateCharm.remove(id);
+            }
+            return !valid;
+        });
     }
 
     /** 수락/거절을 양쪽 기록에 남긴다 (내 RECEIVED + 구애자 COURTED) + 관찰 로그(판정 수치 포함). */
@@ -842,6 +861,7 @@ public class MimicEntity extends PathfinderMob {
             moveInto(sl, this, bride); // 홀거처주였으면 그 집은 폐가화(기존 규칙)
         }
         bride.clearCourtshipPool(); // 성혼 정리(pairWith와 동일)
+        bride.rejectionsGiven = 0;
         StageObserver.record(getId(), "mating:polygyny");
         SimEvents.event(this, "중혼", "둘째 부인 #" + bride.getId()
                 + " 합류 — 아내 용인·저장고 부양 증명 통과 (아내 " + (currentWives().size()) + "명)");
@@ -867,6 +887,8 @@ public class MimicEntity extends PathfinderMob {
         SimEvents.event(this, "짝성립", "상대 #" + other.getId());
         clearCourtshipPool();       // 성혼 — 낡은 후보·거절 기록 정리(사망까지 잔존하던 메모리·stale 캐시)
         other.clearCourtshipPool();
+        rejectionsGiven = 0;        // 눈낮춤 리셋 — 짝을 찾았으니 기준 원복
+        other.rejectionsGiven = 0;
     }
 
     /** MateHome 규칙대로 거처 귀속: 새집(재활용/신축) / 한쪽 거처로 이주 / 둘다혼자→랜덤 합류. */
@@ -1608,10 +1630,14 @@ public class MimicEntity extends PathfinderMob {
         return topTies.get(getRandom().nextInt(topTies.size()));
     }
 
-    /** 거절/포기: 상대를 rejectedBy에 넣고 후보에서 제거(재구애 방지). 실제 거절에만 쓸 것 —
-     *  일시적 접근 실패는 {@link #backOffFrom}(쿨다운)으로. */
+    /** 거절 쿨다운(틱) — 하루 뒤 재구애 허용. 영구 배제가 아닌 이유: 눈낮춤(§10)은 거절이 반복될수록
+     *  수신자의 k 가 내려가 결국 성사되는 구조라, 구혼자가 재시도할 수 있어야 수렴한다(2인 마을 교착 방지).
+     *  스팸 방지는 1일 간격으로 유지. */
+    private static final long REJECT_RETRY_TICKS = 24000L;
+
+    /** 거절/포기: 상대를 하루 쿨다운에 넣고 후보에서 제거. 접근 실패는 {@link #backOffFrom}(짧은 쿨다운). */
     public void giveUpOn(int id) {
-        rejectedBy.add(id);
+        approachRetryAt.put(id, level().getGameTime() + REJECT_RETRY_TICKS);
         candidates.remove((Integer) id);
         candidateCharm.remove(id);
     }
@@ -1634,7 +1660,6 @@ public class MimicEntity extends PathfinderMob {
     private void clearCourtshipPool() {
         candidates.clear();
         candidateCharm.clear();
-        rejectedBy.clear();
         approachRetryAt.clear();
     }
 
@@ -2666,6 +2691,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putLong("SpouseId", spouseId);
         tag.putBoolean("Widowed", widowed);
         tag.putLong("LonelySince", lonelySinceTick); // 족외혼 클럭 — 리로드로 3일 재대기 방지
+        tag.putInt("RejGiven", rejectionsGiven);     // 눈낮춤 진행도 — 리로드로 수렴이 리셋되지 않게
         tag.putByte("HomeFacing", homeFacing);
         tag.putBoolean("Building", building);
         if (individual != null) {
@@ -2717,6 +2743,7 @@ public class MimicEntity extends PathfinderMob {
         spouseId = tag.getLong("SpouseId");
         widowed = tag.getBoolean("Widowed");
         lonelySinceTick = tag.contains("LonelySince") ? tag.getLong("LonelySince") : -1L;
+        rejectionsGiven = tag.getInt("RejGiven");
         homeFacing = tag.getByte("HomeFacing");
         building = tag.getBoolean("Building");
         if (tag.contains("Individual")) {

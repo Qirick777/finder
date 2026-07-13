@@ -1518,11 +1518,34 @@ public class MimicEntity extends PathfinderMob {
     }
 
     private boolean placeBuildBlock(ServerLevel sl, HomeStructure.Placement p) {
-        if (!isPlaceable(sl, p.pos()) || cellOccupiedByOther(sl, p.pos())) {
-            return false; // 이미 채워짐/장애물 · 다른 구성원이 그 칸에 있으면 파묻지 않음
+        if (!isPlaceable(sl, p.pos())) {
+            return false; // 이미 채워짐/장애물
+        }
+        if (cellOccupiedByOther(sl, p.pos())) {
+            nudgeOccupants(sl, p.pos()); // 파묻지 않되 살짝 밀어냄 — 마지막 칸에 동료가 계속 서 있으면
+            return false;                // 완성 판정이 영영 안 나던 교착의 자연 해소를 가속
         }
         sl.setBlockAndUpdate(p.pos(), blockFor(p).defaultBlockState());
         return true;
+    }
+
+    /** 설치 예정 칸에 서 있는 다른 미믹을 바깥쪽으로 살짝 민다(질식 없는 비강제 해소). */
+    private void nudgeOccupants(ServerLevel sl, BlockPos pos) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, new AABB(pos))) {
+            if (m == this) {
+                continue;
+            }
+            double dx = m.getX() - (pos.getX() + 0.5);
+            double dz = m.getZ() - (pos.getZ() + 0.5);
+            double len = Math.sqrt(dx * dx + dz * dz);
+            if (len < 0.05) { // 정중앙 — 무작위 방향으로
+                double ang = getRandom().nextDouble() * Math.PI * 2.0;
+                dx = Math.cos(ang);
+                dz = Math.sin(ang);
+                len = 1.0;
+            }
+            m.push(dx / len * 0.3, 0.05, dz / len * 0.3);
+        }
     }
 
     /** 그 자리에 부지 블록을 놓을 수 있나(빈 칸·교체 가능 초목만 대체). 꽃·묘목·버섯·잎이

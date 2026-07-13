@@ -53,10 +53,25 @@ public class MimicCombatGoal extends Goal {
         return true;
     }
 
+    /** 어그로 풀림 해제 기준(위협 판정 반경과 동일) — 이 밖이고 좀비가 날 안 노리면 종료. */
+    private static final double SOFT_RELEASE_SQ = 12.0 * 12.0;
+    /** 강제 해제(추격 여부 무관) — 이 밖까지 끌려가면 끊고 리시에 맡김(개체군 분산 방지). */
+    private static final double HARD_RELEASE_SQ = 48.0 * 48.0;
+
     @Override
     public boolean canContinueToUse() {
-        return target != null && target.isAlive() && mob.getIndividual() != null
-                && SurvivalRules.canFight(mob.getStage());
+        if (target == null || !target.isAlive() || mob.getIndividual() == null
+                || !SurvivalRules.canFight(mob.getStage())) {
+            return false;
+        }
+        // 영구 도주 차단: 좀비가 살아있는 한 무한히 도망치던 결함 — 어그로가 풀리면(좀비 추격 한계
+        // ~35블록에서 자연 발생) 종료해 리시가 회수한다. 쫓기는 동안엔 계속 도망(해제가 너무 이르면
+        // 도주→해제→따라잡혀 피격→재도주 카이팅이 생기므로 "안 쫓아올 때만" 끊는다).
+        double d = mob.distanceToSqr(target);
+        if (d > HARD_RELEASE_SQ) {
+            return false;
+        }
+        return d <= SOFT_RELEASE_SQ || target.getTarget() == mob;
     }
 
     @Override

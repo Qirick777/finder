@@ -1425,8 +1425,23 @@ public class MimicEntity extends PathfinderMob {
         return horizDistSq(p) <= BUILD_REACH * BUILD_REACH;
     }
 
-    /** 전투/피격 중인가 — 피격 직후·최근 가해자 기억·나를 노리는 근처 좀비. 건축 정지 판단용. */
+    private long threatCacheTick = -1L;   // isUnderThreat 틱 캐시(휘발) — goal 평가가 틱당 수 회 재호출
+    private boolean threatCacheValue;
+
+    /** 전투/피격 중인가 — 피격 직후·최근 가해자 기억·나를 노리는 근처 좀비. 건축 정지 판단용.
+     *  같은 틱 안에서는 첫 계산을 재사용(리시·건축·나눔·대사 판정이 틱당 3~5회 부르던 좀비 스캔 중복 제거).
+     *  틱 중간에 발생한 피격은 다음 틱에 반영(1틱 지연 — 종전에도 goal 평가 순서에 따라 동일했음). */
     public boolean isUnderThreat() {
+        long now = level().getGameTime();
+        if (threatCacheTick == now) {
+            return threatCacheValue;
+        }
+        threatCacheTick = now;
+        threatCacheValue = computeUnderThreat();
+        return threatCacheValue;
+    }
+
+    private boolean computeUnderThreat() {
         if (hurtTime > 0 || getLastHurtByMob() != null) {
             return true;
         }

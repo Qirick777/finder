@@ -11,7 +11,7 @@ import java.util.EnumSet;
  * 구애 이동·시도 goal (구애 사양서 v2 §2 COURTING). 인식·후보 등록은 엔티티 tick({@code mateTick})이
  * 노동·배회 내내 하고, 이 goal 은 <b>배회 시간(구애 시간)</b>에만 후보를 매력 순으로 찾아가 구애한다.
  *
- * <p>졸졸 안 따라다님: 접촉하면 판정 1회 → 거절이면 그 상대를 포기(rejectedBy)하고 다음 후보로.
+ * <p>졸졸 안 따라다님: 접촉하면 판정 1회 → 거절이면 그 상대를 하루 쿨다운(눈낮춤 재시도)하고 다음 후보로.
  * 못 따라잡으면(APPROACH_TIMEOUT) 역시 포기. 후보 소진 시 SEARCHING 복귀(탐색 타이머 리셋).
  */
 public class MimicCourtshipGoal extends Goal {
@@ -86,7 +86,7 @@ public class MimicCourtshipGoal extends Goal {
         approachTicks = 0;
         mob.getNavigation().stop();
         if (!target.receiveCourtship(mob)) {
-            mob.giveUpOn(target.getId());      // 거절 → 포기(rejectedBy), 다음 후보
+            mob.giveUpOn(target.getId());      // 거절 → 하루 쿨다운(눈낮춤 §10 재시도), 다음 후보
         }
         // 수락이면 pairWith 로 양쪽 PAIRED → canContinue 종료
     }

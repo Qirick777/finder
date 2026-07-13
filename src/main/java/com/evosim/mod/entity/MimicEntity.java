@@ -2756,6 +2756,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("Widowed", widowed);
         tag.putLong("LonelySince", lonelySinceTick); // 족외혼 클럭 — 리로드로 3일 재대기 방지
         tag.putInt("RejGiven", rejectionsGiven);     // 눈낮춤 진행도 — 리로드로 수렴이 리셋되지 않게
+        tag.putBoolean("WasCrit", wasCritical);      // 위급 전이 감지 — 리로드 직후 중복 로그 방지
         tag.putByte("HomeFacing", homeFacing);
         tag.putBoolean("Building", building);
         if (individual != null) {
@@ -2809,6 +2810,7 @@ public class MimicEntity extends PathfinderMob {
         widowed = tag.getBoolean("Widowed");
         lonelySinceTick = tag.contains("LonelySince") ? tag.getLong("LonelySince") : -1L;
         rejectionsGiven = tag.getInt("RejGiven");
+        wasCritical = tag.getBoolean("WasCrit");
         homeFacing = tag.getByte("HomeFacing");
         building = tag.getBoolean("Building");
         if (tag.contains("Individual")) {

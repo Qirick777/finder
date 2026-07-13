@@ -381,6 +381,7 @@ public final class EvoSimCommand {
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        discardFamily(level, home); // 재실행 잔재 정리(이전 부부 중첩 방지)
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home).add(8, 0, 0), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(-8, 0, 0), Sex.FEMALE);
         if (m == null || f == null) {
@@ -397,7 +398,8 @@ public final class EvoSimCommand {
         LiveCheck.watch(ctx.getSource(), "입금·인출", 600,
                 () -> String.format("남편 H %.2f(시작 2.50) · 아내 H %.2f(시작 0.70) · 저장고 %.0f(시작 3)",
                         m.getHolding(), f.getHolding(), LarderStore.get(level).get(home)),
-                () -> m.getHolding() >= 1.0 && m.getHolding() < 2.0 && f.getHolding() >= 1.5);
+                () -> m.getHolding() >= 1.0 && m.getHolding() < 2.0 && f.getHolding() >= 1.5,
+                () -> discard(m, f)); // 판별 종료 시 무대 정리(잔존·세계 오염 방지)
         tell(ctx.getSource(), "입금·인출 연출 — 기대: 남편 H 2.50→1.50(1개 입금), 아내 H 0.70→1.70(1개 인출), "
                 + "저장고 3→4→3. 아래 수치 중계로 자동 판정.");
         return 1;
@@ -409,6 +411,7 @@ public final class EvoSimCommand {
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        discardFamily(level, home); // 재실행 잔재 정리
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(2, 0, 0), Sex.FEMALE);
         if (m == null || f == null) {
@@ -428,7 +431,8 @@ public final class EvoSimCommand {
         LiveCheck.watch(ctx.getSource(), "나눔", 400,
                 () -> String.format("아내 H %.2f(시작 0.25·위급) · 남편 H %.2f(시작 1.90)",
                         f.getHolding(), m.getHolding()),
-                () -> f.getHolding() >= 0.6 && m.getHolding() <= 1.8);
+                () -> f.getHolding() >= 0.6 && m.getHolding() <= 1.8,
+                () -> discard(m, f));
         tell(ctx.getSource(), "나눔 연출 — 기대: 남편이 다가가 0.50 건넴 → 아내 H 0.25→0.75(위급 해제), "
                 + "남편 H 1.90→1.40. 아래 수치 중계로 자동 판정.");
         return 1;
@@ -567,6 +571,7 @@ public final class EvoSimCommand {
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        discardFamily(level, home); // 재실행 잔재 정리
         MimicEntity[] couple = coupleAt(level, home);
         MimicEntity bride = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
         if (bride == null) {
@@ -581,7 +586,8 @@ public final class EvoSimCommand {
                         bride.isSingleAdult() ? "독신" : "혼인",
                         home.equals(bride.getHomePos()) ? "합류" : "미합류",
                         LarderStore.get(level).get(home)),
-                () -> !bride.isSingleAdult() && home.equals(bride.getHomePos()));
+                () -> !bride.isSingleAdult() && home.equals(bride.getHomePos()),
+                () -> discard(couple[0], couple[1], bride));
         tell(ctx.getSource(), "중혼 연출 — 주변 독신남 0·기혼남만 후보(감점에도 유일 후보). 기대: 신부가 "
                 + "구애 → 아내 용인(인색·경쟁 없음)+저장고 40≥부양선(하루소모×3) → 수락·합류. 아내에 인색 "
                 + "특성을 준 거절 케이스는 /evosim checkall 12단계에 포함.");
@@ -933,7 +939,8 @@ public final class EvoSimCommand {
                         sawElder[0] = true;
                     }
                     return sawElder[0] && !e.isAlive(); // 결과값: 노년을 거쳐 실제로 죽었는가
-                });
+                },
+                () -> discard(e)); // 실패(생존) 시에도 무대 개체 정리
         tell(ctx.getSource(), "노년 판별 — 기대: 약 2초 뒤 성년→노년([성장]), 다시 약 2초 뒤 [자연사]. "
                 + "노년을 거치지 않거나 살아있으면 실패.");
         return 1;
@@ -946,6 +953,8 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         BlockPos homeE = BlockPos.containing(b.add(-6, 0, -8));
         BlockPos homeC = BlockPos.containing(b.add(-6, 0, 8)); // 자식 집 — 16블록 거리
+        discardFamily(level, homeE); // 재실행 잔재 정리(두 집 모두)
+        discardFamily(level, homeC);
         // 노인은 집 반경(6) 밖에서 스폰 — 가족틱이 잉여를 자기 저장고로 흡수하는 경쟁(race) 차단.
         MimicEntity elder = spawnAdult(level, Vec3.atBottomCenterOf(homeE).add(8, 0, 4), Sex.MALE,
                 Trait.OVER_RESPONSIBLE); // 책임 — 잉여 목표·배달형
@@ -958,14 +967,15 @@ public final class EvoSimCommand {
         elder.debugSetHolding(3.5);              // 잉여 정수 2개 → 배달 직전
         MimicEntity child = spawnChildOf(level, Vec3.atBottomCenterOf(homeC), elder, Sex.MALE);
         child.debugSettleWithTent(homeC, Direction.NORTH);
-        stagedInfant(level, homeC, Sex.FEMALE);  // 손자(유아) — 마실 우선 대상
+        MimicEntity infant = stagedInfant(level, homeC, Sex.FEMALE); // 손자(유아) — 마실 우선 대상
         LarderStore.get(level).set(homeC, 0.0);
         level.setDayTime(2000L); // 노동 시간(마감 6000 전)
         LiveCheck.watch(ctx.getSource(), "노인공유", 1200,
                 () -> String.format("자식집 저장고 %.0f(시작 0·기대 2) · 노인 H %.2f(시작 3.5) · 노인↔자식집 %.0f블록",
                         LarderStore.get(level).get(homeC), elder.getHolding(),
                         Math.sqrt(elder.blockPosition().distSqr(homeC))),
-                () -> LarderStore.get(level).get(homeC) >= 2.0 - 1.0E-6); // 결과값: 자식 저장고 실증가
+                () -> LarderStore.get(level).get(homeC) >= 2.0 - 1.0E-6, // 결과값: 자식 저장고 실증가
+                () -> discard(elder, child, infant));
         tell(ctx.getSource(), "노인 공유 판별 — 기대: 책임 노인이 자식 집(유아 있음)으로 걸어가 [노인공유] "
                 + "저장고 0→2, 이후 유아 곁 머묾(마실 육아). 저장고가 안 늘면 실패.");
         return 1;

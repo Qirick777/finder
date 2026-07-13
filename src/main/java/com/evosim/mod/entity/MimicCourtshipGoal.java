@@ -59,8 +59,10 @@ public class MimicCourtshipGoal extends Goal {
         mob.setCourtTargetId(-1);
         if (!mob.hasCandidate()) {
             mob.resetSearchTimer();          // 후보 소진 → 다시 탐색
-            mob.setMateState(MateState.SEARCHING);
         }
+        if (mob.getMateState() == MateState.COURTING) {
+            mob.setMateState(MateState.SEARCHING); // 후보가 남아도 COURTING 채 잔류하지 않게
+        } // (성사 시엔 pairWith 가 먼저 PAIRED 로 바꿔 이 복귀가 건드리지 않음)
     }
 
     @Override
@@ -73,7 +75,7 @@ public class MimicCourtshipGoal extends Goal {
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
         if (mob.distanceToSqr(target) > CONTACT * CONTACT) {
             if (++approachTicks > APPROACH_TIMEOUT) {
-                mob.giveUpOn(target.getId());  // 못 따라잡음 → 포기, 다음 후보
+                mob.backOffFrom(target.getId()); // 일시 회피(쿨다운 후 재시도) — 영구 거절 아님
                 approachTicks = 0;
             } else {
                 mob.getNavigation().moveTo(target, 1.1);

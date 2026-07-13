@@ -111,7 +111,8 @@ public class MimicEntity extends PathfinderMob {
     private int searchTimer = 0;                                        // 탐색 누적(틱)
     private final List<Integer> candidates = new ArrayList<>();         // 후보 id (매력 내림차순)
     private final Map<Integer, Integer> candidateCharm = new HashMap<>(); // id → 내 기준 매력
-    private final Set<Integer> rejectedBy = new HashSet<>();            // 내가 포기/거절당한 상대 id
+    private final Set<Integer> rejectedBy = new HashSet<>();            // 내가 거절당한 상대 id(성혼·사별 시 정리)
+    private final Map<Integer, Long> approachRetryAt = new HashMap<>(); // 접근 실패 재시도 시각(일시 회피 — 휘발)
     private int courtTargetId = -1;                                     // 현재 구애 대상(상호구애 특례)
     private final List<CourtRecord> courtLog = new ArrayList<>();       // GUI 기록(최근 것 유지)
     private static final int COURT_LOG_MAX = 20;
@@ -602,6 +603,7 @@ public class MimicEntity extends PathfinderMob {
                 } else {
                     widowed = true;
                     mateState = MateState.SEARCHING; // 노년이면 바로 아래 게이트가 IDLE 로 되돌림
+                    clearCourtshipPool(); // 재구애는 백지에서 — 결혼 전 거절 기록이 재혼을 막지 않게
                 }
             }
         }
@@ -722,8 +724,9 @@ public class MimicEntity extends PathfinderMob {
                 continue;
             }
             int id = m.getId();
-            if (rejectedBy.contains(id) || candidateCharm.containsKey(id)) {
-                continue;
+            if (rejectedBy.contains(id) || candidateCharm.containsKey(id)
+                    || approachRetryAt.getOrDefault(id, 0L) > level().getGameTime()) {
+                continue; // 거절당함(영구) / 이미 후보 / 접근 실패 쿨다운 중(일시)
             }
             if (Kinship.isRelated(individual, m.getIndividual())) {
                 continue; // 근친 회피 §13-E
@@ -838,6 +841,7 @@ public class MimicEntity extends PathfinderMob {
         if (level() instanceof ServerLevel sl) {
             moveInto(sl, this, bride); // 홀거처주였으면 그 집은 폐가화(기존 규칙)
         }
+        bride.clearCourtshipPool(); // 성혼 정리(pairWith와 동일)
         StageObserver.record(getId(), "mating:polygyny");
         SimEvents.event(this, "중혼", "둘째 부인 #" + bride.getId()
                 + " 합류 — 아내 용인·저장고 부양 증명 통과 (아내 " + (currentWives().size()) + "명)");
@@ -861,6 +865,8 @@ public class MimicEntity extends PathfinderMob {
         }
         StageObserver.record(getId(), "mating:pair");
         SimEvents.event(this, "짝성립", "상대 #" + other.getId());
+        clearCourtshipPool();       // 성혼 — 낡은 후보·거절 기록 정리(사망까지 잔존하던 메모리·stale 캐시)
+        other.clearCourtshipPool();
     }
 
     /** MateHome 규칙대로 거처 귀속: 새집(재활용/신축) / 한쪽 거처로 이주 / 둘다혼자→랜덤 합류. */
@@ -1602,11 +1608,34 @@ public class MimicEntity extends PathfinderMob {
         return topTies.get(getRandom().nextInt(topTies.size()));
     }
 
-    /** 거절/포기: 상대를 rejectedBy에 넣고 후보에서 제거(재구애 방지). */
+    /** 거절/포기: 상대를 rejectedBy에 넣고 후보에서 제거(재구애 방지). 실제 거절에만 쓸 것 —
+     *  일시적 접근 실패는 {@link #backOffFrom}(쿨다운)으로. */
     public void giveUpOn(int id) {
         rejectedBy.add(id);
         candidates.remove((Integer) id);
         candidateCharm.remove(id);
+    }
+
+    /** 접근 실패 쿨다운(틱) — 이 시간 뒤 같은 상대를 다시 후보로 고려(배회 한 주기 내 재시도). */
+    private static final long APPROACH_RETRY_TICKS = 2400L;
+
+    /**
+     * 일시 회피(접근 실패 전용): 후보에서 빼되 재시도 시각만 걸어둔다 — 영구 거절과 구분.
+     * 경로 실패·상대 이동 같은 일시 사유가 이웃 이성을 하나씩 영구 소진시키던 결함 방지.
+     */
+    public void backOffFrom(int id) {
+        approachRetryAt.put(id, level().getGameTime() + APPROACH_RETRY_TICKS);
+        candidates.remove((Integer) id);
+        candidateCharm.remove(id);
+    }
+
+    /** 구애 풀 일괄 정리 — 성혼·사별·노년 전이 같은 상태 전환점에서 낡은 후보·거절 기록을 비운다
+     *  (사별 재구애 시 과거 스침 상대가 영구 배제되던 결함 + 전이 후 stale 캐시 잔존 해소). */
+    private void clearCourtshipPool() {
+        candidates.clear();
+        candidateCharm.clear();
+        rejectedBy.clear();
+        approachRetryAt.clear();
     }
 
     public MateState getMateState() {
@@ -2559,6 +2588,9 @@ public class MimicEntity extends PathfinderMob {
             default -> LifeStage.ELDER; // ADULT → 노년
         };
         setStage(next);
+        if (next == LifeStage.ELDER) {
+            clearCourtshipPool(); // 노년 = 구애 은퇴 — 후보·거절 기록을 사망까지 들고 있지 않게
+        }
         com.evosim.mod.stage.StageObserver.record(this.getId(), "grow:" + next.name());
         SimEvents.event(this, "성장", stageKo(stage) + "→" + stageKo(next));
     }

@@ -1707,8 +1707,9 @@ public class MimicEntity extends PathfinderMob {
      * "정산 창을 놓치면 번식 불가" 문제가 사라진다.
      */
     private void familyTick() {
-        if (individual == null || building) {
-            return;
+        if (individual == null) {
+            return; // 건축 중에도 정산은 허용 — 순수 회계라 건축과 충돌 없고, 부부 전원이
+                    // 건축(이주·신축)인 가구의 급식·입출금이 완공까지 멎는 결함 방지
         }
         int interval = fastSettle ? FAST_SETTLE_INTERVAL : FoodEconomy.FAMILY_TICK_INTERVAL;
         if ((level().getGameTime() + getId()) % interval != 0) {
@@ -2092,12 +2093,13 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 대표 선출(A-4, 결정론): 살아있는 <b>UUID 최소 성년</b>, 성년 없으면 UUID 최소 구성원. 매번 재계산.
-     *  건축 중 성원은 제외 — 대표가 건축 중이면 familyTick 자체가 건너뛰어 온 가족 정산이 멎기 때문. */
+     *  건축 여부는 무관 — familyTick 이 건축 중에도 정산을 허용하므로 제외할 이유가 없다(제외하면
+     *  전원 건축 가구에서 대표가 없어 정산이 멎는다). */
     private static MimicEntity settleLeader(List<MimicEntity> fam) {
         MimicEntity bestAdult = null;
         MimicEntity best = null;
         for (MimicEntity m : fam) {
-            if (!m.isAlive() || m.getIndividual() == null || m.isBuilding()) {
+            if (!m.isAlive() || m.getIndividual() == null) {
                 continue;
             }
             if (best == null || m.getUUID().compareTo(best.getUUID()) < 0) {

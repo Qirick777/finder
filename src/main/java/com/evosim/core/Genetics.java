@@ -16,7 +16,7 @@ public final class Genetics {
 
     /** 우성 특성이 자식에게 우성으로 유전될 확률 (설계서 §2, 확정값). */
     public static final double DOMINANT_INHERIT_RATE = 0.75;
-    /** 돌연변이 확률 (설계서 §2, 확정값). */
+    /** 돌연변이 확률 — <b>카테고리당</b> 독립 2%(개체당 실효 ≥1회 확률은 1−0.98^카테고리수). 설계 확정값 유지. */
     public static final double MUTATION_RATE = 0.02;
     /** 육아 클래스 돌연변이 확률. */
     public static final double PARENTING_MUTATION_RATE = 0.10;

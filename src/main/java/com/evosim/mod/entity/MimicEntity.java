@@ -206,7 +206,7 @@ public class MimicEntity extends PathfinderMob {
 
     /**
      * 생애단계·성별에 따라 속성 재적용 (설계서 §7 §1). 유아 거의 정지·소년 느림·성년 기본,
-     * 여성은 힘/체력 40%↓. 단계 성장·개체 부여 때마다 호출.
+     * 여성은 힘/체력 배율 0.4(60%↓). 단계 성장·개체 부여 때마다 호출.
      */
     private void refreshStageAttributes() {
         LifeStage stage = getStage();

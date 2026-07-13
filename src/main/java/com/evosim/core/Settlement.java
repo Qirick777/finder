@@ -19,31 +19,6 @@ public final class Settlement {
     }
 
     /**
-     * 짝 조합별 독립 거리 (설계서 §13-D):
-     * 이주 우세 → 2배(멀리), 애향 우세 → 절반(가까이), 중립/상쇄(이주×애향) → 기본.
-     */
-    public static int homeDistance(Individual a, Individual b) {
-        int mig = migrantScore(a) + migrantScore(b); // 이주자 +1, 애향심 −1
-        if (mig > 0) {
-            return BASE_DISTANCE * 2;   // 개척 물결
-        }
-        if (mig < 0) {
-            return BASE_DISTANCE / 2;   // 고향 근처 밀집
-        }
-        return BASE_DISTANCE;           // 중립 또는 이주×애향 상쇄
-    }
-
-    private static int migrantScore(Individual ind) {
-        if (ExpressionResolver.isExpressed(ind, Trait.MIGRATORY)) {
-            return 1;
-        }
-        if (ExpressionResolver.isExpressed(ind, Trait.HOMEBOUND)) {
-            return -1;
-        }
-        return 0;
-    }
-
-    /**
      * 부모 거처에서 {@code distance}만큼 떨어진, 기존 거처들과 {@link #MIN_GAP} 이상 벌어진 새 좌표.
      * 링을 돌며 빈 각도를 찾고, 못 찾으면 거리를 늘려 재시도(고립 방지). (x, z) 반환.
      */

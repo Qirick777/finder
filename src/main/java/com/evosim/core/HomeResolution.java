@@ -47,7 +47,10 @@ public final class HomeResolution {
     private static final int FARTHER = Settlement.BASE_DISTANCE * 3; // 이주자+이주자
     private static final int FAR = Settlement.BASE_DISTANCE * 2;     // 이주자+기본
     private static final int DEFAULT = Settlement.BASE_DISTANCE;     // 기본 독립
-    private static final int CLOSE = Settlement.BASE_DISTANCE / 2;   // 애향 밀집
+    // 애향 밀집 — 반드시 Settlement.MIN_GAP 이상이어야 함: 그보다 작으면 placeHome 첫 링(정확히 이
+    // 거리의 후보들)이 간격 검사에서 전멸해 다음 링(+MIN_GAP)으로 밀려 "애향이 중립보다 멀어지는"
+    // 역전이 났다(과거 8<10). 12 = 최소 간격(10) 이상 + 중립(16) 미만으로 밀집 서열 복원.
+    private static final int CLOSE = Settlement.BASE_DISTANCE * 3 / 4;
 
     private HomeResolution() {
     }

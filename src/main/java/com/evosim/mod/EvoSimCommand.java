@@ -183,7 +183,7 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         level.setDayTime(10000L); // 배회(구애) 시간
-        BlockPos homeA = BlockPos.containing(b.add(-5, 0, 0));
+        BlockPos homeA = groundAt(level, b, -5, 0);
         MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.FEMALE);
         if (a != null) {
             a.debugSettleWithTent(homeA, Direction.NORTH); // 여성 홀거처주(사별 상정)
@@ -199,7 +199,7 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         level.setDayTime(10000L);
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        BlockPos home = groundAt(level, b, -6, 0);
         MimicEntity dad = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity mom = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
         MimicEntity son = spawnAdult(level, Vec3.atBottomCenterOf(home).add(-0.5, 0, 0), Sex.MALE);
@@ -220,8 +220,8 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         level.setDayTime(10000L);
-        BlockPos homeA = BlockPos.containing(b.add(-6, 0, -3));
-        BlockPos homeB = BlockPos.containing(b.add(-6, 0, 3));
+        BlockPos homeA = groundAt(level, b, -6, -3);
+        BlockPos homeB = groundAt(level, b, -6, 3);
         MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
         MimicEntity bb = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.FEMALE);
         if (a != null) {
@@ -239,7 +239,7 @@ public final class EvoSimCommand {
     private static int stageAbandon(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
-        BlockPos home = BlockPos.containing(b.add(-4, 0, 0));
+        BlockPos home = groundAt(level, b, -4, 0);
         MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         if (a != null) {
             a.debugSettleWithTent(home, Direction.NORTH);
@@ -254,7 +254,7 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         level.setDayTime(10000L);
-        BlockPos empty = BlockPos.containing(b.add(-8, 0, 0));
+        BlockPos empty = groundAt(level, b, -8, 0);
         MimicEntity.debugPlaceAbandonedHome(level, empty, Direction.NORTH); // 빈 거처 준비
         MimicEntity m = spawnAdult(level, b.add(2, 0, 0), Sex.MALE, Trait.HOMEBOUND);
         MimicEntity f = spawnAdult(level, b.add(3, 0, 0), Sex.FEMALE, Trait.HOMEBOUND);
@@ -271,7 +271,7 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         level.setDayTime(10000L);
-        BlockPos empty = BlockPos.containing(b.add(-8, 0, 0));
+        BlockPos empty = groundAt(level, b, -8, 0);
         MimicEntity.debugPlaceAbandonedHome(level, empty, Direction.NORTH); // 빈 거처(무시될 것)
         MimicEntity m = spawnAdult(level, b.add(2, 0, 0), Sex.MALE, Trait.MIGRATORY);
         MimicEntity f = spawnAdult(level, b.add(3, 0, 0), Sex.FEMALE, Trait.MIGRATORY);
@@ -291,7 +291,8 @@ public final class EvoSimCommand {
     private static int stageBerry(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        BlockPos home = groundAt(level, b, -6, 0);
+        discardFamily(level, home); // 재실행·타 무대 잔재 정리(장기 관찰 시계열 오염 방지)
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
         if (m != null && f != null) {
@@ -314,8 +315,10 @@ public final class EvoSimCommand {
     private static int stageFood(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
-        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath()); // 로그 자동 ON
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지 // 로그 자동 ON
+        BlockPos home = groundAt(level, b, -6, 0);
+        discardFamily(level, home); // 재실행·타 무대 잔재 정리(장기 관찰 시계열 오염 방지)
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
         if (m != null && f != null) {
@@ -339,9 +342,10 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos homeA = BlockPos.containing(b.add(-8, 0, -12));
-        BlockPos homeB = BlockPos.containing(b.add(-8, 0, 0));
-        BlockPos homeC = BlockPos.containing(b.add(-8, 0, 12));
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos homeA = groundAt(level, b, -8, -12);
+        BlockPos homeB = groundAt(level, b, -8, 0);
+        BlockPos homeC = groundAt(level, b, -8, 12);
         MimicEntity m1 = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
         MimicEntity f1 = spawnAdult(level, Vec3.atBottomCenterOf(homeA).add(0.5, 0, 0), Sex.FEMALE);
         MimicEntity m2 = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
@@ -380,7 +384,8 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos home = groundAt(level, b, -6, 0);
         discardFamily(level, home); // 재실행 잔재 정리(이전 부부 중첩 방지)
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home).add(8, 0, 0), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(-8, 0, 0), Sex.FEMALE);
@@ -410,7 +415,8 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos home = groundAt(level, b, -6, 0);
         discardFamily(level, home); // 재실행 잔재 정리
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(2, 0, 0), Sex.FEMALE);
@@ -443,7 +449,8 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos home = groundAt(level, b, -6, 0);
         discardFamily(level, home); // 재실행 개체 잔재 제거 — 이전 부부·유아가 남아 "유아 1" 판정 오염 방지
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
@@ -491,7 +498,8 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos home = groundAt(level, b, -6, 0);
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0), Sex.FEMALE);
         if (m == null || f == null) {
@@ -523,8 +531,9 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos homeA = BlockPos.containing(b.add(-6, 0, -6)); // 저장고 없음 → 채집 강행
-        BlockPos homeB = BlockPos.containing(b.add(-6, 0, 6));  // 저장고 있음 → 귀가 인출
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos homeA = groundAt(level, b, -6, -6); // 저장고 없음 → 채집 강행
+        BlockPos homeB = groundAt(level, b, -6, 6);  // 저장고 있음 → 귀가 인출
         MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
         MimicEntity bb = spawnAdult(level, Vec3.atBottomCenterOf(homeB).add(6, 0, 0), Sex.MALE);
         if (a == null || bb == null) {
@@ -548,8 +557,9 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos homeA = BlockPos.containing(b.add(-6, 0, 0));
-        BlockPos homeB = BlockPos.containing(b.add(58, 0, 0)); // 64블록 동쪽 — 타향(48 초과)
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos homeA = groundAt(level, b, -6, 0);
+        BlockPos homeB = groundAt(level, b, 58, 0); // 64블록 동쪽 — 타향(48 초과)
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
         MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.FEMALE);
         if (m == null || f == null) {
@@ -570,7 +580,8 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos home = BlockPos.containing(b.add(-6, 0, 0));
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos home = groundAt(level, b, -6, 0);
         discardFamily(level, home); // 재실행 잔재 정리
         MimicEntity[] couple = coupleAt(level, home);
         MimicEntity bride = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
@@ -587,7 +598,7 @@ public final class EvoSimCommand {
                         home.equals(bride.getHomePos()) ? "합류" : "미합류",
                         LarderStore.get(level).get(home)),
                 () -> !bride.isSingleAdult() && home.equals(bride.getHomePos()),
-                () -> discard(couple[0], couple[1], bride));
+                () -> discardFamily(level, home, couple[0], couple[1], bride)); // 감시 창 중 태어난 자손까지 회수
         tell(ctx.getSource(), "중혼 연출 — 주변 독신남 0·기혼남만 후보(감점에도 유일 후보). 기대: 신부가 "
                 + "구애 → 아내 용인(인색·경쟁 없음)+저장고 40≥부양선(하루소모×3) → 수락·합류. 아내에 인색 "
                 + "특성을 준 거절 케이스는 /evosim checkall 12단계에 포함.");
@@ -606,6 +617,7 @@ public final class EvoSimCommand {
             return 0;
         }
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
         List<VerifySuite.Step> steps = new ArrayList<>();
 
         // [1] 입금·인출 — 남편 H2.5→[1,2)·아내 H0.7→≥1.5 (결과값: H·저장고)
@@ -920,6 +932,7 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
         MimicEntity e = spawnAdult(level, b.add(-4, 0, 0), Sex.MALE);
         if (e == null) {
             return 0;
@@ -951,8 +964,9 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
-        BlockPos homeE = BlockPos.containing(b.add(-6, 0, -8));
-        BlockPos homeC = BlockPos.containing(b.add(-6, 0, 8)); // 자식 집 — 16블록 거리
+        LiveCheck.cancelAll(); // 진행 중 판별 인수(명시적 중단·정리) — 좌표 공유 오살 방지
+        BlockPos homeE = groundAt(level, b, -6, -8);
+        BlockPos homeC = groundAt(level, b, -6, 8); // 자식 집 — 16블록 거리
         discardFamily(level, homeE); // 재실행 잔재 정리(두 집 모두)
         discardFamily(level, homeC);
         // 노인은 집 반경(6) 밖에서 스폰 — 가족틱이 잉여를 자기 저장고로 흡수하는 경쟁(race) 차단.
@@ -1010,6 +1024,14 @@ public final class EvoSimCommand {
         f.debugSettleWithTent(home, Direction.NORTH);
         m.debugMarryTo(f);
         return new MimicEntity[] {m, f};
+    }
+
+    /** 지형 높이에 맞춘 무대 거처 좌표 — 단독 명령이 플레이어 발 Y를 그대로 써서 경사지에서
+     *  천막이 공중/벽 속에 깔리던 것을 heightmap 으로 보정(위치 x/z 는 그대로 — 관찰성 유지). */
+    private static BlockPos groundAt(ServerLevel level, Vec3 b, double dx, double dz) {
+        return level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                BlockPos.containing(b.x + dx, 0, b.z + dz));
     }
 
     /** 지형 높이에 맞춘 검증 슬롯 좌표(슬롯당 z+64 — 인식·나눔 범위 밖으로 격리). */

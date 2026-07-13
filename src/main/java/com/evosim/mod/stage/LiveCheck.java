@@ -48,6 +48,18 @@ public final class LiveCheck {
         send(e, "판별 시작 — 시작값: " + safe(progress), ChatFormatting.GOLD);
     }
 
+    /** 새 무대가 이전 판별을 인수 — 좌표를 공유하는 단독 명령이 진행 중 판별의 개체를 지워
+     *  스퓨리어스 ❌가 나던 것을, 명시적 중단(정리 포함)으로 대체한다. */
+    public static void cancelAll() {
+        Iterator<Entry> it = ACTIVE.iterator();
+        while (it.hasNext()) {
+            Entry e = it.next();
+            send(e, "⏹ 중단 — 새 무대 시작으로 판별 종료", ChatFormatting.YELLOW);
+            it.remove();
+            finish(e);
+        }
+    }
+
     private static void finish(Entry e) {
         if (e.cleanup != null) {
             try {

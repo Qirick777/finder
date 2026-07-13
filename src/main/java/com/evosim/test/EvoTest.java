@@ -875,16 +875,15 @@ public final class EvoTest {
         Individual home = one(Sex.MALE, TraitInstance.of(Trait.HOMEBOUND));
         Individual neu = one(Sex.MALE);
 
-        // 1) 조합별 거리: 이주×이주 멀리·애향×애향 가까이·중립 기본·이주×애향 상쇄
-        boolean dist = Settlement.homeDistance(mig, mig) == Settlement.BASE_DISTANCE * 2
-                && Settlement.homeDistance(home, home) == Settlement.BASE_DISTANCE / 2
-                && Settlement.homeDistance(neu, neu) == Settlement.BASE_DISTANCE
-                && Settlement.homeDistance(mig, home) == Settlement.BASE_DISTANCE   // 상쇄
-                && Settlement.homeDistance(neu, mig) == Settlement.BASE_DISTANCE * 2;
-        report.add("settlement/거리", dist, "이주멀리·애향가까이·상쇄기본",
-                String.format("이주×이주 %d · 애향×애향 %d · 상쇄 %d",
-                        Settlement.homeDistance(mig, mig), Settlement.homeDistance(home, home),
-                        Settlement.homeDistance(mig, home)));
+        // 1) 밀집 거리 회귀 방지: 실 배치 규칙(HomeResolution)의 애향 거리가 최소 간격 이상(첫 링
+        //    성립 — 과거 8<10 으로 링0 전멸→중립보다 멀어지는 역전)이고 중립(16)보다는 가까운지.
+        //    (구 homeDistance 는 런타임 미사용 死코드라 삭제 — 검증 착시 제거.)
+        int closeD = HomeResolution.plan(HomeResolution.dispositionOf(home),
+                HomeResolution.dispositionOf(home)).distance();
+        boolean dist = closeD >= Settlement.MIN_GAP && closeD < Settlement.BASE_DISTANCE;
+        report.add("settlement/밀집거리", dist,
+                "애향 신축 거리 ≥ 최소간격(" + Settlement.MIN_GAP + ") · < 중립(" + Settlement.BASE_DISTANCE + ")",
+                "애향 거리 " + closeD);
 
         // 2) 비겹침: 마을에 거처 20개를 순차 배치 → 모든 쌍이 최소 간격 이상
         DeterministicRng rng = new DeterministicRng(4242L);
@@ -1284,10 +1283,10 @@ public final class EvoTest {
                 && HomeResolution.plan(M, N).distance() == base * 2
                 && HomeResolution.plan(M, H).distance() == base       // 기본처럼 가까이
                 && HomeResolution.plan(N, N).distance() == base
-                && HomeResolution.plan(N, H).distance() == base / 2
-                && HomeResolution.plan(H, H).distance() == base / 2;
+                && HomeResolution.plan(N, H).distance() == base * 3 / 4
+                && HomeResolution.plan(H, H).distance() == base * 3 / 4; // 밀집 12(≥MIN_GAP 10)
         report.add("homeresolution/거리", dist,
-                "이주×이주 " + (base * 3) + " · 이주×기본 " + (base * 2) + " · 애향 " + (base / 2),
+                "이주×이주 " + (base * 3) + " · 이주×기본 " + (base * 2) + " · 애향 " + (base * 3 / 4),
                 dist ? "정상" : "어긋남");
 
         // 4) 신축 앵커: 기본+애향=애향 보유자 고향 · 애향+애향=두 거처 중간 · 그 외=짝 성사 자리

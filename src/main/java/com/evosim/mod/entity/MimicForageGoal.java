@@ -114,13 +114,14 @@ public class MimicForageGoal extends Goal {
             return;
         }
 
-        // 1) 사냥 — 동물을 보면 즉각.
+        // 1) 사냥 — 동물을 보면 즉각. 탐지·추적 유지 거리 모두 같은 배율(넓게 보고 즉시 포기하는 모순 방지).
+        double huntRange = HUNT_RANGE * Multipliers.huntRange(ind);
         if (huntTarget != null && (!huntTarget.isAlive()
-                || mob.distanceToSqr(huntTarget) > HUNT_RANGE * HUNT_RANGE * 2.0)) {
+                || mob.distanceToSqr(huntTarget) > huntRange * huntRange * 2.0)) {
             huntTarget = null;
         }
         if (huntTarget == null) {
-            huntTarget = nearestAnimal();
+            huntTarget = nearestAnimal(huntRange);
         }
         if (huntTarget != null) {
             mob.getLookControl().setLookAt(huntTarget, 30.0F, 30.0F);
@@ -152,7 +153,7 @@ public class MimicForageGoal extends Goal {
             gatherTarget = null;
         }
         if (gatherTarget == null) {
-            gatherTarget = findForage(herbalist);
+            gatherTarget = findForage(herbalist, Multipliers.forageRange(ind));
         }
         if (gatherTarget != null) {
             if (mob.blockPosition().closerThan(gatherTarget, REACH)) {
@@ -195,11 +196,11 @@ public class MimicForageGoal extends Goal {
         }
     }
 
-    private Animal nearestAnimal() {
+    private Animal nearestAnimal(double range) {
         Animal best = null;
         double bestDist = Double.MAX_VALUE;
         for (Animal a : mob.level().getEntitiesOfClass(
-                Animal.class, mob.getBoundingBox().inflate(HUNT_RANGE))) {
+                Animal.class, mob.getBoundingBox().inflate(range))) {
             if (!a.isAlive()) {
                 continue;
             }
@@ -214,21 +215,24 @@ public class MimicForageGoal extends Goal {
 
     /**
      * 채집물 한 칸 탐색 — 우선순위: ① <b>자기 거처 옆 정원의 다 익은 베리</b>(멀리 있어도 되돌아와 수확),
-     * ② 근처(±5) 아무 익은 베리, ③ 주변 풀 무작위 표본.
+     * ② 근처(±5 × 탐지배율) 아무 익은 베리, ③ 주변 풀 무작위 표본. 표본 수는 면적 비례로 보정 —
+     * 반경만 넓히면 같은 표본이 흩어져 근거리 발견율이 되레 떨어지는 가짜 이점을 막는다(배율 1.0이면 종전 그대로 ±5·24회).
      */
-    private BlockPos findForage(boolean herbalist) {
+    private BlockPos findForage(boolean herbalist, double rangeMult) {
         BlockPos garden = ripeHomeBerry();
         if (garden != null) {
             return garden; // 내 밭이 익었으면 어디 있든 그리로 가서 딴다
         }
         BlockPos base = mob.blockPosition();
-        BlockPos berry = nearestRipeBerry(base);
+        int half = (int) Math.round(5 * rangeMult);
+        BlockPos berry = nearestRipeBerry(base, half);
         if (berry != null) {
             return berry; // 익은 베리가 근처에 있으면 풀보다 먼저 딴다
         }
-        for (int i = 0; i < 24; i++) {
-            int dx = mob.getRandom().nextInt(11) - 5;
-            int dz = mob.getRandom().nextInt(11) - 5;
+        int samples = (int) Math.ceil(24.0 * half * half / 25.0);
+        for (int i = 0; i < samples; i++) {
+            int dx = mob.getRandom().nextInt(half * 2 + 1) - half;
+            int dz = mob.getRandom().nextInt(half * 2 + 1) - half;
             int dy = mob.getRandom().nextInt(3) - 1;
             BlockPos p = base.offset(dx, dy, dz);
             if (forageable(mob.level().getBlockState(p), herbalist)) {
@@ -255,12 +259,12 @@ public class MimicForageGoal extends Goal {
         return null;
     }
 
-    /** 근처(±5)에서 가장 가까운 다 익은 스위트베리 덤불. 없으면 null. */
-    private BlockPos nearestRipeBerry(BlockPos base) {
+    /** 근처(±half — 기본 5 × 식물 탐지배율)에서 가장 가까운 다 익은 스위트베리 덤불. 없으면 null. */
+    private BlockPos nearestRipeBerry(BlockPos base, int half) {
         BlockPos best = null;
         double bestDist = Double.MAX_VALUE;
-        for (int dx = -5; dx <= 5; dx++) {
-            for (int dz = -5; dz <= 5; dz++) {
+        for (int dx = -half; dx <= half; dx++) {
+            for (int dz = -half; dz <= half; dz++) {
                 for (int dy = -2; dy <= 2; dy++) {
                     BlockPos p = base.offset(dx, dy, dz);
                     if (isRipeBerry(mob.level().getBlockState(p))) {

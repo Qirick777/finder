@@ -33,6 +33,7 @@ public final class Multipliers {
         if (t.contains(Trait.GATHERER)) m += 0.3;         // 채집꾼 채집사거리↑
         if (t.contains(Trait.HUNTER)) m -= 0.1;           // 사냥꾼 채집딜레이
         if (t.contains(Trait.BASIC_EDUCATION)) m += 0.1;  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
+        if (t.contains(Trait.INARTICULATE)) m += 0.1;     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
         return Math.max(0.0, m);
     }
 
@@ -54,7 +55,28 @@ public final class Multipliers {
         if (t.contains(Trait.GATHERER)) m -= 0.3;         // 채집꾼 데미지↓
         if (t.contains(Trait.COMPETITIVE)) m += 0.2;      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
         if (t.contains(Trait.BASIC_EDUCATION)) m += 0.1;  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
+        if (t.contains(Trait.INARTICULATE)) m += 0.1;     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
         return Math.max(0.0, m);
+    }
+
+    /** 동물 탐지거리 배율 — 식물혼동은 식물 대신 동물에 눈이 감(+50%, 채집 ×0.5의 반대급부). */
+    public static double huntRange(Individual ind) {
+        return ExpressionResolver.isExpressed(ind, Trait.PLANT_CONFUSED) ? 1.5 : 1.0;
+    }
+
+    /**
+     * 식물 탐지거리 배율 — 피공포 +50%(피를 피해 식물에 눈이 감), 공간지각 +25%(먹을거리 위치 기억),
+     * 공간지각+식물혼동 <b>동시 발현이면 +50%</b>(시너지 — 눈으로는 혼동해도 공간 기억으로 보완,
+     * 식물 한정. 채집 ×0.5 페널티 자체는 유지). 가산이라 피공포와 중첩 가능(최대 2.0).
+     */
+    public static double forageRange(Individual ind) {
+        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        double m = 1.0;
+        if (t.contains(Trait.BLOOD_FEARFUL)) m += 0.5;
+        if (t.contains(Trait.GOOD_SPATIAL)) {
+            m += t.contains(Trait.PLANT_CONFUSED) ? 0.5 : 0.25;
+        }
+        return m;
     }
 
     /** 저장(가족 창고 유입) 배율 (설계서 §15 요리사/요리치). */

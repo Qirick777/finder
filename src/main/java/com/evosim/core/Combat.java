@@ -72,6 +72,9 @@ public final class Combat {
         if (isExpr(ind, Trait.CAUTIOUS)) {
             r -= 3.0;
         }
+        if (isExpr(ind, Trait.BLOOD_FEARFUL)) {
+            r += 3.0; // 피공포 — 피를 무서워해 위협을 멀리서 경계(사냥 ×0.5의 반대급부). 겁쟁이 −3과 상쇄.
+        }
         // 시야 등급(천리안/근시안)이 감지 범위를 등급 비례로 늘리고 줄인다(설계서 §14).
         r *= Physique.vision(ind);
         return Math.max(2.0, r);

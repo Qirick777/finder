@@ -438,6 +438,39 @@ public final class EvoTest {
         checkNum(report, "multiplier/저장저하", 0.8,
                 Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.BAD_COOK))), "요리치 = 0.8");
 
+        // 4b) 탐지거리 배율(페널티 특성의 반대급부): 식물혼동=동물 1.5·식물은 1.0(단독),
+        //     공간지각=식물 1.25, 공간지각+식물혼동=식물 1.5(시너지), 피공포=식물 1.5,
+        //     3종 동시=2.0(가산). 몬스터 감지: 피공포 +3(단독 11), 겁쟁이 −3과 상쇄(=8).
+        checkNum(report, "multiplier/동물탐지", 1.5,
+                Multipliers.huntRange(one(Sex.MALE, TraitInstance.of(Trait.PLANT_CONFUSED))),
+                "식물혼동 동물탐지 1.5");
+        checkNum(report, "multiplier/동물탐지기본", 1.0, Multipliers.huntRange(one(Sex.MALE)),
+                "무특성 1.0");
+        checkNum(report, "multiplier/식물탐지", 1.25,
+                Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.GOOD_SPATIAL))),
+                "공간지각 1.25");
+        checkNum(report, "multiplier/식물탐지시너지", 1.5,
+                Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.GOOD_SPATIAL),
+                        TraitInstance.of(Trait.PLANT_CONFUSED))),
+                "공간지각+식물혼동 = 1.0+0.5(시너지)");
+        checkNum(report, "multiplier/식물탐지피공포", 1.5,
+                Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.BLOOD_FEARFUL))),
+                "피공포 1.5");
+        checkNum(report, "multiplier/식물탐지중첩", 2.0,
+                Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.BLOOD_FEARFUL),
+                        TraitInstance.of(Trait.GOOD_SPATIAL), TraitInstance.of(Trait.PLANT_CONFUSED))),
+                "피공포+시너지 = 1.0+0.5+0.5");
+        checkNum(report, "multiplier/눌변가노동", 1.1,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.INARTICULATE))),
+                "눌변가 채집 1.1(말 대신 손)");
+        checkNum(report, "multiplier/피공포감지", 11.0,
+                Combat.detectionRange(one(Sex.MALE, TraitInstance.of(Trait.BLOOD_FEARFUL))),
+                "피공포 몬스터 감지 8+3");
+        checkNum(report, "multiplier/피공포겁쟁이", 8.0,
+                Combat.detectionRange(one(Sex.MALE, TraitInstance.of(Trait.BLOOD_FEARFUL),
+                        TraitInstance.of(Trait.COWARD))),
+                "겁쟁이 −3 + 피공포 +3 = 상쇄 8");
+
         // 5) 발현 연동: 여성발현 약초학자를 남성이 가지면 흔적 → 배율에 안 잡힘(=1.0)
         Individual vest = one(Sex.MALE, TraitInstance.of(Trait.HERBALIST, Tag.FEMALE_EXPRESSED));
         checkNum(report, "multiplier/흔적무효", 1.0, Multipliers.gather(vest),

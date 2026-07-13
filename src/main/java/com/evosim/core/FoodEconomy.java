@@ -93,14 +93,18 @@ public final class FoodEconomy {
      * (히스테리시스 — 밴드 중간값은 건드리지 않아 진동을 막는다).
      *
      * @param familyInPriority 남편 → 자식(태어난 순) → 아내 순으로 정렬된 전체 가족
-     * @return 갱신된 저장고 (H는 Eater에 in-place 반영). 정수 입출금만 하므로 L의 정수성 보존.
+     * @return 갱신된 저장고 (H는 Eater에 in-place 반영). L은 항상 정수 유닛으로만 입출금 —
+     *         요리 축 배율은 H 쪽(유닛당 소요/회복량)에만 붙어 L의 정수성이 보존된다.
      */
     public static double settleHome(double larder, List<Eater> familyInPriority) {
-        for (Eater e : familyInPriority) { // ① 입금: 여분 정수만 — 무책임은 문턱 3.0(가족 몫 기여↓)
+        for (Eater e : familyInPriority) { // ① 입금: 여분 정수 유닛만 — 무책임은 문턱 3.0(가족 몫 기여↓)
             double depositAt = depositThreshold(e.ind);
-            while (e.home && e.holding >= depositAt) {
+            // 저장 배율(요리 축)은 L 정수성을 지키기 위해 "1유닛에 드는 H"로 적용 —
+            // 요리사 0.83H/유닛(가공 이득), 날로먹기 1.25H/유닛(보관하면 상함). 무특성 1.0(종전과 동일).
+            double hPerUnit = 1.0 / Multipliers.storage(e.ind);
+            while (e.home && e.holding >= depositAt && e.holding >= hPerUnit) {
                 larder += 1.0;
-                e.holding -= 1.0;
+                e.holding -= hPerUnit;
             }
         }
         for (Eater e : familyInPriority) { // ② 분배: 트리거 미만이었던 구성원만, 목표까지
@@ -109,7 +113,7 @@ public final class FoodEconomy {
             }
             while (e.holding < FILL_TARGET && larder >= 1.0) {
                 larder -= 1.0;
-                e.holding += 1.0;
+                e.holding += intakeMult(e.ind); // 날로먹기 1.2 — 같은 1유닛으로 더 회복
             }
         }
         return larder;
@@ -163,7 +167,17 @@ public final class FoodEconomy {
         if (t.contains(Trait.DILIGENT)) m *= 1.1;
         if (t.contains(Trait.LAZY)) m *= 0.9;
         if (t.contains(Trait.NO_MATERNAL)) m *= 0.9; // 모성애없음 — 돌봄에 에너지 안 씀(본인 소모↓)
+        // 페널티 특성의 반대급부(에너지 절약) — 각 축의 페널티(출산상한−·임계+·체력−·재생−)는 유지
+        if (t.contains(Trait.CHILD_AVERSE)) m *= 0.95;        // 아이불호 — 육아에 에너지 안 씀
+        if (t.contains(Trait.REPRODUCTION_AVERSE)) m *= 0.95; // 번식불호 — 번식에 에너지 안 씀
+        if (t.contains(Trait.FRAIL)) m *= 0.95;               // 빈약 — 작은 몸
+        if (t.contains(Trait.SICKLY)) m *= 0.9;               // 병약 — 낮은 대사(페널티 최대라 보상도 최대)
         return m;
+    }
+
+    /** 섭취 효율(요리 축) — 날로먹기는 같은 식량 1유닛으로 H를 더 회복(저장 손실 ×0.8의 반대급부). */
+    public static double intakeMult(Individual ind) {
+        return ExpressionResolver.isExpressed(ind, Trait.RAW_EATER) ? 1.2 : 1.0;
     }
 
     // ── 특성 효과 노브(전부 순수·evotest 대조) ──

@@ -2435,7 +2435,9 @@ public class MimicEntity extends PathfinderMob {
 
     /** 채집/사냥으로 확보한 식량을 소지분 H에 더한다(R2). 방랑자(집 없음)는 밴드 상한에서 컷. */
     public void addHarvest(double food) {
-        holding += food;
+        // 섭취 효율(날로먹기 1.2) — 갓 딴 것을 바로 먹는 지점. 기근·쿼터 판정(dayGathered)은
+        // 노동량 원량 기준을 유지해야 하므로 아래 누적에는 배율을 태우지 않는다.
+        holding += food * (individual != null ? FoodEconomy.intakeMult(individual) : 1.0);
         if (food > 0.0) {
             lastForageSuccessTick = level().getGameTime(); // 기근 판정 근거(결과 기반)
             long day = level().getGameTime() / 24000L;

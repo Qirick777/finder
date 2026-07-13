@@ -432,11 +432,11 @@ public final class EvoTest {
         checkNum(report, "multiplier/사냥", 1.7, Multipliers.hunt(h), "도축업자+육식 = 1.0+0.5+0.2");
         checkNum(report, "multiplier/육식채집", 0.7, Multipliers.gather(h), "육식 채집 = 1.0-0.3");
 
-        // 4) 저장: 요리사(+0.2)=1.2 / 요리치(-0.2)=0.8
+        // 4) 저장: 요리사(+0.2)=1.2 / 날로먹기(-0.2)=0.8
         checkNum(report, "multiplier/저장", 1.2,
                 Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.COOK))), "요리사 = 1.2");
         checkNum(report, "multiplier/저장저하", 0.8,
-                Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.BAD_COOK))), "요리치 = 0.8");
+                Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.RAW_EATER))), "날로먹기 = 0.8");
 
         // 4b) 탐지거리 배율(페널티 특성의 반대급부): 식물혼동=동물 1.5·식물은 1.0(단독),
         //     공간지각=식물 1.25, 공간지각+식물혼동=식물 1.5(시너지), 피공포=식물 1.5,
@@ -1541,6 +1541,45 @@ public final class EvoTest {
                     && close(out.holding, 0.5) && close(l, 3.0) && isInt(l);
             report.add("food/밴드", b, "여분 정수 입금 → 1.7 / 0.5→1.5 인출 / 집 밖 불변 / L 정수",
                     b ? "정상" : String.format("dad %.2f mom %.2f L %.2f", dad.holding, mom.holding, l));
+        }
+
+        // [food/절약특성] 페널티 특성의 반대급부(소모↓): 아이불호·번식불호·빈약 ×0.95 / 병약 ×0.9 / 중첩 곱
+        boolean sv = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.CHILD_AVERSE)), false), 3.0 * 0.95)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)), false), 3.0 * 0.95)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.FRAIL)), false), 3.0 * 0.95)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.SICKLY)), false), 3.0 * 0.9)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.WEAK), TraitInstance.of(Trait.SICKLY),
+                                TraitInstance.of(Trait.REPRODUCTION_AVERSE)), false),
+                        3.0 * 0.8 * 0.9 * 0.95); // 극단 중첩 2.052 — 하한 회귀 감시
+        report.add("food/절약특성", sv, "아이불호·번식불호·빈약 ×0.95 · 병약 ×0.9 · 중첩 곱(약함+병약+번식불호 2.052)",
+                sv ? "정상" : "어긋남");
+
+        // [food/날로먹기] 저장 손실 ↔ 섭취 효율(요리 축 v2 배선): L은 항상 정수 유닛 유지
+        {
+            Individual raw = one(Sex.MALE, TraitInstance.of(Trait.RAW_EATER));
+            Individual cook = one(Sex.MALE, TraitInstance.of(Trait.COOK));
+            // 입금: 날로먹기 1유닛에 H 1.25 소요(2.3→1.05), 요리사 0.833(2.0→1.167) — 무특성은 1.0(종전)
+            var rDad = new FoodEconomy.Eater(raw, LifeStage.ADULT, 2.3, true);
+            double l1 = FoodEconomy.settleHome(3.0, java.util.List.of(rDad));
+            var cDad = new FoodEconomy.Eater(cook, LifeStage.ADULT, 2.0, true);
+            double l2 = FoodEconomy.settleHome(3.0, java.util.List.of(cDad));
+            // 인출: 날로먹기는 1유닛으로 H 1.2 회복(0.5→1.7) — 왕복 1.2/1.25 = 96%(순손실 유지)
+            var rMom = new FoodEconomy.Eater(raw, LifeStage.ADULT, 0.5, true);
+            double l3 = FoodEconomy.settleHome(2.0, java.util.List.of(rMom));
+            boolean b = close(rDad.holding, 2.3 - 1.25) && close(l1, 4.0) && isInt(l1)
+                    && close(cDad.holding, 2.0 - 1.0 / 1.2) && close(l2, 4.0) && isInt(l2)
+                    && close(rMom.holding, 0.5 + 1.2) && close(l3, 1.0) && isInt(l3)
+                    && close(FoodEconomy.intakeMult(raw), 1.2)
+                    && close(FoodEconomy.intakeMult(man), 1.0);
+            report.add("food/날로먹기", b,
+                    "입금 1.25H/유닛(요리사 0.83) · 인출 1유닛=1.2H · 왕복 96% · L 정수 보존",
+                    b ? "정상" : String.format("rDad %.3f L %.1f · cDad %.3f · rMom %.2f",
+                            rDad.holding, l1, cDad.holding, rMom.holding));
         }
 
         // [food/우선순위] 기근: 저장고 2 vs 배고픈 3명 → 남편→자식만 급식, 아내 굶음

@@ -81,7 +81,7 @@ public enum Trait {
     HERBIVORE(Axis.DIET, "채식"),
     CARNIVORE(Axis.DIET, "육식"),
     COOK(Axis.COOKING, "요리사"),
-    BAD_COOK(Axis.COOKING, "요리치"),
+    RAW_EATER(Axis.COOKING, "날로먹기"), // 구명 BAD_COOK(요리치) — NBT 레거시 별칭은 IndividualNbt
     ELOQUENT(Axis.ELOQUENCE, "달변가"),
     INARTICULATE(Axis.ELOQUENCE, "눌변가"),
 

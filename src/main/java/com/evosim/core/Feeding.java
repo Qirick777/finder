@@ -50,6 +50,11 @@ public final class Feeding {
             if (t.contains(Trait.WEAK)) c -= 0.2;
             if (t.contains(Trait.DILIGENT)) c += 0.1;
             if (t.contains(Trait.LAZY)) c -= 0.1;
+            // v2 costMult와 대칭(페널티 특성의 반대급부) — 두 정산계가 같은 방향을 보게 유지
+            if (t.contains(Trait.CHILD_AVERSE)) c *= 0.95;
+            if (t.contains(Trait.REPRODUCTION_AVERSE)) c *= 0.95;
+            if (t.contains(Trait.FRAIL)) c *= 0.95;
+            if (t.contains(Trait.SICKLY)) c *= 0.9;
             return Math.max(0.1, c);
         }
     }

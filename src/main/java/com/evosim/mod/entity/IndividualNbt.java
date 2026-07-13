@@ -110,6 +110,9 @@ public final class IndividualNbt {
     }
 
     private static Trait traitOrNull(String s) {
+        if ("BAD_COOK".equals(s)) {
+            return Trait.RAW_EATER; // 영구 레거시 별칭 — 요리치→날로먹기 개명 전 세이브 보존
+        }
         try {
             return Trait.valueOf(s);
         } catch (IllegalArgumentException e) {

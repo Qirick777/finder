@@ -79,12 +79,15 @@ public final class Multipliers {
         return m;
     }
 
-    /** 저장(가족 창고 유입) 배율 (설계서 §15 요리사/요리치). */
+    /**
+     * 저장(가족 창고 유입) 배율 (설계서 §15 요리사/날로먹기). v2 정산에서는 L 정수성을 지키기 위해
+     * "저장고 1유닛에 드는 H = 1/배율"로 적용된다({@link FoodEconomy#settleHome}).
+     */
     public static double storage(Individual ind) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double m = 1.0;
         if (t.contains(Trait.COOK)) m += 0.2;             // 요리사 ×1.2
-        if (t.contains(Trait.BAD_COOK)) m -= 0.2;         // 요리치 ×0.8
+        if (t.contains(Trait.RAW_EATER)) m -= 0.2;        // 날로먹기 ×0.8 — 가공 없이 보관하면 상함
         if (t.contains(Trait.SPECIALIST_EDUCATION)) m += 0.15; // 전문교육 — 전문 기술(가공·저장)
         return Math.max(0.0, m);
     }

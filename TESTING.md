@@ -110,7 +110,10 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 - [ ] M5 `/evosim farmgrow` — 소작권 확장: 타일 9→12 ∧ 소작 저장고 16→7 ∧ 주인 저장고 20 불변
 - [ ] M5 `/evosim farmfound` — 신규 개간: 구획 +1(3타일 착공) ∧ 지주 저장고 40→10
 - [ ] M5 `/evosim farmcap` — 능력 게이트: 무능력 지주 33→정확히 35 정지 ∧ 저장고 30→24
-- [ ] M6~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+- [ ] M6 `/evosim farminherit` — 지주 파괴 → 아들 승계 ∧ 아들의 자기 소작 해소
+- [ ] M6 `/evosim farmvacant` — 무후 지주 파괴 → 무주 → 밤에 이웃 선점(vacantSince 해제)
+- [ ] M6 관찰: 무주지 만료 소거(2.5일 — 이웃 없이 방치 후 등록 소멸·야생 베리 잔존)
+- [ ] M7~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
 
 ### 밭 관문 진단 지도 (결과 수신 즉시 원인 특정용 — 실패 슬러그 → 의심 지점 → 다듬기 방향)
 
@@ -133,6 +136,10 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | farm_grow_tenant_right tiles 9 유지 | 성장 게이트(시각창 13000·growDay·유주택 소작 탐색) | tenantLarder 도 불변이면 미발동, 감소했는데 tiles 그대로면 좌표 설치부(heightmap) |
 | farm_found_new owned 0 유지 | 신규 분기(자금 게이트 40≥36·부지 탐색 findFarmSite) | larder 불변=자금/시각 게이트, larder만 감소=부지 실패 후 차감 순서 결함(치명 — 즉보고) |
 | farm_skill_cap tiles 36+ | `growthCap`/`canManageLarge` 게이트 누락 | 능력 목록에 기본 특성이 섞였는지(STRONG 등은 비능력이어야 정상) |
+| farm_inherit_son owner 그대로(사망자 id) | remove() 상속 훅 미발동 또는 inherit 조기 반환 | discard의 destroy 여부·ownedCount 대조 |
+| farm_inherit_son owner 0(무주) | 후보 탐색(부모 링크 스캔) 실패 | spawnChildOf의 parentAId 설정 확인 |
+| farm_inherit_son sonTenant 유지 | 자기 소작 해소 분기 | 승계는 정상 — 해소 줄만 점검 |
+| farm_vacant_claim owner 0 유지 | 선점부(통근·유주택) 또는 밤 게이트(growDay) | vacantSince set이면 상속 정상 — 선점 루프만 |
 | 공통: setup_error | 무대 조성부(스폰 실패·지형) | 슬러그 무관 — groundAt 결과 좌표와 예외 메시지 우선 |
 
 실패 보고는 verify.log 원문이면 충분 — 슬러그·reason·수치 3요소로 위 표를 탄다.

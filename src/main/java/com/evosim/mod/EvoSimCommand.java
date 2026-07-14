@@ -124,6 +124,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmgrow").executes(EvoSimCommand::farmGrowDemo))
                 .then(Commands.literal("farmfound").executes(EvoSimCommand::farmFoundDemo))
                 .then(Commands.literal("farmcap").executes(EvoSimCommand::farmCapDemo))
+                .then(Commands.literal("farminherit").executes(EvoSimCommand::farmInheritDemo))
+                .then(Commands.literal("farmvacant").executes(EvoSimCommand::farmVacantDemo))
                 .then(Commands.literal("farmshield").executes(ctx -> farmShieldDemo(ctx, true)))
                 .then(Commands.literal("farmbreak").executes(ctx -> farmShieldDemo(ctx, false)))
                 .then(Commands.literal("farmclear")
@@ -524,7 +526,67 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
+    /**
+     * M6 관문 ① 상속 — 지주 + 성년 아들(부모 링크) + 아들이 그 밭의 상시 소작인 상태 조성 →
+     * 지주 파괴 → 결과값: 소유자 == 아들 id ∧ 아들의 자기 소작 관계 해소(허점 6).
+     */
+    private static int farmInheritDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        MimicEntity son = spawnChildOf(level, Vec3.atBottomCenterOf(home).add(2, 0, 0), owner, Sex.MALE);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        son.setTenant(plot.id, 3); // 아버지 밭의 소작 — 상속 시 해소되어야 함
+        long sonId = son.getIndividual().id();
+        owner.discard(); // 사망 — remove 훅이 원장 마킹 + 상속을 수행
+        LiveCheck.watch(ctx.getSource(), "farm_inherit_son", 200,
+                () -> String.format("owner %d(expect son %d) sonTenant %d(expect 0)",
+                        plot.ownerId, sonId, son.getTenantFarm()),
+                () -> plot.ownerId == sonId && son.getTenantFarm() == 0L,
+                () -> {
+                    discard(son);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M6 관문 ② 무주지·선점 — 무후 지주 파괴 → 무주(ownerId 0) → 밤에 통근 내 유주택 이웃이
+     * 선점(ownerId == 이웃). 만료 소거(2.5일)는 시간상 게이트 불가 — 이연 관찰 항목.
+     */
+    private static int farmVacantDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        BlockPos nHome = groundAt(level, ctx.getSource().getPosition(), -8, 8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        MimicEntity neigh = spawnAdult(level, Vec3.atBottomCenterOf(nHome), Sex.MALE);
+        neigh.debugSettleWithTent(nHome, Direction.NORTH);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        long nid = neigh.getIndividual().id();
+        owner.discard(); // 무후·무배우자 — 무주지로
+        level.setDayTime(13500L); // 밤 — 다음 스캔에서 선점
+        LiveCheck.watch(ctx.getSource(), "farm_vacant_claim", 600,
+                () -> String.format("owner %d(0=vacant, expect neighbor %d) vacantSince %s",
+                        plot.ownerId, nid, plot.vacantSince >= 0 ? "set" : "-"),
+                () -> plot.ownerId == nid && plot.vacantSince < 0,
+                () -> {
+                    discard(neigh);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
     private static FarmStore.Plot buildDemoPlot(ServerLevel level, BlockPos anchor, long ownerId, int n) {
         FarmStore.Plot plot = FarmStore.get(level).create(anchor, ownerId);
         for (int[] t : FarmLayout.layout(n)) {

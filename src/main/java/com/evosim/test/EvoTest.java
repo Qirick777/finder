@@ -1807,19 +1807,43 @@ public final class EvoTest {
         Individual tolerant = one(Sex.FEMALE);
         Individual stingy = one(Sex.FEMALE, TraitInstance.of(Trait.STINGY));
         Individual competitive = one(Sex.FEMALE, TraitInstance.of(Trait.COMPETITIVE));
+        Individual plainMan = one(Sex.MALE);
+        Individual greedyMan = one(Sex.MALE, TraitInstance.of(Trait.GREEDY));
+        Individual ambitiousMan = one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS));
         double need = 6.9; // 성인2+유아1 — 부양 기준 = ×3일 = 20.7
 
-        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 21.0, need)          // 전부 통과 → 수락
-                && !Polygyny.canAccept(java.util.List.of(stingy), 30.0, need)             // 인색 아내 → 거절
-                && !Polygyny.canAccept(java.util.List.of(competitive), 30.0, need)        // 경쟁 아내 → 거절
-                && !Polygyny.canAccept(java.util.List.of(tolerant), 20.0, need)           // 부양 미달 → 거절
-                && !Polygyny.canAccept(java.util.List.of(tolerant, tolerant), 99.0, need); // 상한 2처 → 거절
-        boolean g2 = Polygyny.wifeObjects(stingy) && Polygyny.wifeObjects(competitive)
+        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 21.0, need, plainMan)   // 전부 통과 → 수락
+                && !Polygyny.canAccept(java.util.List.of(stingy), 30.0, need, plainMan)      // 인색 아내 → 거절
+                && !Polygyny.canAccept(java.util.List.of(competitive), 30.0, need, plainMan) // 경쟁 아내 → 거절
+                && !Polygyny.canAccept(java.util.List.of(tolerant), 20.0, need, plainMan)    // 부양 미달 → 거절
+                && Polygyny.canAccept(java.util.List.of(tolerant, tolerant), 99.0, need, plainMan); // 상한 없음 — 셋째도 부양만 되면
+        boolean g2 = Polygyny.canAccept(java.util.List.of(stingy), 30.0, need, greedyMan)    // 욕심: 질투 무시
+                && Polygyny.canAccept(java.util.List.of(stingy, competitive, stingy), 99.0, need, ambitiousMan) // 야망: 4처째도
+                && !Polygyny.canAccept(java.util.List.of(stingy), 20.0, need, greedyMan)     // 부유층도 부양은 필수
+                && Polygyny.eliteSuitor(greedyMan) && Polygyny.eliteSuitor(ambitiousMan)
+                && !Polygyny.eliteSuitor(plainMan);
+        boolean g3 = Polygyny.wifeObjects(stingy) && Polygyny.wifeObjects(competitive)
                 && !Polygyny.wifeObjects(tolerant)
-                && Polygyny.MARRIED_CHARM_PENALTY == 2 && Polygyny.MAX_WIVES == 2;
-        report.add("polygyny/게이트", g1 && g2,
-                "아내 용인(인색·경쟁 없음)·저장고 3일치·상한 2처 전부 통과 시만 수락 — 기혼 감점 2",
-                (g1 && g2) ? "정상" : "어긋남");
+                && Polygyny.MARRIED_CHARM_PENALTY == 2;
+        report.add("polygyny/게이트", g1 && g2 && g3,
+                "질투(부유층 면제)·저장고 3일치만 게이트 — 상한 없음(부양이 상한) · 기혼 감점 2",
+                (g1 && g2 && g3) ? "정상" : "어긋남");
+
+        // 부유·생산력 선호 — 잉여/벌이의 매력 환산(로그 문턱 3/9/27일 · 벌이 1.5/1.95/2.25)
+        Individual prefY = one(Sex.FEMALE, TraitInstance.of(Trait.PREF_YIELD));
+        boolean pw = Multipliers.wealthCharm(9.0, 3.0) == 1 && Multipliers.wealthCharm(27.0, 3.0) == 2
+                && Multipliers.wealthCharm(81.0, 3.0) == 3 && Multipliers.wealthCharm(8.9, 3.0) == 0
+                && Multipliers.wealthCharm(99.0, 0.0) == 0;
+        int base = Multipliers.charmScore(one(Sex.FEMALE), plainMan);
+        boolean py = Multipliers.charmScore(prefY, plainMan) == base + 1                    // 남 1.5
+                && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.of(Trait.GATHERER)))
+                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.of(Trait.GATHERER))) + 2 // 1.95
+                && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.of(Trait.HERBALIST)))
+                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))) + 3 // 2.25
+                && Multipliers.charmScore(prefY, tolerant) == Multipliers.charmScore(one(Sex.FEMALE), tolerant); // 여 0.5 → 0
+        report.add("polygyny/부유생산선호", pw && py,
+                "잉여 3/9/27일 → +1/+2/+3 (소모0 방어) · 벌이 남1.5+1·채집꾼1.95+2·약초학자2.25+3·여0.5+0",
+                (pw && py) ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

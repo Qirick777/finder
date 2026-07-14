@@ -2871,13 +2871,77 @@ public final class EvoSimCommand {
                     }));
         }
 
+        // [61] 부유층 중혼 — 욕심 남편은 인색 아내의 질투를 누른다(구 코드면 거절 → timeout FAIL)
+        {
+            BlockPos home = ground(level, b, 61);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("polygamy_elite",
+                    "greedy husband overrides stingy wife's veto: bride married & joined", 1200, false, () -> {
+                MimicEntity h = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.GREEDY);
+                MimicEntity w1 = spawnAdult(level, Vec3.atBottomCenterOf(home).add(0.5, 0, 0),
+                        Sex.FEMALE, Trait.STINGY);
+                h.debugSettleWithTent(home, Direction.NORTH);
+                w1.debugSettleWithTent(home, Direction.NORTH);
+                h.debugMarryTo(w1);
+                c[0] = h;
+                c[1] = w1;
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
+                LarderStore.get(level).set(home, 40.0);
+                level.setDayTime(9000L);
+            }, () -> String.format("bride %s joined %s",
+                    c[2].isSingleAdult() ? "single" : "married",
+                    home.equals(c[2].getHomePos()) ? "O" : "X"),
+                    () -> !c[2].isSingleAdult() && home.equals(c[2].getHomePos()),
+                    () -> discard(c)));
+        }
+        // [62] 상한 없음 — 관용 처 보유 평민도 셋째 부인까지(부양만 되면; 구 코드는 2처 상한 거절)
+        {
+            BlockPos home = ground(level, b, 62);
+            MimicEntity[] c = new MimicEntity[4];
+            steps.add(new VerifySuite.Step("polygamy_no_cap",
+                    "no wife cap: both brides join (3 wives total) while provision holds", 1600, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(4, 0, 0), Sex.FEMALE);
+                c[3] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(-4, 0, 2), Sex.FEMALE);
+                LarderStore.get(level).set(home, 60.0);
+                level.setDayTime(9000L);
+            }, () -> String.format("bride2 %s bride3 %s (both must join)",
+                    c[2].isSingleAdult() ? "single" : "married",
+                    c[3].isSingleAdult() ? "single" : "married"),
+                    () -> !c[2].isSingleAdult() && home.equals(c[2].getHomePos())
+                            && !c[3].isSingleAdult() && home.equals(c[3].getHomePos()),
+                    () -> discard(c)));
+        }
+        // [63] 부유선호 — 잉여가 매력: 부유선호 신부가 가난 독신남 대신 부유 기혼남(감점 −2)을 택함
+        {
+            BlockPos home = ground(level, b, 63);
+            MimicEntity[] c = new MimicEntity[4];
+            steps.add(new VerifySuite.Step("pref_wealth_charm",
+                    "wealth-preferring bride marries rich married man over poor single (+3 beats -2)", 1200, false, () -> {
+                MimicEntity[] cc = coupleAt(level, home); // 부유 기혼남 R + 관용 아내
+                c[0] = cc[0];
+                c[1] = cc[1];
+                LarderStore.get(level).set(home, 120.0); // ≥27일치 — 부유 가점 +3(감점 −2 상쇄+1)
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(6, 0, 4), Sex.MALE);
+                c[2].setNoAi(true); // 가난 독신남 P — 구애 개시 봉쇄(신부의 선택만 판정)
+                c[3] = spawnBride(level, Vec3.atBottomCenterOf(home).add(4, 0, -2), Trait.PREF_WEALTH);
+                level.setDayTime(9000L);
+            }, () -> String.format("bride %s home %s(expect rich R's home)",
+                    c[3].isSingleAdult() ? "single" : "married",
+                    home.equals(c[3].getHomePos()) ? "R" : "other"),
+                    () -> !c[3].isSingleAdult() && home.equals(c[3].getHomePos()),
+                    () -> discard(c)));
+        }
+
         // 슬롯이 시뮬레이션 거리(≈10청크)를 넘어 이어지므로 각 단계 시작 시 플레이어를 해당 슬롯으로
         // 동행 이동 — 개체 AI 틱 보장(스텝 슬롯은 순서와 정렬: ⑩만 슬롯 9 공유, 64블록 인접이라 무해).
         for (int i = 0; i < steps.size(); i++) {
             steps.get(i).at(ground(level, b, i + 1));
         }
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 60단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "
+        tell(ctx.getSource(), "원트랙 검증 시작 — 63단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "
                 + "각 단계는 발동 직전 조건을 자동 조성하고 결과값의 변화로만 판정. 단계마다 플레이어가 "
                 + "해당 슬롯으로 이동됨(원거리 개체 틱 보장 — 플레이어가 직접 실행할 것). 끝에 ✅/❌ 요약. "
                 + "영문 결과는 콘솔(성공 녹/실패 적)과 evosim-verify.log 파일에 동시 기록. "
@@ -3049,6 +3113,28 @@ public final class EvoSimCommand {
         if (stageActor) {
             e.markStageActor();
         }
+        level.addFreshEntity(e);
+        return e;
+    }
+
+    /**
+     * 단일 선호 특성만 가진 무대 신부 — spawnAdult 의 기본 선호 3종과 섞이면 발현 상한(카테고리 3)에
+     * 걸려 검증 대상 선호가 침묵할 수 있어, 선호 축 검증은 이 헬퍼로 깨끗하게 조성한다.
+     */
+    private static MimicEntity spawnBride(ServerLevel level, Vec3 pos, Trait pref) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            throw new IllegalStateException("bride spawn failed");
+        }
+        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        Individual ind = new Individual(id, Sex.FEMALE, 0, 0, 1);
+        ind.addTrait(TraitInstance.of(pref));
+        e.setIndividual(ind);
+        e.setStage(LifeStage.ADULT);
+        e.moveTo(pos.x, pos.y, pos.z, 0f, 0f);
+        e.markStageActor();
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
         return e;
     }

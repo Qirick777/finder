@@ -102,6 +102,18 @@ public final class Multipliers {
      *
      * <p>오직 발동(발현) 중인 특성만 반영 → 흔적은 매력에 안 잡힌다. 값이 클수록 매력적.
      */
+    /**
+     * 부유선호 가점(표현층에서 합산) — 상대의 잉여(거처 저장고+소유 밭 계정, 월드 수치라 순수
+     * 인자로 받음)를 생존일수로 환산해 3/9/27일 로그 문턱으로 등급화. [미확정] 문턱.
+     */
+    public static int wealthCharm(double wealth, double dailyNeed) {
+        if (dailyNeed <= 0.0) {
+            return 0;
+        }
+        double days = wealth / dailyNeed;
+        return days >= 27.0 ? 3 : days >= 9.0 ? 2 : days >= 3.0 ? 1 : 0;
+    }
+
     public static int charmScore(Individual evaluator, Individual target) {
         Set<Trait> pref = ExpressionResolver.expressedTraits(evaluator);
         Set<Trait> tt = ExpressionResolver.expressedTraits(target);
@@ -139,6 +151,11 @@ public final class Multipliers {
         if (pref.contains(Trait.PREF_DEVOTION)) {
             score += count(tt, Trait.CHILD_LOVING, Trait.OVER_RESPONSIBLE,
                     Trait.STRONG_MATERNAL, Trait.ALTRUISTIC);
+        }
+        if (pref.contains(Trait.PREF_YIELD)) {
+            // 생산력선호 — 상대의 벌이(성별×채집배율, 순수)를 등급 가점으로. [미확정] 문턱.
+            double y = FoodEconomy.forageYieldMult(target);
+            score += y >= 2.25 ? 3 : y >= 1.95 ? 2 : y >= 1.5 ? 1 : 0;
         }
 
         // 익숙함↔다양성 — 나와 겹치는/안 겹치는 발동 특성 수 (+1/매칭, 설계서 §14).

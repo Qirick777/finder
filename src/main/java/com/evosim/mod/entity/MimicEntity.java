@@ -759,6 +759,19 @@ public class MimicEntity extends PathfinderMob {
             }
             int charm = Multipliers.charmScore(individual, m.getIndividual())
                     - (marriedMale ? Polygyny.MARRIED_CHARM_PENALTY : 0); // 기혼 감점 — 독신 우선
+            if (ExpressionResolver.isExpressed(individual, Trait.PREF_WEALTH)
+                    && level() instanceof ServerLevel sl) {
+                // 부유선호 — 상대의 잉여(저장고+밭 계정)를 매력으로. 부유한 기혼 지주는 감점 −2를
+                // 가점(최대 +3)으로 자연 상쇄 — 인위적 감점 해제 없이 부가 매력이 되는 경로.
+                double w = m.getHomePos() == null ? 0.0 : LarderStore.get(sl).get(m.getHomePos());
+                for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
+                    if (p.ownerId == m.getIndividual().id()) {
+                        w += p.account;
+                    }
+                }
+                charm += Multipliers.wealthCharm(w, FoodEconomy.consumptionPerDay(
+                        m.getStage(), Activity.MOVE, m.getIndividual(), false));
+            }
             candidateCharm.put(id, charm);
             candidates.add(id);
         }
@@ -782,13 +795,14 @@ public class MimicEntity extends PathfinderMob {
                     && suitor.isFemale() && suitor.isSingleAdult()
                     && homePos != null && level() instanceof ServerLevel sl) {
                 double larder = LarderStore.get(sl).get(homePos);
-                if (Polygyny.canAccept(currentWives(), larder, liveFamilyNeed())) {
+                if (Polygyny.canAccept(currentWives(), larder, liveFamilyNeed(), individual)) {
                     logCourt(suitor, true, Multipliers.charmScore(individual, si), 1,
                             Math.max(1, candidates.size()), 100);
                     marrySecond(suitor);
                     return true;
                 }
-                SimEvents.event(suitor, "구애", "중혼 거절 — 상한/아내 질투(인색·경쟁)/부양 미달 중 하나");
+                SimEvents.event(suitor, "구애",
+                        "중혼 거절 — 아내 질투(부유층 아님)/부양 미달 중 하나");
             }
             return false; // 이미 짝 있음/건축 중 → 자동 거절
         }

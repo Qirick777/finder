@@ -112,6 +112,8 @@ public enum Trait {
     PREF_WASTE(Axis.WASTE_PREF, "낭비선호"),
     PREF_PEACE(Axis.PEACE_PREF, "평화선호"),
     PREF_PIONEER(Axis.PEACE_PREF, "개척선호"),
+    PREF_WEALTH(Axis.PROVISION_PREF, "부유선호"),     // 잉여(저장고+밭계정) 보유량 → 매력
+    PREF_YIELD(Axis.PROVISION_PREF, "생산력선호"),    // 벌이(성별×채집배율) → 매력
 
     // ── 등급 선호 (신체 등급 매칭) — 선호 자신도 목표 등급을 가진다(예: 튼튼II선호) ──
     PREF_TOUGHNESS(Axis.TOUGHNESS_PREF, "튼튼선호"),

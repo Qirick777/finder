@@ -66,6 +66,7 @@ public enum Axis {
     INTELLIGENCE_PREF(Category.PREFERENCE, false),    // 똑똑함선호 / 단순함선호
     WASTE_PREF(Category.PREFERENCE, false),           // 낭비선호 (단일, 핸디캡 원리)
     PEACE_PREF(Category.PREFERENCE, false),           // 평화선호 / 개척선호
+    PROVISION_PREF(Category.PREFERENCE, false),       // 부유선호 / 생산력선호 (자산 vs 벌이)
 
     // ── 등급 선호 (PREFERENCE, 단일·등급 보유) — 신체 등급 매칭용(예: 튼튼II선호) ──
     TOUGHNESS_PREF(Category.PREFERENCE, false),       // 튼튼선호 (등급)

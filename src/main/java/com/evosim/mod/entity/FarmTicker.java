@@ -25,6 +25,8 @@ public final class FarmTicker {
     private static final java.util.Map<Integer, Long> ASSIGNED = new java.util.HashMap<>();
     private static long assignDay = -1;
     private static long rentDay = -1;
+    /** 어제 배정 스냅샷(연속일 판정용, 휘발 — 재접속 시 연속일은 NBT 값에서 이어감). */
+    private static final java.util.Map<Integer, Long> LAST_ASSIGNED = new java.util.HashMap<>();
 
     private FarmTicker() {
     }
@@ -68,9 +70,15 @@ public final class FarmTicker {
         }
     }
 
+    /** 검증 조성 훅 — "어제 이 밭에 출근했음"을 주입(규칙 9: 조성만, 승격 결말은 실경로). */
+    public static void debugSeedAssignment(int entityId, long plotId) {
+        ASSIGNED.put(entityId, plotId);
+    }
+
     /** 검증 인수 — 무대 시작 시 배정 잔재 제거(같은 자리 2회 규칙). */
     public static void clearAssignments() {
         ASSIGNED.clear();
+        LAST_ASSIGNED.clear();
         assignDay = -1;
         rentDay = -1;
     }
@@ -86,6 +94,8 @@ public final class FarmTicker {
             return;
         }
         assignDay = day;
+        LAST_ASSIGNED.clear();
+        LAST_ASSIGNED.putAll(ASSIGNED);
         ASSIGNED.clear();
         FarmStore store = FarmStore.get(level);
         java.util.List<MimicEntity> adults = level.getEntities(
@@ -111,7 +121,22 @@ public final class FarmTicker {
                 }
             }
             int need = com.evosim.core.FarmEconomy.shortfall(plot.tiles.length, ownCap);
-            if (need <= 0) {
+            // 예약석: 상시 소작은 슬롯 산식과 무관하게 매일 우선 배정(고용 진동 차단 — 계획 허점 2).
+            // 통근 초과 이주·구획 소멸이면 관계 해제(F: 소작농 이주 미정의 보완).
+            int covered = 0;
+            for (MimicEntity m : adults) {
+                if (m.getTenantFarm() != plot.id) {
+                    continue;
+                }
+                if (m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE) {
+                    m.setTenant(0L, 0);
+                    com.evosim.mod.log.SimEvents.event(m, "소작해제", "통근 초과 이주 — 관계 소멸");
+                    continue;
+                }
+                ASSIGNED.put(m.getId(), plot.id);
+                covered += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+            }
+            if (need <= 0 || covered >= need) {
                 continue;
             }
             final BlockPos oh = ownerHome;
@@ -129,13 +154,58 @@ public final class FarmTicker {
             cands.sort(java.util.Comparator
                     .comparingDouble((MimicEntity m) -> m.blockPosition().distSqr(plot.anchor))
                     .thenComparingInt(MimicEntity::getId)); // 동률 결정론
-            int covered = 0;
             for (MimicEntity m : cands) {
                 if (covered >= need) {
                     break;
                 }
                 ASSIGNED.put(m.getId(), plot.id);
                 covered += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+                // 연속 출근 카운터: 어제도 같은 밭이면 +1, 아니면 1 — PROMOTE_DAYS 도달 시 상시 승격
+                int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id
+                        ? m.getTenantStreak() + 1 : 1;
+                if (m.getTenantFarm() == 0L) {
+                    if (streak >= com.evosim.core.FarmEconomy.PROMOTE_DAYS) {
+                        m.setTenant(plot.id, streak);
+                        com.evosim.mod.log.SimEvents.event(m, "상시소작", String.format(
+                                "%d일 연속 출근 — 구획 %d 예약석 승격", streak, plot.id));
+                    } else {
+                        m.setTenant(0L, streak);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 보호 의무(봉건 쌍무) — 200틱 스캔: 위급(H<0.3) 상시 소작농을 영주 저장고에서 1유닛 구제.
+     * 저장고가 비어 이행 불가면 관계 자동 해제(지대↔보호의 쌍무성 — 몰락 경로).
+     */
+    private static void protectTenants(ServerLevel level) {
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() != 0L)) {
+            if (!m.isCritical()) {
+                continue;
+            }
+            FarmStore.Plot plot = FarmStore.get(level).get(m.getTenantFarm());
+            if (plot == null) {
+                m.setTenant(0L, 0); // 구획 소멸 — 관계 정리
+                continue;
+            }
+            BlockPos home = null;
+            for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null
+                            && e.getIndividual().id() == plot.ownerId)) {
+                home = o.getHomePos();
+            }
+            double larder = home == null ? 0.0 : LarderStore.get(level).get(home);
+            if (home != null && larder >= 1.0) {
+                LarderStore.get(level).set(home, larder - 1.0);
+                m.addHarvest(1.0);
+                com.evosim.mod.log.SimEvents.event(m, "구제", String.format(
+                        "영주 저장고 1 인출 — H %.2f (구획 %d)", m.getHolding(), plot.id));
+            } else {
+                m.setTenant(0L, 0);
+                com.evosim.mod.log.SimEvents.event(m, "소작해제", "영주 구제 불이행 — 관계 소멸");
             }
         }
     }
@@ -151,6 +221,7 @@ public final class FarmTicker {
         }
         assignDawn(level);
         settleRent(level);
+        protectTenants(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
                 if (p.planted[i] < 0 || level.getGameTime() - p.planted[i] < FarmEconomy.RIPEN_TICKS) {

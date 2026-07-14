@@ -12,6 +12,8 @@ public final class FarmEconomy {
     public static final double FEE = 0.3;
     /** 개인 수확 용량 기본(타일/일) — 밭 전담창 2400틱 ÷ 타일 200틱. */
     public static final int C_BASE = 12;
+    /** 상시 소작 승격 — 같은 밭 연속 출근 일수(예약석: 이후 슬롯 변동 무관 유지). */
+    public static final int PROMOTE_DAYS = 3;
     /** 최소 일감(타일) — 이 미만의 부족분은 게시하지 않음(1타일 일자리 방지). */
     public static final int MIN_JOB = 10;
     /** 확장 비용(food/타일) — 신규 개간과 1:3.3 격차(소작 확장 유인 게이트). */

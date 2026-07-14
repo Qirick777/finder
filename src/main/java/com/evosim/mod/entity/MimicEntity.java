@@ -173,6 +173,8 @@ public class MimicEntity extends PathfinderMob {
     private BlockPos visitAnchor = null;        // 노인 방문 임시 앵커(ElderVisitGoal 설정 — 휘발)
     private boolean hearthRegistered = false;   // 로드 첫 틱에 켜진 모닥불 전역 목록 재등록(휘발)
     private boolean stageActor = false;         // 검증 무대 개체 — 혈통 원장·인구 통계에서 제외(NBT)
+    private long tenantFarm = 0L;               // 상시 소작 중인 밭 구획 id(0=없음, NBT — 봉건 관계)
+    private int tenantStreak = 0;               // 같은 밭 연속 출근 일수(NBT — 승격 카운터)
     private boolean ledgerChecked = false;      // 원장 등록 1회 시도 가드(휘발 — register 자체는 멱등)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
@@ -2424,6 +2426,20 @@ public class MimicEntity extends PathfinderMob {
      * 검증 무대 개체 마킹 — 혈통 원장·인구 통계에서 제외된다. 스폰 헬퍼가
      * {@code addFreshEntity} <b>전에</b> 호출해야 첫 틱 원장 등록을 피한다(등록 취소는 없음).
      */
+    public long getTenantFarm() {
+        return tenantFarm;
+    }
+
+    public int getTenantStreak() {
+        return tenantStreak;
+    }
+
+    /** 소작 관계 갱신(FarmTicker 전용 + 검증 조성) — 승격·해제·연속일. */
+    public void setTenant(long farmId, int streak) {
+        this.tenantFarm = farmId;
+        this.tenantStreak = streak;
+    }
+
     public void markStageActor() {
         this.stageActor = true;
     }
@@ -2827,6 +2843,8 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("LastFed", lastFed);
         tag.putBoolean("FastSettle", fastSettle);
         tag.putBoolean("StageActor", stageActor); // 무대 표식 유지 — 리로드 후 원장 재등록 방지
+        tag.putLong("TenantFarm", tenantFarm);    // 봉건 소작 관계(상시) — 리로드에도 유지
+        tag.putInt("TenantStreak", tenantStreak);
         tag.putLong("SpouseId", spouseId);
         tag.putBoolean("Widowed", widowed);
         tag.putLong("LonelySince", lonelySinceTick); // 족외혼 클럭 — 리로드로 3일 재대기 방지
@@ -2882,6 +2900,8 @@ public class MimicEntity extends PathfinderMob {
         }
         fastSettle = tag.getBoolean("FastSettle");
         stageActor = tag.getBoolean("StageActor");
+        tenantFarm = tag.getLong("TenantFarm");
+        tenantStreak = tag.getInt("TenantStreak");
         spouseId = tag.getLong("SpouseId");
         widowed = tag.getBoolean("Widowed");
         lonelySinceTick = tag.contains("LonelySince") ? tag.getLong("LonelySince") : -1L;

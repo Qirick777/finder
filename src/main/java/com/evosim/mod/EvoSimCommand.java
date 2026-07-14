@@ -120,6 +120,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
                 .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
                 .then(Commands.literal("farmbond").executes(EvoSimCommand::farmBondDemo))
+                .then(Commands.literal("farmseat").executes(EvoSimCommand::farmSeatDemo))
                 .then(Commands.literal("farmshield").executes(ctx -> farmShieldDemo(ctx, true)))
                 .then(Commands.literal("farmbreak").executes(ctx -> farmShieldDemo(ctx, false)))
                 .then(Commands.literal("farmclear")
@@ -177,10 +178,23 @@ public final class EvoSimCommand {
                     .setValue(SweetBerryBushBlock.AGE, 1));
             FarmStore.get(level).addTile(plot, gp, level.getGameTime());
         }
-        tell(ctx.getSource(), "밭 골조 " + tiles + "타일 설치(구획 id " + plot.id
-                + ", 발자국 " + FarmLayout.footprint(tiles)[0] + "x" + FarmLayout.footprint(tiles)[1]
-                + ") — 재배줄/고랑 수열 육안 확인용. 정리: /evosim farmclear " + plot.id);
-        return 1;
+        // 자가 판정(결과 상태): 수열 좌표 전부에 베리가 실재하고 등록 타일 수가 일치해야 성공.
+        int placed = 0;
+        for (long l : plot.tiles) {
+            if (level.getBlockState(BlockPos.of(l)).is(Blocks.SWEET_BERRY_BUSH)) {
+                placed++;
+            }
+        }
+        boolean ok = placed == tiles && plot.tiles.length == tiles;
+        com.evosim.mod.stage.VerifyLog.ensure(level.getServer().getServerDirectory().toPath());
+        com.evosim.mod.stage.VerifyLog.result(String.format(
+                "[VERIFY-LIVE] %s farm_layout_place | reason=%s | placed=%d/%d footprint=%dx%d plot=%d"
+                        + " | expect: every layout coord holds a berry bush",
+                ok ? "PASS" : "FAIL", ok ? "result_met" : "state_mismatch", placed, tiles,
+                FarmLayout.footprint(tiles)[0], FarmLayout.footprint(tiles)[1], plot.id), ok);
+        tell(ctx.getSource(), (ok ? "✅ " : "❌ ") + "밭 골조 " + placed + "/" + tiles
+                + "타일(구획 " + plot.id + ") — 고랑 수열 육안 병행 확인. 정리: /evosim farmclear " + plot.id);
+        return ok ? 1 : 0;
     }
 
     /** M1 실연 — 무대 성년 + 그 소유의 15타일 밭(즉시 익음)을 조성 → 주인이 순회 수확하는지 육안. */
@@ -343,6 +357,36 @@ public final class EvoSimCommand {
     }
 
     /**
+     * M4 관문 ①b 예약석 — 부족분 0(9타일 < 최소일감, 부부 ΣC 24)이어도 상시 소작은 새벽 배정이
+     * 유지되는지(고용 진동 차단의 실검증). 결과값: assignedPlot == 구획 ∧ 관계 유지.
+     */
+    private static int farmSeatDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -6, -6);
+        MimicEntity[] cc = coupleAt(level, home); // 대가구 — ΣC 24 ≫ 9타일 → 일용 슬롯 0
+        MimicEntity worker = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 4), Sex.MALE);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, cc[0].getIndividual().id(), 9);
+        worker.setTenant(plot.id, 3); // 상시 소작 조성
+        level.setDayTime(1200L);      // 새벽 — 예약석 경로만이 배정을 만들 수 있음
+        LiveCheck.watch(ctx.getSource(), "farm_seat_reserved", 600,
+                () -> String.format("assigned %s bond %s (slots would be 0: 9 tiles vs cap 24)",
+                        FarmTicker.assignedPlot(worker.getId()) == plot.id ? "yes" : "no",
+                        worker.getTenantFarm() == plot.id ? "kept" : "broken"),
+                () -> FarmTicker.assignedPlot(worker.getId()) == plot.id
+                        && worker.getTenantFarm() == plot.id,
+                () -> {
+                    discard(cc[0], cc[1], worker);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M4 관문 ②③ 보호 의무 — 상시 소작 위급(H 0.2) 조성.    /**
      * M4 관문 ②③ 보호 의무 — 상시 소작 위급(H 0.2) 조성. shield=true: 영주 저장고 3 → 구제
      * (H≥1.0 ∧ 저장고 2 — R6 자가 회복 위양성은 저장고 감소 동시 요구로 차단, 관계 유지).
      * shield=false: 저장고 0 → 불이행 해제(tenantFarm 0).

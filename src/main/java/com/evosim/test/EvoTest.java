@@ -2133,6 +2133,16 @@ public final class EvoTest {
 
         report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 30/67.5 · 확장(3)<신규 타일당(3.33)",
                 acct ? "정상" : "어긋남");
+
+        // 5) 지대 재투자(R1) — 소작 구획 확장 자금 = 밭 계정: floor(계정/타일당 3), 음수 0.
+        //    소작 1인 지대 ≈2.7/일 → 격일 1타일(2.7→0, 3.4→1) — PREDICTIONS.md 성장률 0.9타일/일의 근거.
+        boolean reinvest = FarmEconomy.reinvestTiles(2.7) == 0
+                && FarmEconomy.reinvestTiles(3.0) == 1
+                && FarmEconomy.reinvestTiles(7.0) == 2
+                && FarmEconomy.reinvestTiles(12.5) == 4
+                && FarmEconomy.reinvestTiles(-1.0) == 0;
+        report.add("farm/재투자", reinvest, "계정 2.7→0 · 3→1 · 7→2 · 12.5→4 · 음수→0",
+                reinvest ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

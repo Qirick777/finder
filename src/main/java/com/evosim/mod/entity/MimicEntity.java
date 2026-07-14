@@ -2451,7 +2451,16 @@ public class MimicEntity extends PathfinderMob {
         double neighborMax = 0.0;
         for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0))) {
             if (m != this && m.getHomePos() != null && !m.getHomePos().equals(homePos)) {
-                neighborMax = Math.max(neighborMax, LarderStore.get(sl).get(m.getHomePos()));
+                // 이웃 부도 자기 부와 같은 정의(저장고+소유 밭 계정) — 비대칭 비교 교정(R5).
+                double nw = LarderStore.get(sl).get(m.getHomePos());
+                if (m.getIndividual() != null) {
+                    for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
+                        if (p.ownerId == m.getIndividual().id()) {
+                            nw += p.account;
+                        }
+                    }
+                }
+                neighborMax = Math.max(neighborMax, nw);
             }
         }
         satisfiedToday = Satisfaction.satisfied(individual, need, wealth, neighborMax,

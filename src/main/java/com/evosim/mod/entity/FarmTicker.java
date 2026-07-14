@@ -92,6 +92,8 @@ public final class FarmTicker {
                 m -> m.isAlive() && m.getIndividual() != null
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
                                 || m.getStage() == com.evosim.core.LifeStage.ELDER));
+        // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
+        java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
         // ① 확장
         for (FarmStore.Plot plot : new java.util.ArrayList<>(store.all().values())) {
             MimicEntity ownerEnt = null;
@@ -110,19 +112,25 @@ public final class FarmTicker {
             if (grower == null || grower.getHomePos() == null || ownerEnt == null) {
                 continue; // 게이트 판단(주인 능력)·지불 원천이 없으면 보수적으로 건너뜀
             }
-            if (grower.isSatisfiedToday()
-                    || com.evosim.core.Satisfaction.neverExpands(grower.getIndividual())) {
-                continue; // 만족(M7 기본값) 또는 무욕 — 잉여 활동 정지(동기 특성만이 계속)
+            // 재투자·확장 여부는 주인의 동기가 결정(R1) — 만족·무욕 주인은 지대를 착복/정지.
+            // 소작농의 만족은 무관(노동은 소작 계약의 일부, 자금은 밭 계정이라 유인 문제 없음).
+            if (ownerEnt.isSatisfiedToday()
+                    || com.evosim.core.Satisfaction.neverExpands(ownerEnt.getIndividual())) {
+                continue;
             }
             int cap = com.evosim.core.FarmEconomy.growthCap(ownerEnt.getIndividual());
-            int room = Math.min(com.evosim.core.FarmEconomy.EXPAND_PER_DAY,
-                    cap - plot.tiles.length);
+            int labor = com.evosim.core.FarmEconomy.EXPAND_PER_DAY
+                    - grownToday.getOrDefault(grower.getId(), 0); // 노동 상한은 개체 단위(R3)
+            int room = Math.min(labor, cap - plot.tiles.length);
             if (room <= 0) {
                 continue;
             }
-            double funds = larders.get(grower.getHomePos());
-            int afford = (int) Math.floor((funds - com.evosim.core.FarmEconomy.INVEST_RESERVE)
-                    / com.evosim.core.FarmEconomy.EXPAND_COST);
+            // 자금: 소작 구획은 밭 계정(지대 재투자 — R1), 자영은 종전대로 주인 저장고+생계 예비.
+            double funds = hasTenant ? plot.account : larders.get(grower.getHomePos());
+            int afford = hasTenant
+                    ? com.evosim.core.FarmEconomy.reinvestTiles(plot.account)
+                    : (int) Math.floor((funds - com.evosim.core.FarmEconomy.INVEST_RESERVE)
+                            / com.evosim.core.FarmEconomy.EXPAND_COST);
             int k = Math.min(room, afford);
             if (k <= 0) {
                 continue;
@@ -145,10 +153,16 @@ public final class FarmTicker {
                 placed++;
             }
             if (placed > 0) {
-                larders.set(grower.getHomePos(),
-                        funds - placed * com.evosim.core.FarmEconomy.EXPAND_COST);
+                if (hasTenant) {
+                    plot.account -= placed * com.evosim.core.FarmEconomy.EXPAND_COST;
+                    store.setDirty();
+                } else {
+                    larders.set(grower.getHomePos(),
+                            funds - placed * com.evosim.core.FarmEconomy.EXPAND_COST);
+                }
+                grownToday.merge(grower.getId(), placed, Integer::sum);
                 com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
-                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f", hasTenant ? "소작권" : "자영",
+                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f", hasTenant ? "재투자" : "자영",
                         plot.id, placed, plot.tiles.length,
                         placed * com.evosim.core.FarmEconomy.EXPAND_COST));
             }
@@ -310,18 +324,22 @@ public final class FarmTicker {
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
                                 || m.getStage() == com.evosim.core.LifeStage.ELDER));
         for (FarmStore.Plot plot : store.all().values()) {
-            // 가구 ΣC: 소유자 + 같은 거처 성년(생계 우선이면 가장 제외는 larderComfortable 로 근사)
+            // 가구 ΣC: 소유자 + 같은 거처 성년. 만족 구성원은 밭 노동을 안 하므로(MimicFarmGoal
+            // 정지) 용량에서 제외 — 유령 용량이 부족분을 깎아 은퇴 지주 밭이 방치되는 것을 차단(R6).
             int ownCap = 0;
             BlockPos ownerHome = null;
             for (MimicEntity m : adults) {
                 if (m.getIndividual().id() == plot.ownerId) {
                     ownerHome = m.getHomePos();
-                    ownCap += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+                    if (!m.isSatisfiedToday()) {
+                        ownCap += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+                    }
                 }
             }
             if (ownerHome != null) {
                 for (MimicEntity m : adults) {
-                    if (m.getIndividual().id() != plot.ownerId && ownerHome.equals(m.getHomePos())) {
+                    if (m.getIndividual().id() != plot.ownerId && ownerHome.equals(m.getHomePos())
+                            && !m.isSatisfiedToday()) {
                         ownCap += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
                     }
                 }
@@ -348,10 +366,13 @@ public final class FarmTicker {
             final BlockPos oh = ownerHome;
             java.util.List<MimicEntity> cands = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
+                // 출근 관성(R2): 어제 이 구획에 출근한 자는 넉넉 필터 면제 — 하루 벌이로 넉넉해져
+                // 연속일이 끊기는 승격 진동 차단(예약석과 같은 원리의 수습기 소급). 신규 구직만 빈곤 조건.
+                boolean returning = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id;
                 if (m.getIndividual().id() == plot.ownerId || ASSIGNED.containsKey(m.getId())
                         || (oh != null && oh.equals(m.getHomePos()))
                         || store.ownedCount(m.getIndividual().id()) > 0
-                        || m.larderComfortable()
+                        || (m.larderComfortable() && !returning)
                         || m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE) {
                     continue;
                 }
@@ -426,8 +447,8 @@ public final class FarmTicker {
             return;
         }
         assignDawn(level);
+        growFarms(level); // 재투자(계정 차감)가 지대 이체보다 먼저 — 같은 밤, 남은 정수만 주인에게(R1)
         settleRent(level);
-        growFarms(level);
         protectTenants(level);
         expireVacant(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {

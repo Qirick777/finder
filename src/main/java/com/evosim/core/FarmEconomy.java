@@ -70,6 +70,14 @@ public final class FarmEconomy {
         return s >= MIN_JOB ? s : 0;
     }
 
+    /**
+     * 지대 재투자(R1) — 소작 구획의 확장 자금은 <b>밭 계정</b>: 계정 잔액으로 감당 가능한 타일 수.
+     * 생계 예비 불필요(계정은 누구의 식량도 아님 — 정산 전 미이체분). 노동·게이트 상한은 호출부.
+     */
+    public static int reinvestTiles(double account) {
+        return (int) Math.floor(Math.max(0.0, account) / EXPAND_COST);
+    }
+
     /** 소작 몫 = 수확 × (1−FEE). 나머지는 밭 계정(밤 정산 때 정수 유닛만 주인 저장고 — L 정수성). */
     public static double tenantShare(double yield) {
         return yield * (1.0 - FEE);

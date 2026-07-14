@@ -456,14 +456,17 @@ public final class EvoSimCommand {
         LarderStore.get(level).set(tHome, 16.0);
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
         tenant.setTenant(plot.id, 3);
+        plot.account = 7.0; // 재투자 자금(R1) — floor(7/3)=2타일 확장 후 잔여 1이 밤 정산으로 이체
         level.setDayTime(13500L);
-        LiveCheck.watch(ctx.getSource(), "farm_grow_tenant_right", 600,
-                () -> String.format("tiles %d(expect 12) tenantLarder %.0f(expect 7) "
-                        + "ownerLarder %.0f(must stay 20)", plot.tiles.length,
-                        LarderStore.get(level).get(tHome), LarderStore.get(level).get(oHome)),
-                () -> plot.tiles.length == 12
-                        && Math.abs(LarderStore.get(level).get(tHome) - 7.0) < 1.0E-6
-                        && Math.abs(LarderStore.get(level).get(oHome) - 20.0) < 1.0E-6,
+        LiveCheck.watch(ctx.getSource(), "farm_grow_reinvest", 600,
+                () -> String.format("tiles %d(expect 11) acct %.1f(expect 0) "
+                        + "ownerLarder %.0f(expect 21) tenantLarder %.0f(must stay 16)",
+                        plot.tiles.length, plot.account,
+                        LarderStore.get(level).get(oHome), LarderStore.get(level).get(tHome)),
+                () -> plot.tiles.length == 11
+                        && Math.abs(plot.account) < 1.0E-6
+                        && Math.abs(LarderStore.get(level).get(oHome) - 21.0) < 1.0E-6
+                        && Math.abs(LarderStore.get(level).get(tHome) - 16.0) < 1.0E-6,
                 () -> {
                     discard(owner, tenant);
                     farmClearPlot(level, plot);

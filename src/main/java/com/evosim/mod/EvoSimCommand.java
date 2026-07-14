@@ -119,6 +119,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
                 .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
+                .then(Commands.literal("farmbond").executes(EvoSimCommand::farmBondDemo))
+                .then(Commands.literal("farmshield").executes(ctx -> farmShieldDemo(ctx, true)))
+                .then(Commands.literal("farmbreak").executes(ctx -> farmShieldDemo(ctx, false)))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -312,7 +315,77 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
+    /**
+     * M4 관문 ① 상시 승격 — 연속 2일 출근 상태를 조성(어제 배정 시드 + streak 2) → 다음 새벽
+     * 실경로 배정에서 3일째 도달 → 결과값: tenantFarm == 구획 id(예약석 성립).
+     */
+    private static int farmBondDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 0), Sex.MALE);
+        MimicEntity worker = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 4), Sex.MALE);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 35);
+        worker.setTenant(0L, 2);                                    // 이틀째까지 조성
+        FarmTicker.debugSeedAssignment(worker.getId(), plot.id);    // "어제 출근" 주입
+        level.setDayTime(1200L);                                    // 새벽 — 3일째 실경로 배정
+        LiveCheck.watch(ctx.getSource(), "farm_bond_promote", 600,
+                () -> String.format("tenantFarm %d(expect %d) streak %d",
+                        worker.getTenantFarm(), plot.id, worker.getTenantStreak()),
+                () -> worker.getTenantFarm() == plot.id && worker.getTenantStreak() >= 3,
+                () -> {
+                    discard(owner, worker);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M4 관문 ②③ 보호 의무 — 상시 소작 위급(H 0.2) 조성. shield=true: 영주 저장고 3 → 구제
+     * (H≥1.0 ∧ 저장고 2 — R6 자가 회복 위양성은 저장고 감소 동시 요구로 차단, 관계 유지).
+     * shield=false: 저장고 0 → 불이행 해제(tenantFarm 0).
+     */
+    private static int farmShieldDemo(CommandContext<CommandSourceStack> ctx, boolean shield) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -6, -6);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, shield ? 3.0 : 0.0);
+        MimicEntity worker = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 4), Sex.MALE);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        worker.setTenant(plot.id, 3); // 상시 소작 조성
+        worker.debugSetHolding(0.2);  // 위급 직전 상태
+        level.setDayTime(4000L);
+        Runnable cleanup = () -> {
+            discard(owner, worker);
+            farmClearPlot(level, plot);
+            FarmTicker.clearAssignments();
+        };
+        if (shield) {
+            LiveCheck.watch(ctx.getSource(), "farm_shield_relief", 600,
+                    () -> String.format("workerH %.2f(start 0.2) larder %.0f(expect 2) bond %s",
+                            worker.getHolding(), LarderStore.get(level).get(home),
+                            worker.getTenantFarm() == plot.id ? "kept" : "broken"),
+                    () -> worker.getHolding() >= 1.0
+                            && Math.abs(LarderStore.get(level).get(home) - 2.0) < 1.0E-6
+                            && worker.getTenantFarm() == plot.id,
+                    cleanup);
+        } else {
+            LiveCheck.watch(ctx.getSource(), "farm_shield_break", 600,
+                    () -> String.format("bond %s(expect broken) larder 0",
+                            worker.getTenantFarm() == 0L ? "broken" : "kept"),
+                    () -> worker.getTenantFarm() == 0L,
+                    cleanup);
+        }
+        return 1;
+    }
+
+    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
     private static FarmStore.Plot buildDemoPlot(ServerLevel level, BlockPos anchor, long ownerId, int n) {
         FarmStore.Plot plot = FarmStore.get(level).create(anchor, ownerId);
         for (int[] t : FarmLayout.layout(n)) {

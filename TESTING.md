@@ -101,7 +101,10 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 - [ ] M2 `/evosim farmhire` — 새벽 배정→소작 수확(이웃 H↑ ∧ 지대 계정↑, LiveCheck)
 - [ ] M2 `/evosim farmguard` — 부재지주 9타일: 슬롯0(<최소일감)·무단 수확 금지(익은 9 유지, 금지 감시)
 - [ ] M3 `/evosim farmrent` — 밤 지대 이체(저장고 3→5 정수만 ∧ 계정 2.7→0.7 이월, LiveCheck)
-- [ ] M4~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+- [ ] M4 `/evosim farmbond` — 3일째 새벽 실경로 배정에서 상시 승격(tenantFarm=구획, LiveCheck)
+- [ ] M4 `/evosim farmshield` — 위급 상시 소작 구제(H≥1.0 ∧ 영주 저장고 3→2 ∧ 관계 유지)
+- [ ] M4 `/evosim farmbreak` — 영주 저장고 0 → 구제 불이행 해제(tenantFarm=0)
+- [ ] M5~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
 
 ### 밭 관문 진단 지도 (결과 수신 즉시 원인 특정용 — 실패 슬러그 → 의심 지점 → 다듬기 방향)
 
@@ -115,6 +118,11 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | farm_guard_no_poach FAIL(익은 수 감소) | ①일반 채집 가드(`MimicForageGoal.farmTile`) 누락 경로 ②배정 오발(부재지주 ΣC=0인데 need 9<10 계산 오류) | verify.log의 H 수치로 구분: H 크게 오름=수확자 있음→가드, H 미동=블록만 소실→외부 요인(좀비 등) |
 | farm_rent_settle 저장고 5 미달 | `settleRent` 게이트(tod≥13000·하루 1회·주인 탐색) | account가 그대로면 정산 미발동(시각/rentDay), account만 줄고 저장고 그대로면 홈 좌표 불일치(`debugSettleWithTent` 홈과 get/set 좌표) |
 | farm_rent_settle 계정 0.7 아님 | 정수 이체 회계(`floor`·이월) | 0이 됐으면 소수까지 이체(P2 위반 — L 정수성 확인), 2.7 그대로면 미발동 |
+| farm_bond_promote streak 안 오름/1 고정 | `assignDawn` 연속일 분기(LAST_ASSIGNED 롤오버) | streak 1이면 시드 유실(clearAssignments 순서), 2 고정이면 새벽 게이트(시각창·assignDay) 미발동 |
+| farm_bond_promote streak 3인데 tenantFarm 0 | 승격 분기(`getTenantFarm()==0`·PROMOTE_DAYS) | setTenant 호출 지점만 점검 |
+| farm_shield_relief H↑인데 larder 3 유지 | R6 자가 회복(판정이 이미 차단) → 구제 미발동 | `protectTenants` 게이트(200틱 스캔·isCritical·주인 홈 탐색) |
+| farm_shield_relief bond broken | 구제보다 해제 선행(저장고 판독 시점) | larder 조성값·홈 좌표(get/set) 일치 확인 |
+| farm_shield_break bond kept | 해제 분기(larder<1) 미도달 | 스캔 주기·주인 홈 null 경로 확인 |
 | 공통: setup_error | 무대 조성부(스폰 실패·지형) | 슬러그 무관 — groundAt 결과 좌표와 예외 메시지 우선 |
 
 실패 보고는 verify.log 원문이면 충분 — 슬러그·reason·수치 3요소로 위 표를 탄다.

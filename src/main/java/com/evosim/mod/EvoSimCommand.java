@@ -2,6 +2,7 @@ package com.evosim.mod;
 
 import com.evosim.core.BerryEconomy;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.FarmEconomy;
 import com.evosim.core.FarmLayout;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
@@ -113,6 +114,7 @@ public final class EvoSimCommand {
                                 .executes(ctx -> farmDemo(ctx,
                                         IntegerArgumentType.getInteger(ctx, "tiles")))))
                 .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
+                .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -172,6 +174,55 @@ public final class EvoSimCommand {
                 + ", 발자국 " + FarmLayout.footprint(tiles)[0] + "x" + FarmLayout.footprint(tiles)[1]
                 + ") — 재배줄/고랑 수열 육안 확인용. 정리: /evosim farmclear " + plot.id);
         return 1;
+    }
+
+    /** M1 실연 — 무대 성년 + 그 소유의 15타일 밭(즉시 익음)을 조성 → 주인이 순회 수확하는지 육안. */
+    private static int farmOwnDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-2, 0, 0), Sex.MALE);
+        FarmStore.Plot plot = FarmStore.get(level).create(anchor, owner.getIndividual().id());
+        for (int[] t : FarmLayout.layout(15)) {
+            BlockPos gp = groundAt(level, Vec3.atBottomCenterOf(anchor), t[0], t[1] * 2);
+            level.setBlockAndUpdate(gp.below(), Blocks.DIRT.defaultBlockState());
+            level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                    .setValue(SweetBerryBushBlock.AGE, 3)); // 즉시 익음
+            FarmStore.get(level).addTile(plot, gp, level.getGameTime() - FarmEconomy.RIPEN_TICKS);
+        }
+        level.setDayTime(4000L); // 노동 시간
+        double h0 = owner.getHolding();
+        LiveCheck.watch(ctx.getSource(), "farm_own_harvest", 1200,
+                () -> String.format("H %.2f(start %.2f) ripeLeft %d", owner.getHolding(), h0,
+                        countRipe(level, plot)),
+                () -> owner.getHolding() >= h0 + 3.0 && countRipe(level, plot) <= 3,
+                () -> {
+                    discard(owner);
+                    farmClearPlot(level, plot);
+                });
+        return 1;
+    }
+
+    private static int countRipe(ServerLevel level, FarmStore.Plot plot) {
+        int n = 0;
+        for (long l : plot.tiles) {
+            var st = level.getBlockState(BlockPos.of(l));
+            if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 구획 블록·등록 일괄 정리(공용). */
+    private static void farmClearPlot(ServerLevel level, FarmStore.Plot plot) {
+        for (long l : plot.tiles) {
+            BlockPos gp = BlockPos.of(l);
+            if (level.getBlockState(gp).is(Blocks.SWEET_BERRY_BUSH)) {
+                level.setBlockAndUpdate(gp, Blocks.AIR.defaultBlockState());
+            }
+        }
+        FarmStore.get(level).debugRemove(plot.id);
     }
 
     /** 밭 골조 정리 — 구획의 베리·흙받침을 원상 제거하고 등록 회수(데모 잔재 방지, 규칙 7). */

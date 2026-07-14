@@ -6,6 +6,8 @@ package com.evosim.core;
  */
 public final class FarmEconomy {
 
+    /** 익음 주기(틱) — 심은 뒤 이 시간이 지나면 결정론적으로 익음(랜덤틱은 보너스 하한). */
+    public static final long RIPEN_TICKS = 24000L;
     /** 지대(수수료) — 소작 수확의 이 비율이 밭 계정으로. */
     public static final double FEE = 0.3;
     /** 개인 수확 용량 기본(타일/일) — 밭 전담창 2400틱 ÷ 타일 200틱. */

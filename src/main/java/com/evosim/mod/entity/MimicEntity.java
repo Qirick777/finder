@@ -253,6 +253,7 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
+        this.goalSelector.addGoal(6, new MimicFarmGoal(this)); // 자기 밭 우선(틱당 수익 우위) — 같은 순위, 등록 순서로 선행
         this.goalSelector.addGoal(6, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
         this.goalSelector.addGoal(7, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
         this.goalSelector.addGoal(8, new LookAtPlayerGoal(this, Player.class, 8.0F));

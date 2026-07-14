@@ -66,6 +66,8 @@ Phase 0/1 핵심 로직은 마크에 안 얽힌 순수 함수(§18)라 클라이
 ./gradlew evotest --args="polygyny"     # 일부다처 게이트(아내 용인·부양 3일치·상한 2처·기혼 감점)
 ./gradlew evotest --args="elder"        # 노년기: 쿼터 노동(책임/부지런)·공유 자격·기간±특성·소모·모성애 누출 차단
 ./gradlew evotest --args="lineage"      # 가계도 연산: 조상 그리드 배치·후손 수(다이아몬드 중복 제거)
+./gradlew evotest --args="farm"         # 봉건 밭: 배치 수열·용량/슬롯·지대 회계·능력 게이트
+./gradlew evotest --args="satisfaction" # 만족 규칙·동기 특성(야망/욕심/경쟁/사치 오버라이드)
 ./gradlew evotest --args="all"          # 전체 회귀 테스트
 ```
 

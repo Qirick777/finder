@@ -2,6 +2,7 @@ package com.evosim.mod;
 
 import com.evosim.core.BerryEconomy;
 import com.evosim.core.DeterministicRng;
+import com.evosim.core.FarmLayout;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
@@ -11,6 +12,7 @@ import com.evosim.core.TraitInstance;
 import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.FamilyLedger;
+import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
@@ -37,6 +39,8 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.PacketDistributor;
 
@@ -103,7 +107,16 @@ public final class EvoSimCommand {
                 .then(Commands.literal("checkall").executes(EvoSimCommand::stageCheckAll))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
                 .then(Commands.literal("stats").executes(EvoSimCommand::stats))
-                .then(Commands.literal("legacy").executes(EvoSimCommand::legacy)));
+                .then(Commands.literal("farm")
+                        .executes(ctx -> farmDemo(ctx, 25))
+                        .then(Commands.argument("tiles", IntegerArgumentType.integer(1, 49))
+                                .executes(ctx -> farmDemo(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "tiles")))))
+                .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
+                .then(Commands.literal("farmclear")
+                        .then(Commands.argument("plot", IntegerArgumentType.integer(1))
+                                .executes(ctx -> farmClear(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "plot"))))));
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -138,6 +151,47 @@ public final class EvoSimCommand {
                                 + " (완전 랜덤 특성) — /evolog on 으로 관찰 권장")
                 .withStyle(ChatFormatting.GREEN), false);
         return pairs * 2;
+    }
+
+    /**
+     * 밭 골조 실연(M0 육안 확인) — FarmLayout 수열 그대로 n타일을 실제 설치(고랑 확인용).
+     * 무소유(0) 데모 구획 — FarmStore 등록까지 검증. 지반은 흙 강제(베리 유효 조건).
+     */
+    private static int farmDemo(CommandContext<CommandSourceStack> ctx, int tiles) {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 4, 4);
+        FarmStore.Plot plot = FarmStore.get(level).create(anchor, 0L);
+        for (int[] t : FarmLayout.layout(tiles)) {
+            BlockPos gp = groundAt(level, Vec3.atBottomCenterOf(anchor), t[0], t[1] * 2);
+            level.setBlockAndUpdate(gp.below(), Blocks.DIRT.defaultBlockState());
+            level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                    .setValue(SweetBerryBushBlock.AGE, 1));
+            FarmStore.get(level).addTile(plot, gp, level.getGameTime());
+        }
+        tell(ctx.getSource(), "밭 골조 " + tiles + "타일 설치(구획 id " + plot.id
+                + ", 발자국 " + FarmLayout.footprint(tiles)[0] + "x" + FarmLayout.footprint(tiles)[1]
+                + ") — 재배줄/고랑 수열 육안 확인용. 정리: /evosim farmclear " + plot.id);
+        return 1;
+    }
+
+    /** 밭 골조 정리 — 구획의 베리·흙받침을 원상 제거하고 등록 회수(데모 잔재 방지, 규칙 7). */
+    private static int farmClear(CommandContext<CommandSourceStack> ctx, int plotId) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore store = FarmStore.get(level);
+        FarmStore.Plot plot = store.get(plotId);
+        if (plot == null) {
+            tell(ctx.getSource(), "구획 " + plotId + " 없음.");
+            return 0;
+        }
+        for (long l : plot.tiles) {
+            BlockPos gp = BlockPos.of(l);
+            if (level.getBlockState(gp).is(Blocks.SWEET_BERRY_BUSH)) {
+                level.setBlockAndUpdate(gp, Blocks.AIR.defaultBlockState());
+            }
+        }
+        store.debugRemove(plot.id);
+        tell(ctx.getSource(), "구획 " + plotId + " 정리 완료(" + plot.tiles.length + "타일 제거).");
+        return 1;
     }
 
     /** 인구 통계 GUI — 발현 특성 분포 그래프 + 최다 후손 랭킹(플레이어 전용, 무대 개체 제외). */

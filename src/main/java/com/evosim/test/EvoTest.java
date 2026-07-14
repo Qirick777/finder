@@ -19,6 +19,8 @@ import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.Lineage;
+import com.evosim.core.FarmLayout;
+import com.evosim.core.FarmEconomy;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
@@ -119,9 +121,10 @@ public final class EvoTest {
             case "polygyny" -> polygyny(report);
             case "elder" -> elder(report);
             case "lineage" -> lineage(report);
+            case "farm" -> farm(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -150,6 +153,7 @@ public final class EvoTest {
         roaming(report);
         ability(report);
         lineage(report);
+        farm(report);
         berry(report);
         food(report);
         famine(report);
@@ -2066,6 +2070,57 @@ public final class EvoTest {
     // ──────────────────────────────────────────────────────────────
     // /evotest lineage — 가계도 순수 연산 (조상 그리드·후손 수 중복 제거)
     // ──────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────
+    // /evotest farm — 밭 배치 수열·경제 산식 (봉건 밭 경제 M0)
+    // ──────────────────────────────────────────────────────────────
+    private static void farm(Report report) {
+        // 1) 배치 수열: 사용자 지정 순서 재현 — 1칸 → 둘째줄 → 3×3(9) → 5칸3줄(15) → 5칸5줄(25) → 7×7(49)
+        var l2 = FarmLayout.layout(2);
+        var l9 = FarmLayout.layout(9);
+        var l25 = FarmLayout.layout(25);
+        boolean seq = l2.get(1)[0] == 0 && l2.get(1)[1] == 1              // 2번째 타일 = 둘째 줄(한 칸 띄움)
+                && java.util.Arrays.equals(FarmLayout.footprint(9), new int[] {3, 5})   // 3열×3줄(깊이 5)
+                && java.util.Arrays.equals(FarmLayout.footprint(15), new int[] {5, 5})  // 5칸 3줄 = 발자국 5×5
+                && java.util.Arrays.equals(FarmLayout.footprint(25), new int[] {5, 9})  // 5칸 5줄
+                && java.util.Arrays.equals(FarmLayout.footprint(49), new int[] {7, 13}) // 7칸 7줄
+                && l9.size() == 9 && l25.size() == 25
+                && FarmLayout.TIERS[2] == 25 && FarmLayout.TIERS[3] == 35;
+        // 중복 좌표 없음(수열 무결성)
+        var seen = new java.util.HashSet<Long>();
+        boolean dup = false;
+        for (int[] t : FarmLayout.layout(49)) {
+            if (!seen.add((long) t[0] << 32 | (t[1] & 0xffffffffL))) {
+                dup = true;
+            }
+        }
+        report.add("farm/배치수열", seq && !dup,
+                "2번째=둘째줄 · 발자국 9→3x5, 15→5x5, 25→5x9, 49→7x13 · 49타일 좌표 중복 0",
+                (seq && !dup) ? "정상" : "어긋남");
+
+        // 2) 용량·슬롯: 기본 12 · 부지런 14 · 게으름 9 · 노년 6 / 부족분 최소 일감 10 게이트
+        Individual man = one(Sex.MALE);
+        boolean cap = FarmEconomy.capacity(man, LifeStage.ADULT) == 12
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)), LifeStage.ADULT) == 14
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), LifeStage.ADULT) == 9
+                && FarmEconomy.capacity(man, LifeStage.ELDER) == 6
+                && FarmEconomy.shortfall(25, 24) == 0     // 잔여 1 < 최소일감 → 게시 안 함
+                && FarmEconomy.shortfall(35, 24) == 11    // 첫 고용(부부 기준 7칸5줄)
+                && FarmEconomy.shortfall(49, 24) == 25
+                && FarmEconomy.shortfall(9, 24) == 0;     // 소형 밭 절대 무고용(슬롯0 가드의 순수부)
+        report.add("farm/용량슬롯", cap, "C 12/14/9/6 · 부족 25→0(1<10)·35→11·49→25·9→0",
+                cap ? "정상" : "어긋남");
+
+        // 3) 지대 회계 항등식 + 비용 체증
+        double y = 0.75;
+        boolean acct = close(FarmEconomy.tenantShare(y), 0.525) && close(FarmEconomy.ownerShare(y), 0.225)
+                && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
+                && close(FarmEconomy.newFarmCost(0), 30.0) && close(FarmEconomy.newFarmCost(2), 67.5)
+                // 게이트는 타일당 한계비용 비교: 확장 3 < 신규 30/9타일(T1) ≈ 3.33 — 소작 확장 유인 유지
+                && FarmEconomy.EXPAND_COST < FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
+        report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 30/67.5 · 확장(3)<신규 타일당(3.33)",
+                acct ? "정상" : "어긋남");
+    }
+
     private static void lineage(Report report) {
         // 가계: 조부모 g1(1)·g2(2) → 부모 p1(10)·p2(11, 형제) / p1×외부미상 → c1(20)
         //       p1×p2(근친 가정 아님 — 다이아몬드 검증용 형제혼 모형) → c2(21)

@@ -115,6 +115,7 @@ public final class EvoSimCommand {
                                 .executes(ctx -> farmDemo(ctx,
                                         IntegerArgumentType.getInteger(ctx, "tiles")))))
                 .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
+                .then(Commands.literal("lords").executes(EvoSimCommand::lords))
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
                 .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
@@ -632,6 +633,51 @@ public final class EvoSimCommand {
             VerifySuite.start(ctx.getSource(), steps);
         }
         return 1;
+    }
+
+    /** M8 관측 — 지주 랭킹(소유 타일 순): 구획·타일·미정산 지대·상시 소작 수. 무주지 별도 표기. */
+    private static int lords(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore store = FarmStore.get(level);
+        java.util.Map<Long, long[]> agg = new java.util.HashMap<>(); // owner → [plots, tiles, rent*100]
+        int vacant = 0;
+        for (FarmStore.Plot p : store.all().values()) {
+            if (p.ownerId == 0L) {
+                vacant++;
+                continue;
+            }
+            long[] a = agg.computeIfAbsent(p.ownerId, k -> new long[3]);
+            a[0]++;
+            a[1] += p.tiles.length;
+            a[2] += Math.round(p.account * 100);
+        }
+        java.util.Map<Long, Integer> tenants = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() != 0L)) {
+            FarmStore.Plot fp = store.get(m.getTenantFarm());
+            if (fp != null && fp.ownerId != 0L) {
+                tenants.merge(fp.ownerId, 1, Integer::sum);
+            }
+        }
+        java.util.List<java.util.Map.Entry<Long, long[]>> rank = new java.util.ArrayList<>(agg.entrySet());
+        rank.sort((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1]));
+        tell(ctx.getSource(), "지주 랭킹(소유 타일 순) — 구획 " + store.all().size()
+                + "개(무주 " + vacant + ")");
+        int i = 1;
+        for (var e : rank) {
+            if (i > 8) {
+                break;
+            }
+            FamilyLedger.Rec r = FamilyLedger.get(level).get(e.getKey());
+            tell(ctx.getSource(), String.format("  %d위 %s — 구획 %d·타일 %d·미정산 %.2f·상시소작 %d명",
+                    i++, r != null ? "N" + r.serial : "id" + e.getKey(),
+                    e.getValue()[0], e.getValue()[1], e.getValue()[2] / 100.0,
+                    tenants.getOrDefault(e.getKey(), 0)));
+        }
+        if (rank.isEmpty()) {
+            tell(ctx.getSource(), "  아직 밭 소유자가 없습니다.");
+        }
+        return rank.size();
     }
 
     /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
@@ -1844,8 +1890,106 @@ public final class EvoSimCommand {
                     }));
         }
 
+
+        // [34] 밭 무단·슬롯0 — 부재지주 9타일: 아무도 못 딴다(farmguard 편입, 규칙 12)
+        {
+            BlockPos fanchor = ground(level, b, 34);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farm_guard_no_poach",
+                    "9-tile absentee farm: slots 0 and no one may harvest", 300, true, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 0), Sex.MALE);
+                c[0].debugSetHolding(0.4);
+                pl[0] = buildDemoPlot(level, fanchor, 999999999L, 9);
+                level.setDayTime(1200L);
+            }, () -> String.format("ripe %d(must stay 9)", countRipe(level, pl[0])),
+                    () -> countRipe(level, pl[0]) < 9,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [35] 지대 정산 — 계정 2.7 → 저장고 +2(정수만)·0.7 이월(farmrent 편입)
+        {
+            BlockPos fanchor = ground(level, b, 35);
+            BlockPos fhome = fanchor.offset(-10, 0, 0);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farm_rent_settle",
+                    "account 2.7 -> owner larder +2 (integer only) & 0.7 carried", 400, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
+                c[0].debugSettleWithTent(fhome, Direction.NORTH);
+                LarderStore.get(level).set(fhome, 3.0);
+                pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
+                pl[0].account = 2.7;
+                FarmStore.get(level).setDirty();
+                level.setDayTime(13500L);
+            }, () -> String.format("larder %.1f(expect 5) account %.2f(expect 0.70)",
+                    LarderStore.get(level).get(fhome), pl[0].account),
+                    () -> Math.abs(LarderStore.get(level).get(fhome) - 5.0) < 1.0E-6
+                            && Math.abs(pl[0].account - 0.7) < 1.0E-6,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [36] 밭 상속 — 지주 파괴 → 아들 승계 ∧ 자기 소작 해소(farminherit 편입)
+        {
+            BlockPos fanchor = ground(level, b, 36);
+            BlockPos fhome = fanchor.offset(-10, 0, 0);
+            MimicEntity[] c = new MimicEntity[2];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            long[] sid = new long[1];
+            steps.add(new VerifySuite.Step("farm_inherit_son",
+                    "owner destroyed -> eldest son inherits & his tenancy on it dissolves",
+                    100, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
+                c[0].debugSettleWithTent(fhome, Direction.NORTH);
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(fhome).add(2, 0, 0), c[0], Sex.MALE);
+                pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
+                c[1].setTenant(pl[0].id, 3);
+                sid[0] = c[1].getIndividual().id();
+                c[0].discard();
+            }, () -> String.format("owner %d(expect %d) sonTenant %d(expect 0)",
+                    pl[0].ownerId, sid[0], c[1].getTenantFarm()),
+                    () -> pl[0].ownerId == sid[0] && c[1].getTenantFarm() == 0L,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [37] 만족 정지 — 부유 무동기 지주는 익은 밭을 안 딴다(farmidle 편입, 금지 감시)
+        {
+            BlockPos fanchor = ground(level, b, 37);
+            BlockPos fhome = fanchor.offset(-10, 0, 0);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farm_idle_satisfied",
+                    "rich plain owner (larder 60 >> bar 12) must NOT work own farm", 300, true, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
+                c[0].debugSettleWithTent(fhome, Direction.NORTH);
+                LarderStore.get(level).set(fhome, 60.0);
+                pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
+                level.setDayTime(1200L);
+            }, () -> String.format("ripe %d(must stay 9) satisfied %s",
+                    countRipe(level, pl[0]), c[0].isSatisfiedToday() ? "yes" : "no"),
+                    () -> countRipe(level, pl[0]) < 9,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 33단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
+        tell(ctx.getSource(), "원트랙 검증 시작 — 37단계, 각 단계는 발동 직전 조건을 자동 조성하고 "
                 + "결과값(H·저장고·좌표·혼인·생존·속성·원장)의 변화로만 판정. 끝에 ✅/❌ 요약. "
                 + "영문 결과는 콘솔(성공 녹/실패 적)과 evosim-verify.log 파일에 동시 기록. "
                 + "(6번은 주변에 풀이 있어야 함 — 초원에서 실행 권장)");

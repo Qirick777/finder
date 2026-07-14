@@ -121,10 +121,38 @@ public class TraitScannerItem extends Item {
         switch (mode) {
             case TRAIT -> showTraits(player, ind);
             case MATE -> showMate(player, mimic, ind);
-            case HOME -> showHome(player, mimic);
+            case HOME -> {
+                showHome(player, mimic);
+                showFarm(player, mimic); // M8 — 밭 소유·소작·만족
+            }
             case INVENTORY -> showInventory(player, mimic);
         }
         return InteractionResult.SUCCESS;
+    }
+
+    /** 거처 모드 확장(M8) — 밭 소유·소작·만족 상태 한 줄. */
+    private static void showFarm(Player player, MimicEntity mimic) {
+        if (!(player.level() instanceof ServerLevel sl) || mimic.getIndividual() == null) {
+            return;
+        }
+        long id = mimic.getIndividual().id();
+        int plots = 0;
+        int tiles = 0;
+        double rent = 0.0;
+        for (com.evosim.mod.entity.FarmStore.Plot p : com.evosim.mod.entity.FarmStore.get(sl)
+                .all().values()) {
+            if (p.ownerId == id) {
+                plots++;
+                tiles += p.tiles.length;
+                rent += p.account;
+            }
+        }
+        String tenant = mimic.getTenantFarm() != 0L
+                ? "소작(구획 " + mimic.getTenantFarm() + ", " + mimic.getTenantStreak() + "일)" : "-";
+        player.displayClientMessage(Component.literal(String.format(
+                        "밭: 구획 %d·타일 %d·미정산 지대 %.2f | 상시소작 %s | 만족 %s",
+                        plots, tiles, rent, tenant, mimic.isSatisfiedToday() ? "O" : "X"))
+                .withStyle(ChatFormatting.GREEN), false);
     }
 
     // ── 특성 모드 ──

@@ -25,6 +25,7 @@ public final class FarmTicker {
     private static final java.util.Map<Integer, Long> ASSIGNED = new java.util.HashMap<>();
     private static long assignDay = -1;
     private static long rentDay = -1;
+    private static long growDay = -1;
     /** 어제 배정 스냅샷(연속일 판정용, 휘발 — 재접속 시 연속일은 NBT 값에서 이어감). */
     private static final java.util.Map<Integer, Long> LAST_ASSIGNED = new java.util.HashMap<>();
 
@@ -70,6 +71,158 @@ public final class FarmTicker {
         }
     }
 
+    /**
+     * 밤 성장 — 하루 1회(지대 정산과 같은 시각창): ① 확장 — 소작 붙은 밭은 <b>가장 가까운 상시
+     * 소작농</b>이 확장 주체(확장권 이전, 주인 금지), 무소작이면 주인. 주체의 거처 저장고에서
+     * 타일당 EXPAND_COST 차감(INVEST_RESERVE 여유 필수), 하루 EXPAND_PER_DAY 상한(노동 병목 P1-ⓐ),
+     * 능력 게이트(growthCap — 주인 기준)로 T4 초과 차단. ② 신규 개간 — 주인 저장고가
+     * newFarmCost(체증)+여유면 집 주변 빈 부지에 T1 착공(부지 없으면 건너뜀).
+     */
+    private static void growFarms(ServerLevel level) {
+        long day = level.getGameTime() / 24000L;
+        long tod = level.getDayTime() % 24000L;
+        if (day == growDay || tod < 13000L) {
+            return;
+        }
+        growDay = day;
+        FarmStore store = FarmStore.get(level);
+        LarderStore larders = LarderStore.get(level);
+        java.util.List<MimicEntity> adults = level.getEntities(
+                com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null
+                        && (m.getStage() == com.evosim.core.LifeStage.ADULT
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER));
+        // ① 확장
+        for (FarmStore.Plot plot : new java.util.ArrayList<>(store.all().values())) {
+            MimicEntity ownerEnt = null;
+            MimicEntity tenantEnt = null;
+            for (MimicEntity m : adults) {
+                if (m.getIndividual().id() == plot.ownerId) {
+                    ownerEnt = m;
+                } else if (m.getTenantFarm() == plot.id && m.getHomePos() != null
+                        && (tenantEnt == null || m.blockPosition().distSqr(plot.anchor)
+                                < tenantEnt.blockPosition().distSqr(plot.anchor))) {
+                    tenantEnt = m; // 확장 주체 후보 — 유주택 상시 소작(비용은 저장고에서)
+                }
+            }
+            boolean hasTenant = tenantEnt != null;
+            MimicEntity grower = hasTenant ? tenantEnt : ownerEnt; // 확장권 이전: 소작 있으면 주인 금지
+            if (grower == null || grower.getHomePos() == null || ownerEnt == null) {
+                continue; // 게이트 판단(주인 능력)·지불 원천이 없으면 보수적으로 건너뜀
+            }
+            int cap = com.evosim.core.FarmEconomy.growthCap(ownerEnt.getIndividual());
+            int room = Math.min(com.evosim.core.FarmEconomy.EXPAND_PER_DAY,
+                    cap - plot.tiles.length);
+            if (room <= 0) {
+                continue;
+            }
+            double funds = larders.get(grower.getHomePos());
+            int afford = (int) Math.floor((funds - com.evosim.core.FarmEconomy.INVEST_RESERVE)
+                    / com.evosim.core.FarmEconomy.EXPAND_COST);
+            int k = Math.min(room, afford);
+            if (k <= 0) {
+                continue;
+            }
+            var seq = com.evosim.core.FarmLayout.layout(plot.tiles.length + k);
+            int placed = 0;
+            for (int i = plot.tiles.length; i < seq.size(); i++) {
+                BlockPos gp = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        plot.anchor.offset(seq.get(i)[0], 0, seq.get(i)[1] * 2));
+                if (!level.isLoaded(gp)) {
+                    continue;
+                }
+                level.setBlockAndUpdate(gp.below(),
+                        net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
+                level.setBlockAndUpdate(gp,
+                        net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                                .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
+                store.addTile(plot, gp, level.getGameTime());
+                placed++;
+            }
+            if (placed > 0) {
+                larders.set(grower.getHomePos(),
+                        funds - placed * com.evosim.core.FarmEconomy.EXPAND_COST);
+                com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
+                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f", hasTenant ? "소작권" : "자영",
+                        plot.id, placed, plot.tiles.length,
+                        placed * com.evosim.core.FarmEconomy.EXPAND_COST));
+            }
+        }
+        // ② 신규 개간 — 주인 단위(첫 자격자 1건/일: 폭주 제동)
+        for (MimicEntity m : adults) {
+            if (m.getHomePos() == null) {
+                continue;
+            }
+            int owned = store.ownedCount(m.getIndividual().id());
+            double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
+            double funds = larders.get(m.getHomePos());
+            if (owned == 0 && funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
+                continue;
+            }
+            if (owned > 0) {
+                // 기존 밭에 상시 소작이 있어야 신규 창설(확장권을 잃은 주인의 경로 — 설계 17)
+                boolean anyTenanted = false;
+                for (MimicEntity t : adults) {
+                    if (t.getTenantFarm() != 0L && store.get(t.getTenantFarm()) != null
+                            && store.get(t.getTenantFarm()).ownerId == m.getIndividual().id()) {
+                        anyTenanted = true;
+                    }
+                }
+                if (!anyTenanted || funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
+                    continue;
+                }
+            }
+            BlockPos site = findFarmSite(level, store, m.getHomePos(), adults);
+            if (site == null) {
+                continue;
+            }
+            FarmStore.Plot plot = store.create(site, m.getIndividual().id());
+            for (int[] t : com.evosim.core.FarmLayout.layout(3)) { // 착공 3타일 — 이후는 확장 경로
+                BlockPos gp = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        site.offset(t[0], 0, t[1] * 2));
+                level.setBlockAndUpdate(gp.below(),
+                        net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
+                level.setBlockAndUpdate(gp,
+                        net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                                .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
+                store.addTile(plot, gp, level.getGameTime());
+            }
+            larders.set(m.getHomePos(), funds - cost);
+            com.evosim.mod.log.SimEvents.event(m, "밭개간", String.format(
+                    "신규 구획 %d(%d번째) 착공 — 비용 %.0f", plot.id, owned + 1, cost));
+            break; // 하루 1건
+        }
+    }
+
+    /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
+    private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,
+                                         java.util.List<MimicEntity> adults) {
+        for (int d = 0; d < 8; d++) {
+            double ang = d * Math.PI / 4.0;
+            BlockPos c = home.offset((int) Math.round(Math.cos(ang) * 20), 0,
+                    (int) Math.round(Math.sin(ang) * 20));
+            BlockPos site = level.getHeightmapPos(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c);
+            boolean bad = false;
+            for (FarmStore.Plot p : store.all().values()) {
+                if (p.anchor.distSqr(site) < 20 * 20) {
+                    bad = true;
+                }
+            }
+            for (MimicEntity a : adults) {
+                if (a.getHomePos() != null && a.getHomePos().distSqr(site) < 12 * 12) {
+                    bad = true;
+                }
+            }
+            if (!bad) {
+                return site;
+            }
+        }
+        return null;
+    }
+
     /** 검증 조성 훅 — "어제 이 밭에 출근했음"을 주입(규칙 9: 조성만, 승격 결말은 실경로). */
     public static void debugSeedAssignment(int entityId, long plotId) {
         ASSIGNED.put(entityId, plotId);
@@ -81,6 +234,7 @@ public final class FarmTicker {
         LAST_ASSIGNED.clear();
         assignDay = -1;
         rentDay = -1;
+        growDay = -1;
     }
 
     /**
@@ -221,6 +375,7 @@ public final class FarmTicker {
         }
         assignDawn(level);
         settleRent(level);
+        growFarms(level);
         protectTenants(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {

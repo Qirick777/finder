@@ -121,6 +121,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
                 .then(Commands.literal("farmbond").executes(EvoSimCommand::farmBondDemo))
                 .then(Commands.literal("farmseat").executes(EvoSimCommand::farmSeatDemo))
+                .then(Commands.literal("farmgrow").executes(EvoSimCommand::farmGrowDemo))
+                .then(Commands.literal("farmfound").executes(EvoSimCommand::farmFoundDemo))
+                .then(Commands.literal("farmcap").executes(EvoSimCommand::farmCapDemo))
                 .then(Commands.literal("farmshield").executes(ctx -> farmShieldDemo(ctx, true)))
                 .then(Commands.literal("farmbreak").executes(ctx -> farmShieldDemo(ctx, false)))
                 .then(Commands.literal("farmclear")
@@ -429,7 +432,99 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
+    /**
+     * M5 관문 ① 소작권 확장 — 소작 붙은 9타일 밭: 확장 주체는 상시 소작농(저장고 16), 주인(저장고
+     * 20)은 금지. 밤 후: 타일 9→12 ∧ 소작농 저장고 16→7(3타일×3) ∧ 주인 저장고 20 불변.
+     */
+    private static int farmGrowDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos oHome = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        BlockPos tHome = groundAt(level, ctx.getSource().getPosition(), -8, 8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(oHome), Sex.MALE);
+        owner.debugSettleWithTent(oHome, Direction.NORTH);
+        LarderStore.get(level).set(oHome, 20.0);
+        MimicEntity tenant = spawnAdult(level, Vec3.atBottomCenterOf(tHome), Sex.MALE);
+        tenant.debugSettleWithTent(tHome, Direction.NORTH);
+        LarderStore.get(level).set(tHome, 16.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        tenant.setTenant(plot.id, 3);
+        level.setDayTime(13500L);
+        LiveCheck.watch(ctx.getSource(), "farm_grow_tenant_right", 600,
+                () -> String.format("tiles %d(expect 12) tenantLarder %.0f(expect 7) "
+                        + "ownerLarder %.0f(must stay 20)", plot.tiles.length,
+                        LarderStore.get(level).get(tHome), LarderStore.get(level).get(oHome)),
+                () -> plot.tiles.length == 12
+                        && Math.abs(LarderStore.get(level).get(tHome) - 7.0) < 1.0E-6
+                        && Math.abs(LarderStore.get(level).get(oHome) - 20.0) < 1.0E-6,
+                () -> {
+                    discard(owner, tenant);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** M5 관문 ② 신규 개간 — 무밭 지주(저장고 40) → 밤 후 구획 1개 착공(3타일) ∧ 저장고 40→10. */
+    private static int farmFoundDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 40.0);
+        long oid = owner.getIndividual().id();
+        level.setDayTime(13500L);
+        LiveCheck.watch(ctx.getSource(), "farm_found_new", 600,
+                () -> String.format("owned %d(expect 1) larder %.0f(expect 10)",
+                        FarmStore.get(level).ownedCount(oid), LarderStore.get(level).get(home)),
+                () -> FarmStore.get(level).ownedCount(oid) == 1
+                        && Math.abs(LarderStore.get(level).get(home) - 10.0) < 1.0E-6,
+                () -> {
+                    for (FarmStore.Plot p : new java.util.ArrayList<>(
+                            FarmStore.get(level).all().values())) {
+                        if (p.ownerId == oid) {
+                            farmClearPlot(level, p);
+                        }
+                    }
+                    discard(owner);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M5 관문 ③ 능력 게이트 — 무능력 지주(기본 특성엔 채집·저장 능력 없음)의 33타일 밭 + 충분한
+     * 저장고(30): 밤 후 성장은 하되 T4 경계(35)에서 정지 — 타일 == 35 ∧ 저장고 30→24(2타일만).
+     */
+    private static int farmCapDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 30.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 33);
+        level.setDayTime(13500L);
+        LiveCheck.watch(ctx.getSource(), "farm_skill_cap", 600,
+                () -> String.format("tiles %d(expect exactly 35) larder %.0f(expect 24)",
+                        plot.tiles.length, LarderStore.get(level).get(home)),
+                () -> plot.tiles.length == 35
+                        && Math.abs(LarderStore.get(level).get(home) - 24.0) < 1.0E-6,
+                () -> {
+                    discard(owner);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
     private static FarmStore.Plot buildDemoPlot(ServerLevel level, BlockPos anchor, long ownerId, int n) {
         FarmStore.Plot plot = FarmStore.get(level).create(anchor, ownerId);
         for (int[] t : FarmLayout.layout(n)) {

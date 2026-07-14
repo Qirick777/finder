@@ -107,7 +107,10 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 - [ ] M4 `/evosim farmseat` — 예약석: 일용 슬롯 0(9타일·ΣC24)에서도 상시 소작 배정 유지
 - [ ] 밭 NBT 영속: farmown 실행 → 재접속 → 구획·타일·계정·TenantFarm 유지(항목 14와 병행)
 - [ ] 통근 초과 해제: 상시 소작을 60블록 밖 텔레포트 → 다음 새벽 [소작해제] 로그·bond 소멸
-- [ ] M5~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+- [ ] M5 `/evosim farmgrow` — 소작권 확장: 타일 9→12 ∧ 소작 저장고 16→7 ∧ 주인 저장고 20 불변
+- [ ] M5 `/evosim farmfound` — 신규 개간: 구획 +1(3타일 착공) ∧ 지주 저장고 40→10
+- [ ] M5 `/evosim farmcap` — 능력 게이트: 무능력 지주 33→정확히 35 정지 ∧ 저장고 30→24
+- [ ] M6~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
 
 ### 밭 관문 진단 지도 (결과 수신 즉시 원인 특정용 — 실패 슬러그 → 의심 지점 → 다듬기 방향)
 
@@ -126,6 +129,10 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | farm_shield_relief H↑인데 larder 3 유지 | R6 자가 회복(판정이 이미 차단) → 구제 미발동 | `protectTenants` 게이트(200틱 스캔·isCritical·주인 홈 탐색) |
 | farm_shield_relief bond broken | 구제보다 해제 선행(저장고 판독 시점) | larder 조성값·홈 좌표(get/set) 일치 확인 |
 | farm_shield_break bond kept | 해제 분기(larder<1) 미도달 | 스캔 주기·주인 홈 null 경로 확인 |
+| farm_grow_tenant_right 주인 저장고 감소 | 확장 주체 선정(`growFarms`의 grower 분기) | 소작이 있는데 주인이 지불 = 확장권 이전 미작동 |
+| farm_grow_tenant_right tiles 9 유지 | 성장 게이트(시각창 13000·growDay·유주택 소작 탐색) | tenantLarder 도 불변이면 미발동, 감소했는데 tiles 그대로면 좌표 설치부(heightmap) |
+| farm_found_new owned 0 유지 | 신규 분기(자금 게이트 40≥36·부지 탐색 findFarmSite) | larder 불변=자금/시각 게이트, larder만 감소=부지 실패 후 차감 순서 결함(치명 — 즉보고) |
+| farm_skill_cap tiles 36+ | `growthCap`/`canManageLarge` 게이트 누락 | 능력 목록에 기본 특성이 섞였는지(STRONG 등은 비능력이어야 정상) |
 | 공통: setup_error | 무대 조성부(스폰 실패·지형) | 슬러그 무관 — groundAt 결과 좌표와 예외 메시지 우선 |
 
 실패 보고는 verify.log 원문이면 충분 — 슬러그·reason·수치 3요소로 위 표를 탄다.

@@ -21,7 +21,26 @@ public final class FarmEconomy {
     /** 신규 밭 기본 비용(food) — 소유 밭 수에 ×1.5 체증(축적 폭주 제동). */
     public static final double NEW_FARM_BASE = 30.0;
 
+    /** 능력 게이트 경계(타일) — 이 규모 "초과" 확장은 주인의 발현 능력 특성을 요구(T4=첫 고용 규모). */
+    public static final int SKILL_GATE_TILES = 35;
+    /** 하루 확장 상한(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */
+    public static final int EXPAND_PER_DAY = 3;
+    /** 확장·신규의 최소 여유 — 비용 지불 후에도 이틀치(6)는 남아야 투자(생계 우선). */
+    public static final double INVEST_RESERVE = 6.0;
+
     private FarmEconomy() {
+    }
+
+    /** 대규모 경영 능력 — 채집·저장 계열 발현 능력 특성 1개 이상(성향만으로 대지주 불가). */
+    public static boolean canManageLarge(Individual owner) {
+        var t = ExpressionResolver.expressedTraits(owner);
+        return t.contains(Trait.HERBALIST) || t.contains(Trait.GATHERER)
+                || t.contains(Trait.DEXTEROUS) || t.contains(Trait.COOK);
+    }
+
+    /** 이 주인이 키울 수 있는 밭 규모 상한 — 능력 보유면 무제한, 아니면 SKILL_GATE_TILES. */
+    public static int growthCap(Individual owner) {
+        return canManageLarge(owner) ? Integer.MAX_VALUE : SKILL_GATE_TILES;
     }
 
     /** n번째 신규 밭 비용(이미 owned 개 소유) = 30 × 1.5^owned. */

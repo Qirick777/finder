@@ -2117,6 +2117,17 @@ public final class EvoTest {
                 && close(FarmEconomy.newFarmCost(0), 30.0) && close(FarmEconomy.newFarmCost(2), 67.5)
                 // 게이트는 타일당 한계비용 비교: 확장 3 < 신규 30/9타일(T1) ≈ 3.33 — 소작 확장 유인 유지
                 && FarmEconomy.EXPAND_COST < FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
+        // 4) 능력 게이트·성장 상한: 무능력 35 캡 / 채집·저장 능력 발현이면 무제한
+        boolean gate = !FarmEconomy.canManageLarge(man)
+                && FarmEconomy.growthCap(man) == FarmEconomy.SKILL_GATE_TILES
+                && FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST)))
+                && FarmEconomy.growthCap(one(Sex.MALE, TraitInstance.of(Trait.COOK)))
+                        == Integer.MAX_VALUE
+                && FarmEconomy.EXPAND_PER_DAY == 3
+                && close(FarmEconomy.INVEST_RESERVE, 6.0);
+        report.add("farm/능력게이트", gate, "무능력 캡 35 · 약초학자/요리사 무제한 · 일일확장 3 · 예비 6",
+                gate ? "정상" : "어긋남");
+
         report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 30/67.5 · 확장(3)<신규 타일당(3.33)",
                 acct ? "정상" : "어긋남");
     }

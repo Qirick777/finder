@@ -14,6 +14,7 @@ import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.FamilyLedger;
 import com.evosim.mod.entity.FarmStore;
+import com.evosim.mod.entity.FarmTicker;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
@@ -115,6 +116,8 @@ public final class EvoSimCommand {
                                         IntegerArgumentType.getInteger(ctx, "tiles")))))
                 .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
+                .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
+                .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -182,14 +185,7 @@ public final class EvoSimCommand {
         LiveCheck.cancelAll();
         BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
         MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-2, 0, 0), Sex.MALE);
-        FarmStore.Plot plot = FarmStore.get(level).create(anchor, owner.getIndividual().id());
-        for (int[] t : FarmLayout.layout(15)) {
-            BlockPos gp = groundAt(level, Vec3.atBottomCenterOf(anchor), t[0], t[1] * 2);
-            level.setBlockAndUpdate(gp.below(), Blocks.DIRT.defaultBlockState());
-            level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                    .setValue(SweetBerryBushBlock.AGE, 3)); // 즉시 익음
-            FarmStore.get(level).addTile(plot, gp, level.getGameTime() - FarmEconomy.RIPEN_TICKS);
-        }
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 15);
         level.setDayTime(4000L); // 노동 시간
         double h0 = owner.getHolding();
         LiveCheck.watch(ctx.getSource(), "farm_own_harvest", 1200,
@@ -223,6 +219,79 @@ public final class EvoSimCommand {
             }
         }
         FarmStore.get(level).debugRemove(plot.id);
+    }
+
+    /**
+     * M2 관문 ① 고용 흐름 — 1인 지주(C=12) + 35타일 즉시 익음 밭(부족 23 ≥ 최소일감) + 가난한
+     * 이웃 조성 → 새벽 배정 강제 → 결과값: 이웃 H 증가(소작 70%) ∧ 밭 계정 > 0(지대 30% 적립).
+     */
+    private static int farmHireDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments(); // 배정 잔재 인수(같은 자리 2회 규칙)
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 0), Sex.MALE);
+        MimicEntity worker = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 4), Sex.MALE);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 35);
+        level.setDayTime(1200L); // 새벽 직후 — 다음 200틱 스캔에서 배정
+        double h0 = worker.getHolding();
+        LiveCheck.watch(ctx.getSource(), "farm_hire_flow", 1200,
+                () -> String.format("workerH %.2f(start %.2f) rent %.2f assigned %s",
+                        worker.getHolding(), h0, plot.account,
+                        FarmTicker.assignedPlot(worker.getId()) == plot.id ? "yes" : "no"),
+                () -> worker.getHolding() > h0 + 0.5 && plot.account > 0.2,
+                () -> {
+                    discard(owner, worker);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M2 관문 ② 무단 금지 + 슬롯0 경계 — 부재 지주(ΣC=0)의 9타일 밭: 부족 9 < 최소일감 10이라
+     * 슬롯 0(운 무관 결정론), 배정 없는 이웃은 손대면 안 됨 → 금지 결과 감시(익은 타일 감소 = 실패).
+     */
+    private static int farmGuardDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "검증 진행 중 — 끝난 뒤 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        MimicEntity[] c = new MimicEntity[1];
+        FarmStore.Plot[] pl = new FarmStore.Plot[1];
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        steps.add(new VerifySuite.Step("farm_guard_no_poach",
+                "9-tile absentee farm: slots 0 (9 < MIN_JOB) and no one may harvest", 400, true, () -> {
+            c[0] = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 0), Sex.MALE);
+            c[0].debugSetHolding(0.4); // 궁핍 — 유혹 상태 조성(위양성 차단: 배고파도 못 건드려야 함)
+            pl[0] = buildDemoPlot(level, anchor, 999999999L, 9); // 부재 지주(존재하지 않는 id)
+            level.setDayTime(1200L);
+        }, () -> String.format("ripe %d(must stay 9) H %.2f", countRipe(level, pl[0]), c[0].getHolding()),
+                () -> countRipe(level, pl[0]) < 9, // ← 금지 결과(무단 수확 발생)
+                () -> {
+                    discard(c);
+                    farmClearPlot(level, pl[0]);
+                    FarmTicker.clearAssignments();
+                }));
+        VerifySuite.start(ctx.getSource(), steps);
+        return 1;
+    }
+
+    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
+    private static FarmStore.Plot buildDemoPlot(ServerLevel level, BlockPos anchor, long ownerId, int n) {
+        FarmStore.Plot plot = FarmStore.get(level).create(anchor, ownerId);
+        for (int[] t : FarmLayout.layout(n)) {
+            BlockPos gp = groundAt(level, Vec3.atBottomCenterOf(anchor), t[0], t[1] * 2);
+            level.setBlockAndUpdate(gp.below(), Blocks.DIRT.defaultBlockState());
+            level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                    .setValue(SweetBerryBushBlock.AGE, 3));
+            FarmStore.get(level).addTile(plot, gp, level.getGameTime() - FarmEconomy.RIPEN_TICKS);
+        }
+        return plot;
     }
 
     /** 밭 골조 정리 — 구획의 베리·흙받침을 원상 제거하고 등록 회수(데모 잔재 방지, 규칙 7). */

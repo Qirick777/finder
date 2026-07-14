@@ -34,6 +34,7 @@ public class FarmStore extends SavedData {
     }
 
     private final Map<Long, Plot> plots = new HashMap<>();
+    private final java.util.HashSet<Long> tileIndex = new java.util.HashSet<>(); // pos.asLong — 무단 수확 가드용
     private long nextId = 1;
 
     public static FarmStore get(ServerLevel level) {
@@ -64,12 +65,33 @@ public class FarmStore extends SavedData {
         g[g.length - 1] = gameTime;
         p.tiles = t;
         p.planted = g;
+        tileIndex.add(pos.asLong());
         setDirty();
+    }
+
+    /** 이 좌표가 어느 밭의 타일인가 — 일반 채집 goal 의 무단 수확 가드(F: 남의 밭 보호). */
+    public boolean isFarmTile(BlockPos pos) {
+        return tileIndex.contains(pos.asLong());
+    }
+
+    /** 소유 구획 수(신규 밭 체증 비용 입력). */
+    public int ownedCount(long ownerId) {
+        int n = 0;
+        for (Plot p2 : plots.values()) {
+            if (p2.ownerId == ownerId) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /** 검증 전용 정리 — 무대 밭 회수(규칙 7). 멱등. */
     public void debugRemove(long id) {
-        if (plots.remove(id) != null) {
+        Plot p = plots.remove(id);
+        if (p != null) {
+            for (long l : p.tiles) {
+                tileIndex.remove(l);
+            }
             setDirty();
         }
     }
@@ -85,6 +107,9 @@ public class FarmStore extends SavedData {
             p.planted = c.getLongArray("Planted");
             p.account = c.getDouble("Acct");
             s.plots.put(p.id, p);
+            for (long l : p.tiles) {
+                s.tileIndex.add(l);
+            }
         }
         return s;
     }

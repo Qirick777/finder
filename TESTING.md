@@ -98,7 +98,9 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 "앞 단계 관문 통과 후 착수" 규칙의 예외 — 단, 실패 시 해당 M부터 역추적). 일괄 실행 목록:
 - [ ] M0 `/evosim farm 25` — 고랑 수열·발자국 육안 + `/evosim farmclear`
 - [ ] M1 `/evosim farmown` — 자영 수확 LiveCheck(H+3·잔여익음≤3, verify.log)
-- [ ] M2~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+- [ ] M2 `/evosim farmhire` — 새벽 배정→소작 수확(이웃 H↑ ∧ 지대 계정↑, LiveCheck)
+- [ ] M2 `/evosim farmguard` — 부재지주 9타일: 슬롯0(<최소일감)·무단 수확 금지(익은 9 유지, 금지 감시)
+- [ ] M3~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
 - [ ] 동시: checkall 33단계(같은 자리 2회), TESTING 항목 30·31·32, evosim-verify.log 제출
 
 ## 실패 시 절차

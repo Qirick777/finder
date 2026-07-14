@@ -235,7 +235,7 @@ public class MimicForageGoal extends Goal {
             int dz = mob.getRandom().nextInt(half * 2 + 1) - half;
             int dy = mob.getRandom().nextInt(3) - 1;
             BlockPos p = base.offset(dx, dy, dz);
-            if (forageable(mob.level().getBlockState(p), herbalist)) {
+            if (forageable(mob.level().getBlockState(p), herbalist) && !farmTile(p)) {
                 return p;
             }
         }
@@ -267,7 +267,7 @@ public class MimicForageGoal extends Goal {
             for (int dz = -half; dz <= half; dz++) {
                 for (int dy = -2; dy <= 2; dy++) {
                     BlockPos p = base.offset(dx, dy, dz);
-                    if (isRipeBerry(mob.level().getBlockState(p))) {
+                    if (isRipeBerry(mob.level().getBlockState(p)) && !farmTile(p)) {
                         double d = base.distSqr(p);
                         if (d < bestDist) {
                             bestDist = d;
@@ -278,6 +278,12 @@ public class MimicForageGoal extends Goal {
             }
         }
         return best;
+    }
+
+    /** 등록된 밭 타일인가 — 일반 채집은 남의 밭을 건드리지 않는다(무단 수확 금지, 배정은 MimicFarmGoal). */
+    private boolean farmTile(BlockPos p) {
+        return mob.level() instanceof net.minecraft.server.level.ServerLevel sl
+                && FarmStore.get(sl).isFarmTile(p);
     }
 
     /** 누구나 채집하는 풀(잔디·고사리) + 다 익은 옆 정원 베리 + 약초학자만 채집하는 꽃·버섯. */

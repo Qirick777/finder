@@ -50,7 +50,7 @@ public class MimicFarmGoal extends Goal {
         if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
             return false; // 전담창 소진 — 나머지 시간은 기존 채집/배회
         }
-        target = nearestOwnRipe();
+        target = nearestWorkRipe();
         return target != null;
     }
 
@@ -75,27 +75,59 @@ public class MimicFarmGoal extends Goal {
         var st = mob.level().getBlockState(target);
         if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
-            double food = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
-            mob.addHarvest(food); // 자기 밭 = 100% 본인 몫(지대는 M3의 소작 경로에서만)
+            double yield = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
+            FarmStore.Plot p = plotOf(target);
+            if (p != null && p.ownerId != mob.getIndividual().id()) {
+                // 소작: 70% 본인 H, 30% 밭 계정(밤 정산에서 정수 유닛만 주인 저장고 — M3)
+                mob.addHarvest(FarmEconomy.tenantShare(yield));
+                p.account += FarmEconomy.ownerShare(yield);
+                farmStore().setDirty();
+                SimEvents.event(mob, "소작수확", String.format("+%.2f (지대 %.2f 적립, 오늘 %d타일)",
+                        FarmEconomy.tenantShare(yield), FarmEconomy.ownerShare(yield), harvestedToday + 1));
+            } else {
+                mob.addHarvest(yield); // 자기 밭 = 100% 본인 몫
+                SimEvents.event(mob, "밭수확", String.format("자영 +%.2f (오늘 %d타일)",
+                        yield, harvestedToday + 1));
+            }
             resetTimer(target);
             harvestedToday++;
             cooldown = HARVEST_COOLDOWN;
-            SimEvents.event(mob, "밭수확", String.format("자영 +%.2f (오늘 %d타일)", food, harvestedToday));
         }
         target = null;
     }
 
-    /** 소유 구획들에서 가장 가까운 익은 타일. */
-    private BlockPos nearestOwnRipe() {
+    private net.minecraft.server.level.ServerLevel serverLevel() {
+        return (net.minecraft.server.level.ServerLevel) mob.level();
+    }
+
+    private FarmStore farmStore() {
+        return FarmStore.get(serverLevel());
+    }
+
+    /** 이 타일이 속한 구획. */
+    private FarmStore.Plot plotOf(BlockPos pos) {
+        for (FarmStore.Plot p : farmStore().all().values()) {
+            for (long l : p.tiles) {
+                if (l == pos.asLong()) {
+                    return p;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 일할 밭(소유 구획 전부 + 오늘 배정된 소작 구획)에서 가장 가까운 익은 타일. */
+    private BlockPos nearestWorkRipe() {
         if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return null;
         }
         long id = mob.getIndividual().id();
+        long assigned = FarmTicker.assignedPlot(mob.getId());
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
-            if (p.ownerId != id) {
-                continue;
+            if (p.ownerId != id && p.id != assigned) {
+                continue; // 무단 수확 금지 — 소유 또는 오늘 배정만
             }
             for (long l : p.tiles) {
                 BlockPos pos = BlockPos.of(l);

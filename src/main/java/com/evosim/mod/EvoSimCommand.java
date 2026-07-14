@@ -131,6 +131,12 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmdrive").executes(ctx -> farmIdleDemo(ctx, true)))
                 .then(Commands.literal("farmshield").executes(ctx -> farmShieldDemo(ctx, true)))
                 .then(Commands.literal("farmbreak").executes(ctx -> farmShieldDemo(ctx, false)))
+                .then(Commands.literal("farmreturn").executes(EvoSimCommand::farmReturnDemo))
+                .then(Commands.literal("farmlabor").executes(EvoSimCommand::farmLaborDemo))
+                .then(Commands.literal("farmenvy").executes(EvoSimCommand::farmEnvyDemo))
+                .then(Commands.literal("farmretire").executes(EvoSimCommand::farmRetireDemo))
+                .then(Commands.literal("farmhoard").executes(EvoSimCommand::farmHoardDemo))
+                .then(Commands.literal("farmable").executes(EvoSimCommand::farmAbleDemo))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -635,6 +641,200 @@ public final class EvoSimCommand {
                     cleanup));
             VerifySuite.start(ctx.getSource(), steps);
         }
+        return 1;
+    }
+
+    /**
+     * M9 관문 ① 출근 관성(R2) — 넉넉해진 <b>복귀자</b>(어제 같은 구획 출근)는 새벽 배정이 유지되고,
+     * 동일하게 넉넉한 <b>신규자</b>는 탈락해야 한다(양측 동시 판정 — 면제가 무조건 통과로 구현된
+     * 회귀까지 잡는다). need 22(34타일−주인12)라 복귀자만으로는 부족 → 신규자 배정 여부가 필터 실증.
+     */
+    private static int farmReturnDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos oHome = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        BlockPos aHome = groundAt(level, ctx.getSource().getPosition(), -8, 8);
+        BlockPos bHome = groundAt(level, ctx.getSource().getPosition(), -12, 0);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(oHome), Sex.MALE);
+        owner.debugSettleWithTent(oHome, Direction.NORTH);
+        LarderStore.get(level).set(oHome, 5.0); // 주인 빈곤(불만족) — 용량 12 계상, need 22 유지
+        MimicEntity ret = spawnAdult(level, Vec3.atBottomCenterOf(aHome), Sex.MALE);
+        ret.debugSettleWithTent(aHome, Direction.NORTH);
+        LarderStore.get(level).set(aHome, 20.0); // 넉넉 — 관성 면제가 없으면 필터 탈락
+        MimicEntity fresh = spawnAdult(level, Vec3.atBottomCenterOf(bHome), Sex.MALE);
+        fresh.debugSettleWithTent(bHome, Direction.NORTH);
+        LarderStore.get(level).set(bHome, 20.0); // 동일 넉넉 신규 — 배정되면 금지 결과
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 34);
+        FarmTicker.debugSeedAssignment(ret.getId(), plot.id); // "어제 출근" — 새벽 롤오버로 복귀자화
+        level.setDayTime(1200L); // 새벽 — streak 0→1 전이가 "새벽이 실제 돌았다"의 결과값 마커
+        LiveCheck.watch(ctx.getSource(), "farm_return_inertia", 400,
+                () -> String.format("ret assigned %s streak %d(expect yes·1+) fresh assigned %s(must stay no)",
+                        FarmTicker.assignedPlot(ret.getId()) == plot.id ? "yes" : "no",
+                        ret.getTenantStreak(),
+                        FarmTicker.assignedPlot(fresh.getId()) == plot.id ? "yes" : "no"),
+                () -> FarmTicker.assignedPlot(ret.getId()) == plot.id && ret.getTenantStreak() >= 1
+                        && FarmTicker.assignedPlot(fresh.getId()) == 0L,
+                () -> {
+                    discard(owner, ret, fresh);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** M9 관문 ② 개간 노동 개체 상한(R3) — 2구획 지주도 하루 합산 +3타일만(18→21) ∧ 저장고 30→21. */
+    private static int farmLaborDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos a1 = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos a2 = groundAt(level, ctx.getSource().getPosition(), 8, -24);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 30.0); // afford 8타일 — 자금은 남고 노동만 병목이어야
+        FarmStore.Plot p1 = buildDemoPlot(level, a1, owner.getIndividual().id(), 9);
+        FarmStore.Plot p2 = buildDemoPlot(level, a2, owner.getIndividual().id(), 9);
+        level.setDayTime(13500L);
+        LiveCheck.watch(ctx.getSource(), "farm_labor_cap", 600,
+                () -> String.format("tiles %d+%d=%d(expect 21) larder %.0f(expect 21)",
+                        p1.tiles.length, p2.tiles.length, p1.tiles.length + p2.tiles.length,
+                        LarderStore.get(level).get(home)),
+                () -> p1.tiles.length + p2.tiles.length == 21
+                        && Math.abs(LarderStore.get(level).get(home) - 21.0) < 1.0E-6,
+                () -> {
+                    discard(owner);
+                    farmClearPlot(level, p1);
+                    farmClearPlot(level, p2);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** M9 관문 ③ 경쟁 이웃 부 대칭(R5) — 이웃 저장고 5+밭 계정 8(합 13) > 자기 10 → 분발 캐시 on. */
+    private static int farmEnvyDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos aHome = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        BlockPos bHome = groundAt(level, ctx.getSource().getPosition(), -8, 8);
+        MimicEntity envy = spawnAdult(level, Vec3.atBottomCenterOf(aHome), Sex.MALE, Trait.COMPETITIVE);
+        envy.debugSettleWithTent(aHome, Direction.NORTH);
+        LarderStore.get(level).set(aHome, 10.0); // 저장고만 비교하는 구 정의면 10>5라 분발 없음
+        MimicEntity lord = spawnAdult(level, Vec3.atBottomCenterOf(bHome), Sex.MALE);
+        lord.debugSettleWithTent(bHome, Direction.NORTH);
+        LarderStore.get(level).set(bHome, 5.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, lord.getIndividual().id(), 9);
+        plot.account = 8.0; // 이웃 부 = 5 + 8 = 13 > 10 — 계정 포함 정의에서만 참
+        level.setDayTime(1200L);
+        LiveCheck.watch(ctx.getSource(), "farm_envy_account", 400,
+                () -> String.format("driven %s(expect yes) — mine 10 vs neighbor 5+acct8",
+                        envy.isCompetitiveDriven() ? "yes" : "no"),
+                envy::isCompetitiveDriven,
+                () -> {
+                    discard(envy, lord);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M9 관문 ④ 유령 용량 제거(R6) — 만족 지주는 슬롯 산식에서 용량 0: 15타일 밭의 need 가
+     * 3(<최소일감, 구 코드)이 아니라 15가 되어 가난 이웃이 배정된다(배정 발생 자체가 판별식).
+     */
+    private static int farmRetireDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos oHome = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        BlockPos wHome = groundAt(level, ctx.getSource().getPosition(), -8, 8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(oHome), Sex.MALE);
+        owner.debugSettleWithTent(oHome, Direction.NORTH);
+        LarderStore.get(level).set(oHome, 60.0); // 새벽 동기 갱신에서 만족(60 >> bar 12.5)
+        MimicEntity worker = spawnAdult(level, Vec3.atBottomCenterOf(wHome), Sex.MALE);
+        worker.debugSettleWithTent(wHome, Direction.NORTH);
+        LarderStore.get(level).set(wHome, 0.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 15);
+        level.setDayTime(1200L);
+        LiveCheck.watch(ctx.getSource(), "farm_retire_slots", 400,
+                () -> String.format("owner satisfied %s worker assigned %s(expect yes·yes)",
+                        owner.isSatisfiedToday() ? "yes" : "no",
+                        FarmTicker.assignedPlot(worker.getId()) == plot.id ? "yes" : "no"),
+                () -> FarmTicker.assignedPlot(worker.getId()) == plot.id,
+                () -> {
+                    discard(owner, worker);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * M9 관문 ⑤ 재투자 금지측(R1) — 만족 지주는 재투자하지 않고 계정을 전액 착복: 타일 9 유지 ∧
+     * 저장고 60→67 ∧ 계정 7→0 ∧ 소작 저장고 16 불변. 만족 캐시는 실경로 함수(updateMotivation)로 조성.
+     */
+    private static int farmHoardDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos oHome = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        BlockPos tHome = groundAt(level, ctx.getSource().getPosition(), -8, 8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(oHome), Sex.MALE);
+        owner.debugSettleWithTent(oHome, Direction.NORTH);
+        LarderStore.get(level).set(oHome, 60.0);
+        MimicEntity tenant = spawnAdult(level, Vec3.atBottomCenterOf(tHome), Sex.MALE);
+        tenant.debugSettleWithTent(tHome, Direction.NORTH);
+        LarderStore.get(level).set(tHome, 16.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        tenant.setTenant(plot.id, 3);
+        plot.account = 7.0;
+        owner.updateMotivation(level); // 조성 — wealth 67 >> bar → satisfiedToday(결말은 실경로)
+        level.setDayTime(13500L);
+        LiveCheck.watch(ctx.getSource(), "farm_hoard_satisfied", 600,
+                () -> String.format("tiles %d(must stay 9) acct %.1f(expect 0) "
+                        + "ownerLarder %.0f(expect 67) tenantLarder %.0f(must stay 16)",
+                        plot.tiles.length, plot.account,
+                        LarderStore.get(level).get(oHome), LarderStore.get(level).get(tHome)),
+                () -> plot.tiles.length == 9
+                        && Math.abs(plot.account) < 1.0E-6
+                        && Math.abs(LarderStore.get(level).get(oHome) - 67.0) < 1.0E-6
+                        && Math.abs(LarderStore.get(level).get(tHome) - 16.0) < 1.0E-6,
+                () -> {
+                    discard(owner, tenant);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** M9 관문 ⑥ 능력 게이트 양성측 — 약초학자 지주는 35를 넘는다: 33→36 ∧ 저장고 30→21(farmcap 대조). */
+    private static int farmAbleDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.HERBALIST);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 30.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 33);
+        level.setDayTime(13500L);
+        LiveCheck.watch(ctx.getSource(), "farm_skill_pass", 600,
+                () -> String.format("tiles %d(expect 36 — must pass 35) larder %.0f(expect 21)",
+                        plot.tiles.length, LarderStore.get(level).get(home)),
+                () -> plot.tiles.length == 36
+                        && Math.abs(LarderStore.get(level).get(home) - 21.0) < 1.0E-6,
+                () -> {
+                    discard(owner);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
         return 1;
     }
 

@@ -124,6 +124,19 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 - [ ] M6 관찰: 무주지 만료 소거(2.5일 — 이웃 없이 방치 후 등록 소멸·야생 베리 잔존)
 - [ ] M7 `/evosim farmidle` — 만족 정지: 부유 무동기 지주(저장고 60)는 익은 9타일을 안 딴다(금지 감시)
 - [ ] M7 `/evosim farmdrive` — 대조: 부지런 지주는 만족 무시하고 수확(ripe 감소)
+- [ ] M9 `/evosim farmreturn` — 출근 관성(R2) 양측: 넉넉 복귀자 배정 유지(streak 0→1) ∧ 동일 넉넉
+      신규자 배정 금지(need 22 미달인데도) — 면제 소실·무조건 통과 회귀를 한 판에 구분
+- [ ] M9 `/evosim farmlabor` — 개간 노동 개체 상한(R3): 2구획(9+9)·저장고 30 → 합산 21(+3만) ∧ 저장고 21
+- [ ] M9 `/evosim farmenvy` — 경쟁 이웃 부 대칭(R5): 자기 10 vs 이웃 저장고 5+계정 8 → driven=yes
+      (저장고만 비교하는 구 정의면 10>5라 no — 판별식이 정의 교체 자체)
+- [ ] M9 `/evosim farmretire` — 유령 용량 제거(R6): 만족 지주 15타일 → need 15(구 코드는 3<10 무고용)
+      → 가난 이웃 배정 발생
+- [ ] M9 `/evosim farmhoard` — 재투자 금지측(R1): 만족 지주는 타일 9 유지 ∧ 계정 7→0 ∧ 저장고
+      60→67(전액 착복) ∧ 소작 저장고 16 불변
+- [ ] M9 `/evosim farmable` — 능력 게이트 양성측: 약초학자 지주 33→**36**(35 통과) ∧ 저장고 30→21
+      (farmcap 무능력 35 정지와 쌍 — 같은 조성에서 특성만 다름)
+- [ ] census 밭 줄(B-class): `/evolog on` → `/evosim farmown` 조성 상태에서 `/evolog census` →
+      `밭` 줄의 구획·타일·무주·상시소작·계정합이 `/evosim lords` 집계와 일치(불일치·부재 = 실패)
 - [ ] M7 관찰: 경쟁 배회 노동(wildpairs에서 경쟁 개체가 배회 시간에도 채집 — 풀 필요)·신설 3축
   유전 발현(village 후 검사봉으로 야망가/욕심/사치 확인)
 - [ ] M8 관문: checkall **37단계** 재실행(㉞~㊲ 밭 스텝 포함, 같은 자리 2회) + `/evosim lords`
@@ -150,6 +163,13 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | farm_grow_reinvest tiles 9 유지 ∧ 계정 7 유지 | 성장 게이트(시각창 13000·growDay·유주택 소작 탐색·주인 만족 캐시) | 계정도 그대로면 미발동. 주인 satisfiedToday 가 true 로 남았는지 먼저 확인 |
 | farm_grow_reinvest tiles 11 ∧ 계정 1 유지(이체 안 됨) | 호출 순서(`onServerTick`: growFarms→settleRent) 또는 `settleRent` 주인 탐색 | 확장은 됐는데 잔여 정수가 안 넘어감 = 순서 회귀 |
 | farm_grow_reinvest 계정 음수 | `reinvestTiles` 상한(floor) vs 설치 좌표 수 불일치 | placed>afford 면 isLoaded 건너뜀 회계 결함 |
+| farm_return_inertia ret 배정 소실(streak 0) | R2 면제(`assignDawn` returning 분기) 또는 LAST_ASSIGNED 롤오버 | streak 0이면 새벽 미발동(시각창)부터 확인 |
+| farm_return_inertia fresh 배정 발생 | 넉넉 필터 자체 소실 | 면제가 "무조건 통과"로 구현된 회귀 — returning 조건식 점검 |
+| farm_labor_cap 합계 24(양쪽 +3) | R3 카운터(`grownToday`) 미적용/키 불일치 | 저장고 12까지 내려가면 이중 지불 확정 |
+| farm_envy_account driven no | R5 이웃 계정 합산(`updateMotivation`) | 새벽 미발동이면 owner satisfied 표기로 구분(둘 다 no면 시각창) |
+| farm_retire_slots 배정 0 | R6 용량 제외(`assignDawn` ΣC의 만족 스킵) | owner satisfied no면 만족 조성(저장고 60·bar) 쪽이 먼저 |
+| farm_hoard_satisfied tiles 11 | R1 주인 만족 게이트(`growFarms`) 미작동 | 착복 67 미달·계정 잔존이면 settleRent(순서·주인 탐색) 쪽 |
+| farm_skill_pass tiles 35 정지 | `canManageLarge` 발현(HERBALIST 배선) | 35 정지면 게이트 로직 자체는 정상 — 특성 발현·부여 쪽 |
 | farm_found_new owned 0 유지 | 신규 분기(자금 게이트 40≥36·부지 탐색 findFarmSite) | larder 불변=자금/시각 게이트, larder만 감소=부지 실패 후 차감 순서 결함(치명 — 즉보고) |
 | farm_skill_cap tiles 36+ | `growthCap`/`canManageLarge` 게이트 누락 | 능력 목록에 기본 특성이 섞였는지(STRONG 등은 비능력이어야 정상) |
 | farm_inherit_son owner 그대로(사망자 id) | remove() 상속 훅 미발동 또는 inherit 조기 반환 | discard의 destroy 여부·ownedCount 대조 |

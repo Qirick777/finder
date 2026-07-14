@@ -118,6 +118,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
                 .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
+                .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -281,7 +282,37 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
+    /**
+     * M3 관문 지대 정산 — 유주택 지주 + 계정 2.7 선적립 구획 조성 → 밤 강제 → 결과값:
+     * 주인 저장고 +2(정수만) ∧ 계정 0.7 이월(소수 보존 — L 정수성 회계 항등식).
+     */
+    private static int farmRentDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -6, -6);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 3.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        plot.account = 2.7; // 지대 선적립(수확 유동성 배제 — 이체 회계만 고립 검증)
+        FarmStore.get(level).setDirty();
+        level.setDayTime(13500L); // 밤 — 다음 200틱 스캔에서 정산
+        LiveCheck.watch(ctx.getSource(), "farm_rent_settle", 600,
+                () -> String.format("larder %.1f(start 3, expect 5) account %.2f(expect 0.70)",
+                        LarderStore.get(level).get(home), plot.account),
+                () -> Math.abs(LarderStore.get(level).get(home) - 5.0) < 1.0E-6
+                        && Math.abs(plot.account - 0.7) < 1.0E-6,
+                () -> {
+                    discard(owner);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */    /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
     private static FarmStore.Plot buildDemoPlot(ServerLevel level, BlockPos anchor, long ownerId, int n) {
         FarmStore.Plot plot = FarmStore.get(level).create(anchor, ownerId);
         for (int[] t : FarmLayout.layout(n)) {

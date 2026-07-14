@@ -100,7 +100,24 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 - [ ] M1 `/evosim farmown` — 자영 수확 LiveCheck(H+3·잔여익음≤3, verify.log)
 - [ ] M2 `/evosim farmhire` — 새벽 배정→소작 수확(이웃 H↑ ∧ 지대 계정↑, LiveCheck)
 - [ ] M2 `/evosim farmguard` — 부재지주 9타일: 슬롯0(<최소일감)·무단 수확 금지(익은 9 유지, 금지 감시)
-- [ ] M3~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+- [ ] M3 `/evosim farmrent` — 밤 지대 이체(저장고 3→5 정수만 ∧ 계정 2.7→0.7 이월, LiveCheck)
+- [ ] M4~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+
+### 밭 관문 진단 지도 (결과 수신 즉시 원인 특정용 — 실패 슬러그 → 의심 지점 → 다듬기 방향)
+
+| 실패 슬러그/증상 | 1순위 의심 지점 | 다듬기 방향 |
+|---|---|---|
+| farm 수열이 눈에 이상(고랑 없음/비정사각) | `FarmLayout.layout` 규칙(폭<min(2K−1,cap)) | evotest farm/배치수열은 통과 상태이므로 **월드 사상**(`buildDemoPlot`의 row×2 오프셋·groundAt 경사 보정) 쪽 |
+| farmown FAIL reason=timeout, H 정체 | `MimicFarmGoal.canUse`(WORK 판정·용량 리셋) → goal 등록 순위(6) 경합 | progress의 ripeLeft가 줄었는데 H만 안 오르면 `addHarvest` 배율, ripeLeft 그대로면 goal 미발동 — Schedule/우선순위 |
+| farmown H는 오르나 잔여익음>3 | 용량 C(12) 소진 후 정지 — 정상 동작과 판정 기준 충돌 | 판정 완화가 아니라 타임아웃 내 재개 여부 확인(다음날 용량 리셋) |
+| farmhire assigned=no 지속 | `FarmTicker.assignDawn` 게이트(시각창 1000~9000·하루 1회·후보 필터) | progress에 assigned 표기 있음 — no면 배정부, yes인데 H 정체면 `nearestWorkRipe`(배정 구획 스캔) |
+| farmhire assigned=yes, H↑, rent=0 | 소작 분기(`plotOf`가 null → 자영 처리) | 타일 색인/plotOf 선형 탐색 — 좌표 as Long 불일치(groundAt 재보정 여부) |
+| farm_guard_no_poach FAIL(익은 수 감소) | ①일반 채집 가드(`MimicForageGoal.farmTile`) 누락 경로 ②배정 오발(부재지주 ΣC=0인데 need 9<10 계산 오류) | verify.log의 H 수치로 구분: H 크게 오름=수확자 있음→가드, H 미동=블록만 소실→외부 요인(좀비 등) |
+| farm_rent_settle 저장고 5 미달 | `settleRent` 게이트(tod≥13000·하루 1회·주인 탐색) | account가 그대로면 정산 미발동(시각/rentDay), account만 줄고 저장고 그대로면 홈 좌표 불일치(`debugSettleWithTent` 홈과 get/set 좌표) |
+| farm_rent_settle 계정 0.7 아님 | 정수 이체 회계(`floor`·이월) | 0이 됐으면 소수까지 이체(P2 위반 — L 정수성 확인), 2.7 그대로면 미발동 |
+| 공통: setup_error | 무대 조성부(스폰 실패·지형) | 슬러그 무관 — groundAt 결과 좌표와 예외 메시지 우선 |
+
+실패 보고는 verify.log 원문이면 충분 — 슬러그·reason·수치 3요소로 위 표를 탄다.
 - [ ] 동시: checkall 33단계(같은 자리 2회), TESTING 항목 30·31·32, evosim-verify.log 제출
 
 ## 실패 시 절차

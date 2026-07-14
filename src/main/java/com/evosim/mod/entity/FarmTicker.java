@@ -24,6 +24,7 @@ public final class FarmTicker {
     /** 그날 배정표(휘발 — 재접속 시 하루 공침 허용, 계획 F6): entityId → plotId. */
     private static final java.util.Map<Integer, Long> ASSIGNED = new java.util.HashMap<>();
     private static long assignDay = -1;
+    private static long rentDay = -1;
 
     private FarmTicker() {
     }
@@ -33,10 +34,45 @@ public final class FarmTicker {
         return ASSIGNED.getOrDefault(entityId, 0L);
     }
 
+    /**
+     * 밤 지대 정산 — 하루 1회(취침 시간대 첫 스캔): 밭 계정에서 <b>정수 유닛만</b> 주인 거처
+     * 저장고로 이체(잔여 소수는 이월 — L 정수성 보존, 계획 P2). 주인 부재(미로드·사망 직후)나
+     * 무주택이면 건너뜀 — 계정은 구획에 붙어 있어 손실 없음(F8).
+     */
+    private static void settleRent(ServerLevel level) {
+        long day = level.getGameTime() / 24000L;
+        long tod = level.getDayTime() % 24000L;
+        if (day == rentDay || tod < 13000L) {
+            return;
+        }
+        rentDay = day;
+        FarmStore store = FarmStore.get(level);
+        for (FarmStore.Plot plot : store.all().values()) {
+            int units = (int) Math.floor(plot.account);
+            if (units <= 0) {
+                continue;
+            }
+            BlockPos home = null;
+            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null
+                            && e.getIndividual().id() == plot.ownerId)) {
+                home = m.getHomePos();
+            }
+            if (home == null) {
+                continue; // 이월 — 다음 밤 재시도
+            }
+            LarderStore larder = LarderStore.get(level);
+            larder.set(home, larder.get(home) + units);
+            plot.account -= units;
+            store.setDirty();
+        }
+    }
+
     /** 검증 인수 — 무대 시작 시 배정 잔재 제거(같은 자리 2회 규칙). */
     public static void clearAssignments() {
         ASSIGNED.clear();
         assignDay = -1;
+        rentDay = -1;
     }
 
     /**
@@ -114,6 +150,7 @@ public final class FarmTicker {
             return;
         }
         assignDawn(level);
+        settleRent(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
                 if (p.planted[i] < 0 || level.getGameTime() - p.planted[i] < FarmEconomy.RIPEN_TICKS) {

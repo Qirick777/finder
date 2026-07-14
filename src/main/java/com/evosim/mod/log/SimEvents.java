@@ -183,6 +183,36 @@ public final class SimEvents {
                 total, adult, boy, infant, old, wanderer, homes.size(),
                 total == 0 ? "-" : (minGen + "~" + maxGen), larderSum, holdSum, critical,
                 careMale, careFemale));
+        // 밭 1줄 — PREDICTIONS.md 장기 대조의 자동 스냅샷(day별 구획·타일·계층 규모).
+        if (lv instanceof ServerLevel sl) {
+            com.evosim.mod.entity.FarmStore farms = com.evosim.mod.entity.FarmStore.get(sl);
+            int plots = 0;
+            int vacant = 0;
+            int tiles = 0;
+            int largest = 0;
+            double acctSum = 0.0;
+            Set<Long> owners = new HashSet<>();
+            for (com.evosim.mod.entity.FarmStore.Plot p : farms.all().values()) {
+                plots++;
+                tiles += p.tiles.length;
+                largest = Math.max(largest, p.tiles.length);
+                acctSum += p.account;
+                if (p.ownerId == 0L) {
+                    vacant++;
+                } else {
+                    owners.add(p.ownerId);
+                }
+            }
+            int tenants = 0;
+            for (MimicEntity m : mimics) {
+                if (m.getTenantFarm() != 0L) {
+                    tenants++;
+                }
+            }
+            note(lv, "밭", String.format(
+                    "구획%d(무주%d) 타일%d 최대%d 지주%d 상시소작%d 계정합%.1f",
+                    plots, vacant, tiles, largest, owners.size(), tenants, acctSum));
+        }
     }
 
     public static synchronized int memorySize() {

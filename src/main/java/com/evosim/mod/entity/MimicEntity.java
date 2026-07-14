@@ -1808,9 +1808,10 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         introLogged = true;
-        SimEvents.event(this, "등장", String.format("세대%d 특성[%s] 육아=%s 짝고름=%s",
+        SimEvents.event(this, "등장", String.format("세대%d 특성[%s] 육아=%s 짝고름=%s%s",
                 individual.generation(), traitStr(individual),
-                individual.parentingCare().label(), individual.mateChoice().label()));
+                individual.parentingCare().label(), individual.mateChoice().label(),
+                stageActor ? " [무대]" : "")); // 무대 표식 — 관측 로그에서 검증 개체 필터용
     }
 
     /**
@@ -2463,8 +2464,14 @@ public class MimicEntity extends PathfinderMob {
                 neighborMax = Math.max(neighborMax, nw);
             }
         }
+        boolean was = satisfiedToday;
         satisfiedToday = Satisfaction.satisfied(individual, need, wealth, neighborMax,
                 tiles, satisfiedToday);
+        if (was != satisfiedToday) {
+            // 전환 순간만 기록(매일 스팸 방지) — 계층 심리 사슬: 분발→축적→만족(은퇴)→분발(몰락).
+            SimEvents.event(this, satisfiedToday ? "만족" : "분발", String.format(
+                    "잉여 %.1f 이웃최대 %.1f 밭 %d타일", wealth, neighborMax, tiles));
+        }
         competitiveDriven = ExpressionResolver.isExpressed(individual, Trait.COMPETITIVE)
                 && wealth <= neighborMax;
     }
@@ -2836,7 +2843,8 @@ public class MimicEntity extends PathfinderMob {
     public void die(DamageSource source) {
         if (!level().isClientSide) {
             SimEvents.event(this, "사망", "원인=" + source.getMsgId()
-                    + (individual != null ? " · 세대" + individual.generation() : ""));
+                    + (individual != null ? " · 세대" + individual.generation() : "")
+                    + (stageActor ? " [무대]" : ""));
         }
         super.die(source);
     }

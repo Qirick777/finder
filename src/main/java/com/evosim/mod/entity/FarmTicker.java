@@ -56,10 +56,12 @@ public final class FarmTicker {
                 continue;
             }
             BlockPos home = null;
+            MimicEntity ownerEnt = null;
             for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                     e -> e.isAlive() && e.getIndividual() != null
                             && e.getIndividual().id() == plot.ownerId)) {
                 home = m.getHomePos();
+                ownerEnt = m;
             }
             if (home == null) {
                 continue; // 이월 — 다음 밤 재시도
@@ -68,6 +70,9 @@ public final class FarmTicker {
             larder.set(home, larder.get(home) + units);
             plot.account -= units;
             store.setDirty();
+            // 이체가 실제로 끝난 뒤에만 기록(결과값 원칙) — 소작농화 추적의 경제 사슬 링크.
+            com.evosim.mod.log.SimEvents.event(ownerEnt, "지대", String.format(
+                    "구획 %d: +%d 저장고(이월 %.2f)", plot.id, units, plot.account));
         }
     }
 
@@ -390,6 +395,10 @@ public final class FarmTicker {
                 // 연속 출근 카운터: 어제도 같은 밭이면 +1, 아니면 1 — PROMOTE_DAYS 도달 시 상시 승격
                 int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id
                         ? m.getTenantStreak() + 1 : 1;
+                // 일용 배정도 기록(배정 확정 후) — 승격 전 이력(연속 1→2)과 관성 단절(streak 1 회귀)을
+                // 로그만으로 재구성 가능하게. 예약석 재배정은 안정 상태라 기록하지 않음(스팸 방지).
+                com.evosim.mod.log.SimEvents.event(m, "배정", String.format(
+                        "구획 %d 일용(연속 %d일)", plot.id, streak));
                 if (m.getTenantFarm() == 0L) {
                     if (streak >= com.evosim.core.FarmEconomy.PROMOTE_DAYS) {
                         m.setTenant(plot.id, streak);

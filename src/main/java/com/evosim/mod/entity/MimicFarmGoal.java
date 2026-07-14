@@ -50,6 +50,9 @@ public class MimicFarmGoal extends Goal {
         if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
             return false; // 전담창 소진 — 나머지 시간은 기존 채집/배회
         }
+        if (mob.isSatisfiedToday() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
+            return false; // 만족(M7) — 자기 밭 노동 정지. 소작 출근(배정)은 계약 의무라 유지
+        }
         target = nearestWorkRipe();
         return target != null;
     }

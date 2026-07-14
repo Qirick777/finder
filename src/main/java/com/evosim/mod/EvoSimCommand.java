@@ -126,6 +126,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmcap").executes(EvoSimCommand::farmCapDemo))
                 .then(Commands.literal("farminherit").executes(EvoSimCommand::farmInheritDemo))
                 .then(Commands.literal("farmvacant").executes(EvoSimCommand::farmVacantDemo))
+                .then(Commands.literal("farmidle").executes(ctx -> farmIdleDemo(ctx, false)))
+                .then(Commands.literal("farmdrive").executes(ctx -> farmIdleDemo(ctx, true)))
                 .then(Commands.literal("farmshield").executes(ctx -> farmShieldDemo(ctx, true)))
                 .then(Commands.literal("farmbreak").executes(ctx -> farmShieldDemo(ctx, false)))
                 .then(Commands.literal("farmclear")
@@ -583,6 +585,52 @@ public final class EvoSimCommand {
                     farmClearPlot(level, plot);
                     FarmTicker.clearAssignments();
                 });
+        return 1;
+    }
+
+    /**
+     * M7 관문 만족·동기 — 부유 지주(저장고 60 ≫ 기준 12) + 9타일 즉시 익음 밭.
+     * drive=false(farmidle): 무동기 지주는 만족 → 밭 노동 정지 — 익은 9 유지(금지 감시).
+     * drive=true(farmdrive): 부지런 지주는 만족 무시 → 수확 발생(ripe 감소) — 대조군.
+     */
+    private static int farmIdleDemo(CommandContext<CommandSourceStack> ctx, boolean drive) {
+        ServerLevel level = ctx.getSource().getLevel();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "검증 진행 중 — 끝난 뒤 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity owner = drive
+                ? spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.DILIGENT)
+                : spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 60.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        level.setDayTime(1200L); // 새벽 — 동기 갱신 + 노동 시작
+        Runnable cleanup = () -> {
+            discard(owner);
+            farmClearPlot(level, plot);
+            FarmTicker.clearAssignments();
+        };
+        if (drive) {
+            LiveCheck.watch(ctx.getSource(), "farm_drive_diligent", 600,
+                    () -> String.format("ripe %d(start 9, expect <9) satisfied %s",
+                            countRipe(level, plot), owner.isSatisfiedToday() ? "yes" : "no"),
+                    () -> countRipe(level, plot) < 9, cleanup);
+        } else {
+            List<VerifySuite.Step> steps = new ArrayList<>();
+            steps.add(new VerifySuite.Step("farm_idle_satisfied",
+                    "rich plain owner (larder 60 >> bar 12) must NOT work own farm", 400, true,
+                    () -> { }, // 조성은 위에서 완료 — 스텝은 감시만
+                    () -> String.format("ripe %d(must stay 9) satisfied %s",
+                            countRipe(level, plot), owner.isSatisfiedToday() ? "yes" : "no"),
+                    () -> countRipe(level, plot) < 9, // ← 금지 결과(만족했는데 노동)
+                    cleanup));
+            VerifySuite.start(ctx.getSource(), steps);
+        }
         return 1;
     }
 

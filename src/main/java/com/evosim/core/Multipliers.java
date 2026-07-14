@@ -160,6 +160,9 @@ public final class Multipliers {
         if (tt.contains(Trait.INARTICULATE)) {
             score -= 1;
         }
+        if (tt.contains(Trait.LUXURIOUS)) {
+            score += 1; // 사치 — 과시 소비의 매력(소모 +30%의 반대급부)
+        }
 
         // ── 등급 선호 (신체 등급): 지정 목표 등급과 상대 보유 등급의 근접도 ──
         //    완전 일치 +3, 한 칸 차이마다 −1(예: 강건III선호 → I·V=+1, II·IV=+2, III=+3).

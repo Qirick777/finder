@@ -54,6 +54,12 @@ public enum Trait {
     STRONG_MATERNAL(Axis.MATERNAL, "강한모성애"),
     STRICT_MATE(Axis.MATE_CHOICE, "엄격"),
     OPEN_MATE(Axis.MATE_CHOICE, "완전개방"),
+    AMBITIOUS(Axis.AMBITION, "야망가"),       // 만족 기준이 밭 자산(49타일) — 대지주 동기(능력 필요)
+    CONTENT(Axis.AMBITION, "안분지족"),        // 일찍 만족(σ 절반) — 소농 수렴
+    GREEDY(Axis.GREED, "욕심"),               // 어떤 부에도 만족 불가 — 무한 축장(영원한 노동이 대가)
+    ASCETIC(Axis.GREED, "무욕"),              // 일찍 만족 + 밭 확장 안 함
+    LUXURIOUS(Axis.SPENDING, "사치"),         // 소모 +30%(만족 기준 자동 상승) ↔ 과시 매력 +1
+    FRUGAL(Axis.SPENDING, "검소"),            // 소모 −10% — 일찍 만족
 
     // ── 신체 ──
     STRONG(Axis.STRENGTH, "힘센"),

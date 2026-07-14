@@ -110,6 +110,10 @@ public final class FarmTicker {
             if (grower == null || grower.getHomePos() == null || ownerEnt == null) {
                 continue; // 게이트 판단(주인 능력)·지불 원천이 없으면 보수적으로 건너뜀
             }
+            if (grower.isSatisfiedToday()
+                    || com.evosim.core.Satisfaction.neverExpands(grower.getIndividual())) {
+                continue; // 만족(M7 기본값) 또는 무욕 — 잉여 활동 정지(동기 특성만이 계속)
+            }
             int cap = com.evosim.core.FarmEconomy.growthCap(ownerEnt.getIndividual());
             int room = Math.min(com.evosim.core.FarmEconomy.EXPAND_PER_DAY,
                     cap - plot.tiles.length);
@@ -180,6 +184,9 @@ public final class FarmTicker {
         for (MimicEntity m : adults) {
             if (m.getHomePos() == null) {
                 continue;
+            }
+            if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
+                continue; // 만족·무욕 — 신규 개간 안 함
             }
             int owned = store.ownedCount(m.getIndividual().id());
             double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
@@ -286,6 +293,13 @@ public final class FarmTicker {
             return;
         }
         assignDay = day;
+        // 동기 갱신(M7) — 만족·경쟁 캐시는 하루 단위 결정(성년 전원, 배정 계산 전에)
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            m.updateMotivation(level);
+        }
         LAST_ASSIGNED.clear();
         LAST_ASSIGNED.putAll(ASSIGNED);
         ASSIGNED.clear();

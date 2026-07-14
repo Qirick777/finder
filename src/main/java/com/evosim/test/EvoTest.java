@@ -21,6 +21,7 @@ import com.evosim.core.Kinship;
 import com.evosim.core.Lineage;
 import com.evosim.core.FarmLayout;
 import com.evosim.core.FarmEconomy;
+import com.evosim.core.Satisfaction;
 import com.evosim.core.LifeStage;
 import com.evosim.core.Lifespan;
 import com.evosim.core.Mating;
@@ -122,9 +123,10 @@ public final class EvoTest {
             case "elder" -> elder(report);
             case "lineage" -> lineage(report);
             case "farm" -> farm(report);
+            case "satisfaction" -> satisfaction(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -154,6 +156,7 @@ public final class EvoTest {
         ability(report);
         lineage(report);
         farm(report);
+        satisfaction(report);
         berry(report);
         food(report);
         famine(report);
@@ -2130,6 +2133,51 @@ public final class EvoTest {
 
         report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 30/67.5 · 확장(3)<신규 타일당(3.33)",
                 acct ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest satisfaction — 만족 규칙·동기 특성(M7, 계층화 심리 엔진)
+    // ──────────────────────────────────────────────────────────────
+    private static void satisfaction(Report report) {
+        Individual man = one(Sex.MALE);
+        // 1) 기본: 기준 = 3.0×comfortDays(2)×σ(2)=12 — 13 만족 / 11 불만족 / 히스테리시스(9.6)
+        boolean base = Satisfaction.satisfied(man, 3.0, 13.0, 0, 0, false)
+                && !Satisfaction.satisfied(man, 3.0, 11.0, 0, 0, false)
+                && Satisfaction.satisfied(man, 3.0, 10.0, 0, 0, true)   // 유지(>9.6)
+                && !Satisfaction.satisfied(man, 3.0, 9.0, 0, 0, true);  // 재개(<9.6)
+        report.add("satisfaction/기본", base, "기준 12 · 만족 13/불만족 11 · 히스테리시스 9.6",
+                base ? "정상" : "어긋남");
+
+        // 2) 동기 오버라이드: 욕심·부지런 = 어떤 부에도 불만족 / 경쟁 = 이웃 우위까지 /
+        //    야망가 = 밭 49타일 기준 / 안분지족 = σ1(기준 6)
+        boolean drive = !Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.GREEDY)),
+                        3.0, 1000.0, 0, 0, false)
+                && !Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)),
+                        3.0, 1000.0, 0, 0, false)
+                && !Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.COMPETITIVE)),
+                        3.0, 13.0, 20.0, 0, false)
+                && Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.COMPETITIVE)),
+                        3.0, 13.0, 5.0, 0, false)
+                && !Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)),
+                        3.0, 100.0, 0, 25, false)
+                && Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)),
+                        3.0, 13.0, 0, 49, false)
+                && Satisfaction.satisfied(one(Sex.MALE, TraitInstance.of(Trait.CONTENT)),
+                        3.0, 7.0, 0, 0, false)
+                && Satisfaction.neverExpands(one(Sex.MALE, TraitInstance.of(Trait.ASCETIC)))
+                && !Satisfaction.neverExpands(man);
+        report.add("satisfaction/동기특성", drive,
+                "욕심·부지런 불만족 고정 · 경쟁 이웃비교 · 야망 49타일 · 안분지족 σ1 · 무욕 확장금지",
+                drive ? "정상" : "어긋남");
+
+        // 3) 사치·검소 — 소모 배선(만족 기준 자동 상승/하강의 원천) + 사치 과시 매력 +1
+        boolean spend = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS)), false), 3.0 * 1.3)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                        one(Sex.MALE, TraitInstance.of(Trait.FRUGAL)), false), 3.0 * 0.9)
+                && Multipliers.charmScore(man, one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS))) == 1;
+        report.add("satisfaction/사치검소", spend, "사치 소모 3.9·매력 +1 / 검소 2.7",
+                spend ? "정상" : "어긋남");
     }
 
     private static void lineage(Report report) {

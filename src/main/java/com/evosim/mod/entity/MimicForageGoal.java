@@ -85,7 +85,8 @@ public class MimicForageGoal extends Goal {
             return mob.isProviderRole() || !mob.larderComfortable(); // R4: 넉넉하면 비제공자는 쉼
         }
         if (phase == Schedule.Phase.WANDER) {
-            return !mob.larderComfortable(); // R4 확장: 저장고 궁하면 배회시간에도 온 가족 채집
+            // R4 확장: 저장고 궁하면 배회시간에도 채집 + 경쟁(M7): 이웃 우위까지 쉼 없이 노동(밤잠만 잠)
+            return !mob.larderComfortable() || mob.isCompetitiveDriven();
         }
         return false;
     }

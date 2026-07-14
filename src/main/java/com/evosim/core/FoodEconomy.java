@@ -170,6 +170,8 @@ public final class FoodEconomy {
         if (t.contains(Trait.REPRODUCTION_AVERSE)) m *= 0.95; // 번식불호 — 번식에 에너지 안 씀
         if (t.contains(Trait.FRAIL)) m *= 0.95;               // 빈약 — 작은 몸
         if (t.contains(Trait.SICKLY)) m *= 0.9;               // 병약 — 낮은 대사(페널티 최대라 보상도 최대)
+        if (t.contains(Trait.LUXURIOUS)) m *= 1.3;            // 사치 — 낭비(만족 기준 자동 상승 ↔ 과시 매력)
+        if (t.contains(Trait.FRUGAL)) m *= 0.9;               // 검소 — 아껴 씀(일찍 만족)
         return m;
     }
 

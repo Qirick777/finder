@@ -113,7 +113,11 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 - [ ] M6 `/evosim farminherit` — 지주 파괴 → 아들 승계 ∧ 아들의 자기 소작 해소
 - [ ] M6 `/evosim farmvacant` — 무후 지주 파괴 → 무주 → 밤에 이웃 선점(vacantSince 해제)
 - [ ] M6 관찰: 무주지 만료 소거(2.5일 — 이웃 없이 방치 후 등록 소멸·야생 베리 잔존)
-- [ ] M7~M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
+- [ ] M7 `/evosim farmidle` — 만족 정지: 부유 무동기 지주(저장고 60)는 익은 9타일을 안 딴다(금지 감시)
+- [ ] M7 `/evosim farmdrive` — 대조: 부지런 지주는 만족 무시하고 수확(ripe 감소)
+- [ ] M7 관찰: 경쟁 배회 노동(wildpairs에서 경쟁 개체가 배회 시간에도 채집 — 풀 필요)·신설 3축
+  유전 발현(village 후 검사봉으로 야망가/욕심/사치 확인)
+- [ ] M8 관문(각 단계 커밋 메시지에 명시) — 구현 시 이 목록에 추가 등록
 
 ### 밭 관문 진단 지도 (결과 수신 즉시 원인 특정용 — 실패 슬러그 → 의심 지점 → 다듬기 방향)
 
@@ -140,6 +144,8 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | farm_inherit_son owner 0(무주) | 후보 탐색(부모 링크 스캔) 실패 | spawnChildOf의 parentAId 설정 확인 |
 | farm_inherit_son sonTenant 유지 | 자기 소작 해소 분기 | 승계는 정상 — 해소 줄만 점검 |
 | farm_vacant_claim owner 0 유지 | 선점부(통근·유주택) 또는 밤 게이트(growDay) | vacantSince set이면 상속 정상 — 선점 루프만 |
+| farm_idle_satisfied FAIL(ripe 감소) | satisfied 미설정(새벽 updateMotivation 미발동) 또는 FarmGoal 만족 게이트 | progress의 satisfied가 no면 갱신부(시각창), yes인데 땄으면 goal 게이트(배정 예외 경로) |
+| farm_drive_diligent ripe 9 유지 | Satisfaction의 DILIGENT 오버라이드 또는 goal WORK 판정 | satisfied yes면 오버라이드 누락(순수부 — evotest 대조), no인데 안 따면 M1 계열(farmown 진단행) |
 | 공통: setup_error | 무대 조성부(스폰 실패·지형) | 슬러그 무관 — groundAt 결과 좌표와 예외 메시지 우선 |
 
 실패 보고는 verify.log 원문이면 충분 — 슬러그·reason·수치 3요소로 위 표를 탄다.

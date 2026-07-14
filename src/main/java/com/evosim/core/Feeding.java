@@ -54,6 +54,8 @@ public final class Feeding {
             if (t.contains(Trait.REPRODUCTION_AVERSE)) c *= 0.95;
             if (t.contains(Trait.FRAIL)) c *= 0.95;
             if (t.contains(Trait.SICKLY)) c *= 0.9;
+            if (t.contains(Trait.LUXURIOUS)) c *= 1.3;
+            if (t.contains(Trait.FRUGAL)) c *= 0.9;
             return Math.max(0.1, c);
         }
     }

@@ -33,6 +33,9 @@ public enum Axis {
     RESPONSIBILITY(Category.DISPOSITION, true),       // 책임(남): 무책임 / 과한책임 (남성발현)
     MATERNAL(Category.DISPOSITION, true),             // 모성(여): 모성애없음 / 강한모성애 (여성발현)
     MATE_CHOICE(Category.DISPOSITION, true),          // 짝고르기: 엄격 / 완전개방 (성별기본 여=신중·남=널널)
+    AMBITION(Category.DISPOSITION, true),             // 야망: 야망가 / 안분지족 (만족 기준 — 밭 자산/조기)
+    GREED(Category.DISPOSITION, true),                // 축장: 욕심 / 무욕 (만족 불가 / 확장 안 함)
+    SPENDING(Category.DISPOSITION, true),             // 소비: 사치 / 검소 (소모 ±, 사치는 과시 매력)
 
     // ── 신체 (PHYSICAL) — 전부 반발, 전부 V~I 등급 스탯(배율 특성은 능력으로 이전) ──
     STRENGTH(Category.PHYSICAL, true),                // 힘: 힘센 / 약함

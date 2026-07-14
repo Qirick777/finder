@@ -21,6 +21,8 @@ public final class FarmEconomy {
     /** 신규 밭 기본 비용(food) — 소유 밭 수에 ×1.5 체증(축적 폭주 제동). */
     public static final double NEW_FARM_BASE = 30.0;
 
+    /** 무주지 등록 소거까지(틱, 2.5일) — 선점자가 없으면 야생으로 복원(등록만 소거, 베리는 남음). */
+    public static final long VACANT_EXPIRE_TICKS = 60000L;
     /** 능력 게이트 경계(타일) — 이 규모 "초과" 확장은 주인의 발현 능력 특성을 요구(T4=첫 고용 규모). */
     public static final int SKILL_GATE_TILES = 35;
     /** 하루 확장 상한(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */

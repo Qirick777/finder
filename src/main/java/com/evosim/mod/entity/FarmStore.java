@@ -17,11 +17,12 @@ public class FarmStore extends SavedData {
 
     private static final String KEY = "evosim_farms";
 
-    /** 밭 한 구획. tiles[i]=BlockPos.asLong, planted[i]=심은 gameTime(-1=미설치). */
+    /** 밭 한 구획. tiles[i]=BlockPos.asLong, planted[i]=심은 gameTime(-1=미설치). ownerId 0 = 무주지. */
     public static final class Plot {
         public final long id;
         public final BlockPos anchor;
-        public final long ownerId;
+        public long ownerId;
+        public long vacantSince = -1L; // 무주 시작 gameTime(-1=유주) — 만료 시 등록 소거
         public long[] tiles = new long[0];
         public long[] planted = new long[0];
         public double account = 0.0;
@@ -85,6 +86,60 @@ public class FarmStore extends SavedData {
         return n;
     }
 
+    /**
+     * 상속 (설계 19) — 사망 소유자의 전 구획을 장자(원장 bornDay 최소 생존 자식, 원장 없으면
+     * 최후순위) → 배우자 → 무주지 순으로 승계. 상시 소작 관계는 밭(plotId)에 붙어 있어 자동
+     * 승계되고, 상속인 본인이 그 밭의 소작이었다면 해소(자기 소작 역설 — 계획 허점 6).
+     */
+    public void inherit(ServerLevel level, long deadId, long spouseId) {
+        java.util.List<Plot> owned = new java.util.ArrayList<>();
+        for (Plot p : plots.values()) {
+            if (p.ownerId == deadId) {
+                owned.add(p);
+            }
+        }
+        if (owned.isEmpty()) {
+            return;
+        }
+        FamilyLedger ledger = FamilyLedger.get(level);
+        MimicEntity heir = null;
+        long bestBorn = Long.MAX_VALUE;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            var ind = m.getIndividual();
+            if (ind.parentAId() == deadId || ind.parentBId() == deadId) {
+                FamilyLedger.Rec r = ledger.get(ind.id());
+                long born = r == null ? Long.MAX_VALUE : r.bornDay; // 원장 없음(무대) = 최후순위
+                if (heir == null || born < bestBorn) {
+                    heir = m;
+                    bestBorn = born;
+                }
+            }
+        }
+        if (heir == null && spouseId != 0L) {
+            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null
+                            && e.getIndividual().id() == spouseId)) {
+                heir = m;
+            }
+        }
+        for (Plot p : owned) {
+            if (heir != null) {
+                p.ownerId = heir.getIndividual().id();
+                p.vacantSince = -1L;
+                if (heir.getTenantFarm() == p.id) {
+                    heir.setTenant(0L, 0); // 자기 밭의 소작이 될 수 없음 — 소유 흡수
+                }
+                com.evosim.mod.log.SimEvents.event(heir, "밭상속", String.format(
+                        "구획 %d 승계(%d타일) — 소작 관계는 밭에 붙어 유지", p.id, p.tiles.length));
+            } else {
+                p.ownerId = 0L;
+                p.vacantSince = level.getGameTime(); // 무주지 — 선점 대기, 만료 시 소거
+            }
+        }
+        setDirty();
+    }
+
     /** 검증 전용 정리 — 무대 밭 회수(규칙 7). 멱등. */
     public void debugRemove(long id) {
         Plot p = plots.remove(id);
@@ -106,6 +161,7 @@ public class FarmStore extends SavedData {
             p.tiles = c.getLongArray("Tiles");
             p.planted = c.getLongArray("Planted");
             p.account = c.getDouble("Acct");
+            p.vacantSince = c.contains("Vacant") ? c.getLong("Vacant") : -1L;
             s.plots.put(p.id, p);
             for (long l : p.tiles) {
                 s.tileIndex.add(l);
@@ -126,6 +182,9 @@ public class FarmStore extends SavedData {
             c.putLongArray("Tiles", p.tiles);
             c.putLongArray("Planted", p.planted);
             c.putDouble("Acct", p.account);
+            if (p.vacantSince >= 0) {
+                c.putLong("Vacant", p.vacantSince);
+            }
             list.add(c);
         }
         tag.put("Plots", list);

@@ -1644,6 +1644,8 @@ public class MimicEntity extends PathfinderMob {
             // 혈통 원장 사망 마킹 — 전투사·아사·노년 소멸 전부 이 경로(청크 언로드는 destroy 아님).
             // 무대 개체는 등록이 없어 markDead 가 무시한다.
             FamilyLedger.get(sld).markDead(individual.id(), level().getGameTime() / 24000L);
+            // 밭 상속(M6) — 장자→배우자→무주지. 소유가 없으면 inherit 가 즉시 반환.
+            FarmStore.get(sld).inherit(sld, individual.id(), spouseId);
         }
         if (destroy && home != null && level() instanceof ServerLevel sl && !anyResidentAt(sl, home)) {
             BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(facing));

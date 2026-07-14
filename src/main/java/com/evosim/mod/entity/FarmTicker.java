@@ -149,6 +149,33 @@ public final class FarmTicker {
                         placed * com.evosim.core.FarmEconomy.EXPAND_COST));
             }
         }
+        // ①b 무주지 선점 — 유주택 성년이 통근 내 무주 구획을 흡수(개간 비용 없음 — 이미 일군 땅).
+        //    몰락 가문의 땅이 신흥 가문으로. 하루 1건(개체당 아님 — 전역 완만).
+        for (FarmStore.Plot plot : store.all().values()) {
+            if (plot.ownerId != 0L) {
+                continue;
+            }
+            MimicEntity claimer = null;
+            for (MimicEntity m : adults) {
+                if (m.getHomePos() != null
+                        && m.blockPosition().distSqr(plot.anchor) <= COMMUTE * COMMUTE
+                        && (claimer == null || m.blockPosition().distSqr(plot.anchor)
+                                < claimer.blockPosition().distSqr(plot.anchor))) {
+                    claimer = m;
+                }
+            }
+            if (claimer != null) {
+                plot.ownerId = claimer.getIndividual().id();
+                plot.vacantSince = -1L;
+                if (claimer.getTenantFarm() == plot.id) {
+                    claimer.setTenant(0L, 0); // 소작하던 무주지를 선점 — 소유 흡수
+                }
+                store.setDirty();
+                com.evosim.mod.log.SimEvents.event(claimer, "밭선점", String.format(
+                        "무주 구획 %d(%d타일) 흡수", plot.id, plot.tiles.length));
+                break;
+            }
+        }
         // ② 신규 개간 — 주인 단위(첫 자격자 1건/일: 폭주 제동)
         for (MimicEntity m : adults) {
             if (m.getHomePos() == null) {
@@ -193,6 +220,17 @@ public final class FarmTicker {
             com.evosim.mod.log.SimEvents.event(m, "밭개간", String.format(
                     "신규 구획 %d(%d번째) 착공 — 비용 %.0f", plot.id, owned + 1, cost));
             break; // 하루 1건
+        }
+    }
+
+    /** 무주지 만료 — VACANT_EXPIRE_TICKS 경과 시 등록 소거(베리는 야생으로 남음 — 일반 채집 재개방). */
+    private static void expireVacant(ServerLevel level) {
+        FarmStore store = FarmStore.get(level);
+        for (FarmStore.Plot p : new java.util.ArrayList<>(store.all().values())) {
+            if (p.ownerId == 0L && p.vacantSince >= 0
+                    && level.getGameTime() - p.vacantSince > com.evosim.core.FarmEconomy.VACANT_EXPIRE_TICKS) {
+                store.debugRemove(p.id); // 등록·타일 색인 소거(멱등 정리 경로 재사용)
+            }
         }
     }
 
@@ -377,6 +415,7 @@ public final class FarmTicker {
         settleRent(level);
         growFarms(level);
         protectTenants(level);
+        expireVacant(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
                 if (p.planted[i] < 0 || level.getGameTime() - p.planted[i] < FarmEconomy.RIPEN_TICKS) {

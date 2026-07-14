@@ -3,7 +3,9 @@ package com.evosim.mod.stage;
 import com.evosim.mod.EvoSimMod;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -39,6 +41,13 @@ public final class VerifySuite {
         final Supplier<String> progress;
         final Supplier<Boolean> pass;
         final Runnable cleanup;
+        BlockPos site; // 무대 좌표 — 지정 시 setup 직전 플레이어를 이동(시뮬레이션 거리 밖 슬롯의 개체 틱 보장)
+
+        /** 무대 좌표 지정 — 원거리 슬롯 단계는 플레이어가 곁에 있어야 mob AI 가 돈다. */
+        public Step at(BlockPos p) {
+            this.site = p;
+            return this;
+        }
 
         public Step(String name, String expect, int timeout, boolean passOnTimeout, Runnable setup,
                     Supplier<String> progress, Supplier<Boolean> pass, Runnable cleanup) {
@@ -103,6 +112,12 @@ public final class VerifySuite {
         if (!stepStarted) {
             say(String.format("> [%d/%d] %s - staging preconditions", idx + 1, steps.size(), cur.name),
                     ChatFormatting.GOLD);
+            if (cur.site != null && src.getEntity() instanceof ServerPlayer sp) {
+                // 슬롯이 z+64×단계라 시뮬레이션 거리(≈10청크)를 벗어나면 개체 AI가 멈춘다 —
+                // 플레이어를 무대로 동행시켜 청크 틱을 보장(콘솔 실행은 이동 생략 — 원거리 timeout 위험).
+                sp.teleportTo(src.getLevel(), cur.site.getX() + 0.5, cur.site.getY() + 1.0,
+                        cur.site.getZ() + 0.5, sp.getYRot(), sp.getXRot());
+            }
             try {
                 cur.setup.run();
             } catch (Exception ex) {

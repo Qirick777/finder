@@ -328,27 +328,62 @@ public final class FarmTicker {
                 m -> m.isAlive() && m.getIndividual() != null
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
                                 || m.getStage() == com.evosim.core.LifeStage.ELDER));
-        for (FarmStore.Plot plot : store.all().values()) {
-            // 가구 ΣC: 소유자 + 같은 거처 성년. 만족 구성원은 밭 노동을 안 하므로(MimicFarmGoal
-            // 정지) 용량에서 제외 — 유령 용량이 부족분을 깎아 은퇴 지주 밭이 방치되는 것을 차단(R6).
-            int ownCap = 0;
-            BlockPos ownerHome = null;
-            for (MimicEntity m : adults) {
-                if (m.getIndividual().id() == plot.ownerId) {
-                    ownerHome = m.getHomePos();
-                    if (!m.isSatisfiedToday()) {
-                        ownCap += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
-                    }
-                }
+        // 가구 케어 예산 — 주인+동거 배우자(실제로 그 밭을 수확할 수 있는 노동만: MimicFarmGoal 과
+        // 대칭, 동거 아들 등은 수확·고용 모두 불가라 제외)의 용량을 "가까운 구획부터" 소진해 구획별
+        // 자가 케어 몫을 확정. 케어가 닿지 않는 원거리 구획은 몫 0 → 부족분 전량 게시 = 100% 소작.
+        // (종전엔 주인 용량이 소유 전 구획에서 중복 차감돼 원거리 밭이 구획당 12타일씩 과소 고용됐음.)
+        java.util.Map<Long, Integer> effCap = new java.util.HashMap<>();   // plotId → 자가 케어 몫
+        java.util.Map<Long, BlockPos> ownerHomes = new java.util.HashMap<>(); // ownerId → 거처
+        {
+            java.util.Map<Long, java.util.List<FarmStore.Plot>> byOwner = new java.util.HashMap<>();
+            for (FarmStore.Plot p : store.all().values()) {
+                byOwner.computeIfAbsent(p.ownerId, k -> new java.util.ArrayList<>()).add(p);
             }
-            if (ownerHome != null) {
+            for (var entry : byOwner.entrySet()) {
+                long oid = entry.getKey();
+                MimicEntity ownerEnt = null;
                 for (MimicEntity m : adults) {
-                    if (m.getIndividual().id() != plot.ownerId && ownerHome.equals(m.getHomePos())
-                            && !m.isSatisfiedToday()) {
-                        ownCap += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+                    if (m.getIndividual().id() == oid) {
+                        ownerEnt = m;
                     }
                 }
+                BlockPos home = ownerEnt == null ? null : ownerEnt.getHomePos();
+                if (home != null) {
+                    ownerHomes.put(oid, home);
+                }
+                int budget = 0;
+                if (ownerEnt != null && !ownerEnt.isSatisfiedToday()) { // 만족 구성원 제외 유지(R6)
+                    budget += com.evosim.core.FarmEconomy.capacity(
+                            ownerEnt.getIndividual(), ownerEnt.getStage());
+                }
+                if (ownerEnt != null && home != null && ownerEnt.getSpouseId() != 0L) {
+                    for (MimicEntity m : adults) {
+                        if (m.getIndividual().id() == ownerEnt.getSpouseId()
+                                && home.equals(m.getHomePos()) && !m.isSatisfiedToday()) {
+                            budget += com.evosim.core.FarmEconomy.capacity(
+                                    m.getIndividual(), m.getStage());
+                        }
+                    }
+                }
+                java.util.List<FarmStore.Plot> plots = entry.getValue();
+                final BlockPos h = home;
+                plots.sort(java.util.Comparator
+                        .comparingDouble((FarmStore.Plot p) ->
+                                h == null ? 0.0 : p.anchor.distSqr(h))
+                        .thenComparingLong(p -> p.id)); // 동률·무주 결정론
+                int[] tiles = new int[plots.size()];
+                for (int i = 0; i < plots.size(); i++) {
+                    tiles[i] = plots.get(i).tiles.length;
+                }
+                int[] care = com.evosim.core.FarmEconomy.allocateCare(tiles, budget);
+                for (int i = 0; i < plots.size(); i++) {
+                    effCap.put(plots.get(i).id, care[i]);
+                }
             }
+        }
+        for (FarmStore.Plot plot : store.all().values()) {
+            int ownCap = effCap.getOrDefault(plot.id, 0);
+            BlockPos ownerHome = ownerHomes.get(plot.ownerId);
             int need = com.evosim.core.FarmEconomy.shortfall(plot.tiles.length, ownCap);
             // 예약석: 상시 소작은 슬롯 산식과 무관하게 매일 우선 배정(고용 진동 차단 — 계획 허점 2).
             // 통근 초과 이주·구획 소멸이면 관계 해제(F: 소작농 이주 미정의 보완).

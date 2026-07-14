@@ -2484,6 +2484,11 @@ public class MimicEntity extends PathfinderMob {
         return competitiveDriven;
     }
 
+    /** 배우자 Individual.id (0=미혼) — 가족 노동(배우자 밭 수확)·케어 예산 합산용. */
+    public long getSpouseId() {
+        return spouseId;
+    }
+
     public long getTenantFarm() {
         return tenantFarm;
     }

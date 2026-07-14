@@ -71,6 +71,24 @@ public final class FarmEconomy {
     }
 
     /**
+     * 가구 케어 예산 배분 — 주인 가구의 노동 용량(budget)을 <b>가까운 구획부터</b> 소진해 구획별
+     * 자가 케어 몫을 정한다. 실수확 행동(가까운 타일 우선)과 슬롯 장부의 대칭: 케어가 닿지 않는
+     * 원거리 구획은 몫 0 → 부족분이 전량 게시되어 100% 소작으로 굴러간다(다구획 중복 차감 제거).
+     *
+     * @param tilesNearestFirst 주인 거처에서 가까운 순으로 정렬된 구획별 타일 수
+     * @return 같은 순서의 구획별 자가 케어 용량(합 ≤ budget)
+     */
+    public static int[] allocateCare(int[] tilesNearestFirst, int budget) {
+        int[] out = new int[tilesNearestFirst.length];
+        int left = Math.max(0, budget);
+        for (int i = 0; i < tilesNearestFirst.length; i++) {
+            out[i] = Math.min(left, tilesNearestFirst[i]);
+            left -= out[i];
+        }
+        return out;
+    }
+
+    /**
      * 지대 재투자(R1) — 소작 구획의 확장 자금은 <b>밭 계정</b>: 계정 잔액으로 감당 가능한 타일 수.
      * 생계 예비 불필요(계정은 누구의 식량도 아님 — 정산 전 미이체분). 노동·게이트 상한은 호출부.
      */

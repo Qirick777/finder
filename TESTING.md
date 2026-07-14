@@ -5,7 +5,7 @@
 
 ## ★ 원트랙 일괄 검증 — `/evosim checkall` (권장 진입점)
 
-명령 하나로 **58단계**를 차례차례: 각 단계가 "발동 직전" 조건을 자동 조성 → **결과값 변화만으로**
+명령 하나로 **60단계**를 차례차례: 각 단계가 "발동 직전" 조건을 자동 조성 → **결과값 변화만으로**
 ✅/❌ 자동 판정(호출 여부·로그 아님 — 미실행 오탐 없음) → 끝에 요약. 초원(풀 있는 곳)에서 실행.
 단계: ①입금·인출 ②나눔 ③번식+출산비용(+베리) ④육아급식 ⑤R6귀가 ⑥R6강행(풀 필요) ⑦아사클럭
 ⑧이주(캐러밴·유아업기) ⑨⑩구혼여행(이동→성사) ⑪중혼 성사(관용 아내) ⑫중혼 거절(인색 아내 —
@@ -26,17 +26,18 @@
 [47]재투자 금지측(만족 지주 착복 60→67) [48]신규 개간(40→10) [49][50]능력 게이트 음/양측(35 정지/36 통과)
 [51]무주지 선점 [52]출근 관성 양측(복귀 배정∧신규 차단) [53]개간 노동 상한(2구획 합산 +3)
 [54]경쟁 이웃 부 대칭(저장고+계정) [55]유령 용량 제거(만족 지주 need 전량 게시) [56]동기 대조(부지런 수확)
-[57]통근 초과 해제(60블록 이동→새벽 관계 소멸) [58]무주지 만료 소거(시드 2.5일 경과→등록 소멸·베리 잔존).
+[57]통근 초과 해제(60블록 이동→새벽 관계 소멸) [58]무주지 만료 소거(시드 2.5일 경과→등록 소멸·베리 잔존)
+[59]가족 노동(남편 noAI→아내가 배우자 밭 수확·지대 0) [60]케어 예산(근접 9+원거리 30 → 원거리 need 27·3인 배정).
 **단계마다 플레이어가 해당 슬롯으로 자동 이동**(z+64×단계가 시뮬레이션 거리를 벗어나므로 —
 콘솔(rcon)이 아니라 **플레이어가 직접 실행**해야 개체 AI가 돈다).
 checkall 실패 단계만 아래 개별 명령으로 재현·역추적한다.
 
 ### 영문 결과 로그 (AI 원인 규명용 — cmd 한글 깨짐 회피)
 - 스텝 판정마다 **cmd 콘솔**(ANSI 색: 성공 녹/실패 적)과 **`<서버폴더>/evosim-verify.log`** 파일에 영문 1줄:
-  `[VERIFY 12/58] FAIL polygamy_reject | reason=forbidden_result | elapsed=14.2s | bride married ... | expect: bride must stay single (...)`
+  `[VERIFY 12/60] FAIL polygamy_reject | reason=forbidden_result | elapsed=14.2s | bride married ... | expect: bride must stay single (...)`
 - reason 코드: `result_met`(성공) / `timeout`(제한 초과) / `forbidden_result`(금지 결과 발생) /
   `no_forbidden_result`(금지 감시 통과) / `setup_error`·`judge_error`(예외 — 조성/판정 국면 구분).
-- 끝에 `[VERIFY SUMMARY] n/58 PASS, k FAIL: slug, ...`. 슬러그는 코드 위치와 1:1 — **이 파일을 그대로
+- 끝에 `[VERIFY SUMMARY] n/60 PASS, k FAIL: slug, ...`. 슬러그는 코드 위치와 1:1 — **이 파일을 그대로
   붙여넣으면 실패 원인 역추적·수정이 가능**하다. 단독 명령(LiveCheck)도 `[VERIFY-LIVE]` 접두로 동일 기록
   (라벨은 한글 유지 — 토큰 PASS/FAIL/reason은 영문이라 파싱 가능, 슬러그 영문화는 후속).
 
@@ -144,11 +145,15 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
       60→67(전액 착복) ∧ 소작 저장고 16 불변
 - [ ] M9 `/evosim farmable` — 능력 게이트 양성측: 약초학자 지주 33→**36**(35 통과) ∧ 저장고 30→21
       (farmcap 무능력 35 정지와 쌍 — 같은 조성에서 특성만 다름)
+- [ ] 케어 `/evosim farmfamily` — 가족 노동: 남편 noAI·아내가 배우자 밭 수확(ripe<9 ∧ 지대 0 —
+      가족분은 100%, 소작 회계와 분리)
+- [ ] 케어 `/evosim farmcare` — 케어 예산: 근접 9+원거리 30타일 지주 → 원거리 배정 3/3
+      (구획당 중복 차감 회귀면 2에서 멈춤) ∧ 근접 배정 0
 - [ ] census 밭 줄(B-class): `/evolog on` → `/evosim farmown` 조성 상태에서 `/evolog census` →
       `밭` 줄의 구획·타일·무주·상시소작·계정합이 `/evosim lords` 집계와 일치(불일치·부재 = 실패)
 - [ ] M7 관찰: 경쟁 배회 노동(wildpairs에서 경쟁 개체가 배회 시간에도 채집 — 풀 필요)·신설 3축
   유전 발현(village 후 검사봉으로 야망가/욕심/사치 확인)
-- [ ] M8 관문: checkall **58단계** 재실행(㉞~㊲ + ㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 18종 전 편입, 같은 자리 2회) + `/evosim lords`
+- [ ] M8 관문: checkall **60단계** 재실행(㉞~㊲ + ㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 18종 전 편입, 같은 자리 2회) + `/evosim lords`
   랭킹 출력 + 검사봉 HOME 모드의 밭 줄(구획·타일·지대·소작·만족) 확인
 
 ### 밭 관문 진단 지도 (결과 수신 즉시 원인 특정용 — 실패 슬러그 → 의심 지점 → 다듬기 방향)
@@ -179,6 +184,10 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | farm_retire_slots 배정 0 | R6 용량 제외(`assignDawn` ΣC의 만족 스킵) | owner satisfied no면 만족 조성(저장고 60·bar) 쪽이 먼저 |
 | farm_hoard_satisfied tiles 11 | R1 주인 만족 게이트(`growFarms`) 미작동 | 착복 67 미달·계정 잔존이면 settleRent(순서·주인 탐색) 쪽 |
 | farm_skill_pass tiles 35 정지 | `canManageLarge` 발현(HERBALIST 배선) | 35 정지면 게이트 로직 자체는 정상 — 특성 발현·부여 쪽 |
+| farm_family_labor ripe 9 유지 | 배우자 수확 허용(`nearestWorkRipe`의 spouse 분기·getSpouseId) | 아내 satisfied 표기가 yes 면 만족 조성 쪽(저장고 0 확인) |
+| farm_family_labor 지대 적립 발생 | 가족분 분기(`MimicFarmGoal.tick`의 household 판정) | 아내가 소작 취급 = 70/30 회귀 |
+| farm_care_budget far 2/3 정지 | 케어 예산(`allocateCare` 배선·구획 중복 차감 회귀) | evotest farm/케어배분 통과면 배선(assignDawn 사전 계산부) 쪽 |
+| farm_care_budget near 배정 발생 | 근접 구획 몫 계산(정렬 — 거처 기준 거리) | 정렬 기준이 anchor·거처 어느 쪽인지 확인 |
 | farm_found_new owned 0 유지 | 신규 분기(자금 게이트 40≥36·부지 탐색 findFarmSite) | larder 불변=자금/시각 게이트, larder만 감소=부지 실패 후 차감 순서 결함(치명 — 즉보고) |
 | farm_skill_cap tiles 36+ | `growthCap`/`canManageLarge` 게이트 누락 | 능력 목록에 기본 특성이 섞였는지(STRONG 등은 비능력이어야 정상) |
 | farm_inherit_son owner 그대로(사망자 id) | remove() 상속 훅 미발동 또는 inherit 조기 반환 | discard의 destroy 여부·ownedCount 대조 |
@@ -190,7 +199,7 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | 공통: setup_error | 무대 조성부(스폰 실패·지형) | 슬러그 무관 — groundAt 결과 좌표와 예외 메시지 우선 |
 
 실패 보고는 verify.log 원문이면 충분 — 슬러그·reason·수치 3요소로 위 표를 탄다.
-- [ ] 동시: checkall 58단계(같은 자리 2회), TESTING 항목 30·31·32, evosim-verify.log 제출
+- [ ] 동시: checkall 60단계(같은 자리 2회), TESTING 항목 30·31·32, evosim-verify.log 제출
 
 ## 실패 시 절차
 

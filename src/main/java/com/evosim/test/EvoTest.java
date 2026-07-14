@@ -2143,6 +2143,17 @@ public final class EvoTest {
                 && FarmEconomy.reinvestTiles(-1.0) == 0;
         report.add("farm/재투자", reinvest, "계정 2.7→0 · 3→1 · 7→2 · 12.5→4 · 음수→0",
                 reinvest ? "정상" : "어긋남");
+
+        // 6) 케어 배분 — 가구 노동 예산을 가까운 구획부터 소진(다구획 중복 차감 제거).
+        //    원거리 구획 몫 0 → shortfall 이 전량 게시 = "케어 불가 밭은 100% 소작" 원칙의 순수부.
+        boolean care = java.util.Arrays.equals(FarmEconomy.allocateCare(new int[] {9, 30}, 12), new int[] {9, 3})
+                && java.util.Arrays.equals(FarmEconomy.allocateCare(new int[] {9, 9}, 12), new int[] {9, 3})
+                && java.util.Arrays.equals(FarmEconomy.allocateCare(new int[] {35}, 12), new int[] {12})
+                && java.util.Arrays.equals(FarmEconomy.allocateCare(new int[] {9, 30}, 24), new int[] {9, 15})
+                && java.util.Arrays.equals(FarmEconomy.allocateCare(new int[] {5}, 0), new int[] {0})
+                && FarmEconomy.shortfall(30, 3) == 27; // 원거리 30타일 구획: 27 게시(3인 고용 규모)
+        report.add("farm/케어배분", care, "{9,30}·12→{9,3} · {35}·12→{12} · {9,30}·24→{9,15} · 부족 30−3=27",
+                care ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

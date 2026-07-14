@@ -137,6 +137,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmretire").executes(EvoSimCommand::farmRetireDemo))
                 .then(Commands.literal("farmhoard").executes(EvoSimCommand::farmHoardDemo))
                 .then(Commands.literal("farmable").executes(EvoSimCommand::farmAbleDemo))
+                .then(Commands.literal("farmfamily").executes(EvoSimCommand::farmFamilyDemo))
+                .then(Commands.literal("farmcare").executes(EvoSimCommand::farmCareDemo))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -833,6 +835,74 @@ public final class EvoSimCommand {
                 () -> {
                     discard(owner);
                     farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * 케어 관문 ① 가족 노동 — 남편 소유 9타일, 남편 noAI(수확 불가) → 아내가 배우자 밭을 수확하고
+     * 그 몫이 가족분 100%(지대 적립 0)여야 한다. 종전 코드(주인만 수확 가능)면 익은 9 유지 → FAIL.
+     */
+    private static int farmFamilyDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
+        MimicEntity[] cc = coupleAt(level, home);
+        LarderStore.get(level).set(home, 0.0); // 빈곤 — 아내 불만족(노동 동기 유지)
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, cc[0].getIndividual().id(), 9);
+        cc[0].setNoAi(true); // 주인 노동 봉쇄 — 수확이 있다면 아내(가족 노동)뿐
+        level.setDayTime(4000L);
+        LiveCheck.watch(ctx.getSource(), "farm_family_labor", 1200,
+                () -> String.format("ripe %d(start 9, expect <9) acct %.2f(must stay 0)",
+                        countRipe(level, plot), plot.account),
+                () -> countRipe(level, plot) < 9 && Math.abs(plot.account) < 1.0E-6,
+                () -> {
+                    discard(cc[0], cc[1]);
+                    farmClearPlot(level, plot);
+                    FarmTicker.clearAssignments();
+                });
+        return 1;
+    }
+
+    /**
+     * 케어 관문 ② 케어 예산 — 근접 9타일 + 원거리 30타일 지주: 용량 12가 가까운 밭부터 소진
+     * (9+3) → 원거리 need 27 → 소작 3명 배정. 종전(구획당 중복 차감)이면 need 18 → 2명뿐 → FAIL.
+     */
+    private static int farmCareDemo(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 8, 8);
+        BlockPos far = groundAt(level, ctx.getSource().getPosition(), 8, 32);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -2, -2);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        owner.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 5.0);
+        MimicEntity[] w = new MimicEntity[3];
+        for (int i = 0; i < 3; i++) {
+            BlockPos wh = groundAt(level, ctx.getSource().getPosition(), -10, 8 + 4 * i);
+            w[i] = spawnAdult(level, Vec3.atBottomCenterOf(wh), Sex.MALE);
+            w[i].debugSettleWithTent(wh, Direction.NORTH);
+            LarderStore.get(level).set(wh, 0.0);
+        }
+        FarmStore.Plot near = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        FarmStore.Plot farPlot = buildDemoPlot(level, far, owner.getIndividual().id(), 30);
+        level.setDayTime(1200L);
+        LiveCheck.watch(ctx.getSource(), "farm_care_budget", 400,
+                () -> String.format("assigned far %d/3(expect 3 — old code caps at 2) near %d(expect 0)",
+                        (int) java.util.Arrays.stream(w)
+                                .filter(m -> FarmTicker.assignedPlot(m.getId()) == farPlot.id).count(),
+                        (int) java.util.Arrays.stream(w)
+                                .filter(m -> FarmTicker.assignedPlot(m.getId()) == near.id).count()),
+                () -> java.util.Arrays.stream(w)
+                        .allMatch(m -> FarmTicker.assignedPlot(m.getId()) == farPlot.id),
+                () -> {
+                    discard(owner, w[0], w[1], w[2]);
+                    farmClearPlot(level, near);
+                    farmClearPlot(level, farPlot);
                     FarmTicker.clearAssignments();
                 });
         return 1;
@@ -2739,13 +2809,75 @@ public final class EvoSimCommand {
                     }));
         }
 
+        // [59] 가족 노동 — 남편 noAI, 아내가 배우자 밭 수확(가족분 100%: 지대 0)
+        {
+            BlockPos fanchor = ground(level, b, 59);
+            BlockPos fhome = fanchor.offset(-10, 0, 0);
+            MimicEntity[] c = new MimicEntity[2];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farm_family_labor",
+                    "wife harvests husband's plot at 100% (ripe<9 & rent stays 0)", 1200, false, () -> {
+                FarmTicker.clearAssignments();
+                MimicEntity[] cc = coupleAt(level, fhome);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                LarderStore.get(level).set(fhome, 0.0);
+                pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
+                c[0].setNoAi(true);
+                level.setDayTime(4000L);
+            }, () -> String.format("ripe %d(start 9, expect <9) acct %.2f(must stay 0)",
+                    countRipe(level, pl[0]), pl[0].account),
+                    () -> countRipe(level, pl[0]) < 9 && Math.abs(pl[0].account) < 1.0E-6,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [60] 케어 예산 — 근접 9+원거리 30 지주: 원거리 need 27 → 3인 배정(중복 차감이면 2인)
+        {
+            BlockPos fanchor = ground(level, b, 60);
+            BlockPos farAnchor = fanchor.offset(0, 0, 24);
+            BlockPos fhome = fanchor.offset(-10, 0, -10);
+            MimicEntity[] c = new MimicEntity[4];
+            FarmStore.Plot[] pl = new FarmStore.Plot[2];
+            steps.add(new VerifySuite.Step("farm_care_budget",
+                    "care budget drains nearest-first: far 30-tile plot posts 27 -> 3 hires", 400, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
+                c[0].debugSettleWithTent(fhome, Direction.NORTH);
+                LarderStore.get(level).set(fhome, 5.0);
+                for (int i = 0; i < 3; i++) {
+                    BlockPos wh = fanchor.offset(-14, 0, 8 + 4 * i);
+                    c[i + 1] = spawnAdult(level, Vec3.atBottomCenterOf(wh), Sex.MALE);
+                    c[i + 1].debugSettleWithTent(wh, Direction.NORTH);
+                    LarderStore.get(level).set(wh, 0.0);
+                }
+                pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
+                pl[1] = buildDemoPlot(level, farAnchor, c[0].getIndividual().id(), 30);
+                level.setDayTime(1200L);
+            }, () -> String.format("assigned far %d/3(expect 3) near %d(expect 0)",
+                    (int) java.util.stream.IntStream.rangeClosed(1, 3)
+                            .filter(i -> FarmTicker.assignedPlot(c[i].getId()) == pl[1].id).count(),
+                    (int) java.util.stream.IntStream.rangeClosed(1, 3)
+                            .filter(i -> FarmTicker.assignedPlot(c[i].getId()) == pl[0].id).count()),
+                    () -> java.util.stream.IntStream.rangeClosed(1, 3)
+                            .allMatch(i -> FarmTicker.assignedPlot(c[i].getId()) == pl[1].id),
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        farmClearPlot(level, pl[1]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+
         // 슬롯이 시뮬레이션 거리(≈10청크)를 넘어 이어지므로 각 단계 시작 시 플레이어를 해당 슬롯으로
         // 동행 이동 — 개체 AI 틱 보장(스텝 슬롯은 순서와 정렬: ⑩만 슬롯 9 공유, 64블록 인접이라 무해).
         for (int i = 0; i < steps.size(); i++) {
             steps.get(i).at(ground(level, b, i + 1));
         }
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 58단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "
+        tell(ctx.getSource(), "원트랙 검증 시작 — 60단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "
                 + "각 단계는 발동 직전 조건을 자동 조성하고 결과값의 변화로만 판정. 단계마다 플레이어가 "
                 + "해당 슬롯으로 이동됨(원거리 개체 틱 보장 — 플레이어가 직접 실행할 것). 끝에 ✅/❌ 요약. "
                 + "영문 결과는 콘솔(성공 녹/실패 적)과 evosim-verify.log 파일에 동시 기록. "

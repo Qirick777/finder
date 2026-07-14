@@ -80,7 +80,9 @@ public class MimicFarmGoal extends Goal {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
             double yield = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
             FarmStore.Plot p = plotOf(target);
-            if (p != null && p.ownerId != mob.getIndividual().id()) {
+            boolean household = p != null && (p.ownerId == mob.getIndividual().id()
+                    || (mob.getSpouseId() != 0L && p.ownerId == mob.getSpouseId()));
+            if (p != null && !household) {
                 // 소작: 70% 본인 H, 30% 밭 계정(밤 정산에서 정수 유닛만 주인 저장고 — M3)
                 mob.addHarvest(FarmEconomy.tenantShare(yield));
                 p.account += FarmEconomy.ownerShare(yield);
@@ -125,12 +127,13 @@ public class MimicFarmGoal extends Goal {
             return null;
         }
         long id = mob.getIndividual().id();
+        long sid = mob.getSpouseId();
         long assigned = FarmTicker.assignedPlot(mob.getId());
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
-            if (p.ownerId != id && p.id != assigned) {
-                continue; // 무단 수확 금지 — 소유 또는 오늘 배정만
+            if (p.ownerId != id && (sid == 0L || p.ownerId != sid) && p.id != assigned) {
+                continue; // 무단 수확 금지 — 소유·배우자 소유(가족 노동) 또는 오늘 배정만
             }
             for (long l : p.tiles) {
                 BlockPos pos = BlockPos.of(l);

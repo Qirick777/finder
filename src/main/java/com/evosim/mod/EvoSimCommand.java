@@ -927,44 +927,74 @@ public final class EvoSimCommand {
      * 도달 ∧ 원거리(56) 불가면 <b>사거리 한계 존재 확정</b>(구혼여행 56·노인배달 40·이주 실패의 공통 원인).
      * FOLLOW_RANGE=24 가 원인이면 컷오프가 24 부근에 찍힌다.
      */
+    private static final net.minecraft.world.entity.ai.attributes.Attribute FR_ATTR =
+            net.minecraft.world.entity.ai.attributes.Attributes.FOLLOW_RANGE;
+
+    /** 미믹의 실제 경로탐색 도달 여부를 거리별로 즉석 측정(동기 createPath). */
+    private static boolean navReach(ServerLevel level, MimicEntity m, int d) {
+        BlockPos tgt = level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                m.blockPosition().offset(d, 0, 0));
+        level.getChunk(tgt.getX() >> 4, tgt.getZ() >> 4); // 경로상 지형 강제 로드
+        var path = m.getNavigation().createPath(tgt, 1);
+        return path != null && path.canReach();
+    }
+
     private static int navProbe(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         LiveCheck.cancelAll();
         BlockPos origin = groundAt(level, ctx.getSource().getPosition(), 0, 0);
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(origin), Sex.MALE);
+        m.setNoAi(true); // 배회 정지 — 측정 중 제자리 유지(createPath 는 noAi 여도 동작)
         int[] dists = {16, 24, 32, 40, 56};
-        StringBuilder sb = new StringBuilder();
-        boolean reach16 = false;
-        boolean reach56 = false;
-        for (int d : dists) {
-            BlockPos tgt = level.getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    origin.offset(d, 0, 0));
-            level.getChunk(tgt.getX() >> 4, tgt.getZ() >> 4); // 경로상 지형 강제 로드
-            var path = m.getNavigation().createPath(tgt, 1);
-            boolean reach = path != null && path.canReach();
-            if (d == 16) {
-                reach16 = reach;
-            }
-            if (d == 56) {
-                reach56 = reach;
-            }
-            sb.append("d").append(d).append(reach ? ":OK " : ":X ");
-        }
-        boolean ok = reach16 && !reach56; // 근거리 도달 ∧ 원거리 불가 = 사거리 한계 확정
-        double followRange = m.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.FOLLOW_RANGE);
-        String line = String.format(
-                "[VERIFY-LIVE] %s nav_range_probe | reason=%s | %s| FOLLOW_RANGE=%.0f "
-                        + "| expect: near(16) reachable & far(56) NOT (finite path cap exists)",
-                ok ? "PASS" : "FAIL", ok ? "result_met" : "no_cap_or_terrain", sb, followRange);
-        com.evosim.mod.stage.VerifyLog.ensure(level.getServer().getServerDirectory().toPath());
-        com.evosim.mod.stage.VerifyLog.result(line, ok);
-        tell(ctx.getSource(), (ok ? "✅ " : "❌ ") + "길찾기 사거리 진단: " + sb
-                + "(FOLLOW_RANGE=" + (int) followRange + ") — "
-                + (ok ? "근거리 도달·원거리 불가 = 사거리 한계 확정(구혼여행·노인배달·이주 실패 원인)"
-                        : "예상과 다름 — 56도 도달하면 사거리 무관, 16도 불가면 지형/스폰 문제"));
-        m.discard();
-        return ok ? 1 : 0;
+        int[] wait = {0};
+        Boolean[] verdict = {null};
+        String[] detail = {"settling (waiting onGround)..."};
+        LiveCheck.watch(ctx.getSource(), "nav_range_probe", 200,
+                () -> detail[0],
+                () -> {
+                    if (verdict[0] != null) {
+                        return verdict[0];
+                    }
+                    // 갓 스폰한 엔티티는 첫 틱 onGround=false → createPath 무조건 null. 착지까지 대기.
+                    if (wait[0]++ < 10) {
+                        return false;
+                    }
+                    var frInst = m.getAttribute(FR_ATTR);
+                    double frBase = frInst.getBaseValue();
+                    StringBuilder sb = new StringBuilder("FR").append((int) frBase).append(": ");
+                    boolean reach16 = false;
+                    boolean reach56 = false;
+                    for (int d : dists) {
+                        boolean r = navReach(level, m, d);
+                        if (d == 16) {
+                            reach16 = r;
+                        }
+                        if (d == 56) {
+                            reach56 = r;
+                        }
+                        sb.append("d").append(d).append(r ? ":OK " : ":X ");
+                    }
+                    // FR 을 64 로 올려 56 재측정(같은 미믹) — 원인이 사거리면 여기서 56 이 열린다.
+                    frInst.setBaseValue(64.0);
+                    boolean reach56boost = navReach(level, m, 56);
+                    frInst.setBaseValue(frBase); // 원복(어차피 소거)
+                    sb.append("| FR64 d56:").append(reach56boost ? "OK" : "X");
+                    detail[0] = sb.toString();
+                    // 사거리 한계 확정 ∧ 상향이 해결: 근거리 도달 · 현재 원거리 불가 · FR64서 원거리 열림
+                    verdict[0] = reach16 && !reach56 && reach56boost;
+                    com.evosim.mod.stage.VerifyLog.ensure(level.getServer().getServerDirectory().toPath());
+                    com.evosim.mod.stage.VerifyLog.result("[VERIFY-LIVE] "
+                            + (verdict[0] ? "PASS" : "FAIL") + " nav_range_probe | " + detail[0]
+                            + " | expect: near reachable, far NOT at FR, far reachable at FR64",
+                            verdict[0]);
+                    return verdict[0];
+                },
+                () -> m.discard());
+        tell(ctx.getSource(), "길찾기 사거리 진단(재작성) — 착지 대기 후 현재 FR·FR64에서 거리별 도달 측정. "
+                + "PASS=근거리 도달·현 FR서 원거리 불가·FR64서 원거리 열림(=사거리가 원인, 상향이 해결). "
+                + "FAIL이라도 detail 줄(FRxx: d16:… | FR64 d56:…)로 원인 판독. 수 초.");
+        return 1;
     }
 
     /**
@@ -980,15 +1010,13 @@ public final class EvoSimCommand {
         m.debugSettleWithTent(home, Direction.NORTH);
         LarderStore.get(level).set(home, 0.0); // 저장고 0 → 위급이면 채집 강행 경로(귀가 아님)
         m.debugSetHolding(0.2);                 // 위급
-        // 인접 풀 확실 조성 — 채집 대상이 사거리 안(≤2블록)에 존재하도록
+        // 풀밭을 천막 밖(+5블록 중심) 5×5 로 조성 — 천막 구조물(±2)과 겹치지 않게, 사거리(24) 안.
+        BlockPos patch = groundAt(level, ctx.getSource().getPosition(), 1, 1); // home 에서 +5,+5
         for (int dx = -2; dx <= 2; dx++) {
             for (int dz = -2; dz <= 2; dz++) {
-                if (dx == 0 && dz == 0) {
-                    continue;
-                }
                 BlockPos g = level.getHeightmapPos(
                         net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        home.offset(dx, 0, dz));
+                        patch.offset(dx, 0, dz));
                 level.setBlockAndUpdate(g.below(), Blocks.GRASS_BLOCK.defaultBlockState());
                 level.setBlockAndUpdate(g, Blocks.GRASS.defaultBlockState());
             }
@@ -996,7 +1024,8 @@ public final class EvoSimCommand {
         level.setDayTime(15000L); // 밤 — 평소라면 취침
         double h0 = m.getHolding();
         LiveCheck.watch(ctx.getSource(), "r6_forage_adjacent", 600,
-                () -> String.format("H %.2f(start %.2f) — grass within 2 blocks", m.getHolding(), h0),
+                () -> String.format("H %.2f(start %.2f) — grass patch ~7 blocks away, within range",
+                        m.getHolding(), h0),
                 () -> m.getHolding() > 0.4, // 위급(0.3) 위로 회복 = 채집 실행됨
                 () -> m.discard());
         tell(ctx.getSource(), "R6 채집 격리 진단(밤) — 옆에 풀을 깔았다. H가 0.2→0.4↑면 채집 goal 실행 "

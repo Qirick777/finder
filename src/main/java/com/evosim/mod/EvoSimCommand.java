@@ -140,6 +140,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmable").executes(EvoSimCommand::farmAbleDemo))
                 .then(Commands.literal("farmfamily").executes(EvoSimCommand::farmFamilyDemo))
                 .then(Commands.literal("farmcare").executes(EvoSimCommand::farmCareDemo))
+                .then(Commands.literal("navprobe").executes(EvoSimCommand::navProbe))
+                .then(Commands.literal("forageprobe").executes(EvoSimCommand::forageProbe))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -913,6 +915,90 @@ public final class EvoSimCommand {
                     farmClearPlot(level, farPlot);
                     FarmTicker.clearAssignments();
                 });
+        return 1;
+    }
+
+    /**
+     * 진단 ① 길찾기 사거리 — 미믹의 실제 경로탐색 도달 한계를 거리별로 즉시 측정(동기). 미믹 1기 +
+     * 정면 D블록 지점(지형 로드)에 {@code createPath} 를 호출해 도달 가능(canReach) 여부만 본다.
+     * 목표·트리거·환경(풀)과 완전 분리 — 순수하게 "그 거리에 길을 찾는가"만. 결과값 판정: 근거리(16)
+     * 도달 ∧ 원거리(56) 불가면 <b>사거리 한계 존재 확정</b>(구혼여행 56·노인배달 40·이주 실패의 공통 원인).
+     * FOLLOW_RANGE=24 가 원인이면 컷오프가 24 부근에 찍힌다.
+     */
+    private static int navProbe(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        BlockPos origin = groundAt(level, ctx.getSource().getPosition(), 0, 0);
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(origin), Sex.MALE);
+        int[] dists = {16, 24, 32, 40, 56};
+        StringBuilder sb = new StringBuilder();
+        boolean reach16 = false;
+        boolean reach56 = false;
+        for (int d : dists) {
+            BlockPos tgt = level.getHeightmapPos(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    origin.offset(d, 0, 0));
+            level.getChunk(tgt.getX() >> 4, tgt.getZ() >> 4); // 경로상 지형 강제 로드
+            var path = m.getNavigation().createPath(tgt, 1);
+            boolean reach = path != null && path.canReach();
+            if (d == 16) {
+                reach16 = reach;
+            }
+            if (d == 56) {
+                reach56 = reach;
+            }
+            sb.append("d").append(d).append(reach ? ":OK " : ":X ");
+        }
+        boolean ok = reach16 && !reach56; // 근거리 도달 ∧ 원거리 불가 = 사거리 한계 확정
+        double followRange = m.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.FOLLOW_RANGE);
+        String line = String.format(
+                "[VERIFY-LIVE] %s nav_range_probe | reason=%s | %s| FOLLOW_RANGE=%.0f "
+                        + "| expect: near(16) reachable & far(56) NOT (finite path cap exists)",
+                ok ? "PASS" : "FAIL", ok ? "result_met" : "no_cap_or_terrain", sb, followRange);
+        com.evosim.mod.stage.VerifyLog.ensure(level.getServer().getServerDirectory().toPath());
+        com.evosim.mod.stage.VerifyLog.result(line, ok);
+        tell(ctx.getSource(), (ok ? "✅ " : "❌ ") + "길찾기 사거리 진단: " + sb
+                + "(FOLLOW_RANGE=" + (int) followRange + ") — "
+                + (ok ? "근거리 도달·원거리 불가 = 사거리 한계 확정(구혼여행·노인배달·이주 실패 원인)"
+                        : "예상과 다름 — 56도 도달하면 사거리 무관, 16도 불가면 지형/스폰 문제"));
+        m.discard();
+        return ok ? 1 : 0;
+    }
+
+    /**
+     * 진단 ② R6 야간 채집 격리 — 위급(H0.2·저장고0) 미믹 <b>바로 옆(1~2블록)에 풀을 심어</b> 밤에
+     * 둔다. 채집 대상이 사거리 안에 확실히 있으므로: H가 회복하면 "채집 goal 은 실행된다"(원래 r6
+     * 실패는 풀 거리/유무 = 사거리) → PASS. 회복 없으면 goal 이 상위(귀가/취침)에 막힌 것 → 원인 분리.
+     */
+    private static int forageProbe(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -4, -4);
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        m.debugSettleWithTent(home, Direction.NORTH);
+        LarderStore.get(level).set(home, 0.0); // 저장고 0 → 위급이면 채집 강행 경로(귀가 아님)
+        m.debugSetHolding(0.2);                 // 위급
+        // 인접 풀 확실 조성 — 채집 대상이 사거리 안(≤2블록)에 존재하도록
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                if (dx == 0 && dz == 0) {
+                    continue;
+                }
+                BlockPos g = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        home.offset(dx, 0, dz));
+                level.setBlockAndUpdate(g.below(), Blocks.GRASS_BLOCK.defaultBlockState());
+                level.setBlockAndUpdate(g, Blocks.GRASS.defaultBlockState());
+            }
+        }
+        level.setDayTime(15000L); // 밤 — 평소라면 취침
+        double h0 = m.getHolding();
+        LiveCheck.watch(ctx.getSource(), "r6_forage_adjacent", 600,
+                () -> String.format("H %.2f(start %.2f) — grass within 2 blocks", m.getHolding(), h0),
+                () -> m.getHolding() > 0.4, // 위급(0.3) 위로 회복 = 채집 실행됨
+                () -> m.discard());
+        tell(ctx.getSource(), "R6 채집 격리 진단(밤) — 옆에 풀을 깔았다. H가 0.2→0.4↑면 채집 goal 실행 "
+                + "(원 실패는 풀 거리) / 회복 없으면 상위 goal(귀가·취침)에 막힌 것. 수 초~수십 초.");
         return 1;
     }
 

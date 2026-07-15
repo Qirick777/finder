@@ -92,11 +92,11 @@ public final class FarmTicker {
         growDay = day;
         FarmStore store = FarmStore.get(level);
         LarderStore larders = LarderStore.get(level);
-        java.util.List<MimicEntity> adults = level.getEntities(
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
                 com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 m -> m.isAlive() && m.getIndividual() != null
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
-                                || m.getStage() == com.evosim.core.LifeStage.ELDER));
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER)));
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
         // ① 확장
@@ -323,11 +323,11 @@ public final class FarmTicker {
         LAST_ASSIGNED.putAll(ASSIGNED);
         ASSIGNED.clear();
         FarmStore store = FarmStore.get(level);
-        java.util.List<MimicEntity> adults = level.getEntities(
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
                 com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 m -> m.isAlive() && m.getIndividual() != null
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
-                                || m.getStage() == com.evosim.core.LifeStage.ELDER));
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER)));
         // 가구 케어 예산 — 주인+동거 배우자(실제로 그 밭을 수확할 수 있는 노동만: MimicFarmGoal 과
         // 대칭, 동거 아들 등은 수확·고용 모두 불가라 제외)의 용량을 "가까운 구획부터" 소진해 구획별
         // 자가 케어 몫을 확정. 케어가 닿지 않는 원거리 구획은 몫 0 → 부족분 전량 게시 = 100% 소작.

@@ -26,6 +26,7 @@ import com.evosim.core.Schedule;
 import com.evosim.core.Settlement;
 import com.evosim.core.Sex;
 import com.evosim.core.SurvivalRules;
+import com.evosim.core.Trait;
 import com.evosim.mod.block.MimicHearthBlock;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.reg.ModBlocks;

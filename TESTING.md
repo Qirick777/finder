@@ -34,6 +34,13 @@
 콘솔(rcon)이 아니라 **플레이어가 직접 실행**해야 개체 AI가 돈다).
 checkall 실패 단계만 아래 개별 명령으로 재현·역추적한다.
 
+**`/evosim checkall2`** — 1회차 인게임 미통과 18단계만 몰아 재관찰(제한시간 ×4). 로직·조성·판정식은
+불변, **시간만 넉넉**하게 준다(이동·구애 등 AI가 창 안에 완주하는지 관찰용). 슬롯·순서는 원래 번호
+그대로 유지. 미통과 목록: deposit_withdraw · critical_forage_grass · migration_caravan ·
+courtship_trip_travel/marriage · polygamy_accept/elite/no_cap · pref_wealth_charm · elder_share ·
+stale_pact_reject · aggro_control · farm_idle_satisfied · farm_own_harvest · farm_hire_flow ·
+farm_shield_break · farm_vacant_expire · farm_family_labor.
+
 ### 영문 결과 로그 (AI 원인 규명용 — cmd 한글 깨짐 회피)
 - 스텝 판정마다 **cmd 콘솔**(ANSI 색: 성공 녹/실패 적)과 **`<서버폴더>/evosim-verify.log`** 파일에 영문 1줄:
   `[VERIFY 12/64] FAIL polygamy_reject | reason=forbidden_result | elapsed=14.2s | bride married ... | expect: bride must stay single (...)`

@@ -106,7 +106,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("polygamy").executes(EvoSimCommand::stagePolygamy))
                 .then(Commands.literal("elder").executes(EvoSimCommand::stageElder))
                 .then(Commands.literal("eldercare").executes(EvoSimCommand::stageElderCare))
-                .then(Commands.literal("checkall").executes(EvoSimCommand::stageCheckAll))
+                .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
+                .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
                 .then(Commands.literal("stats").executes(EvoSimCommand::stats))
                 .then(Commands.literal("farm")
@@ -1496,7 +1497,17 @@ public final class EvoSimCommand {
      * 원트랙 전체 검증: 미검증 기능 12단계를 한 명령으로 차례차례 — 각 단계는 "발동 직전" 조건을 즉각
      * 조성하고, 별도 감지가 <b>결과값 변화만</b> 보고 ✅/❌ 판정(호출 여부 아님). 끝에 요약 출력.
      */
-    private static int stageCheckAll(CommandContext<CommandSourceStack> ctx) {
+    /** checkall2 가 몰아 볼 미통과 단계(2026-… 인게임 1회차 실패분). 시간만 늘려 재관찰 — 구조 불변. */
+    private static final java.util.Set<String> RETRY_SLUGS = java.util.Set.of(
+            "deposit_withdraw", "critical_forage_grass", "migration_caravan",
+            "courtship_trip_travel", "courtship_trip_marriage", "polygamy_accept",
+            "elder_share", "stale_pact_reject", "aggro_control", "farm_idle_satisfied",
+            "farm_own_harvest", "farm_hire_flow", "farm_shield_break", "farm_vacant_expire",
+            "farm_family_labor", "polygamy_elite", "polygamy_no_cap", "pref_wealth_charm");
+    /** checkall2 제한시간 배율 — 이동·구애 등 AI 완주 관찰용(넉넉히). 시간만 조정. */
+    private static final int RETRY_TIMEOUT_SCALE = 4;
+
+    private static int stageCheckAll(CommandContext<CommandSourceStack> ctx, boolean retryOnly) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();
         if (VerifySuite.isRunning()) {
@@ -2972,8 +2983,24 @@ public final class EvoSimCommand {
 
         // 슬롯이 시뮬레이션 거리(≈10청크)를 넘어 이어지므로 각 단계 시작 시 플레이어를 해당 슬롯으로
         // 동행 이동 — 개체 AI 틱 보장(스텝 슬롯은 순서와 정렬: ⑩만 슬롯 9 공유, 64블록 인접이라 무해).
+        // 슬롯은 스텝의 "원래 번호"(리스트 위치 i+1)로 고정 — 필터(checkall2) 후에도 setup 의
+        // 하드코딩 슬롯과 어긋나지 않게 각 스텝 생성 시점 index 로 지정한다.
         for (int i = 0; i < steps.size(); i++) {
             steps.get(i).at(ground(level, b, i + 1));
+        }
+        if (retryOnly) {
+            // 미통과 단계만 남긴다(순서·슬롯·판정식 불변 — 오직 부분집합 추출 + 제한시간 배율).
+            List<VerifySuite.Step> subset = new ArrayList<>();
+            for (VerifySuite.Step s : steps) {
+                if (RETRY_SLUGS.contains(s.name())) {
+                    subset.add(s);
+                }
+            }
+            VerifySuite.start(ctx.getSource(), subset, RETRY_TIMEOUT_SCALE);
+            tell(ctx.getSource(), "checkall2 — 1회차 미통과 " + subset.size() + "단계만 재관찰(제한시간 ×"
+                    + RETRY_TIMEOUT_SCALE + "). 로직·조성은 불변, 시간만 넉넉. 이동·구애가 창 안에 "
+                    + "완주하는지 지켜본다. 끝에 ✅/❌ 요약 + evosim-verify.log 기록. (초원에서 실행)");
+            return 1;
         }
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "원트랙 검증 시작 — 64단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "

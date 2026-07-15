@@ -49,6 +49,11 @@ public final class VerifySuite {
             return this;
         }
 
+        /** 슬러그(로그·필터용) — checkall2 가 실패 단계만 골라내는 데 쓴다. */
+        public String name() {
+            return name;
+        }
+
         public Step(String name, String expect, int timeout, boolean passOnTimeout, Runnable setup,
                     Supplier<String> progress, Supplier<Boolean> pass, Runnable cleanup) {
             this.name = name;
@@ -69,6 +74,7 @@ public final class VerifySuite {
     private static int ticks;
     private static int gap;
     private static boolean stepStarted;
+    private static int timeoutScale = 1; // 스텝별 제한시간 배율(checkall2 가 넉넉히 늘림). 시간만 조정.
 
     private VerifySuite() {
     }
@@ -79,11 +85,17 @@ public final class VerifySuite {
 
     /** 검증 시작 — 이미 돌고 있으면 거절(원트랙 보장). */
     public static boolean start(CommandSourceStack source, List<Step> list) {
+        return start(source, list, 1);
+    }
+
+    /** 제한시간 배율 지정 시작 — 판정·구조는 동일, timeout 만 scale 배(관찰 시간 확보). */
+    public static boolean start(CommandSourceStack source, List<Step> list, int scale) {
         if (steps != null) {
             return false;
         }
         src = source;
         steps = list;
+        timeoutScale = Math.max(1, scale);
         RESULTS.clear();
         idx = 0;
         ticks = 0;
@@ -136,10 +148,11 @@ public final class VerifySuite {
             finishStep(cur, false, "judge_error", String.valueOf(ex));
             return;
         }
+        int limit = cur.timeout * timeoutScale; // 시간만 배율 — 판정 로직·순서는 불변
         if (cur.passOnTimeout) { // "금지 결과" 감시: 발생 → 실패, 무사 경과 → 성공
             if (hit) {
                 finishStep(cur, false, "forbidden_result", safe(cur.progress));
-            } else if (ticks >= cur.timeout) {
+            } else if (ticks >= limit) {
                 finishStep(cur, true, "no_forbidden_result", safe(cur.progress));
             } else if (ticks % PROGRESS_INTERVAL == 0) {
                 say("   " + (ticks / 20) + "s - " + safe(cur.progress), ChatFormatting.GRAY);
@@ -147,7 +160,7 @@ public final class VerifySuite {
         } else {
             if (hit) {
                 finishStep(cur, true, "result_met", safe(cur.progress));
-            } else if (ticks >= cur.timeout) {
+            } else if (ticks >= limit) {
                 finishStep(cur, false, "timeout", safe(cur.progress));
             } else if (ticks % PROGRESS_INTERVAL == 0) {
                 say("   " + (ticks / 20) + "s - " + safe(cur.progress), ChatFormatting.GRAY);

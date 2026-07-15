@@ -170,7 +170,7 @@ M-단계 육안/실측 관문은 사용자 지시로 **M8 완성 후 종합 체�
 | 실패 슬러그/증상 | 1순위 의심 지점 | 다듬기 방향 |
 |---|---|---|
 | farm 수열이 눈에 이상(고랑 없음/비정사각) | `FarmLayout.layout` 규칙(폭<min(2K−1,cap)) | evotest farm/배치수열은 통과 상태이므로 **월드 사상**(`buildDemoPlot`의 row×2 오프셋·groundAt 경사 보정) 쪽 |
-| farmown FAIL reason=timeout, H 정체 | `MimicFarmGoal.canUse`(WORK 판정·용량 리셋) → goal 등록 순위(6) 경합 | progress의 ripeLeft가 줄었는데 H만 안 오르면 `addHarvest` 배율, ripeLeft 그대로면 goal 미발동 — Schedule/우선순위 |
+| farmown FAIL reason=timeout, H 정체 | `MimicFarmGoal.canUse`(WORK 판정·용량 리셋) → goal 등록 순위(6) 경합 | progress의 ripeLeft가 줄었는데 H만 안 오르면 `addHarvest` 배율, ripeLeft 그대로면 goal 미발동 — Schedule/우선순위. (판정은 익음 기준 — 무주택 H 는 BAND_HIGH 2.0 상한이라 H≥+3 불가, §2555) |
 | farmown H는 오르나 잔여익음>3 | 용량 C(12) 소진 후 정지 — 정상 동작과 판정 기준 충돌 | 판정 완화가 아니라 타임아웃 내 재개 여부 확인(다음날 용량 리셋) |
 | farmhire assigned=no 지속 | `FarmTicker.assignDawn` 게이트(시각창 1000~9000·하루 1회·후보 필터) | progress에 assigned 표기 있음 — no면 배정부, yes인데 H 정체면 `nearestWorkRipe`(배정 구획 스캔) |
 | farmhire assigned=yes, H↑, rent=0 | 소작 분기(`plotOf`가 null → 자영 처리) | 타일 색인/plotOf 선형 탐색 — 좌표 as Long 불일치(groundAt 재보정 여부) |

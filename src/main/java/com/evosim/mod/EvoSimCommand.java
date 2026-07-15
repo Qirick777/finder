@@ -226,7 +226,9 @@ public final class EvoSimCommand {
         LiveCheck.watch(ctx.getSource(), "farm_own_harvest", 1200,
                 () -> String.format("H %.2f(start %.2f) ripeLeft %d", owner.getHolding(), h0,
                         countRipe(level, plot)),
-                () -> owner.getHolding() >= h0 + 3.0 && countRipe(level, plot) <= 3,
+                // 수확 신호는 익음 감소로 판정 — H 는 무주택 개체라 BAND_HIGH(2.0)에서 초과분이
+                // 버려져(MimicEntity §2555) start+3 에 도달할 수 없다(고용 자격 유지 위해 집을 못 줌).
+                () -> countRipe(level, plot) <= 3,
                 () -> {
                     discard(owner);
                     farmClearPlot(level, plot);
@@ -274,7 +276,10 @@ public final class EvoSimCommand {
                 () -> String.format("workerH %.2f(start %.2f) rent %.2f assigned %s",
                         worker.getHolding(), h0, plot.account,
                         FarmTicker.assignedPlot(worker.getId()) == plot.id ? "yes" : "no"),
-                () -> worker.getHolding() > h0 + 0.5 && plot.account > 0.2,
+                // 소작 수확 신호는 지대 계정 적립으로 판정 — 소작농 몫 30%가 계정에 쌓이는 것은
+                // 배정된 소작농만이 만들 수 있다(자영은 100% 본인). workerH 는 무주택 상한 2.0 에
+                // 막혀 start+0.5(=2.0)를 못 넘으므로 제외(MimicEntity §2555).
+                () -> plot.account > 0.2,
                 () -> {
                     discard(owner, worker);
                     farmClearPlot(level, plot);
@@ -622,6 +627,8 @@ public final class EvoSimCommand {
         owner.debugSettleWithTent(home, Direction.NORTH);
         LarderStore.get(level).set(home, 60.0);
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
+        owner.updateMotivation(level); // 만족 캐시를 goal 첫 틱 전에 확정(farm_hoard 와 동일) —
+                                       // 새벽 스캔 전 1회 수확 새어나가는 레이스 차단
         level.setDayTime(1200L); // 새벽 — 동기 갱신 + 노동 시작
         Runnable cleanup = () -> {
             discard(owner);
@@ -2261,6 +2268,8 @@ public final class EvoSimCommand {
                 c[0].debugSettleWithTent(fhome, Direction.NORTH);
                 LarderStore.get(level).set(fhome, 60.0);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
+                c[0].updateMotivation(level); // 만족 캐시를 goal 첫 틱 전에 확정(farm_hoard 와 동일) —
+                                              // 새벽 스캔 전 1회 수확 새어나가는 레이스 차단
                 level.setDayTime(1200L);
             }, () -> String.format("ripe %d(must stay 9) satisfied %s",
                     countRipe(level, pl[0]), c[0].isSatisfiedToday() ? "yes" : "no"),
@@ -2311,7 +2320,7 @@ public final class EvoSimCommand {
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             double[] h0 = new double[1];
             steps.add(new VerifySuite.Step("farm_own_harvest",
-                    "owner harvests own plot: H >= start+3 and ripe <= 3", 1200, false, () -> {
+                    "owner harvests own plot: ripe <= 3 (H caps at 2.0 when homeless)", 1200, false, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-2, 0, 0), Sex.MALE);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 15);
@@ -2319,7 +2328,8 @@ public final class EvoSimCommand {
                 h0[0] = c[0].getHolding();
             }, () -> String.format("H %.2f(start %.2f) ripeLeft %d", c[0].getHolding(), h0[0],
                     countRipe(level, pl[0])),
-                    () -> c[0].getHolding() >= h0[0] + 3.0 && countRipe(level, pl[0]) <= 3,
+                    // 익음 감소로 판정 — H 는 무주택이라 BAND_HIGH(2.0)에서 상한(§2555), start+3 불가.
+                    () -> countRipe(level, pl[0]) <= 3,
                     () -> {
                         discard(c);
                         farmClearPlot(level, pl[0]);
@@ -2333,7 +2343,7 @@ public final class EvoSimCommand {
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             double[] h0 = new double[1];
             steps.add(new VerifySuite.Step("farm_hire_flow",
-                    "dawn assignment -> tenant harvest: worker H up & rent account up", 1200, false, () -> {
+                    "dawn assignment -> tenant harvest: rent account accrues (worker H caps at 2.0)", 1200, false, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 0), Sex.MALE);
                 c[1] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 4), Sex.MALE);
@@ -2343,7 +2353,8 @@ public final class EvoSimCommand {
             }, () -> String.format("workerH %.2f(start %.2f) rent %.2f assigned %s",
                     c[1].getHolding(), h0[0], pl[0].account,
                     FarmTicker.assignedPlot(c[1].getId()) == pl[0].id ? "yes" : "no"),
-                    () -> c[1].getHolding() > h0[0] + 0.5 && pl[0].account > 0.2,
+                    // 지대 계정 적립으로 판정 — 소작농(30%)만이 계정을 채운다. workerH 는 상한 2.0(§2555).
+                    () -> pl[0].account > 0.2,
                     () -> {
                         discard(c);
                         farmClearPlot(level, pl[0]);

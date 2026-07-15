@@ -945,7 +945,7 @@ public final class EvoSimCommand {
         LiveCheck.cancelAll();
         BlockPos origin = groundAt(level, ctx.getSource().getPosition(), 0, 0);
         MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(origin), Sex.MALE);
-        m.setNoAi(true); // 배회 정지 — 측정 중 제자리 유지(createPath 는 noAi 여도 동작)
+        // setNoAi 는 쓰지 않는다 — NoAI 는 onGround 를 못 잡아 createPath 가 계속 null 을 반환한다.
         int[] dists = {16, 24, 32, 40, 56};
         int[] wait = {0};
         Boolean[] verdict = {null};
@@ -962,7 +962,8 @@ public final class EvoSimCommand {
                     }
                     var frInst = m.getAttribute(FR_ATTR);
                     double frBase = frInst.getBaseValue();
-                    StringBuilder sb = new StringBuilder("FR").append((int) frBase).append(": ");
+                    StringBuilder sb = new StringBuilder("onGround=")
+                            .append(m.onGround() ? "Y" : "N").append(" FR").append((int) frBase).append(": ");
                     boolean reach16 = false;
                     boolean reach56 = false;
                     for (int d : dists) {

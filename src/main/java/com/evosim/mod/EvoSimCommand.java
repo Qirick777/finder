@@ -229,8 +229,10 @@ public final class EvoSimCommand {
                 () -> String.format("H %.2f(start %.2f) ripeLeft %d", owner.getHolding(), h0,
                         countRipe(level, plot)),
                 // 수확 신호는 익음 감소로 판정 — H 는 무주택 개체라 BAND_HIGH(2.0)에서 초과분이
-                // 버려져(MimicEntity §2555) start+3 에 도달할 수 없다(고용 자격 유지 위해 집을 못 줌).
-                () -> countRipe(level, plot) <= 3,
+                // 버려져(MimicEntity §2555) start+3 에 도달 불가. 익음≤3(전량)은 하루 용량 12를 다
+                // 걸어 수확해야 해 60초 창을 넘음(~6초/타일) — "주인이 자기 밭을 판다"는 익음이 15→12↓
+                // (3타일 이상, ~24초)로 충분히 증명된다(무단수확 가드로 주인만 가능).
+                () -> countRipe(level, plot) <= 12,
                 () -> {
                     discard(owner);
                     farmClearPlot(level, plot);
@@ -274,7 +276,7 @@ public final class EvoSimCommand {
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 35);
         level.setDayTime(1200L); // 새벽 직후 — 다음 200틱 스캔에서 배정
         double h0 = worker.getHolding();
-        LiveCheck.watch(ctx.getSource(), "farm_hire_flow", 1200,
+        LiveCheck.watch(ctx.getSource(), "farm_hire_flow", 1800, // 소작농 배정→플롯 이동→첫 수확 여유
                 () -> String.format("workerH %.2f(start %.2f) rent %.2f assigned %s",
                         worker.getHolding(), h0, plot.account,
                         FarmTicker.assignedPlot(worker.getId()) == plot.id ? "yes" : "no"),
@@ -2406,7 +2408,7 @@ public final class EvoSimCommand {
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             double[] h0 = new double[1];
             steps.add(new VerifySuite.Step("farm_own_harvest",
-                    "owner harvests own plot: ripe <= 3 (H caps at 2.0 when homeless)", 1200, false, () -> {
+                    "owner harvests own plot: ripe 15 -> <= 12 (>=3 tiles; H caps at 2.0 homeless)", 1200, false, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-2, 0, 0), Sex.MALE);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 15);
@@ -2414,8 +2416,9 @@ public final class EvoSimCommand {
                 h0[0] = c[0].getHolding();
             }, () -> String.format("H %.2f(start %.2f) ripeLeft %d", c[0].getHolding(), h0[0],
                     countRipe(level, pl[0])),
-                    // 익음 감소로 판정 — H 는 무주택이라 BAND_HIGH(2.0)에서 상한(§2555), start+3 불가.
-                    () -> countRipe(level, pl[0]) <= 3,
+                    // 익음 15→≤12(≥3타일)로 판정 — 전량(≤3)은 하루 용량 12 완주라 60초 창 초과.
+                    // H 는 무주택이라 BAND_HIGH(2.0) 상한(§2555)이라 start+3 도 불가.
+                    () -> countRipe(level, pl[0]) <= 12,
                     () -> {
                         discard(c);
                         farmClearPlot(level, pl[0]);
@@ -2429,7 +2432,7 @@ public final class EvoSimCommand {
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             double[] h0 = new double[1];
             steps.add(new VerifySuite.Step("farm_hire_flow",
-                    "dawn assignment -> tenant harvest: rent account accrues (worker H caps at 2.0)", 1200, false, () -> {
+                    "dawn assignment -> tenant harvest: rent account accrues (worker H caps at 2.0)", 1800, false, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 0), Sex.MALE);
                 c[1] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 4), Sex.MALE);

@@ -356,9 +356,14 @@ public final class FarmTicker {
                     budget += com.evosim.core.FarmEconomy.capacity(
                             ownerEnt.getIndividual(), ownerEnt.getStage());
                 }
-                if (ownerEnt != null && home != null && ownerEnt.getSpouseId() != 0L) {
+                if (ownerEnt != null && home != null) {
+                    // 배우자 노동 합산은 수확 권한(MimicFarmGoal.nearestWorkRipe: 수확자 spouseId==주인)과
+                    // 대칭이어야 한다 — "주인을 배우자로 가리키는" 동거 성년만 계상. 다처에서 getSpouseId
+                    // 는 비대칭(남편→본처, 첩→남편)이라 "주인의 배우자"로 세면 유령 용량이 재발한다:
+                    // 남편 소유 밭은 첩들(각자 spouseId==남편·수확 가능) 누락 → 과다 게시, 아내 소유 밭은
+                    // 수확 못 하는 남편(spouseId=본처) 계상 → 과소 게시·방치. 이 형태가 양쪽을 바로잡는다.
                     for (MimicEntity m : adults) {
-                        if (m.getIndividual().id() == ownerEnt.getSpouseId()
+                        if (m.getIndividual().id() != oid && m.getSpouseId() == oid
                                 && home.equals(m.getHomePos()) && !m.isSatisfiedToday()) {
                             budget += com.evosim.core.FarmEconomy.capacity(
                                     m.getIndividual(), m.getStage());

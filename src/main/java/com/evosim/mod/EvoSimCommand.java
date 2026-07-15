@@ -2935,13 +2935,48 @@ public final class EvoSimCommand {
                     () -> discard(c)));
         }
 
+        // [64] 다처 케어 예산 대칭 — 첩(spouseId=남편, 비대칭)이 소유한 30타일 밭: 남편은 그 밭을
+        // 수확할 수 없으므로(자기 spouseId=본처) 예산에 계상되면 안 된다. 구 코드는 남편 12를 세
+        // need 18→6<10 무고용(방치), 신 코드는 첩 12만 세 need 18 → 가난 이웃 배정.
+        {
+            BlockPos fanchor = ground(level, b, 64);
+            BlockPos fhome = fanchor.offset(-12, 0, 0);
+            BlockPos whome = fanchor.offset(-14, 0, 8);
+            MimicEntity[] c = new MimicEntity[3];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farm_polygyny_budget",
+                    "concubine-owned plot excludes husband's capacity (asymmetric spouseId): hire happens", 400, false, () -> {
+                FarmTicker.clearAssignments();
+                MimicEntity husband = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
+                MimicEntity concubine = spawnAdult(level, Vec3.atBottomCenterOf(fhome).add(0.5, 0, 0), Sex.FEMALE);
+                husband.debugSettleWithTent(fhome, Direction.NORTH);
+                concubine.debugSettleWithTent(fhome, Direction.NORTH);
+                concubine.setSpouse(husband.getIndividual().id()); // 첩→남편(비대칭 — 남편은 본처 유지)
+                LarderStore.get(level).set(fhome, 5.0);
+                c[0] = husband;
+                c[1] = concubine;
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(whome), Sex.MALE); // 가난 이웃(후보)
+                c[2].debugSettleWithTent(whome, Direction.NORTH);
+                LarderStore.get(level).set(whome, 0.0);
+                pl[0] = buildDemoPlot(level, fanchor, concubine.getIndividual().id(), 30);
+                level.setDayTime(1200L);
+            }, () -> String.format("worker assigned %s(expect yes — husband cap must be excluded)",
+                    FarmTicker.assignedPlot(c[2].getId()) == pl[0].id ? "yes" : "no"),
+                    () -> FarmTicker.assignedPlot(c[2].getId()) == pl[0].id,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+
         // 슬롯이 시뮬레이션 거리(≈10청크)를 넘어 이어지므로 각 단계 시작 시 플레이어를 해당 슬롯으로
         // 동행 이동 — 개체 AI 틱 보장(스텝 슬롯은 순서와 정렬: ⑩만 슬롯 9 공유, 64블록 인접이라 무해).
         for (int i = 0; i < steps.size(); i++) {
             steps.get(i).at(ground(level, b, i + 1));
         }
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "원트랙 검증 시작 — 63단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "
+        tell(ctx.getSource(), "원트랙 검증 시작 — 64단계(㊳ 순수 evotest 전량 + ㊴~ 밭 게이트 전 편입), "
                 + "각 단계는 발동 직전 조건을 자동 조성하고 결과값의 변화로만 판정. 단계마다 플레이어가 "
                 + "해당 슬롯으로 이동됨(원거리 개체 틱 보장 — 플레이어가 직접 실행할 것). 끝에 ✅/❌ 요약. "
                 + "영문 결과는 콘솔(성공 녹/실패 적)과 evosim-verify.log 파일에 동시 기록. "

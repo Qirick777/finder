@@ -740,6 +740,15 @@ public class MimicEntity extends PathfinderMob {
         double range = phase == Schedule.Phase.WORK
                 ? WORK_PERCEPT_BASE + lvl * WORK_PERCEPT_PER
                 : WANDER_PERCEPT_BASE + lvl * WANDER_PERCEPT_PER;
+        // 부유선호일 때만, 구획 계정을 소유주별로 1회 집계(후보마다 전 구획 순회 O(후보×구획) 회피).
+        Map<Long, Double> accountByOwner = null;
+        if (ExpressionResolver.isExpressed(individual, Trait.PREF_WEALTH)
+                && level() instanceof ServerLevel psl) {
+            accountByOwner = new HashMap<>();
+            for (FarmStore.Plot p : FarmStore.get(psl).all().values()) {
+                accountByOwner.merge(p.ownerId, p.account, Double::sum);
+            }
+        }
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(range))) {
             if (m == this || m.getIndividual() == null || m.isFemale() == isFemale()) {
                 continue;
@@ -760,16 +769,11 @@ public class MimicEntity extends PathfinderMob {
             }
             int charm = Multipliers.charmScore(individual, m.getIndividual())
                     - (marriedMale ? Polygyny.MARRIED_CHARM_PENALTY : 0); // 기혼 감점 — 독신 우선
-            if (ExpressionResolver.isExpressed(individual, Trait.PREF_WEALTH)
-                    && level() instanceof ServerLevel sl) {
+            if (accountByOwner != null && level() instanceof ServerLevel sl) {
                 // 부유선호 — 상대의 잉여(저장고+밭 계정)를 매력으로. 부유한 기혼 지주는 감점 −2를
                 // 가점(최대 +3)으로 자연 상쇄 — 인위적 감점 해제 없이 부가 매력이 되는 경로.
                 double w = m.getHomePos() == null ? 0.0 : LarderStore.get(sl).get(m.getHomePos());
-                for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
-                    if (p.ownerId == m.getIndividual().id()) {
-                        w += p.account;
-                    }
-                }
+                w += accountByOwner.getOrDefault(m.getIndividual().id(), 0.0);
                 charm += Multipliers.wealthCharm(w, FoodEconomy.consumptionPerDay(
                         m.getStage(), Activity.MOVE, m.getIndividual(), false));
             }

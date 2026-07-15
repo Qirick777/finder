@@ -648,6 +648,17 @@ public class MimicEntity extends PathfinderMob {
         Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
         boolean active = StageObserver.isActive()
                 || phase == Schedule.Phase.WORK || phase == Schedule.Phase.WANDER;
+        // 진단(무대 개체 한정, 2초 간격) — 구혼여행이 왜 출발 안 하는지 결정 상태를 그대로 기록.
+        // 실게임엔 무대 개체가 없어 무영향. 원인 규명 후 제거.
+        if (isStageActor() && (level().getGameTime() + getId()) % 40 == 0) {
+            SimEvents.event(this, "구애진단", String.format(
+                    "phase=%s active=%s single=%s cands=%d lonely=%s travel=%s hearth=%s",
+                    phase, active ? "Y" : "N", isSingleAdult() ? "Y" : "N", candidates.size(),
+                    lonelySinceTick < 0L ? "reset"
+                            : (level().getGameTime() - lonelySinceTick) + "t/" + Famine.LONELY_TRAVEL_AFTER,
+                    isCourtTravel() ? "Y" : "N",
+                    nearestForeignHearth() == 0L ? "NONE" : "OK"));
+        }
         if (active) {
             perceive(phase);
             searchTimer++;

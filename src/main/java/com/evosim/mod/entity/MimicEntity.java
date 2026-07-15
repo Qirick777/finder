@@ -210,7 +210,7 @@ public class MimicEntity extends PathfinderMob {
         return PathfinderMob.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, BASE_HEALTH)
                 .add(Attributes.MOVEMENT_SPEED, BASE_SPEED)
-                .add(Attributes.FOLLOW_RANGE, 24.0D)
+                .add(Attributes.FOLLOW_RANGE, 160.0D) // 경로 최대거리 — 리시반경32·구혼64·마실/이주96 커버(96×1.6). 전투는 Combat.detectionRange 별도
                 // 전투 시 doHurtTarget 이 공격력 속성을 읽으므로 반드시 등록(없으면 크래시).
                 .add(Attributes.ATTACK_DAMAGE, BASE_ATTACK);
     }
@@ -260,11 +260,11 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
-        this.goalSelector.addGoal(6, new MimicFarmGoal(this)); // 자기 밭 우선(틱당 수익 우위) — 같은 순위, 등록 순서로 선행
-        this.goalSelector.addGoal(6, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
-        this.goalSelector.addGoal(7, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
-        this.goalSelector.addGoal(8, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(9, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(6, new MimicFarmGoal(this)); // 자기 밭 우선 — 채집(7)보다 엄격히 높아 실행 중 채집 선점
+        this.goalSelector.addGoal(7, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
+        this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
+        this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));
     }
 
     @Override
@@ -649,17 +649,6 @@ public class MimicEntity extends PathfinderMob {
         Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
         boolean active = StageObserver.isActive()
                 || phase == Schedule.Phase.WORK || phase == Schedule.Phase.WANDER;
-        // 진단(무대 개체 한정, 2초 간격) — 구혼여행이 왜 출발 안 하는지 결정 상태를 그대로 기록.
-        // 실게임엔 무대 개체가 없어 무영향. 원인 규명 후 제거.
-        if (isStageActor() && (level().getGameTime() + getId()) % 40 == 0) {
-            SimEvents.event(this, "구애진단", String.format(
-                    "phase=%s active=%s single=%s cands=%d lonely=%s travel=%s hearth=%s",
-                    phase, active ? "Y" : "N", isSingleAdult() ? "Y" : "N", candidates.size(),
-                    lonelySinceTick < 0L ? "reset"
-                            : (level().getGameTime() - lonelySinceTick) + "t/" + Famine.LONELY_TRAVEL_AFTER,
-                    isCourtTravel() ? "Y" : "N",
-                    nearestForeignHearth() == 0L ? "NONE" : "OK"));
-        }
         if (active) {
             perceive(phase);
             searchTimer++;

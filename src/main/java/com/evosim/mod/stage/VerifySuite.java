@@ -124,11 +124,16 @@ public final class VerifySuite {
         if (!stepStarted) {
             say(String.format("> [%d/%d] %s - staging preconditions", idx + 1, steps.size(), cur.name),
                     ChatFormatting.GOLD);
-            if (cur.site != null && src.getEntity() instanceof ServerPlayer sp) {
-                // 슬롯이 z+64×단계라 시뮬레이션 거리(≈10청크)를 벗어나면 개체 AI가 멈춘다 —
-                // 플레이어를 무대로 동행시켜 청크 틱을 보장(콘솔 실행은 이동 생략 — 원거리 timeout 위험).
-                sp.teleportTo(src.getLevel(), cur.site.getX() + 0.5, cur.site.getY() + 1.0,
-                        cur.site.getZ() + 0.5, sp.getYRot(), sp.getXRot());
+            if (cur.site != null) {
+                // 슬롯이 z+64×단계라 시뮬레이션 거리(≈10청크)를 벗어나면 개체 AI가 멈춘다. 헤드리스
+                // (플레이어 없음)에서도 자율 판정되도록 슬롯 주변을 강제 로드해 청크 틱을 보장 —
+                // 스텝 내 최대 96블록 퍼짐(elder 40·구혼 56·이주 96)을 ±6청크로 덮는다. finishStep 해제.
+                forceSite(cur.site, true);
+                if (src.getEntity() instanceof ServerPlayer sp) {
+                    // 클라 실행 겸용 — 플레이어가 있으면 동행(관전 편의).
+                    sp.teleportTo(src.getLevel(), cur.site.getX() + 0.5, cur.site.getY() + 1.0,
+                            cur.site.getZ() + 0.5, sp.getYRot(), sp.getXRot());
+                }
             }
             try {
                 cur.setup.run();
@@ -181,9 +186,27 @@ public final class VerifySuite {
         } catch (Exception ignored) {
             // 정리 실패는 판정에 영향 없음
         }
+        if (cur.site != null) {
+            forceSite(cur.site, false); // 슬롯 강제 로드 해제(잔존 방지)
+        }
         idx++;
         stepStarted = false;
         gap = STEP_GAP;
+    }
+
+    /** 슬롯 주변 ±6청크 강제 로드/해제 — 플레이어 없는 헤드리스에서도 슬롯 개체가 틱하도록. */
+    private static void forceSite(BlockPos site, boolean on) {
+        if (src == null) {
+            return;
+        }
+        net.minecraft.server.level.ServerLevel level = src.getLevel();
+        int cx = site.getX() >> 4;
+        int cz = site.getZ() >> 4;
+        for (int dx = -6; dx <= 6; dx++) {
+            for (int dz = -6; dz <= 6; dz++) {
+                level.setChunkForced(cx + dx, cz + dz, on);
+            }
+        }
     }
 
     private static void summarize() {

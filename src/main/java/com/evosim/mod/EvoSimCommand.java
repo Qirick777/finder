@@ -1578,6 +1578,8 @@ public final class EvoSimCommand {
         if (m == null || f == null) {
             return 0;
         }
+        m.setInvulnerable(true); // 통제 검증 — 환경 사고(벌·선인장 등) 사망 차단(여성 사망 시 그 모닥불이
+        f.setInvulnerable(true); // 등록 해제돼 목적지가 사라지고 여행이 출발 못 하던 것을 방지)
         m.debugSettleWithTent(homeA, Direction.NORTH);  // 모닥불 A 점화(등록)
         f.debugSettleWithTent(homeB, Direction.NORTH);  // 모닥불 B 점화(등록) — 남성의 목적지
         m.debugForceLonely(); // '오래 외로움' 강제 → 다음 인식 틱에 출발 직전

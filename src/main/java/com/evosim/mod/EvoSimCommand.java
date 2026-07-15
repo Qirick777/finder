@@ -3095,6 +3095,10 @@ public final class EvoSimCommand {
     /** 지형 높이에 맞춘 검증 슬롯 좌표(슬롯당 z+64 — 인식·나눔 범위 밖으로 격리). */
     private static BlockPos ground(ServerLevel level, Vec3 b, int slot) {
         BlockPos p = BlockPos.containing(b.add(-8, 0, slot * 64));
+        // 청크 강제 로드(ChunkStatus.FULL) 후 높이 읽기 — 미로드 청크면 Level.getHeight 가 표면이
+        // 아니라 getMinBuildHeight(기반암 레벨)를 돌려주므로(강제 로드 안 함) 먼 슬롯이 기반암에
+        // 박히는 것을 막는다. 슬롯은 z+64×단계라 대부분 플레이어 로드 반경 밖(64단계=4096블록).
+        level.getChunk(p.getX() >> 4, p.getZ() >> 4);
         return level.getHeightmapPos(
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p);
     }

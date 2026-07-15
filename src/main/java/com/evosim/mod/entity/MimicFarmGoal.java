@@ -39,6 +39,18 @@ public class MimicFarmGoal extends Goal {
                 || mob.getStage() == LifeStage.INFANT || mob.getStage() == LifeStage.BOY) {
             return false;
         }
+        // 진단(무대 개체 한정, 2초 간격) — 소작·자영 밭 goal 이 왜 발동 안 하는지 게이트를 그대로 기록.
+        // 실게임엔 무대 개체가 없어 무영향. 원인 규명 후 제거.
+        if (mob.isStageActor() && mob.level().getGameTime() % 40 == 0) {
+            Schedule.Phase ph = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime());
+            long asg = FarmTicker.assignedPlot(mob.getId());
+            long cap = FarmEconomy.capacity(mob.getIndividual(), mob.getStage());
+            BlockPos rt = ph == Schedule.Phase.WORK ? nearestWorkRipe() : null;
+            SimEvents.event(mob, "밭진단", String.format(
+                    "phase=%s harvested=%d/%d satisfied=%s assigned=%d ripe=%s",
+                    ph, harvestedToday, cap, mob.isSatisfiedToday() ? "Y" : "N", asg,
+                    rt == null ? "none" : (rt.getX() + "," + rt.getZ())));
+        }
         if (Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) != Schedule.Phase.WORK) {
             return false;
         }

@@ -170,6 +170,7 @@ public class MimicEntity extends PathfinderMob {
     private long lastForageSuccessTick = 0L;    // 마지막 채집/사냥/수확 성공(NBT — 기근 판정 근거)
     private long settledTick = 0L;              // 마지막 정착(setHomePos) 시각(NBT — 재이주 쿨다운)
     private long lonelySinceTick = -1L;         // 짝 후보 0명 시작 시각(-1 = 후보 있음/미혼 아님)
+    private boolean debugForceTravel = false;   // 점검용 일회성 여행 트리거(비영속 — /evosim suitor 전용)
     private long courtTravelUntil = 0L;         // 구혼 여행 만료 시각(NBT)
     private long courtTravelTarget = 0L;        // 구혼 여행 목적지(타향 모닥불, BlockPos.asLong, NBT)
     private BlockPos visitAnchor = null;        // 노인 방문 임시 앵커(ElderVisitGoal 설정 — 휘발)
@@ -667,7 +668,13 @@ public class MimicEntity extends PathfinderMob {
             }
             // 족외혼(이주 설계 §3-B): 비근친 후보 0명이 오래가면 타향 모닥불로 구혼 여행.
             if (candidates.isEmpty() && homePos != null && !isCourtTravel()) {
-                if (lonelySinceTick < 0L) {
+                // 점검용 강제 출발(일회성): 신생 월드는 gameTime<72000 이라 lonelySinceTick 뺄셈이
+                // 음수가 되고, 아래 '< 0L = 미설정' 센티넬에 걸려 매틱 리셋된다(구혼여행이 영영 출발 못
+                // 하던 원인). 클럭 산술을 우회해 실조건(단신·후보0·타향모닥불 존재)이 참일 때 바로 출발.
+                if (debugForceTravel && nearestForeignHearth() != 0L) {
+                    debugForceTravel = false;
+                    startCourtTravel();
+                } else if (lonelySinceTick < 0L) {
                     lonelySinceTick = level().getGameTime();
                 } else if (level().getGameTime() - lonelySinceTick > Famine.LONELY_TRAVEL_AFTER) {
                     startCourtTravel();
@@ -2296,6 +2303,9 @@ public class MimicEntity extends PathfinderMob {
 
     /** 점검용 — 즉시 '오래 외로움' 상태로: 다음 mateTick에서 구혼 여행이 바로 출발. /evosim suitor. */
     public void debugForceLonely() {
+        // 뺄셈-음수 트릭 폐기(신생 월드 gameTime<72000 에서 음수→미설정 센티넬 충돌). 일회성 플래그로
+        // 다음 mateTick 에서 실조건 충족 시 즉시 출발. lonelySinceTick 도 과거화(구세이브·노령 월드 경로).
+        this.debugForceTravel = true;
         this.lonelySinceTick = level().getGameTime() - Famine.LONELY_TRAVEL_AFTER - 1000L;
     }
 

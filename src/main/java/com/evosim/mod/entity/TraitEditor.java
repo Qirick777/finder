@@ -24,9 +24,6 @@ public final class TraitEditor {
     public static final int OP_TOGGLE_DOMINANT = 2;
     public static final int OP_GRADE_DELTA = 3;
 
-    /** 편집 사거리(블록) — 검사봉 조준 거리와 동일. */
-    public static final double RANGE = 12.0;
-
     private TraitEditor() {
     }
 
@@ -44,9 +41,8 @@ public final class TraitEditor {
         if (!(e instanceof MimicEntity m) || !m.isAlive() || m.getIndividual() == null) {
             return "대상 없음";
         }
-        if (editor != null && editor.distanceToSqr(m) > RANGE * RANGE) {
-            return "너무 멀다";
-        }
+        // 사거리 제한 없음 — 편집 도중 미믹이 걸어가 버려 "너무 멀다"로 조작이 끊기던 문제.
+        // 화면을 연 시점의 대상에 계속 조작 가능(크리에이티브 도구 — 악용 경로 아님).
         Individual ind = m.getIndividual();
         List<TraitInstance> all = ind.allTraits();
         String status;

@@ -2176,7 +2176,19 @@ public class MimicEntity extends PathfinderMob {
         for (int i = 0; i < arr.length; i++) {
             arr[i] = success.get(i);
         }
-        return Famine.shouldMigrate(now, settled, arr, larder, need);
+        boolean verdict = Famine.shouldMigrate(now, settled, arr, larder, need);
+        // 임시 진단(무대 개체 한정) — 유아 낀 가족의 이주 미발동 게이트 규명용. 확정 후 제거.
+        if (isStageActor()) {
+            StringBuilder fs = new StringBuilder();
+            for (long t : arr) {
+                fs.append(now - t).append(' ');
+            }
+            SimEvents.event(this, "이주진단", String.format(
+                    "verdict=%s grown=%d settledAge=%d foragers=%d ages=[%s] larder=%.1f need=%.1f",
+                    verdict ? "GO" : "STAY", grown, now - settled, arr.length,
+                    fs.toString().trim(), larder, need));
+        }
+        return verdict;
     }
 
     /**

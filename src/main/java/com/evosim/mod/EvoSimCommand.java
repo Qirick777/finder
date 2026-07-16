@@ -106,6 +106,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("polygamy").executes(EvoSimCommand::stagePolygamy))
                 .then(Commands.literal("elder").executes(EvoSimCommand::stageElder))
                 .then(Commands.literal("eldercare").executes(EvoSimCommand::stageElderCare))
+                .then(Commands.literal("migx").executes(EvoSimCommand::stageMigX))
+                .then(Commands.literal("shieldx").executes(EvoSimCommand::stageShieldX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -425,11 +427,14 @@ public final class EvoSimCommand {
         BlockPos home = groundAt(level, ctx.getSource().getPosition(), -6, -6);
         MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
         owner.debugSettleWithTent(home, Direction.NORTH);
+        owner.setNoAi(true); // 영주 행위 동결(F-7) — 채집·입금으로 저장고 상수를 흔들던 소음 제거
         LarderStore.get(level).set(home, shield ? 3.0 : 0.0);
         MimicEntity worker = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 4), Sex.MALE);
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 9);
         worker.setTenant(plot.id, 3); // 상시 소작 조성
         worker.debugSetHolding(0.2);  // 위급 직전 상태
+        worker.setNoAi(true);         // 행위 동결(F-7) — 풀 한 입(+0.11)로 위급 탈출해 스캔과 경주하던
+                                      // 비결정론 제거. fastSettle 은 시간압축으로 H·저장고를 태워 부적합.
         level.setDayTime(4000L);
         Runnable cleanup = () -> {
             discard(owner, worker);
@@ -1624,6 +1629,237 @@ public final class EvoSimCommand {
      * 원트랙 전체 검증: 미검증 기능 12단계를 한 명령으로 차례차례 — 각 단계는 "발동 직전" 조건을 즉각
      * 조성하고, 별도 감지가 <b>결과값 변화만</b> 보고 ✅/❌ 판정(호출 여부 아님). 끝에 요약 출력.
      */
+    /** 낡은 이주 합의 잔재 만료 — 다음 스텝·실플레이 오염 방지(stale_pact cleanup 과 동일 수법). */
+    private static void expirePact(ServerLevel level, BlockPos origin) {
+        MigrationDest.get(level).register(origin, origin,
+                level.getGameTime() - MigrationDest.VALID_TICKS - 1);
+    }
+
+    /**
+     * 이주 합본 검증(F-6 대응) — 유아 가족 이주 본판 + 이 수정이 오염시킬 수 있는 이웃 규칙 4종을
+     * 한 명령으로: 결과값(homePos 실변경·isPassenger 상태·저장고)만 판정. 금지 스텝은 passOnTimeout.
+     */
+    private static int stageMigX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 아이들만 가구 — 이주 금지 유지(grown==0 안전핀 회귀. 금지 결과 = homePos 변경)
+        {
+            BlockPos home = groundAt(level, b, -20, -20);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("migx_children_stay",
+                    "children-only household must not migrate (grown==0 pin)", 200, true, () -> {
+                discardFamily(level, home);
+                c[0] = stagedInfant(level, home, Sex.MALE);
+                c[1] = stagedInfant(level, home, Sex.FEMALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[1].setHomePos(home);
+                c[0].debugForceFamine(level);
+                c[0].debugSettleOnce();
+            }, () -> String.format("home %s(must stay)",
+                    home.equals(c[0].getHomePos()) ? "kept" : "moved!"),
+                    () -> c[0].getHomePos() == null || !home.equals(c[0].getHomePos()),
+                    () -> discardFamily(level, home, c)));
+        }
+        // [2] 식량 넉넉한 유아 가족 — 잔류(저장고 게이트 회귀. 시계·쿨다운은 과거화, 저장고만 복원 —
+        //     잔류 사유를 저장고 하나로 고정해 위양성 차단)
+        {
+            BlockPos home = groundAt(level, b, -20, 20);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("migx_wellfed_stay",
+                    "well-fed infant family must not migrate (larder gate)", 200, true, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = stagedInfant(level, home, Sex.MALE);
+                c[0].debugForceFamine(level);
+                LarderStore.get(level).set(home, 40.0);
+                c[0].debugSettleOnce();
+            }, () -> String.format("home %s(must stay) larder %.0f",
+                    home.equals(c[0].getHomePos()) ? "kept" : "moved!",
+                    LarderStore.get(level).get(home)),
+                    () -> c[0].getHomePos() == null || !home.equals(c[0].getHomePos()),
+                    () -> discardFamily(level, home, c)));
+        }
+        // [3] 무유아 부부 — 이주 발동 회귀(결과값: homePos 실변경)
+        {
+            BlockPos home = groundAt(level, b, 20, -20);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("migx_couple_go",
+                    "childless couple migrates: home actually changes", 100, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugForceFamine(level);
+                c[0].debugSettleOnce();
+            }, () -> String.format("home %s",
+                    home.equals(c[0].getHomePos()) ? "unchanged" : "moved"),
+                    () -> c[0].getHomePos() != null && !home.equals(c[0].getHomePos()),
+                    () -> {
+                        BlockPos nh = c[0].getHomePos();
+                        discardFamily(level, home, c);
+                        if (nh != null && !nh.equals(home)) {
+                            discardFamily(level, nh); // 새 정착지 잔재(천막·개체)도 소거
+                        }
+                        expirePact(level, home);
+                    }));
+        }
+        // [4] 유아 가족 — 이주+업기 발동(F-6 본판. 결과값: homePos 실변경 ∧ 유아 탑승 상태)
+        {
+            BlockPos home = groundAt(level, b, 20, 20);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("migx_infant_go",
+                    "infant family migrates & infant rides a parent (F-6)", 100, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[2] = stagedInfant(level, home, Sex.MALE);
+                c[0].debugForceFamine(level);
+                c[0].debugSettleOnce();
+            }, () -> String.format("home %s infantRiding %s",
+                    home.equals(c[0].getHomePos()) ? "unchanged" : "moved",
+                    c[2].isPassenger() ? "O" : "X"),
+                    () -> c[0].getHomePos() != null && !home.equals(c[0].getHomePos())
+                            && c[2].isPassenger(),
+                    () -> {
+                        BlockPos nh = c[0].getHomePos();
+                        discardFamily(level, home, c);
+                        if (nh != null && !nh.equals(home)) {
+                            discardFamily(level, nh);
+                        }
+                        expirePact(level, home);
+                    }));
+        }
+        // [5] 건축 중 재이주 금지 — 1차 이주 직후(부부=빌더) 재기근을 강제해도 잔류해야
+        //     (F-6 폴백이 빌더를 잡아먹지 않는지 — 오염 후보의 직접 관측. 금지 결과 = 2차 이주)
+        {
+            BlockPos home = groundAt(level, b, 0, 44);
+            MimicEntity[] c = new MimicEntity[2];
+            BlockPos[] nh = new BlockPos[1];
+            steps.add(new VerifySuite.Step("migx_builder_stay",
+                    "mid-build family must not re-migrate (builder exclusion)", 200, true, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugForceFamine(level);
+                c[0].debugSettleOnce();          // 1차 이주 → 부부가 빌더로 전환
+                nh[0] = c[0].getHomePos();       // 이주 후 새 거처(기준점)
+                c[0].debugForceFamine(level);    // 재기근 강제(시계·쿨다운 재과거화)
+                c[0].debugSettleOnce();          // 재정산 — 빌더 제외로 잔류해야 함
+            }, () -> String.format("home2 %s(must keep)",
+                    nh[0] != null && nh[0].equals(c[0].getHomePos()) ? "kept" : "moved!"),
+                    () -> nh[0] == null || c[0].getHomePos() == null
+                            || !nh[0].equals(c[0].getHomePos()),
+                    () -> {
+                        BlockPos cur = c[0].getHomePos();
+                        discardFamily(level, home, c);
+                        if (nh[0] != null && !nh[0].equals(home)) {
+                            discardFamily(level, nh[0]);
+                        }
+                        if (cur != null && !cur.equals(home) && !cur.equals(nh[0])) {
+                            discardFamily(level, cur);
+                        }
+                        expirePact(level, home);
+                    }));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "이주 합본 검증(5단계) — 유아 가족 이주(F-6) + 아이들만·유복·무유아 회귀·"
+                + "건축중 재이주 금지. 결과값(homePos 실변경·유아 탑승·저장고)만 판정.");
+        return 1;
+    }
+
+    /**
+     * 보호막 합본 검증(F-7 대응) — 구제·해제 두 결과를 같은 자리 2회씩: 자가구제 경주가 제거됐으면
+     * 4단계 전부 결정론적으로 같은 결과여야 한다. 판정은 결과값(H 상승·저장고 3→2 차감·tenantFarm).
+     */
+    private static int stageShieldX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        BlockPos anchorR = groundAt(level, b, 14, -14);
+        BlockPos homeR = groundAt(level, b, 2, -14);
+        BlockPos anchorB = groundAt(level, b, 14, 14);
+        BlockPos homeB = groundAt(level, b, 2, 14);
+        for (int round = 1; round <= 2; round++) { // 같은 자리 2회 — 잔재·경주 결정론 확인
+            final int r = round;
+            {
+                MimicEntity[] c = new MimicEntity[2];
+                FarmStore.Plot[] pl = new FarmStore.Plot[1];
+                steps.add(new VerifySuite.Step("shieldx_relief_" + r,
+                        "critical tenant relieved: H>=1 & lord larder 3->2 & bond kept", 600, false, () -> {
+                    FarmTicker.clearAssignments();
+                    discardFamily(level, homeR);
+                    c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeR), Sex.MALE);
+                    c[0].debugSettleWithTent(homeR, Direction.NORTH);
+                    c[0].setNoAi(true); // 영주 행위 동결(F-7) — 입금·채집 소음 제거
+                    LarderStore.get(level).set(homeR, 3.0);
+                    c[1] = spawnAdult(level, Vec3.atBottomCenterOf(anchorR).add(-3, 0, 4), Sex.MALE);
+                    pl[0] = buildDemoPlot(level, anchorR, c[0].getIndividual().id(), 9);
+                    c[1].setTenant(pl[0].id, 3);
+                    c[1].debugSetHolding(0.2);
+                    c[1].setNoAi(true); // 행위 동결(F-7) — 경주 제거
+                    level.setDayTime(4000L);
+                }, () -> String.format("workerH %.2f(start 0.2) larder %.0f(expect 2) bond %s",
+                        c[1].getHolding(), LarderStore.get(level).get(homeR),
+                        c[1].getTenantFarm() == pl[0].id ? "kept" : "broken"),
+                        () -> c[1].getHolding() >= 1.0
+                                && Math.abs(LarderStore.get(level).get(homeR) - 2.0) < 1.0E-6
+                                && c[1].getTenantFarm() == pl[0].id,
+                        () -> {
+                            discard(c);
+                            farmClearPlot(level, pl[0]);
+                            FarmTicker.clearAssignments();
+                        }));
+            }
+            {
+                MimicEntity[] c = new MimicEntity[2];
+                FarmStore.Plot[] pl = new FarmStore.Plot[1];
+                steps.add(new VerifySuite.Step("shieldx_break_" + r,
+                        "lord larder 0 -> relief impossible -> bond dissolves", 600, false, () -> {
+                    FarmTicker.clearAssignments();
+                    discardFamily(level, homeB);
+                    c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
+                    c[0].debugSettleWithTent(homeB, Direction.NORTH);
+                    c[0].setNoAi(true); // 영주 행위 동결(F-7) — 입금·채집 소음 제거
+                    LarderStore.get(level).set(homeB, 0.0);
+                    c[1] = spawnAdult(level, Vec3.atBottomCenterOf(anchorB).add(-3, 0, 4), Sex.MALE);
+                    pl[0] = buildDemoPlot(level, anchorB, c[0].getIndividual().id(), 9);
+                    c[1].setTenant(pl[0].id, 3);
+                    c[1].debugSetHolding(0.2);
+                    c[1].setNoAi(true); // 행위 동결(F-7) — 경주 제거
+                    level.setDayTime(4000L);
+                }, () -> String.format("bond %s(expect broken) workerH %.2f",
+                        c[1].getTenantFarm() == 0L ? "broken" : "kept", c[1].getHolding()),
+                        () -> c[1].getTenantFarm() == 0L,
+                        () -> {
+                            discard(c);
+                            farmClearPlot(level, pl[0]);
+                            FarmTicker.clearAssignments();
+                        }));
+            }
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "보호막 합본 검증(4단계) — 구제·해제 × 같은 자리 2회. 채집 차단(F-7)으로 "
+                + "자가구제 경주가 제거됐으면 전부 결정론 PASS 여야 함.");
+        return 1;
+    }
+
     /** checkall2 가 몰아 볼 미통과 단계(2026-… 인게임 1회차 실패분). 시간만 늘려 재관찰 — 구조 불변. */
     private static final java.util.Set<String> RETRY_SLUGS = java.util.Set.of(
             "deposit_withdraw", "critical_forage_grass", "migration_caravan",
@@ -2543,11 +2779,13 @@ public final class EvoSimCommand {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
                 c[0].debugSettleWithTent(fhome, Direction.NORTH);
+                c[0].setNoAi(true); // 영주 행위 동결(F-7) — 입금·채집 소음 제거
                 LarderStore.get(level).set(fhome, 3.0);
                 c[1] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 4), Sex.MALE);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
                 c[1].setTenant(pl[0].id, 3);
                 c[1].debugSetHolding(0.2);
+                c[1].setNoAi(true); // 행위 동결(F-7) — 자가구제 vs 스캔 경주 제거(결정론)
                 level.setDayTime(4000L);
             }, () -> String.format("workerH %.2f(start 0.2) larder %.0f(expect 2) bond %s",
                     c[1].getHolding(), LarderStore.get(level).get(fhome),
@@ -2572,11 +2810,13 @@ public final class EvoSimCommand {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
                 c[0].debugSettleWithTent(fhome, Direction.NORTH);
+                c[0].setNoAi(true); // 영주 행위 동결(F-7) — 입금·채집 소음 제거
                 LarderStore.get(level).set(fhome, 0.0);
                 c[1] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 4), Sex.MALE);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 9);
                 c[1].setTenant(pl[0].id, 3);
                 c[1].debugSetHolding(0.2);
+                c[1].setNoAi(true); // 행위 동결(F-7) — 자가구제 vs 스캔 경주 제거(결정론)
                 level.setDayTime(4000L);
             }, () -> String.format("bond %s(expect broken)",
                     c[1].getTenantFarm() == 0L ? "broken" : "kept"),

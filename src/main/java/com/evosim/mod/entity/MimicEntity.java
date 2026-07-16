@@ -2150,6 +2150,7 @@ public class MimicEntity extends PathfinderMob {
         long settled = Long.MIN_VALUE;
         int grown = 0;
         List<Long> success = new ArrayList<>();
+        List<Long> boundSuccess = new ArrayList<>(); // 육아 구속 성인의 시계(폴백용 — F-6)
         for (MimicEntity m : fam) {
             if (m.getIndividual() == null) {
                 continue;
@@ -2158,10 +2159,21 @@ public class MimicEntity extends PathfinderMob {
                 grown++;
                 settled = Math.max(settled, m.settledTick);
             }
-            if (SurvivalRules.canGather(m.getStage(), m.getIndividual())
-                    && !m.isCaregiverBound() && !m.isBuilding()) {
-                success.add(m.lastForageSuccessTick);
+            if (SurvivalRules.canGather(m.getStage(), m.getIndividual()) && !m.isBuilding()) {
+                if (!m.isCaregiverBound()) {
+                    success.add(m.lastForageSuccessTick);
+                } else {
+                    boundSuccess.add(m.lastForageSuccessTick);
+                }
             }
+        }
+        // F-6: 유아가 있으면 비무시 성인 전원이 육아 구속(isCaregiverBound)이라 비구속 채집자가
+        // 0명 — 종전엔 "채집자 없음 → 이주 불가"로 유아 가족이 기근에도 제자리 전멸(업기 캐러밴이
+        // 죽은 코드). 구속 부모도 실제로는 채집을 나가 시계가 살아 있으므로(동원·방치 이벤트 실측),
+        // 전원 구속이면 그들의 시계로 기근을 판정한다. 빌더는 계속 제외(건축 중 재이주 방지),
+        // 아이들만 가구는 아래 grown==0 이 계속 차단.
+        if (success.isEmpty()) {
+            success = boundSuccess;
         }
         if (grown == 0) {
             return false;
@@ -2176,19 +2188,7 @@ public class MimicEntity extends PathfinderMob {
         for (int i = 0; i < arr.length; i++) {
             arr[i] = success.get(i);
         }
-        boolean verdict = Famine.shouldMigrate(now, settled, arr, larder, need);
-        // 임시 진단(무대 개체 한정) — 유아 낀 가족의 이주 미발동 게이트 규명용. 확정 후 제거.
-        if (isStageActor()) {
-            StringBuilder fs = new StringBuilder();
-            for (long t : arr) {
-                fs.append(now - t).append(' ');
-            }
-            SimEvents.event(this, "이주진단", String.format(
-                    "verdict=%s grown=%d settledAge=%d foragers=%d ages=[%s] larder=%.1f need=%.1f",
-                    verdict ? "GO" : "STAY", grown, now - settled, arr.length,
-                    fs.toString().trim(), larder, need));
-        }
-        return verdict;
+        return Famine.shouldMigrate(now, settled, arr, larder, need);
     }
 
     /**

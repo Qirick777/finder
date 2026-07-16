@@ -86,10 +86,15 @@ public class ElderVisitGoal extends Goal {
 
     @Override
     public void stop() {
-        mob.setVisitAnchor(null); // 리시 앵커 원복(거처)
-        target = null;
-        targetHasInfant = false;
-        loiter = 0;
+        // 선점(리시가 MOVE 탈취)으로 인한 stop 이면 앵커 유지 — 리시가 목적지까지 끌어야 하므로.
+        // 방문이 진짜 끝났을 때(target 소거·배고픔·밤·배달후 무유아)만 해제 = !canContinueToUse().
+        // (종전엔 선점마다 앵커를 지워 ElderVisit↔Leash 무한 진동·이동 0 이던 것을 해소.)
+        if (!canContinueToUse()) {
+            mob.setVisitAnchor(null); // 리시 앵커 원복(거처)
+            target = null;
+            targetHasInfant = false;
+            loiter = 0;
+        }
     }
 
     @Override

@@ -3,8 +3,10 @@ package com.evosim.core;
 import java.util.Set;
 
 /**
- * 노년기 규칙 (생애 확장). 청년(성년) {@link #ADULT_DAYS}일 — 최상 배율 부부가 번식 슬롯 10개를
- * 쿨다운(3일)으로 소진하는 30일 + 여유 — 뒤 노년 진입, {@link #elderDays}일 뒤 자연사.
+ * 노년기 규칙 (생애 확장 — 세대 압축판). 청년(성년) {@link #ADULT_DAYS}일 — 기본 출산상한
+ * 5명을 쿨다운(2일)으로 소진하는 10일 + 정착·여유 — 뒤 노년 진입, {@link #elderDays}일 뒤 자연사.
+ * 수명 설계: 성장5 + 성년13 + 노년6 = 24일 &lt; 첫 증손 출생(≈24.6일) — "증손을 보기 직전
+ * 노환사"의 세대 시계(강건 +2만 예외적으로 증손을 본다).
  *
  * <p>노년은 <b>쿼터 노동</b>: 하루 필요량({@link #dailyQuota})만 벌고 쉰다. 책임 축이 노년에 추가
  * 발동 — 책임은 잉여 목표까지 더 벌어 <b>자식 집에 방문 배달</b>, 무책임은 자기 생존분만(공유 없음),
@@ -12,10 +14,11 @@ import java.util.Set;
  */
 public final class Elder {
 
-    /** 청년(성년) 기간(일) — 번식 슬롯 최대 10개 × 쿨다운 3일 + 정착·여유. */
-    public static final int ADULT_DAYS = 35;
-    /** 노년 기본 기간(일) — 강건 +2 / 병약 −2. */
-    public static final int ELDER_BASE_DAYS = 8;
+    /** 청년(성년) 기간(일). 35→13(세대 압축): 5명째 출산 = 첫 출산 2.2일 + 4×쿨다운 2일
+     *  = 10.2일 ≤ 가용 창 12일(+정착 1일). */
+    public static final int ADULT_DAYS = 13;
+    /** 노년 기본 기간(일) — 강건 +2 / 병약 −2. 8→6: 사망 나이 5+13+6=24.0 < 증손 24.6. */
+    public static final int ELDER_BASE_DAYS = 6;
     /** 노년 채집·사냥 수확 배율(노쇠). */
     public static final double FORAGE_MULT = 0.5;
     /** 노년 하루 기준 소모(성인 3.0보다 적게 먹음). */

@@ -2024,49 +2024,49 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 남성 수확 — H 1.5 → 1.86(−이동소모 ≤0.04). 구식 남성(+0.90)은 무주택 상한 2.0 컷으로 대역 밖.
+        // [1] 남성 수확 — H 1.5 → 1.94(−이동소모 ≤0.03). 성별 곱 재유입 시 남 0.66→상한 2.0 컷(대역 위).
         {
             BlockPos pad = groundAt(level, b, -22, 30);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("bandx_neutral_m",
-                    "male berry pick: H 1.5 -> [1.82, 1.93] (delta 0.36, old formula 2.0-cut rejected)",
+                    "male berry pick: H 1.5 -> [1.90, 1.98] (delta 0.44, sex-mult bug 2.0-cut rejected)",
                     300, false, () -> {
                 berryPad(level, pad);
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.5, expect 1.82~1.93)", c[0].getHolding()),
-                    () -> c[0].getHolding() >= 1.82 && c[0].getHolding() <= 1.93,
+            }, () -> String.format("H %.3f(start 1.5, expect 1.90~1.98)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.90 && c[0].getHolding() <= 1.98,
                     () -> discard(c)));
         }
-        // [2] 여성 수확 — 같은 대역이면 성중립 입증. 구식 여성(+0.30 → ≤1.80)은 하한 1.82 밖.
+        // [2] 여성 수확 — 같은 대역이면 성중립 입증. 성별 곱 재유입 시 여 +0.22 → 1.72(대역 아래).
         {
             BlockPos pad = groundAt(level, b, 0, 30);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("bandx_neutral_f",
-                    "female berry pick: same band [1.82, 1.93] (old female +0.30 rejected)",
+                    "female berry pick: same band [1.90, 1.98] (sex-mult bug +0.22 rejected)",
                     300, false, () -> {
                 berryPad(level, pad);
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.FEMALE);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.5, expect 1.82~1.93)", c[0].getHolding()),
-                    () -> c[0].getHolding() >= 1.82 && c[0].getHolding() <= 1.93,
+            }, () -> String.format("H %.3f(start 1.5, expect 1.90~1.98)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.90 && c[0].getHolding() <= 1.98,
                     () -> discard(c)));
         }
-        // [3] 약초학자Ⅴ 수확 — H 1.0 → 1.468. 등급 배율 누락(Ⅲ 취급 1.383 / 무배율 1.36)은 하한 1.42 밖,
-        //     구식(×성별×채집특성 = +1.35 → 2.0 컷)은 상한 1.50 밖.
+        // [3] 약초학자Ⅴ 수확 — H 1.0 → 1.713(0.44×M(5)=1.62). 등급 누락(Ⅲ 취급 1.499 / 무배율 1.44)은
+        //     하한 1.66 밖.
         {
             BlockPos pad = groundAt(level, b, 22, 30);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("bandx_grade",
-                    "herbalist-V pick: H 1.0 -> [1.42, 1.50] (M(5)=1.30, delta 0.468)",
+                    "herbalist-V pick: H 1.0 -> [1.66, 1.77] (M(5)=1.62, delta 0.713)",
                     300, false, () -> {
                 berryPad(level, pad);
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE,
                         Trait.HERBALIST); // 무대 등급 Ⅴ 고정(spawnAdult)
                 c[0].debugSetHolding(1.0);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.0, expect 1.42~1.50)", c[0].getHolding()),
-                    () -> c[0].getHolding() >= 1.42 && c[0].getHolding() <= 1.50,
+            }, () -> String.format("H %.3f(start 1.0, expect 1.66~1.77)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.66 && c[0].getHolding() <= 1.77,
                     () -> discard(c)));
         }
         VerifySuite.start(ctx.getSource(), steps);
@@ -2254,28 +2254,29 @@ public final class EvoSimCommand {
         }
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 주입 → 발현 배율 실변화: 정원 베리 한 수확 — 무특성 0.36(→1.86) vs
-        //     약초학자Ⅴ 주입 후 M(5)=1.30 → 0.468(→1.968). Ⅲ 취급 버그(0.383→1.883)도 대역 밖.
+        // [1] 주입 → 발현 배율 실변화: 정원 베리 한 수확 — 무배율 0.44(→1.44) vs
+        //     약초학자Ⅴ 주입 후 M(5)=1.62 → 0.713(→1.713). Ⅲ 취급 버그(0.499→1.499)도 대역 밖.
         {
             BlockPos pad = groundAt(level, b, -22, 58);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("editx_inject",
-                    "inject herbalist-V dominant: berry pick 0.36 -> 0.468 (H 1.5 -> [1.93, 1.99])",
+                    "inject herbalist-V dominant: berry pick 0.44 -> 0.713 (H 1.0 -> [1.66, 1.77])",
                     300, false, () -> {
                 berryPad(level, pad); // 익은 덤불 1 = 유일 수입원
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                c[0].debugSetHolding(1.0); // Ⅴ 델타 0.713이 무주택 상한 2.0에 닿지 않게
                 String st = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
                         com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.HERBALIST.ordinal(),
                         0, 5, true);
                 SimEvents.note(level, "editx", "주입 상태: " + st);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.5, expect 1.93~1.99) herbalist=%s dom=%s",
+            }, () -> String.format("H %.3f(start 1.0, expect 1.66~1.77) herbalist=%s dom=%s",
                     c[0].getHolding(),
                     com.evosim.core.ExpressionResolver.isExpressed(c[0].getIndividual(), Trait.HERBALIST),
                     c[0].getIndividual().allTraits().stream()
                             .filter(ti -> ti.trait() == Trait.HERBALIST)
                             .anyMatch(TraitInstance::isDominant)),
-                    () -> c[0].getHolding() >= 1.93 && c[0].getHolding() <= 1.99
+                    () -> c[0].getHolding() >= 1.66 && c[0].getHolding() <= 1.77
                             && com.evosim.core.ExpressionResolver.isExpressed(c[0].getIndividual(), Trait.HERBALIST),
                     () -> discard(c)));
         }

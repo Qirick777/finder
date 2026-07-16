@@ -145,9 +145,12 @@ public final class FoodEconomy {
         return false;
     }
 
-    /** 저장고 시작값 — 정수 올림(정수 입출금 불변식과 충돌하는 비정수 사장분 방지). */
+    /** 신혼 지참금 가산(정수) — 첫 출산 2일차 역산: t₁ = (게이트12 − (6+3)) ÷ 잉여 1.36 = 2.2일. */
+    public static final double INITIAL_LARDER_BONUS = 3.0;
+
+    /** 저장고 시작값 = ceil(하루소모) + 지참금 — 정수 유지(정수 입출금 불변식). */
     public static double initialLarder(double familyDailyNeed) {
-        return Math.ceil(familyDailyNeed);
+        return Math.ceil(familyDailyNeed) + INITIAL_LARDER_BONUS;
     }
 
     /** 가족 명목 하루소모 합(이동 기준·부상 제외) — 번식 예비·저장고 넉넉 판정의 기준값. */

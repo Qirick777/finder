@@ -444,23 +444,23 @@ public final class EvoTest {
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))),
                 "무등급 능력 = Ⅲ 취급(1.3)");
 
-        // 2c) 정원 배율 M(g) = 1 + 0.30×(g/5)³ — 성중립(성별 무관), 무능력 1.0 (밴드 산출 ㉯)
+        // 2c) 정원 배율 M(g) = 1 + 0.62×(g/5)³ — 성중립(성별 무관), 무능력 1.0 (세대 압축 재역산)
         boolean mg = close(Multipliers.gardenAbility(one(Sex.MALE)), 1.0)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.30)
+                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.62)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.1536)
+                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.31744)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.0648)
+                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.13392)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.0192)
+                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.03968)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.0024)
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.00496)
                 // 관리 4종 외 능력(도축Ⅴ)은 정원에 무효 — 사냥 특화가 정원을 끌지 않게
                 && close(Multipliers.gardenAbility(
                         one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))), 1.0);
         report.add("multiplier/정원등급", mg,
-                "M(g)=1+0.30(g/5)³ · Ⅴ1.30 Ⅳ1.1536 Ⅲ1.0648 Ⅱ1.0192 Ⅰ1.0024 · 성중립 · 도축 무효",
+                "M(g)=1+0.62(g/5)³ · Ⅴ1.62 Ⅳ1.317 Ⅲ1.134 Ⅱ1.040 Ⅰ1.005 · 성중립 · 도축 무효",
                 mg ? "정상" : "어긋남");
 
         // 3) 사냥: 도축업자Ⅴ(+0.5) + 육식Ⅴ(+0.2) = 1.7 / 그 개체 채집 = 육식Ⅴ(-0.3) = 0.7
@@ -1726,9 +1726,10 @@ public final class EvoTest {
 
         // [food/정수불변식] 시작값 올림·정산 반복 후에도 L 정수
         {
-            boolean b = isInt(FoodEconomy.initialLarder(6.9)) && close(FoodEconomy.initialLarder(6.9), 7.0)
+            boolean b = isInt(FoodEconomy.initialLarder(6.9)) && close(FoodEconomy.initialLarder(6.9), 10.0)
+                    && close(FoodEconomy.initialLarder(6.0), 9.0) // 부부 지참금 9 — 첫 출산 2일차 역산
                     && isInt(FoodEconomy.initialLarder(3.0));
-            report.add("food/정수불변식", b, "시작 L=ceil(하루소모) 정수 · 정산은 정수 입출금만",
+            report.add("food/정수불변식", b, "시작 L=ceil(하루소모)+지참금3 정수 · 정산은 정수 입출금만",
                     b ? "정상" : "어긋남");
         }
     }
@@ -1904,10 +1905,10 @@ public final class EvoTest {
         // 공유 자격·노년 기간
         boolean s1 = Elder.sharesLeftover(plain) && Elder.sharesLeftover(resp)
                 && !Elder.sharesLeftover(irre)
-                && Elder.elderDays(plain) == 8
-                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 10
-                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 6;
-        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 8일(강건10/병약6)",
+                && Elder.elderDays(plain) == 6
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 8
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 4;
+        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 6일(강건8/병약4 — 세대 압축)",
                 s1 ? "정상" : "어긋남");
 
         // 능력치: 소모 2.0 · 속도 0.8 · 채집·전투 가능 · 수확 배율 상수 0.5

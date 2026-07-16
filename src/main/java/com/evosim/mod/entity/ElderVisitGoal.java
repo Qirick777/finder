@@ -53,6 +53,9 @@ public class ElderVisitGoal extends Goal {
         if (phase != Schedule.Phase.WORK && phase != Schedule.Phase.WANDER) {
             return false; // 낮에만 마실·배달(밤엔 귀가·취침)
         }
+        if (target != null) {
+            return true; // 선점-보존 상태의 재개(P-04) — 쿨다운은 '신규 탐색'에만 적용(스캔 없음)
+        }
         if (refreshCooldown > 0) {
             refreshCooldown--;
             return false;

@@ -51,9 +51,45 @@ public class TraitScannerItem extends Item {
      * 거처 모드로 <b>들고 있으면</b> 주변 미믹들의 거처를 파티클 기둥으로 표시(설계서 §14 관찰).
      * 서버측·주기적(15틱)·거처 좌표 중복 제거 → 다수 미믹이어도 렉 없이 몇 개만 뿌린다.
      */
+    /** 렌즈 스냅샷 push 주기(틱) — 카드 실시간성과 패킷 부하의 절충(P1). */
+    private static final int SCAN_INTERVAL = 5;
+    /** 렌즈 조준 거리(블록). */
+    private static final double SCAN_REACH = 12.0;
+    /** 플레이어별 직전 조준 대상 — 대상 상실 시 clear 패킷 1회 전송용(서버측). */
+    private static final java.util.Map<java.util.UUID, Integer> LAST_SCAN =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
     public void inventoryTick(ItemStack stack, Level level, Entity entity, int slot, boolean selected) {
-        if (!selected || level.isClientSide || ScannerMode.of(stack) != ScannerMode.HOME) {
+        if (!selected || level.isClientSide) {
+            return;
+        }
+        // ── 렌즈(P1): 조준한 미믹 스냅샷을 5틱마다 push, 조준 해제 시 clear 1회 ──
+        if (level instanceof ServerLevel scanLevel && entity instanceof ServerPlayer sp
+                && level.getGameTime() % SCAN_INTERVAL == 0) {
+            net.minecraft.world.phys.Vec3 eye = sp.getEyePosition();
+            net.minecraft.world.phys.Vec3 dir = sp.getViewVector(1.0F);
+            net.minecraft.world.phys.Vec3 end = eye.add(dir.scale(SCAN_REACH));
+            var hit = net.minecraft.world.entity.projectile.ProjectileUtil.getEntityHitResult(
+                    sp, eye, end,
+                    sp.getBoundingBox().expandTowards(dir.scale(SCAN_REACH)).inflate(1.0),
+                    e -> e instanceof MimicEntity && e.isAlive(), SCAN_REACH * SCAN_REACH);
+            MimicEntity aim = hit != null && hit.getEntity() instanceof MimicEntity m ? m : null;
+            Integer prev = LAST_SCAN.get(sp.getUUID());
+            if (aim != null) {
+                LAST_SCAN.put(sp.getUUID(), aim.getId());
+                ModNetwork.CHANNEL.send(
+                        net.minecraftforge.network.PacketDistributor.PLAYER.with(() -> sp),
+                        new com.evosim.mod.net.ScanPacket(aim.buildScanSnapshot(scanLevel)));
+            } else if (prev != null) {
+                LAST_SCAN.remove(sp.getUUID());
+                ModNetwork.CHANNEL.send(
+                        net.minecraftforge.network.PacketDistributor.PLAYER.with(() -> sp),
+                        new com.evosim.mod.net.ScanPacket(null));
+            }
+        }
+        // ── 거처 파티클(기존 그대로 — 거처 모드 한정) ──
+        if (ScannerMode.of(stack) != ScannerMode.HOME) {
             return;
         }
         if (level.getGameTime() % HOME_MARK_INTERVAL != 0

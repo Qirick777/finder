@@ -42,5 +42,10 @@ public final class ModNetwork {
                 StatsPacket::encode, StatsPacket::decode,
                 StatsPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        // 신규 패킷은 반드시 맨 끝에 추가 — 중간 삽입은 기존 id 를 밀어 클라·서버 불일치를 만든다.
+        CHANNEL.registerMessage(id++, ScanPacket.class,
+                ScanPacket::encode, ScanPacket::decode,
+                ScanPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 }

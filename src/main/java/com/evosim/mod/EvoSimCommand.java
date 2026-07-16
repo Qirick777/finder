@@ -109,6 +109,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("migx").executes(EvoSimCommand::stageMigX))
                 .then(Commands.literal("shieldx").executes(EvoSimCommand::stageShieldX))
                 .then(Commands.literal("berryx").executes(EvoSimCommand::stageBerryX))
+                .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -1948,6 +1949,103 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "베리 합본 검증(3단계) — 부트스트랩 2그루·정확 차감 / 3그루째 금지 / "
                 + "들풀 한 입 수율(H 정밀 판별). 결과값만 판정.");
+        return 1;
+    }
+
+    /**
+     * 렌즈 스냅샷(P1) 합본 검증 — ① 문턱 역산이 familyTick 판정식과 정확히 일치(번식·베리·개간
+     * 부족량 수치 판정) ② 행동 라벨이 실행 중 goal 을 실측 반영 ③ 인코드→디코드 왕복 무손실.
+     * 전부 서버측 결과값 판정 — 클라 없이(헤드리스) 완주 가능.
+     */
+    private static int stageScanX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 문턱 역산 정확성 — 부부·정원2·저장고8: 번식부족 4.0(=3+6+3−8) ·
+        //     베리부족 5.0(부트스트랩 소진: 6+6+1−8) · 개간부족 28.0(30+6−8) · 동기 ✓
+        {
+            BlockPos home = groundAt(level, b, -16, 24);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("scanx_thresholds",
+                    "snapshot lacks: repro 4.0, berry 5.0, farm 28.0, motive on, garden 2/8", 100, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level);
+                c[0].plantBerries(level, 2);
+                LarderStore.get(level).set(home, 8.0);
+            }, () -> {
+                var s = c[0].buildScanSnapshot(level);
+                return String.format("repro %.1f(exp 4.0) berry %.1f(exp 5.0) farm %.1f(exp 28.0) "
+                                + "motive %s garden %d/%d adults %d",
+                        s.reproLack, s.berryLack, s.farmLack, s.farmMotive ? "Y" : "N",
+                        s.garden, s.gardenCap, s.adults);
+            }, () -> {
+                var s = c[0].buildScanSnapshot(level);
+                return Math.abs(s.reproLack - 4.0F) < 1.0E-3
+                        && Math.abs(s.berryLack - 5.0F) < 1.0E-3
+                        && Math.abs(s.farmLack - 28.0F) < 1.0E-3
+                        && s.farmMotive && s.garden == 2 && s.gardenCap == 8 && s.adults == 2
+                        && Math.abs(s.larder - 8.0F) < 1.0E-3;
+            }, () -> {
+                c[0].debugClearBerries(level);
+                discardFamily(level, home, c);
+            }));
+        }
+        // [2] 행동 라벨 실측 — 노동 시간의 독신 남성: 실행 goal 이 채집으로 전환되는 순간을 스냅샷이 반영
+        {
+            BlockPos spot = groundAt(level, b, 16, 24);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("scanx_action",
+                    "snapshot action reflects running goal: becomes '채집'", 400, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(spot), Sex.MALE);
+                level.setDayTime(2000L);
+            }, () -> {
+                var s = c[0].buildScanSnapshot(level);
+                return String.format("action %s nav %s", s.action,
+                        s.hasNav ? s.navX + "," + s.navZ : "-");
+            }, () -> "채집".equals(c[0].buildScanSnapshot(level).action),
+                    () -> discard(c)));
+        }
+        // [3] 인코드→디코드 왕복 무손실 — [1]과 같은 조성으로 스냅샷을 버퍼 왕복시켜 필드 대조
+        {
+            BlockPos home = groundAt(level, b, 0, 52);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("scanx_roundtrip",
+                    "encode->decode keeps all judged fields identical", 100, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                LarderStore.get(level).set(home, 8.0);
+            }, () -> "roundtrip pending", () -> {
+                var s = c[0].buildScanSnapshot(level);
+                var buf = new net.minecraft.network.FriendlyByteBuf(
+                        io.netty.buffer.Unpooled.buffer());
+                s.encode(buf);
+                var d = com.evosim.mod.net.ScanSnapshot.decode(buf);
+                return d.entityId == s.entityId && d.serial == s.serial
+                        && d.female == s.female && d.stage == s.stage
+                        && Math.abs(d.holding - s.holding) < 1.0E-6
+                        && d.action.equals(s.action) && d.traits.equals(s.traits)
+                        && Math.abs(d.larder - s.larder) < 1.0E-6
+                        && Math.abs(d.reproLack - s.reproLack) < 1.0E-6
+                        && Math.abs(d.berryLack - s.berryLack) < 1.0E-6
+                        && Math.abs(d.farmLack - s.farmLack) < 1.0E-6
+                        && d.farmMotive == s.farmMotive && d.spouseId == s.spouseId
+                        && d.adults == s.adults && d.garden == s.garden;
+            }, () -> discardFamily(level, home, c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "렌즈 P1 합본 검증(3단계) — 문턱 역산 수치·행동 라벨 실측·패킷 왕복. "
+                + "전부 서버 결과값 판정.");
         return 1;
     }
 

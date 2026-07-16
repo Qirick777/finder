@@ -2310,6 +2310,167 @@ public class MimicEntity extends PathfinderMob {
         this.holding = h;
     }
 
+    /** 실행 중 최우선(낮은 번호) goal 의 한글 라벨 — 렌즈 카드 '행동' 라인(P1). 이동/전투류만. */
+    public String currentActionLabel() {
+        var best = this.goalSelector.getRunningGoals()
+                .filter(w -> !(w.getGoal() instanceof net.minecraft.world.entity.ai.goal.FloatGoal)
+                        && !(w.getGoal() instanceof net.minecraft.world.entity.ai.goal.LookAtPlayerGoal)
+                        && !(w.getGoal() instanceof net.minecraft.world.entity.ai.goal.RandomLookAroundGoal))
+                .min(java.util.Comparator.comparingInt(
+                        net.minecraft.world.entity.ai.goal.WrappedGoal::getPriority))
+                .orElse(null);
+        if (best == null) {
+            return "대기";
+        }
+        var g = best.getGoal();
+        if (g instanceof MimicBuildGoal) {
+            return "건축";
+        }
+        if (g instanceof MimicParentingGoal) {
+            return "육아";
+        }
+        if (g instanceof MimicCombatGoal) {
+            return "전투";
+        }
+        if (g instanceof MimicLeashGoal) {
+            return isCourtTravel() ? "구혼여행" : (hasVisitAnchor() ? "마실" : "복귀");
+        }
+        if (g instanceof MimicShareGoal) {
+            return "나눔";
+        }
+        if (g instanceof ElderVisitGoal) {
+            return "마실";
+        }
+        if (g instanceof MimicReturnGoal) {
+            return "귀가";
+        }
+        if (g instanceof MimicCourtshipGoal) {
+            return "구애";
+        }
+        if (g instanceof MimicHomeGoal) {
+            return "귀가";
+        }
+        if (g instanceof MimicRestGoal) {
+            return "취침";
+        }
+        if (g instanceof MimicFarmGoal) {
+            return "밭일";
+        }
+        if (g instanceof MimicForageGoal) {
+            return "채집";
+        }
+        return "배회";
+    }
+
+    /**
+     * 렌즈 스냅샷 조립 (P1) — 카드 표시용 전 필드. <b>읽기 전용</b>(어떤 상태도 바꾸지 않음).
+     * 문턱 계산은 familyTick 과 동일한 순수 함수·동일 기준(가장 = 혼인 링크 아버지)을 그대로 사용
+     * — 판정-코드 대칭. 부부가 아니면 번식 문턱은 -2(해당 없음), 정원 만원이면 베리 문턱 -1(완료).
+     */
+    public com.evosim.mod.net.ScanSnapshot buildScanSnapshot(ServerLevel sl) {
+        com.evosim.mod.net.ScanSnapshot s = new com.evosim.mod.net.ScanSnapshot();
+        s.entityId = getId();
+        s.serial = individual != null ? individual.id() : 0L;
+        s.female = isFemale();
+        s.stage = getStage().ordinal();
+        s.generation = individual != null ? individual.generation() : 0;
+        s.stageActor = stageActor;
+        s.holding = (float) holding;
+        s.health = getHealth();
+        s.maxHealth = getMaxHealth();
+        s.action = currentActionLabel();
+        BlockPos nav = getNavigation().isDone() ? null : getNavigation().getTargetPos();
+        s.hasNav = nav != null;
+        s.navX = nav != null ? nav.getX() : 0;
+        s.navZ = nav != null ? nav.getZ() : 0;
+        s.satisfied = satisfiedToday;
+        s.critical = isCritical();
+        s.building = building;
+        s.courtTravel = isCourtTravel();
+        s.tenantFarm = getTenantFarm();
+        if (individual != null) {
+            s.traits = traitStr(individual);
+            s.parenting = individual.parentingCare().label();
+            s.mateChoice = individual.mateChoice().label();
+        }
+        s.spouseId = spouseId;
+        // ── 가구 ──
+        List<MimicEntity> fam = householdMembers();
+        MimicEntity father = null;
+        MimicEntity mother = null;
+        for (MimicEntity m : fam) {
+            switch (m.getStage()) {
+                case ADULT -> s.adults++;
+                case BOY -> s.boys++;
+                case INFANT -> s.infants++;
+                case ELDER -> s.elders++;
+            }
+            if (m.getIndividual() != null && !m.isFemale() && hasWifeIn(fam, m)) {
+                father = m; // 가장 기준 — familyTick 의 동원·정원 투자 기준과 동일
+            }
+        }
+        if (father != null) {
+            long fid = father.getIndividual().id();
+            for (MimicEntity m : fam) {
+                if (m.isFemale() && m.getIndividual() != null && m.spouseId == fid) {
+                    mother = m;
+                    break;
+                }
+            }
+        }
+        double larder = homePos == null ? -1.0 : LarderStore.get(sl).get(homePos);
+        s.larder = (float) larder;
+        int bushes = homePos == null ? 0 : countBerries(sl);
+        s.garden = bushes;
+        s.gardenCap = BERRY_CAP;
+        long myId = individual != null ? individual.id() : 0L;
+        for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
+            if (p.ownerId == myId && myId != 0L) {
+                s.farmPlots++;
+                s.farmTiles += p.tiles.length;
+            }
+        }
+        // ── 문턱(familyTick 판정식 역산 — 저장고 부족량만 표시, 쿨다운·과밀 등 시간 게이트는 제외) ──
+        double need = cachedFamilyNeed;
+        if (homePos == null) {
+            s.reproNeed = -2;
+            s.reproLack = -2;
+            s.berryNeed = -2;
+            s.berryLack = -2;
+        } else {
+            if (father != null && mother != null) {
+                double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
+                        - Reproduction.BASE_THRESHOLD;
+                s.reproNeed = (float) (FoodEconomy.BIRTH_COST + need + (s.adults + 1) + adj);
+                s.reproLack = (float) Math.max(0.0, s.reproNeed - larder);
+            } else {
+                s.reproNeed = -2; // 부부 아님 — 번식 판정 자체가 없음
+                s.reproLack = -2;
+            }
+            if (bushes >= BERRY_CAP) {
+                s.berryNeed = -1; // 정원 완성
+                s.berryLack = -1;
+            } else {
+                Individual basis = father != null && father.getIndividual() != null
+                        ? father.getIndividual() : individual;
+                double cost = BerryEconomy.BUSH_COST * BerryEconomy.costMult(basis);
+                double reproReserve = FoodEconomy.BIRTH_COST + s.adults + 1;
+                double gate = bushes < BerryEconomy.BOOTSTRAP_BUSHES
+                        ? need + cost : need + reproReserve + cost;
+                s.berryNeed = (float) gate;
+                s.berryLack = (float) Math.max(0.0, gate - larder);
+            }
+        }
+        int owned = individual == null ? 0 : FarmStore.get(sl).ownedCount(individual.id());
+        double farmNeed = com.evosim.core.FarmEconomy.newFarmCost(owned)
+                + com.evosim.core.FarmEconomy.INVEST_RESERVE;
+        s.farmNeed = (float) farmNeed;
+        s.farmLack = homePos == null ? -2
+                : (float) Math.max(0.0, farmNeed - Math.max(0.0, larder));
+        s.farmMotive = individual != null && !satisfiedToday && !Satisfaction.neverExpands(individual);
+        return s;
+    }
+
     /** 점검용 — 즉시 '오래 외로움' 상태로: 다음 mateTick에서 구혼 여행이 바로 출발. /evosim suitor. */
     public void debugForceLonely() {
         // 뺄셈-음수 트릭 폐기(신생 월드 gameTime<72000 에서 음수→미설정 센티넬 충돌). 일회성 플래그로

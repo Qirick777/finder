@@ -1512,19 +1512,23 @@ public final class EvoTest {
     private static void berry(Report report) {
         // 잉여10·예비2·번식몫2.5 → 잔여5.5 → 5그루(넉넉할수록 여러 그루)
         boolean b1 = BerryEconomy.plant(10, 2, 2.5, 0, 8) == 5;
-        // 번식몫까지 빼면 부족: 잉여5 → 잔여0.5 → 0그루(번식이 우선)
-        boolean b2 = BerryEconomy.plant(5, 2, 2.5, 0, 8) == 0;
-        // 잉여6 → 잔여1.5 → 1그루
-        boolean b3 = BerryEconomy.plant(6, 2, 2.5, 0, 8) == 1;
-        // 상한: 잉여20·현재6·상한8 → 잔여15.5지만 자리 2 → 2그루
+        // 부트스트랩: 번식몫까지 빼면 0이지만 첫 2그루는 면제 — 잉여5·예비2 → 3 → 2그루
+        boolean b2 = BerryEconomy.plant(5, 2, 2.5, 0, 8) == 2;
+        // 부트스트랩 상한: 잉여6·예비2 → 4지만 첫 2그루까지만 면제 → 2그루(일반식 잔여1.5→1보다 큼)
+        boolean b3 = BerryEconomy.plant(6, 2, 2.5, 0, 8) == 2;
+        // 상한: 잉여20·현재6·상한8 → 잔여15.5지만 자리 2 → 2그루(부트스트랩 소진 — 일반식만)
         boolean b4 = BerryEconomy.plant(20, 2, 2.5, 6, 8) == 2;
         // 독신(번식몫0): 잉여3 → 잔여1 → 1그루
         boolean b5 = BerryEconomy.plant(3, 2, 0, 0, 8) == 1;
-        // 굶는 가정: 잉여1 → 잔여<0 → 0그루(아사·출산 지장 없음)
+        // 굶는 가정: 잉여1 → 예비도 못 채움 → 0그루(부트스트랩도 생존몫은 침범 불가)
         boolean b6 = BerryEconomy.plant(1, 2, 2.5, 0, 8) == 0;
+        // 실사례(부부 저장고 7.5·생존몫6·번식예비6): 종전 0 → 부트스트랩 1그루(순환 잠금 해소 지점)
+        boolean b7 = BerryEconomy.plant(7.5, 6, 6, 0, 8) == 1;
+        // 부트스트랩 소진 후엔 기존 게이트 그대로: 이미 2그루면 저장고 8로는 3그루째 불가
+        boolean b8 = BerryEconomy.plant(8, 6, 6, 2, 8) == 0;
 
-        boolean ok = b1 && b2 && b3 && b4 && b5 && b6;
-        report.add("berry/잉여배분", ok, "예비·번식 뺀 잔여로만 심기(넉넉할수록 여러 그루·상한)",
+        boolean ok = b1 && b2 && b3 && b4 && b5 && b6 && b7 && b8;
+        report.add("berry/잉여배분", ok, "생존몫 뒤 첫 2그루 부트스트랩(번식예비 면제) · 이후 잔여식·상한",
                 ok ? "정상" : "어긋남");
     }
 

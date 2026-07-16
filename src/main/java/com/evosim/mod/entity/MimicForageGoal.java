@@ -43,8 +43,11 @@ public class MimicForageGoal extends Goal {
     private static final int GATHER_COOLDOWN = 100;  // 채집 간 쿨타임(틱) — 즉각 완전소멸 방지
     private static final int ATTACK_COOLDOWN = 20;   // 타격 간격(틱)
     private static final double HUNT_FOOD = 1.5;     // 동물 1마리 = 이 × 사냥배율
-    private static final double GATHER_FOOD = 0.06;  // 채집물 1개 = 이 × 채집배율
-    private static final double BERRY_FOOD = 0.5;    // 다 익은 베리 1수확 = 이 × 채집배율
+    private static final double GATHER_FOOD = 0.08;  // 채집물 1개 = 이 × 채집배율. 0.06→0.08(+33%):
+    // 들풀-단독 지형 실측(부부 수입 3.1/일 vs 실효소모 2.9 → 잉여 +0.2)에서 잉여 +1.2/일로 —
+    // 저장고 12(번식 문턱) 도달 ~4일. 밭 우위(틱당 0.0037)는 2.5배로 유지(역전 없음). 사냥 불변.
+    private static final double BERRY_FOOD = 0.6;    // 다 익은 베리 1수확 = 이 × 채집배율. 0.5→0.6(+20%):
+    // 정원(부트스트랩 후 성장 엔진) 수익 보강 — 12 돌파 이후 개간 자본(30) 축적 가속.
     private static final double REACH = 1.9;         // 이 거리 안이면 채집(부수기) 가능
 
     private final MimicEntity mob;

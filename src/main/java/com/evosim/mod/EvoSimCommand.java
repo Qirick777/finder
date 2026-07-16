@@ -108,6 +108,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("eldercare").executes(EvoSimCommand::stageElderCare))
                 .then(Commands.literal("migx").executes(EvoSimCommand::stageMigX))
                 .then(Commands.literal("shieldx").executes(EvoSimCommand::stageShieldX))
+                .then(Commands.literal("berryx").executes(EvoSimCommand::stageBerryX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -1857,6 +1858,96 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "보호막 합본 검증(4단계) — 구제·해제 × 같은 자리 2회. 채집 차단(F-7)으로 "
                 + "자가구제 경주가 제거됐으면 전부 결정론 PASS 여야 함.");
+        return 1;
+    }
+
+    /**
+     * 베리 부트스트랩·수율 합본 검증 — ① 첫 2그루 부트스트랩(저장고 8→정확 6 차감·그루 2),
+     * ② 3그루째는 기존 게이트 유지(금지), ③ 들풀 한 입 수율 상향(단일 풀 → H 정확 상승 판별).
+     * 전부 결과값(그루 수·저장고 잔액·H)만 판정.
+     */
+    private static int stageBerryX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 부트스트랩 — 저장고 8(번식 문턱 12 미만)에서 정확히 2그루 + 비용 2 실차감(8→6).
+        //     출산(−3)·입출금(H1.5 밴드 내) 개입 불가 조성이라 저장고 델타가 베리 비용만 반영.
+        {
+            BlockPos home = groundAt(level, b, -16, -24);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("berryx_bootstrap",
+                    "larder 8: bootstrap plants exactly 2 bushes, larder 8 -> 6", 200, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level); // 같은 자리 재실행 잔재 제거
+                LarderStore.get(level).set(home, 8.0);
+                c[0].debugSettleOnce();
+            }, () -> String.format("bushes %d(expect 2) larder %.1f(expect 6.0)",
+                    c[0].countBerries(level), LarderStore.get(level).get(home)),
+                    () -> c[0].countBerries(level) == 2
+                            && Math.abs(LarderStore.get(level).get(home) - 6.0) < 1.0E-6,
+                    () -> {
+                        c[0].debugClearBerries(level);
+                        discardFamily(level, home, c);
+                    }));
+        }
+        // [2] 부트스트랩 소진 후 기존 게이트 — 이미 2그루·저장고 8이면 3그루째 금지(번식예비 우선 복원).
+        {
+            BlockPos home = groundAt(level, b, 16, -24);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("berryx_third_gated",
+                    "2 bushes present: larder 8 must NOT plant a 3rd (repro reserve restored)", 100, true, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level);
+                c[0].plantBerries(level, 2); // 부트스트랩 몫 소진 상태 조성
+                LarderStore.get(level).set(home, 8.0);
+                c[0].debugSettleOnce();
+            }, () -> String.format("bushes %d(must stay 2)", c[0].countBerries(level)),
+                    () -> c[0].countBerries(level) > 2, // ← 금지 결과
+                    () -> {
+                        c[0].debugClearBerries(level);
+                        discardFamily(level, home, c);
+                    }));
+        }
+        // [3] 들풀 수율 — 흙 패드 위 단일 풀 1포기(단일 수입원): 한 입 후 H가 1.62 이상이면 신수율
+        //     (0.08×배율≈+0.146)만 가능(구수율 최대 +0.11은 1.61 미만 — 판별 경계 1.62). 상한 1.75는
+        //     사냥 등 외부 수입 오염 차단. 패드 반경 동물 사전 제거.
+        {
+            BlockPos pad = groundAt(level, b, 22, -22);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("berryx_yield",
+                    "single grass bite: H 1.5 -> in [1.62, 1.75] (new yield only)", 400, false, () -> {
+                for (var a : level.getEntitiesOfClass(net.minecraft.world.entity.animal.Animal.class,
+                        new net.minecraft.world.phys.AABB(pad).inflate(28.0))) {
+                    a.discard(); // 사냥 수입 차단(판정 오염 방지)
+                }
+                for (int dx = -3; dx <= 3; dx++) {
+                    for (int dz = -3; dz <= 3; dz++) {
+                        level.setBlockAndUpdate(pad.offset(dx, -1, dz), Blocks.DIRT.defaultBlockState());
+                        level.setBlockAndUpdate(pad.offset(dx, 0, dz), Blocks.AIR.defaultBlockState());
+                    }
+                }
+                level.setBlockAndUpdate(pad, Blocks.GRASS.defaultBlockState()); // 유일한 수입원
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                level.setDayTime(2000L);
+            }, () -> String.format("H %.3f(start 1.5, expect >=1.62 after one bite)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.62 && c[0].getHolding() <= 1.75,
+                    () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "베리 합본 검증(3단계) — 부트스트랩 2그루·정확 차감 / 3그루째 금지 / "
+                + "들풀 한 입 수율(H 정밀 판별). 결과값만 판정.");
         return 1;
     }
 

@@ -253,7 +253,9 @@ public final class FarmTicker {
     private static void expireVacant(ServerLevel level) {
         FarmStore store = FarmStore.get(level);
         for (FarmStore.Plot p : new java.util.ArrayList<>(store.all().values())) {
-            if (p.ownerId == 0L && p.vacantSince >= 0
+            // 센티넬은 정확히 -1(무주 아님)만 — '>= 0' 이면 점검용 과거화(now − 60001)가 젊은 월드에서
+            // 음수가 될 때 만료 스캔이 영영 건너뛴다(음수-시각 계열). 실플레이 값은 항상 ≥0이라 무변화.
+            if (p.ownerId == 0L && p.vacantSince != -1L
                     && level.getGameTime() - p.vacantSince > com.evosim.core.FarmEconomy.VACANT_EXPIRE_TICKS) {
                 store.debugRemove(p.id); // 등록·타일 색인 소거(멱등 정리 경로 재사용)
             }

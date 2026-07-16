@@ -2144,7 +2144,10 @@ public class MimicEntity extends PathfinderMob {
      *  인솔 성년·노년이 하나도 없는 가구는 이주하지 않는다(아이들만의 캐러밴 좌초 방지). */
     private boolean shouldFamilyMigrate(List<MimicEntity> fam, double larder, double need) {
         long now = level().getGameTime();
-        long settled = 0L;
+        // 초기값 0 이면 점검용 과거화(settledTick = now − 쿨다운 − 1000)가 젊은 월드에서 음수가 됐을 때
+        // Math.max 가 0으로 클램프 → now − 0 < 쿨다운 → 이주 영구 차단(월드 나이 2일 미만). MIN_VALUE
+        // 초기화로 실값이 그대로 살게 한다(grown>0 보장 뒤에만 사용 — 실플레이 값은 항상 ≥0이라 무변화).
+        long settled = Long.MIN_VALUE;
         int grown = 0;
         List<Long> success = new ArrayList<>();
         for (MimicEntity m : fam) {

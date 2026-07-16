@@ -16,6 +16,7 @@ import java.util.EnumSet;
 public class MimicLeashGoal extends Goal {
 
     private static final double INNER_FRACTION = 0.6; // 이 비율 안으로 들어오면 리시 종료
+    private static final double CARAVAN_ARRIVE_SQ = 4.0; // 마실 도착 해제(2블록) — ElderVisit 도착(2.5) 안쪽
 
     private final MimicEntity mob;
 
@@ -45,6 +46,11 @@ public class MimicLeashGoal extends Goal {
         BlockPos anchor = mob.roamAnchor();
         if (anchor == null) {
             return false;
+        }
+        // 마실(visitAnchor)은 도착까지 끈다 — inner(60%)에서 놓으면 최종 접근을 이어받을 goal이 없어
+        // inner↔반경 사이를 왕복하며 배달 미완. 구혼여행은 구애 goal이 최종접근을 마무리하므로 제외.
+        if (mob.hasVisitAnchor() && !mob.isCourtTravel()) {
+            return mob.blockPosition().distSqr(anchor) > CARAVAN_ARRIVE_SQ;
         }
         double inner = mob.roamRadius() * INNER_FRACTION;
         return mob.blockPosition().distSqr(anchor) > inner * inner; // 60% 안까지 복귀해야 종료

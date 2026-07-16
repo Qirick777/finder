@@ -343,6 +343,11 @@ public class MimicEntity extends PathfinderMob {
         this.visitAnchor = pos;
     }
 
+    /** 마실 앵커가 걸려 있나 — 리시가 도착까지 끌지(true) inner 에서 놓을지(false, 일반) 구분용. */
+    public boolean hasVisitAnchor() {
+        return visitAnchor != null;
+    }
+
     /** 활동반경(블록) — 특성별 차등({@link Roaming}). 개체 없으면 기본값. */
     public double roamRadius() {
         return individual != null ? Roaming.radius(individual) : Roaming.BASE_RADIUS;

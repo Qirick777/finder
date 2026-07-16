@@ -47,6 +47,13 @@ public final class MimicClient {
     }
 
     @SubscribeEvent
+    public static void onRegisterOverlays(
+            net.minecraftforge.client.event.RegisterGuiOverlaysEvent event) {
+        // 렌즈 카드(P2) — 조준점 위에 그리도록 최상단 등록. 표시 전용(서버 배선 무관).
+        event.registerAboveAll("scan_lens", ScanHudOverlay.INSTANCE);
+    }
+
+    @SubscribeEvent
     public static void onRegisterLayers(EntityRenderersEvent.RegisterLayerDefinitions event) {
         event.registerLayerDefinition(MIMIC_WIDE_LAYER,
                 () -> LayerDefinition.create(PlayerModel.createMesh(CubeDeformation.NONE, false), 64, 64));

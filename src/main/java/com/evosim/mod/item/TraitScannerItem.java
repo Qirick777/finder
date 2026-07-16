@@ -115,6 +115,13 @@ public class TraitScannerItem extends Item {
             return InteractionResult.PASS;
         }
         if (player.level().isClientSide) {
+            // 평 우클릭 = 렌즈 카드 핀 토글(P4, 클라 표시 상태) — 서버 채팅 상세는 그대로 1회 출력
+            // (카드가 요약, 채팅이 심화 — 우성/흔적/반발 등 유전 상세는 채팅에만 있음).
+            if (!player.isShiftKeyDown()) {
+                net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
+                        net.minecraftforge.api.distmarker.Dist.CLIENT,
+                        () -> () -> com.evosim.mod.client.ClientScanCache.togglePin());
+            }
             return InteractionResult.SUCCESS;
         }
 

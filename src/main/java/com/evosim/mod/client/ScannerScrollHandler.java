@@ -24,12 +24,19 @@ public final class ScannerScrollHandler {
     @SubscribeEvent
     public static void onScroll(InputEvent.MouseScrollingEvent event) {
         LocalPlayer player = Minecraft.getInstance().player;
-        if (player == null || !player.isShiftKeyDown()) {
+        if (player == null) {
             return;
         }
         boolean holding = player.getMainHandItem().getItem() instanceof TraitScannerItem
                 || player.getOffhandItem().getItem() instanceof TraitScannerItem;
         if (!holding) {
+            return;
+        }
+        // 탭 전환 입력: 쉬프트+휠(기존) / Ctrl+휠(추가) / 핀 고정 중엔 휠 단독(핫바 잠금 —
+        // "검사 모드" 신호. 숫자키 슬롯 변경은 그대로). 그 외 휠은 바닐라 핫바.
+        boolean modifier = player.isShiftKeyDown()
+                || net.minecraft.client.gui.screens.Screen.hasControlDown();
+        if (!modifier && !ClientScanCache.isPinned()) {
             return;
         }
         double delta = event.getScrollDelta();

@@ -3246,9 +3246,29 @@ public final class EvoSimCommand {
     /** 지형 높이에 맞춘 무대 거처 좌표 — 단독 명령이 플레이어 발 Y를 그대로 써서 경사지에서
      *  천막이 공중/벽 속에 깔리던 것을 heightmap 으로 보정(위치 x/z 는 그대로 — 관찰성 유지). */
     private static BlockPos groundAt(ServerLevel level, Vec3 b, double dx, double dz) {
-        return level.getHeightmapPos(
+        return surface(level, level.getHeightmapPos(
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                BlockPos.containing(b.x + dx, 0, b.z + dz));
+                BlockPos.containing(b.x + dx, 0, b.z + dz)));
+    }
+
+    /**
+     * 스테이징 잔재 투과 지면 — heightmap 이 이전 런의 천막 지붕(양털)·울타리·모닥불·베리 위를 찍으면
+     * 그 아래 실지면까지 내려간다. 잔재 위 앵커는 지붕 스폰(낙사)·공중 목적지(경로 NULL)를 만들던
+     * "같은 자리 재실행" 오염의 근원(F-2). 형검사만 통과하므로 자연 지형엔 영향 없음.
+     */
+    private static BlockPos surface(ServerLevel level, BlockPos hm) {
+        BlockPos p = hm;
+        while (p.getY() > level.getMinBuildHeight() + 1) {
+            var below = level.getBlockState(p.below());
+            if (below.is(Blocks.WHITE_WOOL) || below.is(Blocks.OAK_FENCE)
+                    || below.is(Blocks.CAMPFIRE) || below.is(Blocks.SWEET_BERRY_BUSH)
+                    || below.isAir()) {
+                p = p.below();
+                continue;
+            }
+            break;
+        }
+        return p;
     }
 
     /** 지형 높이에 맞춘 검증 슬롯 좌표(슬롯당 z+64 — 인식·나눔 범위 밖으로 격리). */
@@ -3258,8 +3278,8 @@ public final class EvoSimCommand {
         // 아니라 getMinBuildHeight(기반암 레벨)를 돌려주므로(강제 로드 안 함) 먼 슬롯이 기반암에
         // 박히는 것을 막는다. 슬롯은 z+64×단계라 대부분 플레이어 로드 반경 밖(64단계=4096블록).
         level.getChunk(p.getX() >> 4, p.getZ() >> 4);
-        return level.getHeightmapPos(
-                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p);
+        return surface(level, level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p));
     }
 
     private static int infantsAt(ServerLevel level, BlockPos home) {
@@ -3289,6 +3309,14 @@ public final class EvoSimCommand {
                 new net.minecraft.world.phys.AABB(home).inflate(12.0))) {
             if (home.equals(e.getHomePos())) {
                 e.discard();
+            }
+        }
+        // 천막 블록 잔재 소거(F-2) — 개체만 지우면 천막이 같은 자리에 누적돼 다음 런의 heightmap 이
+        // 지붕을 찍는다(지붕 스폰 낙사·공중 앵커 경로 NULL). 무대용 자재만 형검사 소거라 지형 무해.
+        for (BlockPos p : BlockPos.betweenClosed(home.offset(-8, -6, -8), home.offset(8, 8, 8))) {
+            var st = level.getBlockState(p);
+            if (st.is(Blocks.WHITE_WOOL) || st.is(Blocks.OAK_FENCE) || st.is(Blocks.CAMPFIRE)) {
+                level.setBlockAndUpdate(p.immutable(), Blocks.AIR.defaultBlockState());
             }
         }
     }

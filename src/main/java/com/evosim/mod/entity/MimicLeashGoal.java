@@ -16,7 +16,9 @@ import java.util.EnumSet;
 public class MimicLeashGoal extends Goal {
 
     private static final double INNER_FRACTION = 0.6; // 이 비율 안으로 들어오면 리시 종료
-    private static final double CARAVAN_ARRIVE_SQ = 4.0; // 마실 도착 해제(2블록) — ElderVisit 도착(2.5) 안쪽
+    private static final double CARAVAN_ARRIVE_SQ = 25.0; // 마실 도착 해제(5블록) — ElderVisit 도착(5)과 일치.
+    // 천막 우회 네비 종점(실측 최대 4블록)보다 넓어야 함: 좁으면 해제 조건에 영영 못 닿아 리시가
+    // 노인을 마당에 무기한 붙잡는다(귀가·취침·채집 전부 차단 — 최악 시 아사).
 
     private final MimicEntity mob;
 

@@ -25,7 +25,8 @@ import java.util.Map;
  */
 public class ElderVisitGoal extends Goal {
 
-    private static final double ARRIVE_DIST_SQ = 6.25;  // 2.5블록 안 = 도착
+    private static final double ARRIVE_DIST_SQ = 25.0;  // 5블록 안 = 도착(마당) — 천막 우회 네비 종점
+                                                        // 실측 최대 4.0 + 여유 1.0(접근 방향 운 소거)
     private static final double SCAN_RANGE = 96.0;      // 자식 탐색 반경
     private static final int TARGET_REFRESH = 200;      // 대상 재탐색 주기(틱) — 스캔 비용 억제
     private static final int LOITER_TICKS = 600;        // 유아 곁 머묾(≈30초)

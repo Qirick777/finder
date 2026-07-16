@@ -47,5 +47,17 @@ public final class ModNetwork {
                 ScanPacket::encode, ScanPacket::decode,
                 ScanPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(id++, PinGlowPacket.class,
+                PinGlowPacket::encode, PinGlowPacket::decode,
+                PinGlowPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(id++, OpenTraitEditorPacket.class,
+                OpenTraitEditorPacket::encode, OpenTraitEditorPacket::decode,
+                OpenTraitEditorPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(id++, EditTraitPacket.class,
+                EditTraitPacket::encode, EditTraitPacket::decode,
+                EditTraitPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 }

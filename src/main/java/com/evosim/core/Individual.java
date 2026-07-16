@@ -86,6 +86,28 @@ public final class Individual {
         traits.get(ti.category()).add(ti);
     }
 
+    /** 특성 제거(편집기) — 동일 인스턴스(정체성 비교)만 제거. 성공 여부 반환. */
+    public boolean removeTrait(TraitInstance ti) {
+        return traits.get(ti.category()).remove(ti);
+    }
+
+    /**
+     * 특성 교체(편집기) — 우성 토글·등급 변경은 불변 {@link TraitInstance} 재생성으로 처리한다.
+     * 같은 특성(=같은 카테고리)끼리만 허용. 성공 여부 반환.
+     */
+    public boolean replaceTrait(TraitInstance oldTi, TraitInstance newTi) {
+        if (newTi.category() != oldTi.category()) {
+            return false;
+        }
+        List<TraitInstance> list = traits.get(oldTi.category());
+        int i = list.indexOf(oldTi);
+        if (i < 0) {
+            return false;
+        }
+        list.set(i, newTi);
+        return true;
+    }
+
     public int hungerCount() {
         return hungerCount;
     }

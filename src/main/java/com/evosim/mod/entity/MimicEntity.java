@@ -246,6 +246,15 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
+    /**
+     * 특성 변경 후 속성 재적용(편집봉 등) — 신체 등급·성별·단계 배수를 다시 계산. 종전엔 단계
+     * 성장·개체 부여 때만 내부 호출이라 외부에서 특성이 바뀌면 재적용 지점이 없었다(R-1 계열의
+     * 재적용 진입점 정식화).
+     */
+    public void refreshTraitAttributes() {
+        refreshStageAttributes();
+    }
+
     @Override
     protected void registerGoals() {
         // 하루 리듬(§16): 밤=귀가·취침, 낮=채집·구애. 우선순위 낮을수록 먼저 점유.

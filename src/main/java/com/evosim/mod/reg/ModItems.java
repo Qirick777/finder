@@ -26,6 +26,10 @@ public final class ModItems {
     public static final RegistryObject<Item> SIM_CLOCK = ITEMS.register("sim_clock",
             () -> new SimClockItem(new Item.Properties().stacksTo(1)));
 
+    /** 미믹 우클릭 → 특성 편집 화면(추가·삭제·우성·등급). */
+    public static final RegistryObject<Item> TRAIT_EDITOR = ITEMS.register("trait_editor",
+            () -> new com.evosim.mod.item.TraitEditorItem(new Item.Properties().stacksTo(1)));
+
     private ModItems() {
     }
 }

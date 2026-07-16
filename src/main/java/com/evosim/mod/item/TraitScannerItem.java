@@ -108,6 +108,23 @@ public class TraitScannerItem extends Item {
         }
     }
 
+    /** 허공·일반 블록 우클릭(UX-C) — 고정 중이면 대상 불문 해제(발광 포함). */
+    @Override
+    public net.minecraft.world.InteractionResultHolder<ItemStack> use(Level level, Player player,
+                                                                      InteractionHand hand) {
+        if (level.isClientSide && !player.isShiftKeyDown()) {
+            boolean[] released = {false};
+            net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
+                    net.minecraftforge.api.distmarker.Dist.CLIENT,
+                    () -> () -> released[0] = com.evosim.mod.client.ClientScanCache.unpin());
+            if (released[0]) {
+                return net.minecraft.world.InteractionResultHolder.success(
+                        player.getItemInHand(hand));
+            }
+        }
+        return net.minecraft.world.InteractionResultHolder.pass(player.getItemInHand(hand));
+    }
+
     @Override
     public InteractionResult interactLivingEntity(ItemStack stack, Player player,
                                                   LivingEntity target, InteractionHand hand) {
@@ -115,12 +132,16 @@ public class TraitScannerItem extends Item {
             return InteractionResult.PASS;
         }
         if (player.level().isClientSide) {
-            // 평 우클릭 = 렌즈 카드 핀 토글(P4, 클라 표시 상태) — 서버 채팅 상세는 그대로 1회 출력
-            // (카드가 요약, 채팅이 심화 — 우성/흔적/반발 등 유전 상세는 채팅에만 있음).
+            // 평 우클릭(UX-B/C): 고정 중이면 대상 불문 해제, 아니면 즉시 고정(신선도 조건 없음).
+            // 서버 채팅 상세는 그대로 1회 출력(카드가 요약, 채팅이 심화 — 우성/흔적/반발은 채팅에만).
             if (!player.isShiftKeyDown()) {
                 net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
                         net.minecraftforge.api.distmarker.Dist.CLIENT,
-                        () -> () -> com.evosim.mod.client.ClientScanCache.togglePin());
+                        () -> () -> {
+                            if (!com.evosim.mod.client.ClientScanCache.unpin()) {
+                                com.evosim.mod.client.ClientScanCache.pin();
+                            }
+                        });
             }
             return InteractionResult.SUCCESS;
         }

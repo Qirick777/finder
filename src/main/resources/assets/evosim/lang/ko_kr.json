@@ -3,5 +3,6 @@
     "item.evosim.trait_scanner": "미믹 특성 검사봉",
     "item.evosim.sim_clock": "생태 시계",
     "block.evosim.mimic_hearth": "거처 모닥불",
-    "entity.evosim.mimic": "미믹"
+    "entity.evosim.mimic": "미믹",
+    "item.evosim.trait_editor": "미믹 특성 편집봉"
 }

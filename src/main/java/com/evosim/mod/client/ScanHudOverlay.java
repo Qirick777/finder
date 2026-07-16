@@ -105,7 +105,8 @@ public final class ScanHudOverlay implements IGuiOverlay {
         int headerH = LINE * 2 + 9 + 7 + 3;       // 두 줄 + H바 + HP바
         int tabsH = 13;
         int cardH = PAD + headerH + 3 + bodyH[0] + 4 + tabsH + PAD;
-        y0 = sh / 2 - cardH / 2;
+        // 조준점 위 8px 상단 정렬(UX-A) — 세로 중앙 배치가 하단 채팅 확장 영역과 겹치던 문제.
+        y0 = Math.max(8, sh / 2 - cardH - 8);
 
         int a = (int) (alpha * 255);
         // ── 패널 ──

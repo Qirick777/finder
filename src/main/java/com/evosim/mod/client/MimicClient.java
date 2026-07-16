@@ -49,8 +49,11 @@ public final class MimicClient {
     @SubscribeEvent
     public static void onRegisterOverlays(
             net.minecraftforge.client.event.RegisterGuiOverlaysEvent event) {
-        // 렌즈 카드(P2) — 조준점 위에 그리도록 최상단 등록. 표시 전용(서버 배선 무관).
-        event.registerAboveAll("scan_lens", ScanHudOverlay.INSTANCE);
+        // 렌즈 카드(P2) — 채팅 패널 "아래" 레이어로 등록: 채팅(심화 기록)이 항상 카드(조준 요약)
+        // 위에 그려져 채팅 정보가 가려지지 않는다(UX-A). 표시 전용(서버 배선 무관).
+        event.registerBelow(
+                net.minecraftforge.client.gui.overlay.VanillaGuiOverlay.CHAT_PANEL.id(),
+                "scan_lens", ScanHudOverlay.INSTANCE);
     }
 
     @SubscribeEvent

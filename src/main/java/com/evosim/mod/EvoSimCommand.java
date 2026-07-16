@@ -111,6 +111,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("berryx").executes(EvoSimCommand::stageBerryX))
                 .then(Commands.literal("bandx").executes(EvoSimCommand::stageBandX))
                 .then(Commands.literal("elderx").executes(EvoSimCommand::stageElderX))
+                .then(Commands.literal("glowx").executes(EvoSimCommand::stageGlowX))
+                .then(Commands.literal("editx").executes(EvoSimCommand::stageEditX))
                 .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
@@ -1983,6 +1985,17 @@ public final class EvoSimCommand {
         }
     }
 
+    /** allTraits 순서에서 특성의 현재 인덱스(-1=없음) — 편집 연산 대상 지정용. */
+    private static int indexOf(MimicEntity m, Trait t) {
+        var all = m.getIndividual().allTraits();
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i).trait() == t) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     /** 패드 중앙 3×3 안 남은 풀 수(0~9). */
     private static int countGrass(ServerLevel level, BlockPos pad) {
         int n = 0;
@@ -2165,6 +2178,170 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "노년 쿼터 합본 검증(4단계) — 채집·밭 각각 [양성 대조 → 금지 감시] 짝. "
                 + "블록 상태(풀·익음 수)만 판정 — 무대가 죽으면 ctrl 이 먼저 실패한다.");
+        return 1;
+    }
+
+    /**
+     * 고정 발광 검증 (UX-D) — 서버 결과값(isCurrentlyGlowing)만 판정: ① 하트비트 on → 발광
+     * ② 하트비트 중단 → 유예(60틱) 뒤 자동 소등 ③ off 즉시 소등. 패킷 핸들러와 같은
+     * GlowKeeper.heartbeat 진입점을 직접 호출(판정-코드 대칭).
+     */
+    private static int stageGlowX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        BlockPos pad = groundAt(level, b, -36, 30);
+        // [1] on → 발광 시작
+        {
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("glowx_on",
+                    "heartbeat(on) -> entity glowing", 100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad), Sex.MALE);
+                c[0].setNoAi(true); // 이동 소음 제거 — 발광 상태만 본다
+                com.evosim.mod.entity.GlowKeeper.heartbeat(level, c[0].getId(), true);
+            }, () -> String.format("glowing=%s keeper=%d", c[0].isCurrentlyGlowing(),
+                    com.evosim.mod.entity.GlowKeeper.activeCount()),
+                    () -> c[0].isCurrentlyGlowing(),
+                    () -> discard(c)));
+        }
+        // [2] 하트비트 중단 → 유예 60틱 + 소거 주기(20틱) 안에 자동 소등
+        {
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("glowx_expire",
+                    "no heartbeat -> auto unglow within grace(60t)+sweep", 200, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(4, 0, 0)), Sex.MALE);
+                c[0].setNoAi(true);
+                com.evosim.mod.entity.GlowKeeper.heartbeat(level, c[0].getId(), true);
+            }, () -> String.format("glowing=%s(expect false after ~80t)", c[0].isCurrentlyGlowing()),
+                    () -> !c[0].isCurrentlyGlowing(),
+                    () -> discard(c)));
+        }
+        // [3] off → 즉시 소등
+        {
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("glowx_off",
+                    "heartbeat(off) -> unglow immediately", 100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(8, 0, 0)), Sex.MALE);
+                c[0].setNoAi(true);
+                com.evosim.mod.entity.GlowKeeper.heartbeat(level, c[0].getId(), true);
+                com.evosim.mod.entity.GlowKeeper.heartbeat(level, c[0].getId(), false);
+            }, () -> String.format("glowing=%s(expect false)", c[0].isCurrentlyGlowing()),
+                    () -> !c[0].isCurrentlyGlowing(),
+                    () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "발광 합본 검증(3단계) — 켜기/만료 자동 소등/즉시 소등. "
+                + "서버 결과값(isCurrentlyGlowing)만 판정.");
+        return 1;
+    }
+
+    /**
+     * 특성 편집 검증 — 패킷 핸들러와 같은 {@link com.evosim.mod.entity.TraitEditor#apply} 진입점.
+     * ① 약초학자Ⅴ+우성 주입 → 상태·<b>수확 델타 실측 변화</b>(잔존 채집 0.08×1.5×1.5=0.18/개)
+     * ② 슬롯 초과(성향 4번째)·중복 거부 ③ 우성 토글·등급 클램프·삭제 원복. 전부 서버 결과값.
+     */
+    private static int stageEditX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 주입 → 발현 배율 실변화: 정원 베리 한 수확 — 무특성 0.36(→1.86) vs
+        //     약초학자Ⅴ 주입 후 M(5)=1.30 → 0.468(→1.968). Ⅲ 취급 버그(0.383→1.883)도 대역 밖.
+        {
+            BlockPos pad = groundAt(level, b, -22, 58);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("editx_inject",
+                    "inject herbalist-V dominant: berry pick 0.36 -> 0.468 (H 1.5 -> [1.93, 1.99])",
+                    300, false, () -> {
+                berryPad(level, pad); // 익은 덤불 1 = 유일 수입원
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                String st = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.HERBALIST.ordinal(),
+                        0, 5, true);
+                SimEvents.note(level, "editx", "주입 상태: " + st);
+                level.setDayTime(2000L);
+            }, () -> String.format("H %.3f(start 1.5, expect 1.93~1.99) herbalist=%s dom=%s",
+                    c[0].getHolding(),
+                    com.evosim.core.ExpressionResolver.isExpressed(c[0].getIndividual(), Trait.HERBALIST),
+                    c[0].getIndividual().allTraits().stream()
+                            .filter(ti -> ti.trait() == Trait.HERBALIST)
+                            .anyMatch(TraitInstance::isDominant)),
+                    () -> c[0].getHolding() >= 1.93 && c[0].getHolding() <= 1.99
+                            && com.evosim.core.ExpressionResolver.isExpressed(c[0].getIndividual(), Trait.HERBALIST),
+                    () -> discard(c)));
+        }
+        // [2] 거부 규칙 — 성향 슬롯 3개 찬 상태에서 4번째 거부 + 같은 특성 중복 거부(결과: 목록 불변)
+        {
+            BlockPos pad = groundAt(level, b, 0, 58);
+            MimicEntity[] c = new MimicEntity[1];
+            String[] st = new String[2];
+            steps.add(new VerifySuite.Step("editx_reject",
+                    "4th disposition rejected + duplicate rejected (trait list unchanged)",
+                    100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad), Sex.MALE);
+                c[0].setNoAi(true);
+                // 무대 기본 특성에 명석(성향 슬롯 1 선점)이 있으므로 2개만 더 채우면 3/3.
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.DILIGENT.ordinal(), 0, 0, false);
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.FRUGAL.ordinal(), 0, 0, false);
+                st[0] = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.GREEDY.ordinal(), 0, 0, false);
+                st[1] = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.DILIGENT.ordinal(), 0, 0, false);
+            }, () -> String.format("disp=%d(expect 3) 4th='%s' dup='%s'",
+                    c[0].getIndividual().traitsIn(com.evosim.core.Category.DISPOSITION).size(),
+                    st[0], st[1]),
+                    () -> c[0].getIndividual().traitsIn(com.evosim.core.Category.DISPOSITION).size() == 3
+                            && st[0] != null && st[0].contains("초과")
+                            && st[1] != null && st[1].contains("이미"),
+                    () -> discard(c)));
+        }
+        // [3] 우성 토글·등급 클램프·삭제 원복 — 전부 setup 에서 실행하고 중간 결과를 캡처,
+        //     judge 는 캡처값 + 최종 상태만 읽는다(판정 중 상태 변이 금지).
+        {
+            BlockPos pad = groundAt(level, b, 22, 58);
+            MimicEntity[] c = new MimicEntity[1];
+            boolean[] mid = new boolean[3]; // [0]=우성됨 [1]=등급V 클램프 [2]=삭제 후 부재
+            steps.add(new VerifySuite.Step("editx_toggle_grade_remove",
+                    "dominant toggles, grade clamps at V, removal restores baseline",
+                    100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad), Sex.MALE);
+                c[0].setNoAi(true);
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.TOUGH.ordinal(), 0, 4, false);
+                int idx = indexOf(c[0], Trait.TOUGH);
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_TOGGLE_DOMINANT, 0, idx, 0, false);
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_GRADE_DELTA, 0, idx, 1, false); // 4→5
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_GRADE_DELTA, 0, idx, 1, false); // 5→5 클램프
+                var ti = c[0].getIndividual().allTraits().stream()
+                        .filter(x -> x.trait() == Trait.TOUGH).findFirst().orElse(null);
+                mid[0] = ti != null && ti.isDominant();
+                mid[1] = ti != null && ti.grade() == 5;
+                com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_REMOVE, 0, indexOf(c[0], Trait.TOUGH),
+                        0, false);
+                mid[2] = c[0].getIndividual().allTraits().stream()
+                        .noneMatch(x -> x.trait() == Trait.TOUGH);
+            }, () -> String.format("dom=%s clampV=%s removed=%s", mid[0], mid[1], mid[2]),
+                    () -> mid[0] && mid[1] && mid[2],
+                    () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "편집봉 합본 검증(3단계) — 주입 후 수확 델타 실측 / 슬롯·중복 거부 / "
+                + "우성·등급 클램프·삭제. 패킷과 같은 TraitEditor.apply 경유, 결과값만 판정.");
         return 1;
     }
 

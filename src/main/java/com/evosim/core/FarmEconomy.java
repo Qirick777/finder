@@ -33,11 +33,12 @@ public final class FarmEconomy {
     private FarmEconomy() {
     }
 
-    /** 대규모 경영 능력 — 채집·저장 계열 발현 능력 특성 1개 이상(성향만으로 대지주 불가). */
+    /** 대규모 경영에 요구하는 최소 능력 등급 — "능력 Ⅴ급 야망가 = 대지주" 서사(밴드 산출 ⑧). */
+    public static final int MANAGE_GRADE_MIN = 4;
+
+    /** 대규모 경영 능력 — 채집·저장 계열 발현 능력 특성이 등급 Ⅳ 이상(성향·저등급으로 대지주 불가). */
     public static boolean canManageLarge(Individual owner) {
-        var t = ExpressionResolver.expressedTraits(owner);
-        return t.contains(Trait.HERBALIST) || t.contains(Trait.GATHERER)
-                || t.contains(Trait.DEXTEROUS) || t.contains(Trait.COOK);
+        return Multipliers.manageAbilityGrade(owner) >= MANAGE_GRADE_MIN;
     }
 
     /** 이 주인이 키울 수 있는 밭 규모 상한 — 능력 보유면 무제한, 아니면 SKILL_GATE_TILES. */

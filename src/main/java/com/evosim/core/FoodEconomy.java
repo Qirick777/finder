@@ -171,7 +171,9 @@ public final class FoodEconomy {
         if (t.contains(Trait.FRAIL)) m *= 0.95;               // 빈약 — 작은 몸
         if (t.contains(Trait.SICKLY)) m *= 0.9;               // 병약 — 낮은 대사(페널티 최대라 보상도 최대)
         if (t.contains(Trait.LUXURIOUS)) m *= 1.3;            // 사치 — 낭비(만족 기준 자동 상승 ↔ 과시 매력)
-        if (t.contains(Trait.FRUGAL)) m *= 0.9;               // 검소 — 아껴 씀(일찍 만족)
+        if (t.contains(Trait.FRUGAL)) m *= 0.95;              // 검소 — 아껴 씀. 0.9→0.95(산출 ⑦):
+        // 0.9면 검소 부부 잉여 0.905/일 → 자식 4명(능력 없이 능력 밴드 도달). 0.95 = 부부 소모
+        // 3.04 → 잉여 0.745 → 3명(보정값 계층)으로 정렬.
         return m;
     }
 

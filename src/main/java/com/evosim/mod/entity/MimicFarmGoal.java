@@ -50,6 +50,12 @@ public class MimicFarmGoal extends Goal {
         if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
             return false; // 전담창 소진 — 나머지 시간은 기존 채집/배회
         }
+        if (mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
+            // 노년 노동의 단일 상한 = 쿼터(노년 확장 산출 ㉵) — 밭 수확도 addHarvest 로 dayGathered 에
+            // 누적되므로 여기서 막지 않으면 용량(6타일=4.5/일)까지 뚫려 자식 지원 누수가 재발한다.
+            // 잔여 익은 타일은 부족분 게시 → 소작(2세대 일자리)으로 자연 이관.
+            return false;
+        }
         if (mob.isSatisfiedToday() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
             return false; // 만족(M7) — 자기 밭 노동 정지. 소작 출근(배정)은 계약 의무라 유지
         }

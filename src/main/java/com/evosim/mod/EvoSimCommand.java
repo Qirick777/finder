@@ -109,6 +109,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("migx").executes(EvoSimCommand::stageMigX))
                 .then(Commands.literal("shieldx").executes(EvoSimCommand::stageShieldX))
                 .then(Commands.literal("berryx").executes(EvoSimCommand::stageBerryX))
+                .then(Commands.literal("bandx").executes(EvoSimCommand::stageBandX))
+                .then(Commands.literal("elderx").executes(EvoSimCommand::stageElderX))
                 .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
@@ -1168,7 +1170,9 @@ public final class EvoSimCommand {
         ind.addTrait(TraitInstance.of(Trait.BRIGHT));
         ind.addTrait(TraitInstance.of(Trait.NIMBLE));
         for (Trait t : extra) {
-            ind.addTrait(TraitInstance.of(t));
+            // 무대 개체의 등급 특성(능력 포함)은 Ⅴ 고정 — 손계산 기대값이 만액(종전 수치) 기준이고,
+            // 능력 게이트(경영 Ⅳ+)·등급 배율이 무등급(Ⅲ 취급)에 걸려 무대가 틀어지는 것을 막는다.
+            ind.addTrait(t.isGraded() ? TraitInstance.graded(t, 5) : TraitInstance.of(t));
         }
         e.setIndividual(ind);
         e.setStage(LifeStage.ADULT);
@@ -1949,6 +1953,218 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "베리 합본 검증(3단계) — 부트스트랩 2그루·정확 차감 / 3그루째 금지 / "
                 + "들풀 한 입 수율(H 정밀 판별). 결과값만 판정.");
+        return 1;
+    }
+
+    /** 검증용 익은 베리 패드 — 흙 25×25 + 풀 제거 + 동물 제거(사냥·풀 수입 오염 차단), 중앙에 익은 덤불 1.
+     *  반경 ±12: 탐색(±5) + 배회 표류(8)를 덮어 패드 표적이 <b>유일한</b> 채집물이 되게 한다 —
+     *  자연 풀이 있는 지형에서 개체가 다른 풀로 새면 판정이 무대 밖 환경에 좌우된다. */
+    private static void berryPad(ServerLevel level, BlockPos pad) {
+        for (var a : level.getEntitiesOfClass(net.minecraft.world.entity.animal.Animal.class,
+                new net.minecraft.world.phys.AABB(pad).inflate(28.0))) {
+            a.discard();
+        }
+        for (int dx = -12; dx <= 12; dx++) {
+            for (int dz = -12; dz <= 12; dz++) {
+                level.setBlockAndUpdate(pad.offset(dx, -1, dz), Blocks.DIRT.defaultBlockState());
+                level.setBlockAndUpdate(pad.offset(dx, 0, dz), Blocks.AIR.defaultBlockState());
+            }
+        }
+        level.setBlockAndUpdate(pad, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                .setValue(SweetBerryBushBlock.AGE, 3)); // 유일한 수입원(익음)
+    }
+
+    /** 패드 중앙 3×3 풀 무리 — 단일 포기의 표본 탐색 플레이크 방지(노년 쿼터 무대). */
+    private static void grassCluster(ServerLevel level, BlockPos pad) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                level.setBlockAndUpdate(pad.offset(dx, 0, dz), Blocks.GRASS.defaultBlockState());
+            }
+        }
+    }
+
+    /** 패드 중앙 3×3 안 남은 풀 수(0~9). */
+    private static int countGrass(ServerLevel level, BlockPos pad) {
+        int n = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (level.getBlockState(pad.offset(dx, 0, dz)).is(Blocks.GRASS)) {
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 밴드 산출 검증 — 정원 수확의 성중립 + 능력 등급 배율 M(g)를 H 정밀 대역으로 판정.
+     * ① 남성 한 수확: Δ=0.36(구식이면 0.90→상한 2.0 컷) ② 여성 한 수확: 같은 대역(구식이면 0.30)
+     * ③ 약초학자Ⅴ 한 수확: Δ=0.36×1.30=0.468(등급 미적용이면 0.383/0.36). 전부 결과값(H)만 판정.
+     */
+    private static int stageBandX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 남성 수확 — H 1.5 → 1.86(−이동소모 ≤0.04). 구식 남성(+0.90)은 무주택 상한 2.0 컷으로 대역 밖.
+        {
+            BlockPos pad = groundAt(level, b, -22, 30);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("bandx_neutral_m",
+                    "male berry pick: H 1.5 -> [1.82, 1.93] (delta 0.36, old formula 2.0-cut rejected)",
+                    300, false, () -> {
+                berryPad(level, pad);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                level.setDayTime(2000L);
+            }, () -> String.format("H %.3f(start 1.5, expect 1.82~1.93)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.82 && c[0].getHolding() <= 1.93,
+                    () -> discard(c)));
+        }
+        // [2] 여성 수확 — 같은 대역이면 성중립 입증. 구식 여성(+0.30 → ≤1.80)은 하한 1.82 밖.
+        {
+            BlockPos pad = groundAt(level, b, 0, 30);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("bandx_neutral_f",
+                    "female berry pick: same band [1.82, 1.93] (old female +0.30 rejected)",
+                    300, false, () -> {
+                berryPad(level, pad);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.FEMALE);
+                level.setDayTime(2000L);
+            }, () -> String.format("H %.3f(start 1.5, expect 1.82~1.93)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.82 && c[0].getHolding() <= 1.93,
+                    () -> discard(c)));
+        }
+        // [3] 약초학자Ⅴ 수확 — H 1.0 → 1.468. 등급 배율 누락(Ⅲ 취급 1.383 / 무배율 1.36)은 하한 1.42 밖,
+        //     구식(×성별×채집특성 = +1.35 → 2.0 컷)은 상한 1.50 밖.
+        {
+            BlockPos pad = groundAt(level, b, 22, 30);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("bandx_grade",
+                    "herbalist-V pick: H 1.0 -> [1.42, 1.50] (M(5)=1.30, delta 0.468)",
+                    300, false, () -> {
+                berryPad(level, pad);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE,
+                        Trait.HERBALIST); // 무대 등급 Ⅴ 고정(spawnAdult)
+                c[0].debugSetHolding(1.0);
+                level.setDayTime(2000L);
+            }, () -> String.format("H %.3f(start 1.0, expect 1.42~1.50)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.42 && c[0].getHolding() <= 1.50,
+                    () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "밴드 합본 검증(3단계) — 정원 성중립(남=여=+0.36) / 능력 등급 M(Ⅴ)=1.30. "
+                + "H 정밀 대역만 판정(구식·등급누락 전부 대역 밖).");
+        return 1;
+    }
+
+    /**
+     * 노년 쿼터 검증 — 채집·밭 노동이 쿼터(하루소모×0.5=1.0)에서 실제로 멈추는지. 각 항목은
+     * 양성 대조(ctrl: 쿼터 미달 → 일함)와 금지 감시(quota: 쿼터 충족 → 일 안 함) 짝으로,
+     * 무대 자체가 죽어 있으면 ctrl 이 먼저 실패해 가짜 PASS 를 차단한다. 판정은 블록 상태만.
+     */
+    private static int stageElderX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 양성 대조 — 쿼터 미달(오늘 0 채집) 노인은 노동 시간에 풀을 채집한다(풀 감소 = 무대 유효).
+        //     풀 1포기는 무작위 표본 탐색(24표본/틱)이 놓쳐 플레이크 — 3×3 무리로 명중률을 올린다.
+        {
+            BlockPos pad = groundAt(level, b, -22, 44);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("elderx_forage_ctrl",
+                    "elder below quota gathers: 3x3 grass must shrink (stage validity)", 600, false, () -> {
+                berryPad(level, pad); // 패드 조성(동물 제거) 재사용
+                grassCluster(level, pad); // 덤불 대신 3×3 풀 무리
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                c[0].setStage(LifeStage.ELDER);
+                level.setDayTime(2000L); // 노년 노동창(1000~6000) 안
+            }, () -> String.format("grass %d/9(expect <9) H %.2f act=%s quotaMet=%s nav=%s pos=%s forage[%s]",
+                    countGrass(level, pad), c[0].getHolding(),
+                    c[0].currentActionLabel(), c[0].elderQuotaMet(),
+                    c[0].getNavigation().isDone() ? "done"
+                            : String.valueOf(c[0].getNavigation().getTargetPos()),
+                    c[0].blockPosition().toShortString(), c[0].forageDebug()),
+                    () -> countGrass(level, pad) < 9,
+                    () -> discard(c)));
+        }
+        // [2] 금지 감시 — 오늘 1.2 채집(쿼터 1.0 충족, 구쿼터 2.0 미달)한 노인은 채집하지 않는다.
+        //     구식이면 1.2 < 2.0 → 풀 감소 → forbidden 실패. 신식이면 600틱 무사 경과.
+        {
+            BlockPos pad = groundAt(level, b, 0, 44);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("elderx_forage_quota",
+                    "elder at quota (1.2 >= 1.0) must NOT gather: 3x3 grass stays (old quota 2.0 would)",
+                    600, true, () -> {
+                berryPad(level, pad);
+                grassCluster(level, pad);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                c[0].setStage(LifeStage.ELDER);
+                c[0].addHarvest(1.2);        // 오늘 몫 채움(dayGathered=1.2) — 쿼터 판정 근거
+                c[0].debugSetHolding(1.5);   // H 정규화(위급·상한 소음 제거)
+                level.setDayTime(2000L);
+            }, () -> String.format("grass %d/9(must stay 9) H %.2f",
+                    countGrass(level, pad), c[0].getHolding()),
+                    () -> countGrass(level, pad) < 9, // ← 금지 결과(채집 발생)
+                    () -> discard(c)));
+        }
+        // [3] 양성 대조 — 쿼터 미달 노인 지주는 자기 밭을 수확한다(익음 9→8↓ = 무대 유효).
+        {
+            BlockPos anchor = groundAt(level, b, 26, 44);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("elderx_farm_ctrl",
+                    "elder owner below quota harvests own farm: ripe 9 -> <9", 500, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(anchor.offset(-3, 0, 0)), Sex.MALE);
+                c[0].setStage(LifeStage.ELDER);
+                pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 9);
+                level.setDayTime(2000L);
+            }, () -> String.format("ripe %d(expect <9) H %.2f", countRipe(level, pl[0]), c[0].getHolding()),
+                    () -> countRipe(level, pl[0]) < 9,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [4] 금지 감시 — 쿼터 충족 노인 지주는 밭도 멈춘다(㉵: 밭 goal 쿼터 게이트).
+        //     구식(게이트 없음)이면 용량(6타일)까지 수확 → 익음 감소 → forbidden 실패.
+        {
+            BlockPos anchor = groundAt(level, b, 52, 44);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("elderx_farm_quota",
+                    "elder owner at quota must NOT harvest: ripe stays 9 (old code would harvest)",
+                    500, true, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(anchor.offset(-3, 0, 0)), Sex.MALE);
+                c[0].setStage(LifeStage.ELDER);
+                c[0].addHarvest(1.2);
+                c[0].debugSetHolding(1.5);
+                pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 9);
+                level.setDayTime(2000L);
+            }, () -> String.format("ripe %d(must stay 9) H %.2f", countRipe(level, pl[0]), c[0].getHolding()),
+                    () -> countRipe(level, pl[0]) < 9, // ← 금지 결과(수확 발생)
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "노년 쿼터 합본 검증(4단계) — 채집·밭 각각 [양성 대조 → 금지 감시] 짝. "
+                + "블록 상태(풀·익음 수)만 판정 — 무대가 죽으면 ctrl 이 먼저 실패한다.");
         return 1;
     }
 
@@ -3691,6 +3907,10 @@ public final class EvoSimCommand {
             var below = level.getBlockState(p.below());
             if (below.is(Blocks.WHITE_WOOL) || below.is(Blocks.OAK_FENCE)
                     || below.is(Blocks.CAMPFIRE) || below.is(Blocks.SWEET_BERRY_BUSH)
+                    // 나무도 지면이 아니다 — 밑동 잘린 공중 원목·캐노피 위를 heightmap 이 찍으면
+                    // 무대가 하늘에 조성돼(개체 y+39 등) 간헐 실패를 만든다(F-2 확장, elderx 실측).
+                    || below.is(net.minecraft.tags.BlockTags.LOGS)
+                    || below.is(net.minecraft.tags.BlockTags.LEAVES)
                     || below.isAir()) {
                 p = p.below();
                 continue;

@@ -143,9 +143,9 @@ public enum Trait {
         return axis;
     }
 
-    /** 이 특성이 강도 등급(I~V)을 갖는가 — 신체 스탯 전부·그 등급 선호. */
+    /** 이 특성이 강도 등급(I~V)을 갖는가 — 신체 스탯·그 등급 선호 + 능력 특성(밴드 산출 문서 ④). */
     public boolean isGraded() {
-        return GRADED_AXES.contains(axis);
+        return GRADED_AXES.contains(axis) || ABILITY_AXES.contains(axis);
     }
 
     /** 능력 특성인가 — 성향 슬롯을 공유하는 배율 특성(획득 계열·언변). */

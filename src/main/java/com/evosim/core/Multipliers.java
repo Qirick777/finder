@@ -16,47 +16,85 @@ public final class Multipliers {
     private Multipliers() {
     }
 
-    /** 채집 배율 (설계서 §15). */
+    /** 채집 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤). */
     public static double gather(Individual ind) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double m = 1.0;
-        if (t.contains(Trait.HERBALIST)) m += 0.5;        // 약초학자 ×1.5
-        if (t.contains(Trait.PLANT_CONFUSED)) m -= 0.5;   // 식물혼동 ×0.5
-        if (t.contains(Trait.DEXTEROUS)) m += 0.2;        // 손재주(전체)
-        if (t.contains(Trait.CLUMSY)) m -= 0.2;           // 곰손(전체)
-        if (t.contains(Trait.HERBIVORE)) m += 0.2;        // 채식 채집↑
-        if (t.contains(Trait.CARNIVORE)) m -= 0.3;        // 육식 채집↓
-        if (t.contains(Trait.BRIGHT)) m += 0.2;           // 명석 자원↑
-        if (t.contains(Trait.DULL)) m -= 0.2;             // 멍청 자원↓
-        if (t.contains(Trait.PRUDENT)) m += 0.1;          // 신중 자원×1.1
-        if (t.contains(Trait.RECKLESS)) m -= 0.1;         // 무모 자원×0.9
-        if (t.contains(Trait.GATHERER)) m += 0.3;         // 채집꾼 채집사거리↑
-        if (t.contains(Trait.HUNTER)) m -= 0.1;           // 사냥꾼 채집딜레이
-        if (t.contains(Trait.BASIC_EDUCATION)) m += 0.1;  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
-        if (t.contains(Trait.INARTICULATE)) m += 0.1;     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        m += scaled(ind, t, Trait.HERBALIST, 0.5);        // 약초학자 Ⅴ=×1.5
+        m += scaled(ind, t, Trait.PLANT_CONFUSED, -0.5);  // 식물혼동 Ⅴ=×0.5
+        m += scaled(ind, t, Trait.DEXTEROUS, 0.2);        // 손재주(전체)
+        m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
+        m += scaled(ind, t, Trait.HERBIVORE, 0.2);        // 채식 채집↑
+        m += scaled(ind, t, Trait.CARNIVORE, -0.3);       // 육식 채집↓
+        m += scaled(ind, t, Trait.BRIGHT, 0.2);           // 명석 자원↑ (무등급 축 — 그대로)
+        m += scaled(ind, t, Trait.DULL, -0.2);            // 멍청 자원↓
+        m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
+        m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
+        m += scaled(ind, t, Trait.GATHERER, 0.3);         // 채집꾼 채집사거리↑
+        m += scaled(ind, t, Trait.HUNTER, -0.1);          // 사냥꾼 채집딜레이
+        m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
+        m += scaled(ind, t, Trait.INARTICULATE, 0.1);     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
         return Math.max(0.0, m);
     }
 
-    /** 사냥 배율 (설계서 §15). */
+    /** 사냥 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤). */
     public static double hunt(Individual ind) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double m = 1.0;
-        if (t.contains(Trait.BUTCHER)) m += 0.5;          // 도축업자 ×1.5
-        if (t.contains(Trait.BLOOD_FEARFUL)) m -= 0.5;    // 피공포 ×0.5
-        if (t.contains(Trait.DEXTEROUS)) m += 0.2;        // 손재주(전체)
-        if (t.contains(Trait.CLUMSY)) m -= 0.2;           // 곰손(전체)
-        if (t.contains(Trait.CARNIVORE)) m += 0.2;        // 육식 사냥↑
-        if (t.contains(Trait.HERBIVORE)) m -= 0.3;        // 채식 사냥↓
-        if (t.contains(Trait.BRIGHT)) m += 0.2;           // 명석 자원↑
-        if (t.contains(Trait.DULL)) m -= 0.2;             // 멍청 자원↓
-        if (t.contains(Trait.PRUDENT)) m += 0.1;          // 신중 자원×1.1
-        if (t.contains(Trait.RECKLESS)) m -= 0.1;         // 무모 자원×0.9
-        if (t.contains(Trait.HUNTER)) m += 0.3;           // 사냥꾼 동물데미지↑
-        if (t.contains(Trait.GATHERER)) m -= 0.3;         // 채집꾼 데미지↓
-        if (t.contains(Trait.COMPETITIVE)) m += 0.2;      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
-        if (t.contains(Trait.BASIC_EDUCATION)) m += 0.1;  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
-        if (t.contains(Trait.INARTICULATE)) m += 0.1;     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        m += scaled(ind, t, Trait.BUTCHER, 0.5);          // 도축업자 Ⅴ=×1.5
+        m += scaled(ind, t, Trait.BLOOD_FEARFUL, -0.5);   // 피공포 Ⅴ=×0.5
+        m += scaled(ind, t, Trait.DEXTEROUS, 0.2);        // 손재주(전체)
+        m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
+        m += scaled(ind, t, Trait.CARNIVORE, 0.2);        // 육식 사냥↑
+        m += scaled(ind, t, Trait.HERBIVORE, -0.3);       // 채식 사냥↓
+        m += scaled(ind, t, Trait.BRIGHT, 0.2);           // 명석 자원↑ (무등급 축 — 그대로)
+        m += scaled(ind, t, Trait.DULL, -0.2);            // 멍청 자원↓
+        m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
+        m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
+        m += scaled(ind, t, Trait.HUNTER, 0.3);           // 사냥꾼 동물데미지↑
+        m += scaled(ind, t, Trait.GATHERER, -0.3);        // 채집꾼 데미지↓
+        m += scaled(ind, t, Trait.COMPETITIVE, 0.2);      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
+        m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
+        m += scaled(ind, t, Trait.INARTICULATE, 0.1);     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
         return Math.max(0.0, m);
+    }
+
+    /** 특성 보너스 한 항 — 능력 축이면 등급 비례(×g/5), 무등급 축(성향·지능 등)이면 만액 그대로. */
+    private static double scaled(Individual ind, Set<Trait> t, Trait trait, double atV) {
+        if (!t.contains(trait)) {
+            return 0.0;
+        }
+        return trait.isAbility() ? atV * abilityGrade(ind, trait) / 5.0 : atV;
+    }
+
+    /** 능력 특성의 실효 등급(1~5) — 무등급 인스턴스(구 세이브·수동 생성)는 중앙 Ⅲ 취급. 미발현 0. */
+    public static int abilityGrade(Individual ind, Trait trait) {
+        int g = ExpressionResolver.expressedGrade(ind, trait);
+        if (g == 0 && ExpressionResolver.isExpressed(ind, trait)) {
+            g = 3;
+        }
+        return g;
+    }
+
+    /** 관리 능력 4종(약초학자·채집꾼·손재주·요리사 — canManageLarge 와 동일 집합)의 최고 실효 등급. */
+    public static int manageAbilityGrade(Individual ind) {
+        int best = 0;
+        best = Math.max(best, abilityGrade(ind, Trait.HERBALIST));
+        best = Math.max(best, abilityGrade(ind, Trait.GATHERER));
+        best = Math.max(best, abilityGrade(ind, Trait.DEXTEROUS));
+        best = Math.max(best, abilityGrade(ind, Trait.COOK));
+        return best;
+    }
+
+    /**
+     * 정원(옆 베리) 수확 배율 M(g) = 1 + 0.30×(g/5)³ — 관리 능력 최고 등급 기준(무능력 g=0 → 1.0).
+     * <b>성중립·채집특성 무관</b>: 성별 곱(±3배 분산)이 밴드 간격(5~15%)을 압도해 정원에서는 제거
+     * (밴드 산출 문서 ②③ — 역산: m = (M(Ⅳ)−1)/0.8³ = 0.151/0.512 ≈ 0.30).
+     * Ⅰ 1.002 / Ⅱ 1.019 / Ⅲ 1.065 / Ⅳ 1.154 / Ⅴ 1.30.
+     */
+    public static double gardenAbility(Individual ind) {
+        double r = manageAbilityGrade(ind) / 5.0;
+        return 1.0 + 0.30 * r * r * r;
     }
 
     /** 동물 탐지거리 배율 — 식물혼동은 식물 대신 동물에 눈이 감(+50%, 채집 ×0.5의 반대급부). */

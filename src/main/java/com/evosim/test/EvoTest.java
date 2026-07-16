@@ -423,21 +423,51 @@ public final class EvoTest {
     // /evotest multiplier — 배율/매력 손계산 대조 (설계서 Phase 1 ①, §15)
     // ──────────────────────────────────────────────────────────────
     private static void multiplier(Report report) {
-        // 1) 채집: 약초학자(+0.5) + 손재주(+0.2) = 1.7
+        // 1) 채집: 약초학자Ⅴ(+0.5) + 손재주Ⅴ(+0.2) = 1.7 (능력 축은 등급 비례 — Ⅴ=만액)
         Individual g = one(Sex.MALE,
-                TraitInstance.of(Trait.HERBALIST), TraitInstance.of(Trait.DEXTEROUS));
+                TraitInstance.graded(Trait.HERBALIST, 5), TraitInstance.graded(Trait.DEXTEROUS, 5));
         checkNum(report, "multiplier/채집", 1.7, Multipliers.gather(g),
-                "약초학자+손재주 = 1.0+0.5+0.2");
+                "약초학자Ⅴ+손재주Ⅴ = 1.0+0.5+0.2");
 
-        // 2) 채집: 식물혼동(-0.5) = 0.5
-        Individual g2 = one(Sex.MALE, TraitInstance.of(Trait.PLANT_CONFUSED));
-        checkNum(report, "multiplier/채집저하", 0.5, Multipliers.gather(g2), "식물혼동 = 1.0-0.5");
+        // 2) 채집: 식물혼동Ⅴ(-0.5) = 0.5
+        Individual g2 = one(Sex.MALE, TraitInstance.graded(Trait.PLANT_CONFUSED, 5));
+        checkNum(report, "multiplier/채집저하", 0.5, Multipliers.gather(g2), "식물혼동Ⅴ = 1.0-0.5");
 
-        // 3) 사냥: 도축업자(+0.5) + 육식(+0.2) = 1.7 / 그 개체 채집 = 육식(-0.3) = 0.7
+        // 2b) 등급 스케일(밴드 산출 ⑤): Ⅲ = 0.5×0.6, Ⅰ = 0.5×0.2, 무등급 인스턴스 = Ⅲ 취급(구 세이브 호환)
+        checkNum(report, "multiplier/등급Ⅲ", 1.3,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3))),
+                "약초학자Ⅲ = 1.0+0.5×3/5");
+        checkNum(report, "multiplier/등급Ⅰ", 1.1,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))),
+                "약초학자Ⅰ = 1.0+0.5×1/5");
+        checkNum(report, "multiplier/무등급호환", 1.3,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))),
+                "무등급 능력 = Ⅲ 취급(1.3)");
+
+        // 2c) 정원 배율 M(g) = 1 + 0.30×(g/5)³ — 성중립(성별 무관), 무능력 1.0 (밴드 산출 ㉯)
+        boolean mg = close(Multipliers.gardenAbility(one(Sex.MALE)), 1.0)
+                && close(Multipliers.gardenAbility(
+                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.30)
+                && close(Multipliers.gardenAbility(
+                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.1536)
+                && close(Multipliers.gardenAbility(
+                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.0648)
+                && close(Multipliers.gardenAbility(
+                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.0192)
+                && close(Multipliers.gardenAbility(
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.0024)
+                // 관리 4종 외 능력(도축Ⅴ)은 정원에 무효 — 사냥 특화가 정원을 끌지 않게
+                && close(Multipliers.gardenAbility(
+                        one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))), 1.0);
+        report.add("multiplier/정원등급", mg,
+                "M(g)=1+0.30(g/5)³ · Ⅴ1.30 Ⅳ1.1536 Ⅲ1.0648 Ⅱ1.0192 Ⅰ1.0024 · 성중립 · 도축 무효",
+                mg ? "정상" : "어긋남");
+
+        // 3) 사냥: 도축업자Ⅴ(+0.5) + 육식Ⅴ(+0.2) = 1.7 / 그 개체 채집 = 육식Ⅴ(-0.3) = 0.7
         Individual h = one(Sex.MALE,
-                TraitInstance.of(Trait.BUTCHER), TraitInstance.of(Trait.CARNIVORE));
-        checkNum(report, "multiplier/사냥", 1.7, Multipliers.hunt(h), "도축업자+육식 = 1.0+0.5+0.2");
-        checkNum(report, "multiplier/육식채집", 0.7, Multipliers.gather(h), "육식 채집 = 1.0-0.3");
+                TraitInstance.graded(Trait.BUTCHER, 5), TraitInstance.graded(Trait.CARNIVORE, 5));
+        checkNum(report, "multiplier/사냥", 1.7, Multipliers.hunt(h), "도축업자Ⅴ+육식Ⅴ = 1.0+0.5+0.2");
+        checkNum(report, "multiplier/육식채집", 0.7, Multipliers.gather(h), "육식Ⅴ 채집 = 1.0-0.3");
 
         // 4) 저장: 요리사(+0.2)=1.2 / 날로먹기(-0.2)=0.8
         checkNum(report, "multiplier/저장", 1.2,
@@ -468,8 +498,8 @@ public final class EvoTest {
                         TraitInstance.of(Trait.GOOD_SPATIAL), TraitInstance.of(Trait.PLANT_CONFUSED))),
                 "피공포+시너지 = 1.0+0.5+0.5");
         checkNum(report, "multiplier/눌변가노동", 1.1,
-                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.INARTICULATE))),
-                "눌변가 채집 1.1(말 대신 손)");
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.INARTICULATE, 5))),
+                "눌변가Ⅴ 채집 1.1(말 대신 손)");
         checkNum(report, "multiplier/피공포감지", 11.0,
                 Combat.detectionRange(one(Sex.MALE, TraitInstance.of(Trait.BLOOD_FEARFUL))),
                 "피공포 몬스터 감지 8+3");
@@ -1393,7 +1423,8 @@ public final class EvoTest {
                 && TraitInstance.graded(Trait.TOUGH, 3).grade() == 3
                 && "III".equals(TraitInstance.roman(3)) && "V".equals(TraitInstance.roman(5))
                 && Trait.TOUGH.isGraded() && Trait.PREF_RECOVERY.isGraded()
-                && !Trait.HERBALIST.isGraded()
+                && Trait.HERBALIST.isGraded() // 능력 축도 등급화(밴드 산출 ④)
+                && !Trait.DILIGENT.isGraded() // 성향 축은 여전히 무등급
                 && ExpressionResolver.expressedGrade(graded(Sex.MALE, Trait.TOUGH, 4), Trait.TOUGH) == 4
                 && ExpressionResolver.expressedGrade(graded(Sex.MALE, Trait.TOUGH, 4), Trait.FRAIL) == 0;
         report.add("physique/등급기반", infra, "clamp1~5·로마·isGraded·발동등급 조회",
@@ -1491,10 +1522,11 @@ public final class EvoTest {
         report.add("ability/슬롯공유", cat, "획득·언변=성향 슬롯 공유·능력 구분·힘은 신체",
                 cat ? "정상" : "어긋남");
 
-        // 2) 신체 스탯 전부 등급화(힘·공간지각 포함), 능력은 무등급
+        // 2) 신체 스탯 전부 등급화(힘·공간지각 포함) + 능력도 등급화(밴드 산출 ④), 성향은 무등급
         boolean graded = Trait.STRONG.isGraded() && Trait.GOOD_SPATIAL.isGraded()
-                && Trait.TOUGH.isGraded() && !Trait.HERBALIST.isGraded() && !Trait.ELOQUENT.isGraded();
-        report.add("ability/신체등급", graded, "힘·공간지각 포함 신체 전부 등급·능력 무등급",
+                && Trait.TOUGH.isGraded() && Trait.HERBALIST.isGraded() && Trait.ELOQUENT.isGraded()
+                && !Trait.DILIGENT.isGraded() && !Trait.FRUGAL.isGraded();
+        report.add("ability/신체등급", graded, "신체 전부 등급 + 능력 등급화 · 성향 무등급",
                 graded ? "정상" : "어긋남");
 
         // 3) 언변 매력: 달변가 +1 / 눌변가 −1 (상대 기준, 기본 매력 가감)
@@ -1840,13 +1872,13 @@ public final class EvoTest {
                 && Multipliers.wealthCharm(99.0, 0.0) == 0;
         int base = Multipliers.charmScore(one(Sex.FEMALE), plainMan);
         boolean py = Multipliers.charmScore(prefY, plainMan) == base + 1                    // 남 1.5
-                && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.of(Trait.GATHERER)))
-                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.of(Trait.GATHERER))) + 2 // 1.95
-                && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.of(Trait.HERBALIST)))
-                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))) + 3 // 2.25
+                && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5)))
+                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5))) + 2 // 1.5×1.3=1.95
+                && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)))
+                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5))) + 3 // 1.5×1.5=2.25
                 && Multipliers.charmScore(prefY, tolerant) == Multipliers.charmScore(one(Sex.FEMALE), tolerant); // 여 0.5 → 0
         report.add("polygyny/부유생산선호", pw && py,
-                "잉여 3/9/27일 → +1/+2/+3 (소모0 방어) · 벌이 남1.5+1·채집꾼1.95+2·약초학자2.25+3·여0.5+0",
+                "잉여 3/9/27일 → +1/+2/+3 (소모0 방어) · 벌이 남1.5+1·채집꾼Ⅴ1.95+2·약초학자Ⅴ2.25+3·여0.5+0",
                 (pw && py) ? "정상" : "어긋남");
     }
 
@@ -1858,14 +1890,15 @@ public final class EvoTest {
         Individual resp = one(Sex.MALE, TraitInstance.of(Trait.OVER_RESPONSIBLE));
         Individual irre = one(Sex.MALE, TraitInstance.of(Trait.IRRESPONSIBLE));
 
-        // 쿼터: 기본=필요 / 책임=+2 / 무책임=필요(대신 공유 없음) / 부지런·게으름 곱
-        boolean q1 = close(Elder.dailyQuota(plain, 2.0), 2.0)
-                && close(Elder.dailyQuota(resp, 2.0), 4.0)
-                && close(Elder.dailyQuota(irre, 2.0), 2.0)
+        // 쿼터: 기본=필요×0.5(노년 확장 산출 ㉳ — 명목이 실효의 2.9배라 절반이 자급+버퍼) /
+        // 책임=+0.75(생애 배달 6.0 = 밴드 반 계단×2가구, ㉴) / 무책임=기본(대신 공유 없음) / 부지런·게으름 곱
+        boolean q1 = close(Elder.dailyQuota(plain, 2.0), 1.0)
+                && close(Elder.dailyQuota(resp, 2.0), 1.75)
+                && close(Elder.dailyQuota(irre, 2.0), 1.0)
                 && close(Elder.dailyQuota(one(Sex.MALE, TraitInstance.of(Trait.OVER_RESPONSIBLE),
-                        TraitInstance.of(Trait.DILIGENT)), 2.0), 4.8)
-                && close(Elder.dailyQuota(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), 2.0), 1.6);
-        report.add("elder/쿼터", q1, "기본2.0·책임4.0·무책임2.0·책임부지런4.8·게으름1.6",
+                        TraitInstance.of(Trait.DILIGENT)), 2.0), 2.1)
+                && close(Elder.dailyQuota(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), 2.0), 0.8);
+        report.add("elder/쿼터", q1, "기본1.0·책임1.75·무책임1.0·책임부지런2.1·게으름0.8 (×0.5 쿼터)",
                 q1 ? "정상" : "어긋남");
 
         // 공유 자격·노년 기간
@@ -2148,15 +2181,23 @@ public final class EvoTest {
                 && close(FarmEconomy.newFarmCost(0), 30.0) && close(FarmEconomy.newFarmCost(2), 67.5)
                 // 게이트는 타일당 한계비용 비교: 확장 3 < 신규 30/9타일(T1) ≈ 3.33 — 소작 확장 유인 유지
                 && FarmEconomy.EXPAND_COST < FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
-        // 4) 능력 게이트·성장 상한: 무능력 35 캡 / 채집·저장 능력 발현이면 무제한
+        // 4) 능력 게이트·성장 상한: 무능력 35 캡 / 관리 능력 등급 Ⅳ 이상만 무제한(밴드 산출 ⑧).
+        //    무등급 인스턴스는 Ⅲ 취급 → 대지주 불가(구 세이브도 동일 규칙).
         boolean gate = !FarmEconomy.canManageLarge(man)
                 && FarmEconomy.growthCap(man) == FarmEconomy.SKILL_GATE_TILES
-                && FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST)))
-                && FarmEconomy.growthCap(one(Sex.MALE, TraitInstance.of(Trait.COOK)))
+                && FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 4)))
+                && !FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)))
+                && !FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST)))
+                && FarmEconomy.growthCap(one(Sex.MALE, TraitInstance.graded(Trait.COOK, 5)))
                         == Integer.MAX_VALUE
+                && FarmEconomy.growthCap(one(Sex.MALE, TraitInstance.graded(Trait.COOK, 3)))
+                        == FarmEconomy.SKILL_GATE_TILES
+                // 사냥 계열(도축Ⅴ)은 관리 능력이 아님 — 경영 게이트 불통과
+                && !FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5)))
                 && FarmEconomy.EXPAND_PER_DAY == 3
                 && close(FarmEconomy.INVEST_RESERVE, 6.0);
-        report.add("farm/능력게이트", gate, "무능력 캡 35 · 약초학자/요리사 무제한 · 일일확장 3 · 예비 6",
+        report.add("farm/능력게이트", gate,
+                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3 · 예비 6",
                 gate ? "정상" : "어긋남");
 
         report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 30/67.5 · 확장(3)<신규 타일당(3.33)",
@@ -2223,9 +2264,10 @@ public final class EvoTest {
         boolean spend = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
                         one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS)), false), 3.0 * 1.3)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.FRUGAL)), false), 3.0 * 0.9)
+                        one(Sex.MALE, TraitInstance.of(Trait.FRUGAL)), false), 3.0 * 0.95)
                 && Multipliers.charmScore(man, one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS))) == 1;
-        report.add("satisfaction/사치검소", spend, "사치 소모 3.9·매력 +1 / 검소 2.7",
+        report.add("satisfaction/사치검소", spend,
+                "사치 소모 3.9·매력 +1 / 검소 2.85(0.95 — 검소부부 4명 방지, 산출 ⑦)",
                 spend ? "정상" : "어긋남");
     }
 

@@ -2310,6 +2310,18 @@ public class MimicEntity extends PathfinderMob {
         this.holding = h;
     }
 
+    private MimicForageGoal forageGoalRef; // 진단 전용 참조(간헐 채집 정지 규명) — 로직 무관여
+
+    /** 채집 goal 이 생성 시 자신을 등록(진단 전용). */
+    public void attachForageGoal(MimicForageGoal g) {
+        this.forageGoalRef = g;
+    }
+
+    /** 채집 goal 내부 상태(표적·쿨타임) — 검증 무대 progress 전용. */
+    public String forageDebug() {
+        return forageGoalRef == null ? "-" : forageGoalRef.debugState();
+    }
+
     /** 실행 중 최우선(낮은 번호) goal 의 한글 라벨 — 렌즈 카드 '행동' 라인(P1). 이동/전투류만. */
     public String currentActionLabel() {
         var best = this.goalSelector.getRunningGoals()

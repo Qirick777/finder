@@ -2703,15 +2703,20 @@ public final class EvoSimCommand {
                     "2-plot owner harvests ONLY newest plot; nearer old plot stays ripe 9",
                     1500, false, () -> {
                 FarmTicker.clearAssignments();
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                // 스폰을 거처 중심에서 비켜 — 천막이 스폰 위치를 감싸며 지붕(y+3)에 얹혀
+                // 경로 생성 불능으로 굳던 무대 결함(F-2 계열, nav=done·y65 실측) 차단.
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(3, 0, 3), Sex.MALE);
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 LarderStore.get(level).set(home, 2.0); // 빈곤 — 불만족(노동 동기)
                 c[0].debugSetHolding(1.2); // 밴드 안 — 인출 왕복 없이 곧장 노동
                 pl[0] = buildDemoPlot(level, aOld, c[0].getIndividual().id(), 9); // 구 구획(가까움)
                 pl[1] = buildDemoPlot(level, aNew, c[0].getIndividual().id(), 9); // 신 구획 = 직영지
                 level.setDayTime(1200L);
-            }, () -> String.format("oldRipe %d(must stay 9) newRipe %d(expect <=5) H %.2f",
-                    countRipe(level, pl[0]), countRipe(level, pl[1]), c[0].getHolding()),
+            }, () -> String.format("oldRipe %d(must stay 9) newRipe %d(expect <=5) H %.2f act=%s pos=%s nav=%s",
+                    countRipe(level, pl[0]), countRipe(level, pl[1]), c[0].getHolding(),
+                    c[0].currentActionLabel(), c[0].blockPosition().toShortString(),
+                    c[0].getNavigation().isDone() ? "done"
+                            : String.valueOf(c[0].getNavigation().getTargetPos())),
                     () -> countRipe(level, pl[1]) <= 5 && countRipe(level, pl[0]) == 9,
                     () -> {
                         discard(c);
@@ -2746,9 +2751,41 @@ public final class EvoSimCommand {
                         FarmTicker.clearAssignments();
                     }));
         }
+        // [4] 원거리 통근(F1 출근 앵커) — 애향심(활동반경 16) 소작농 + 40블록 밭: 종전 코드는
+        //     리시(우선순위 2)가 반경 밖 출근을 선점해 출발↔귀환 줄다리기 — 영원히 도달 불가.
+        //     수정 후엔 작업 타일이 리시 앵커가 되어 호위 출근 → 수확 발생(익음 감소)으로 판정.
+        {
+            BlockPos whome = groundAt(level, b, -40, 0);
+            BlockPos anchor = groundAt(level, b, 0, 0); // 통근 40블록(상한 48 안, 반경 16 밖)
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("hirex_far_commute",
+                    "homebound tenant (radius 16) reaches 40-block farm and harvests (ripe 9 -> <9)",
+                    2400, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(whome).add(3, 0, 3),
+                        Sex.MALE, Trait.HOMEBOUND); // 지붕 스폰 회피(F-2)
+                c[0].debugSettleWithTent(whome, Direction.NORTH);
+                LarderStore.get(level).set(whome, 2.0); // 빈곤 — 배정 후보(불만족)
+                pl[0] = buildDemoPlot(level, anchor, 999999999L, 9); // 부재 지주 — 전량 게시
+                level.setDayTime(1200L); // 새벽 배정 → 출근
+            }, () -> String.format("ripe %d(expect <9) assigned %s act=%s pos=%s H %.2f anchor=%s nav=%s",
+                    countRipe(level, pl[0]),
+                    FarmTicker.assignedPlot(c[0].getId()) == pl[0].id ? "yes" : "no",
+                    c[0].currentActionLabel(), c[0].blockPosition().toShortString(),
+                    c[0].getHolding(), c[0].roamAnchor() == null ? "-" : c[0].roamAnchor().toShortString(),
+                    c[0].getNavigation().isDone() ? "done"
+                            : String.valueOf(c[0].getNavigation().getTargetPos())),
+                    () -> countRipe(level, pl[0]) < 9,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "소작 루프 v2 합본 검증(3단계) — 노동시장 개방 / 직영지 전용 수확 / "
-                + "운반 상한 6.0. 전부 서버 결과값 판정.");
+        tell(ctx.getSource(), "소작 루프 v2 합본 검증(4단계) — 노동시장 개방 / 직영지 전용 수확 / "
+                + "운반 상한 6.0 / 원거리 통근(출근 앵커). 전부 서버 결과값 판정.");
         return 1;
     }
 
@@ -2858,8 +2895,8 @@ public final class EvoSimCommand {
             MimicEntity[] c = new MimicEntity[2];
             steps.add(new VerifySuite.Step("carex_devoted_garden",
                     "widowed devoted mother still harvests ripe garden: 8 -> <=5", 600, false, () -> {
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.FEMALE);
-                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(3, 0, 3), Sex.FEMALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH); // 스폰 비킴 — 지붕(y+3) 고착 방지(F-2)
                 c[0].getIndividual().setParentingCareFemale(ParentingClass.DEVOTED);
                 c[0].debugClearBerries(level);
                 c[0].plantBerries(level, 8);
@@ -2914,8 +2951,8 @@ public final class EvoSimCommand {
             steps.add(new VerifySuite.Step("carex_bound_no_wild",
                     "designated caregiver must NOT gather wild grass (garden-only): grass stays 9",
                     400, true, () -> {
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
-                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(3, 0, 3), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH); // 스폰 비킴(F-2)
                 c[0].getIndividual().setParentingCareMale(ParentingClass.DETACHED);
                 c[0].debugClearBerries(level); // 정원 없음 — 유일한 허용 표적 제거
                 for (int dx = -1; dx <= 1; dx++) { // 3×3 평탄화 — 지지 블록 없는 풀의 즉시 탈락
@@ -2945,12 +2982,12 @@ public final class EvoSimCommand {
             steps.add(new VerifySuite.Step("carex_carry_gauge",
                     "carry cap: ripe garden -> 2.0 / ripe own farm -> 6.0", 200, false, () -> {
                 FarmTicker.clearAssignments();
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
-                c[0].debugSettleWithTent(homeA, Direction.NORTH);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA).add(3, 0, 3), Sex.MALE);
+                c[0].debugSettleWithTent(homeA, Direction.NORTH); // 스폰 비킴(F-2)
                 c[0].debugClearBerries(level);
                 c[0].plantBerries(level, 8);
                 ripenGarden(level, homeA, Direction.NORTH);
-                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB).add(3, 0, 3), Sex.MALE);
                 c[1].debugSettleWithTent(homeB, Direction.NORTH);
                 pl[0] = buildDemoPlot(level, anchorB, c[1].getIndividual().id(), 9);
                 level.setDayTime(2000L);
@@ -3028,50 +3065,61 @@ public final class EvoSimCommand {
                     () -> "play".equals(c[0].lastTopic()), // ← 금지 결과(쿨다운 뚫림)
                     () -> discard(c)));
         }
-        // [3] 마실 — 두 정착 가구 20블록(격리 슬롯): 방문자가 이웃 모닥불 도달·잡담 조우.
+        // [3] 마실 — 두 정착 가구 20블록: 플랫폼 동측 코너(포스로드 안 = AI 틱 보장) + 타 무대
+        //     천막과 48블록 이상 격리 → 서로가 유일한 마실 후보(결정론).
         {
-            BlockPos base = ground(level, b, 3); // z≈192 — 타 무대 천막(≤96)과 48블록 격리
-            BlockPos homeA = base;
-            BlockPos homeB = base.offset(20, 0, 0);
-            MimicEntity[] c = new MimicEntity[2];
+            BlockPos homeA = groundAt(level, b, 42, 90);
+            BlockPos homeB = groundAt(level, b, 42, 70);
+            MimicEntity[] c = new MimicEntity[4];
             steps.add(new VerifySuite.Step("wanderx_visit",
                     "settler visits neighbor hearth and chats (lastTopic=smalltalk)", 900, false, () -> {
                 MimicVisitGoal.clearSeats();
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
-                c[0].debugSettleWithTent(homeA, Direction.NORTH);
-                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
-                c[1].debugSettleWithTent(homeB, Direction.NORTH);
+                MimicEntity[] ca = coupleAt(level, homeA); // 기혼 — 구애 goal(3)의 배회 선점 제거
+                MimicEntity[] cb = coupleAt(level, homeB);
+                c[0] = ca[0];
+                c[1] = ca[1];
+                c[2] = cb[0];
+                c[3] = cb[1];
+                c[1].debugSetLastBirthNow(); // 넉넉 저장고(20 ≥ 게이트 12)發 무대 중 출산 차단
+                c[3].debugSetLastBirthNow();
                 LarderStore.get(level).set(homeA, 20.0);
                 LarderStore.get(level).set(homeB, 20.0);
                 level.setDayTime(9000L);
-            }, () -> String.format("topicA '%s' posA %s act=%s hearths=%d visitDay=%d phase=%s",
+            }, () -> String.format("topicA '%s' posA %s act=%s hearths=%d phase=%s probe[%s]",
                     c[0].lastTopic(), c[0].blockPosition().toShortString(),
                     c[0].currentActionLabel(), MimicEntity.litHearthsView().size(),
-                    c[0].lastVisitDay(), com.evosim.core.Schedule.phaseAt(
-                            c[0].getIndividual(), level.getDayTime())),
+                    com.evosim.core.Schedule.phaseAt(c[0].getIndividual(), level.getDayTime()),
+                    MimicVisitGoal.debugProbe(c[0])),
                     () -> "smalltalk".equals(c[0].lastTopic()),
                     () -> discard(c)));
         }
         // [4] 좌석 상한(금지 감시) — 유일 후보 모닥불을 만석(2)으로 선점: 방문 조우가 성립하면 실패.
+        //     플랫폼 동남측 코너(포스로드 안·격리).
         {
-            BlockPos base = ground(level, b, -2); // z≈-128 — 격리 슬롯
-            BlockPos homeA = base;
-            BlockPos homeB = base.offset(20, 0, 0);
-            MimicEntity[] c = new MimicEntity[2];
+            BlockPos homeA = groundAt(level, b, 42, -20);
+            BlockPos homeB = groundAt(level, b, 42, -40);
+            MimicEntity[] c = new MimicEntity[4];
             steps.add(new VerifySuite.Step("wanderx_visit_cap",
                     "full hearth (2 seats taken): visitor must NOT begin a visit encounter",
                     400, true, () -> {
                 MimicVisitGoal.clearSeats();
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
-                c[0].debugSettleWithTent(homeA, Direction.NORTH);
-                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
-                c[1].debugSettleWithTent(homeB, Direction.NORTH);
+                MimicEntity[] ca = coupleAt(level, homeA);
+                MimicEntity[] cb = coupleAt(level, homeB);
+                c[0] = ca[0];
+                c[1] = ca[1];
+                c[2] = cb[0];
+                c[3] = cb[1];
+                c[1].debugSetLastBirthNow(); // 무대 중 출산 차단(신생아 놀이 조우 = 금지 감시 오염)
+                c[3].debugSetLastBirthNow();
                 LarderStore.get(level).set(homeA, 20.0);
                 LarderStore.get(level).set(homeB, 20.0);
-                c[1].setLastVisitDay(level.getGameTime() / 24000L); // B는 오늘 방문 불가(교란 제거)
-                MimicVisitGoal.debugFillSeats(homeB, 2, level.getGameTime() / 24000L);
-                MimicVisitGoal.debugFillSeats(homeA, 2, level.getGameTime() / 24000L);
-                level.setDayTime(9000L);
+                long day = level.getGameTime() / 24000L;
+                c[1].setLastVisitDay(day); // 판정 대상 c[0] 외 전원 오늘 방문 불가(교란 제거)
+                c[2].setLastVisitDay(day);
+                c[3].setLastVisitDay(day);
+                level.setDayTime(9000L); // 좌석 키(dayTime 일) 확정 후 만석 선점 — 순서 중요
+                MimicVisitGoal.debugFillSeats(homeB, 2, level.getDayTime() / 24000L);
+                MimicVisitGoal.debugFillSeats(homeA, 2, level.getDayTime() / 24000L);
             }, () -> String.format("topicA '%s'(must stay empty) posA %s", c[0].lastTopic(),
                     c[0].blockPosition().toShortString()),
                     () -> !c[0].lastTopic().isEmpty(), // ← 금지 결과(만석인데 조우 성립)

@@ -53,6 +53,36 @@ public class MimicVisitGoal extends Goal {
         seatDay = -1L;
     }
 
+    /** 검증 진단 — canUse 게이트·후보 산출을 문자열로(판정에 사용 금지). */
+    public static String debugProbe(MimicEntity m) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("stage=").append(m.getStage());
+        sb.append(" crit=").append(m.isCritical());
+        sb.append(" build=").append(m.isBuilding());
+        sb.append(" travel=").append(m.isCourtTravel());
+        sb.append(" bound=").append(m.isCaregiverBound());
+        long gameDay = m.level().getGameTime() / 24000L;
+        sb.append(" day=").append(gameDay).append(" lastVisit=").append(m.lastVisitDay());
+        int cands = 0;
+        int nearRejected = 0;
+        if (m.getHomePos() != null) {
+            for (long h : MimicEntity.litHearthsView()) {
+                net.minecraft.core.BlockPos p = net.minecraft.core.BlockPos.of(h);
+                if (p.equals(m.getHomePos())) {
+                    continue;
+                }
+                double d = p.distSqr(m.getHomePos());
+                if (d < MIN_DIST * MIN_DIST) {
+                    nearRejected++;
+                } else if (d <= MAX_DIST * MAX_DIST) {
+                    cands++;
+                }
+            }
+        }
+        sb.append(" cands=").append(cands).append(" tooNear=").append(nearRejected);
+        return sb.toString();
+    }
+
     public static void debugFillSeats(BlockPos hearthHome, int n, long day) {
         seatDay = day;
         SEATS.put(hearthHome.asLong(), n);
@@ -78,9 +108,13 @@ public class MimicVisitGoal extends Goal {
         }
         long gameDay = mob.level().getGameTime() / 24000L;
         if (gameDay - mob.lastVisitDay() < VISIT_COOLDOWN_DAYS) {
-            return false;
+            return false; // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변
         }
-        rollDay(gameDay);
+        // 좌석 장부는 새벽 시계(dayTime 일) — 하루 생활 리듬(배정·배회)과 같은 축이고,
+        // 무대가 setDayTime 으로 고정할 수 있어 결정론(단조 시계면 무대 중 일경계 통과 시
+        // 장부가 초기화돼 만석 감시가 간헐 붕괴 — 실측 플레이크).
+        long seatKey = mob.level().getDayTime() / 24000L;
+        rollDay(seatKey);
         dest = pickDest(gameDay);
         return dest != null;
     }

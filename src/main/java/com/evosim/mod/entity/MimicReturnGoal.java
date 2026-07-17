@@ -62,6 +62,13 @@ public class MimicReturnGoal extends Goal {
     }
 
     @Override
+    public void start() {
+        // 입금·인출 왕복은 거처가 앵커 — 출근 앵커가 남아 있으면 리시가 밭으로 되끌어 귀가와
+        // 줄다리기를 벌인다(F1 보완). 입금 후 밭일 goal 이 표적을 다시 잡으며 앵커를 재설정한다.
+        mob.setWorkAnchor(null);
+    }
+
+    @Override
     public void tick() {
         BlockPos home = mob.getHomePos();
         if (home == null) {

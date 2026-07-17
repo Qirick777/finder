@@ -40,7 +40,7 @@ public class MimicFarmGoal extends Goal {
             return false;
         }
         if (Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) != Schedule.Phase.WORK) {
-            return false;
+            return idle();
         }
         long today = mob.level().getGameTime() / 24000L;
         if (today != day) {
@@ -48,24 +48,39 @@ public class MimicFarmGoal extends Goal {
             harvestedToday = 0; // 일일 용량 리셋
         }
         if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
-            return false; // 전담창 소진 — 나머지 시간은 기존 채집/배회
+            return idle(); // 전담창 소진 — 나머지 시간은 기존 채집/배회
         }
         if (mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
             // 노년 노동의 단일 상한 = 쿼터(노년 확장 산출 ㉵) — 밭 수확도 addHarvest 로 dayGathered 에
             // 누적되므로 여기서 막지 않으면 용량(6타일=4.5/일)까지 뚫려 자식 지원 누수가 재발한다.
             // 잔여 익은 타일은 부족분 게시 → 소작(2세대 일자리)으로 자연 이관.
-            return false;
+            return idle();
         }
         if (mob.isSatisfiedToday() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
-            return false; // 만족(M7) — 자기 밭 노동 정지. 소작 출근(배정)은 계약 의무라 유지
+            return idle(); // 만족(M7) — 자기 밭 노동 정지. 소작 출근(배정)은 계약 의무라 유지
         }
         target = nearestWorkRipe();
-        return target != null;
+        return target != null || idle();
     }
 
     @Override
     public boolean canContinueToUse() {
         return canUse();
+    }
+
+    @Override
+    public void stop() {
+        // 주의: 여기서 workAnchor 를 지우면 안 된다 — 리시(2)가 출근을 인수하는 순간 이 goal 이
+        // 선점 정지되며 stop 이 불리는데, 그때 앵커를 지우면 리시가 거처로 되끌어 자기파괴
+        // 루프가 된다(실측: act=복귀 진동). 해제는 자연 종료 지점(canUse 의 idle 경로)·입금
+        // 귀가(MimicReturnGoal.start)·노동시간 종료(roamAnchor 의 WORK 게이트)가 맡는다.
+        target = null;
+    }
+
+    /** 밭일 자연 종료 — 출근 앵커 해제 후 비활성(리시 앵커가 거처로 복원). */
+    private boolean idle() {
+        mob.setWorkAnchor(null);
+        return false;
     }
 
     @Override
@@ -77,6 +92,9 @@ public class MimicFarmGoal extends Goal {
         if (target == null) {
             return;
         }
+        // 출근 앵커(F1) — 표적 보유 동안 리시 앵커를 작업 타일로: 활동반경(기본 32·애향 16) 밖
+        // 통근 밭(≤48)에서 리시가 밭일을 선점해 출발↔강제귀환 줄다리기로 재배가 막히던 결함 수정.
+        mob.setWorkAnchor(target);
         if (!mob.blockPosition().closerThan(target, 1.9)) {
             mob.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, 1.0);
             return;

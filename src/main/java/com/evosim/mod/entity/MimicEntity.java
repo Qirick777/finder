@@ -344,13 +344,21 @@ public class MimicEntity extends PathfinderMob {
         this.birthPos = pos;
     }
 
-    /** 활동반경 앵커 — 구혼 여행 중엔 타향 모닥불, 평소엔 거처(없으면 태어난 곳). 리시가 이 반경으로 묶는다. */
+    /** 활동반경 앵커 — 구혼 여행 중엔 타향 모닥불, 밭 출근 중엔 작업 타일, 평소엔 거처(없으면
+     *  태어난 곳). 리시가 이 반경으로 묶는다. */
     public BlockPos roamAnchor() {
         if (isCourtTravel()) {
             return BlockPos.of(courtTravelTarget); // 리시가 그 마을까지 끌고 가는 캐러밴 엔진
         }
         if (visitAnchor != null) {
             return visitAnchor; // 노인 마실 — 활동반경 밖 자식 집도 리시가 끌고 간다(구혼 여행과 동일 패턴)
+        }
+        if (workAnchor != null && individual != null
+                && Schedule.phaseAt(individual, level().getDayTime()) == Schedule.Phase.WORK) {
+            return workAnchor; // 밭 출근(F1) — 통근(≤48) 밭이 활동반경(기본 32·애향 16) 밖이면
+            // 리시가 밭일을 선점해 "출발→강제귀환" 무한 줄다리기로 재배가 불가능하던 결함의 수정:
+            // 작업 타일을 앵커로 삼아 리시가 방해자가 아니라 호위자가 된다(마실과 동일 패턴).
+            // WORK 시간대에만 유효 — 노동 종료 후 잔존 앵커가 야간 귀가를 밭으로 끌지 않게.
         }
         return homePos != null ? homePos : getBirthPos();
     }
@@ -363,6 +371,18 @@ public class MimicEntity extends PathfinderMob {
     /** 마실 앵커가 걸려 있나 — 리시가 도착까지 끌지(true) inner 에서 놓을지(false, 일반) 구분용. */
     public boolean hasVisitAnchor() {
         return visitAnchor != null;
+    }
+
+    // 밭 출근 앵커(휘발 — MimicFarmGoal 이 표적 보유 동안 설정) — 세이브 무기록·구 세이브 즉시 적용.
+    private BlockPos workAnchor = null;
+
+    /** 밭일 goal 전용 — 현재 작업 타일을 리시 앵커로(null = 해제). */
+    public void setWorkAnchor(@Nullable BlockPos pos) {
+        this.workAnchor = pos;
+    }
+
+    public boolean hasWorkAnchor() {
+        return workAnchor != null;
     }
 
     /** 활동반경(블록) — 특성별 차등({@link Roaming}). 개체 없으면 기본값. */
@@ -2409,7 +2429,8 @@ public class MimicEntity extends PathfinderMob {
             return "전투";
         }
         if (g instanceof MimicLeashGoal) {
-            return isCourtTravel() ? "구혼여행" : (hasVisitAnchor() ? "마실" : "복귀");
+            return isCourtTravel() ? "구혼여행"
+                    : (hasVisitAnchor() ? "마실" : (hasWorkAnchor() ? "출근" : "복귀"));
         }
         if (g instanceof MimicShareGoal) {
             return "나눔";
@@ -2830,6 +2851,12 @@ public class MimicEntity extends PathfinderMob {
         this.lastTopic = "";
     }
 
+    /** 검증 전용 — 출산 쿨다운을 지금부터로 조성(넉넉 저장고 무대에서 돌발 출산이 배회 생활
+     *  판정을 교란하는 것 방지 — 실측: 신생아와 놀이 조우가 만석 금지 감시를 오염). */
+    public void debugSetLastBirthNow() {
+        this.lastBirthTick = level().getGameTime();
+    }
+
     /** 조우 관문(Encounter.begin)이 호출 — 대화 상대·주제 기록(렌즈 표시·미래 평판 입력). */
     public void noteEncounter(long partnerId, String topicId) {
         this.lastChatId = partnerId;
@@ -3191,12 +3218,15 @@ public class MimicEntity extends PathfinderMob {
         if (Schedule.phaseAt(individual, level().getDayTime()) != Schedule.Phase.WORK) {
             return FoodEconomy.BAND_HIGH;
         }
-        // 직영지(최신 소유 구획) 또는 오늘 배정 밭에 익은 타일? (정원은 제외 — 상단 주석)
+        // 직영지(최신 소유 구획 — 배우자 소유 포함: 가족 노동도 수확 세션) 또는 오늘 배정 밭에
+        // 익은 타일? (정원은 제외 — 상단 주석. 배우자 몫 누락 시 아내의 가족 노동이 상한 2.0에
+        // 걸려 원거리 밭에서 2~3타일마다 입금 왕복하던 결함의 수정 — F2)
         FarmStore fs = FarmStore.get(sl);
         long mine = fs.newestOwnedPlot(individual.id());
+        long spouseNewest = spouseId != 0L ? fs.newestOwnedPlot(spouseId) : 0L;
         long assigned = FarmTicker.assignedPlot(getId());
         for (FarmStore.Plot p : fs.all().values()) {
-            if (p.id != mine && p.id != assigned) {
+            if (p.id != mine && p.id != assigned && (spouseNewest == 0L || p.id != spouseNewest)) {
                 continue;
             }
             for (long l : p.tiles) {

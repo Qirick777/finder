@@ -125,6 +125,7 @@ public final class TraitEditor {
                     return "이름이 너무 김(최대 " + NAME_MAX + "자)";
                 }
                 ind.setName(f, mid, l);
+                FamilyLedger.get(level).updateName(ind.id(), ind.shortName()); // 가계도·랭킹 동기
                 status = "개명: " + ind.fullName();
             }
             default -> {

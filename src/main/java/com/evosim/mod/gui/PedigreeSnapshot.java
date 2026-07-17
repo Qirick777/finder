@@ -23,7 +23,7 @@ public class PedigreeSnapshot {
     /** 그리드 한 칸. id==0 이면 나머지 필드는 무의미(미상). */
     public static final class Node {
         public final long id;
-        public final int serial;      // 원장 일련번호(안정 표시명 N#)
+        public final int serial;      // 원장 일련번호(안정 보조 식별자 — 툴팁 병기)
         public final int entityId;    // 살아있으면 엔티티 id, 아니면 -1
         public final boolean female;
         public final int gen;
@@ -32,9 +32,10 @@ public class PedigreeSnapshot {
         public final long diedDay;    // -1 = 생존/미확인
         public final int descendants; // 총 후손 수(중복 제거)
         public final int children;    // 직접 자식 수
+        public final String name;     // 짧은 성명(원장 박제 — 사후에도 이름 표시)
 
         public Node(long id, int serial, int entityId, boolean female, int gen, boolean alive,
-                    long bornDay, long diedDay, int descendants, int children) {
+                    long bornDay, long diedDay, int descendants, int children, String name) {
             this.id = id;
             this.serial = serial;
             this.entityId = entityId;
@@ -45,10 +46,11 @@ public class PedigreeSnapshot {
             this.diedDay = diedDay;
             this.descendants = descendants;
             this.children = children;
+            this.name = name;
         }
 
         static Node unknown() {
-            return new Node(0, 0, -1, false, 0, false, 0, -1, 0, 0);
+            return new Node(0, 0, -1, false, 0, false, 0, -1, 0, 0, "");
         }
     }
 
@@ -85,7 +87,8 @@ public class PedigreeSnapshot {
                 rows[d][i] = new Node(id, r.serial, eid == null ? -1 : eid, r.female, r.gen,
                         eid != null, r.bornDay, r.diedDay,
                         Lineage.descendantCount(id, childrenIdx),
-                        Lineage.childCount(id, childrenIdx));
+                        Lineage.childCount(id, childrenIdx),
+                        r.name == null ? "N" + r.serial : r.name);
             }
         }
         return new PedigreeSnapshot(rows);
@@ -106,6 +109,7 @@ public class PedigreeSnapshot {
                 buf.writeLong(n.diedDay);
                 buf.writeVarInt(n.descendants);
                 buf.writeVarInt(n.children);
+                buf.writeUtf(n.name);
             }
         }
     }
@@ -119,7 +123,8 @@ public class PedigreeSnapshot {
             for (int i = 0; i < w; i++) {
                 rows[d][i] = new Node(buf.readLong(), buf.readVarInt(), buf.readVarInt(),
                         buf.readBoolean(), buf.readVarInt(), buf.readBoolean(),
-                        buf.readLong(), buf.readLong(), buf.readVarInt(), buf.readVarInt());
+                        buf.readLong(), buf.readLong(), buf.readVarInt(), buf.readVarInt(),
+                        buf.readUtf());
             }
         }
         return new PedigreeSnapshot(rows);

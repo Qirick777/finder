@@ -976,6 +976,10 @@ public class MimicEntity extends PathfinderMob {
             wife.getIndividual().setSurname(husband.getIndividual().surname());
             if (!before.equals(wife.getIndividual().shortName())) {
                 SimEvents.event(wife, "개성", before + " → " + wife.getIndividual().shortName());
+                if (level() instanceof ServerLevel psl) {
+                    FamilyLedger.get(psl).updateName(wife.getIndividual().id(),
+                            wife.getIndividual().shortName()); // 가계도·랭킹 동기(원장 박제 갱신)
+                }
             }
         }
         SimEvents.event(this, "짝성립", "상대 #" + other.getId());

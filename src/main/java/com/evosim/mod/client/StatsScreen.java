@@ -104,8 +104,8 @@ public class StatsScreen extends Screen {
                 }
                 boolean hover = mouseY >= y && mouseY < y + LINE_H
                         && mouseX >= left && mouseX < right;
-                String line = (i + 1) + "위  " + (t.female() ? "♀" : "♂") + " N" + t.serial()
-                        + (t.alive() ? " #" + t.entityId() : " (사망)") + "  G" + t.gen()
+                String line = (i + 1) + "위  " + (t.female() ? "♀ " : "♂ ") + t.name()
+                        + (t.alive() ? "" : " (사망)") + "  G" + t.gen()
                         + "  자식 " + t.children() + " · 후손 " + t.descendants();
                 g.drawString(this.font, line, left, y,
                         hover ? 0xFFFFA0 : (t.alive() ? 0xE0E0E0 : 0xA0A0A0), false);

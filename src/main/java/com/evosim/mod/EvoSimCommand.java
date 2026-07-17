@@ -1151,7 +1151,7 @@ public final class EvoSimCommand {
         }
         for (int i = 0; i < snap.tops.size(); i++) {
             StatsSnapshot.Top t = snap.tops.get(i);
-            tell(ctx.getSource(), "  " + (i + 1) + "위 " + (t.female() ? "♀" : "♂") + " N" + t.serial()
+            tell(ctx.getSource(), "  " + (i + 1) + "위 " + (t.female() ? "♀ " : "♂ ") + t.name()
                     + (t.alive() ? " #" + t.entityId() : " (사망)") + " G" + t.gen()
                     + " — 자식 " + t.children() + " · 후손 " + t.descendants());
         }
@@ -2498,9 +2498,53 @@ public final class EvoSimCommand {
                             && st[1] != null && st[1].contains("비울 수 없음"),
                     () -> discard(c)));
         }
+        // [3] 원장 성명 박제 — 등록 시 성명 저장·개명 갱신이 가계도/통계 스냅샷에 반영(번호 표시 종식).
+        //     stats·가계도 표시원(FamilyLedger.Rec.name → PedigreeSnapshot/StatsSnapshot)이 판정 대상.
+        {
+            long[] ids = new long[2];
+            steps.add(new VerifySuite.Step("namex_ledger_names",
+                    "ledger records carry names; rename syncs; pedigree/stats snapshots show them",
+                    100, false, () -> {
+                var ledger = FamilyLedger.get(level);
+                long fid = 900_000_001L;
+                long cid = 900_000_002L;
+                ids[0] = fid;
+                ids[1] = cid;
+                ledger.debugRemove(fid); // 재실행 멱등(같은 자리 2회)
+                ledger.debugRemove(cid);
+                Individual father = new Individual(fid, Sex.MALE, 0, 0, 1);
+                Individual child = new Individual(cid, Sex.FEMALE, fid, 0, 2);
+                ledger.register(father, 1L);   // 기본명(등록 박제)
+                ledger.register(child, 2L);
+                father.setName("올리버", "", "도일");
+                ledger.updateName(fid, father.shortName()); // 개명 동기(편집봉 경로와 동일)
+            }, () -> {
+                var ped = com.evosim.mod.gui.PedigreeSnapshot.build(level, ids[1]);
+                var stats = com.evosim.mod.gui.StatsSnapshot.build(level);
+                String top = stats.tops.stream().filter(t -> t.id() == ids[0])
+                        .map(com.evosim.mod.gui.StatsSnapshot.Top::name).findFirst().orElse("-");
+                return String.format("focus '%s' father '%s' statsTop '%s'",
+                        ped.rows[0][0].name, ped.rows[1][0].name, top);
+            }, () -> {
+                var ped = com.evosim.mod.gui.PedigreeSnapshot.build(level, ids[1]);
+                var stats = com.evosim.mod.gui.StatsSnapshot.build(level);
+                Individual childRef = new Individual(ids[1], Sex.FEMALE, ids[0], 0, 2);
+                boolean focusNamed = ped.rows[0][0].name.equals(childRef.shortName())
+                        && !ped.rows[0][0].name.isEmpty();
+                boolean fatherRenamed = ped.rows[1][0].name.equals("올리버 도일");
+                // 랭킹은 후손수 상위 8 한정 — 실세계 대가문에 밀려 부재할 수 있으므로
+                // "있다면 반드시 실명"으로 판정(표시원 Rec.name 은 가계도 단언이 전수 검증).
+                boolean statsNamed = stats.tops.stream().filter(t -> t.id() == ids[0])
+                        .allMatch(t -> "올리버 도일".equals(t.name()));
+                return focusNamed && fatherRenamed && statsNamed;
+            }, () -> {
+                FamilyLedger.get(level).debugRemove(ids[0]);
+                FamilyLedger.get(level).debugRemove(ids[1]);
+            }));
+        }
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "성명 합본 검증(2단계) — 부계 상속(실출산) / 개명 자유 입력·거부. "
-                + "Individual 상태 결과값만 판정.");
+        tell(ctx.getSource(), "성명 합본 검증(3단계) — 부계 상속(실출산) / 개명 자유 입력·거부 / "
+                + "원장 성명 박제(가계도·통계 스냅샷). 서버 상태 결과값만 판정.");
         return 1;
     }
 

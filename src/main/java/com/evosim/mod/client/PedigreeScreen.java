@@ -123,14 +123,15 @@ public class PedigreeScreen extends Screen {
         g.fill(x0, y0, x1, y1, hover ? 0xFF25254A : 0xFF14142A);
         drawBorder(g, x0, y0, x1, y1,
                 focus ? 0xFFFFD700 : (n.alive ? (n.female ? 0xFFFF9EC4 : 0xFF8FD3FF) : 0xFF707070));
-        String name = (n.female ? "♀" : "♂") + " N" + n.serial + (n.alive ? " #" + n.entityId : "");
+        String name = (n.female ? "♀ " : "♂ ") + n.name; // 성명 표시 — 번호(N#·#eid)는 툴팁 병기
         String sub = "G" + n.gen + (n.alive ? " 생존" : (n.diedDay >= 0 ? " †" + n.diedDay + "일" : " 사망"));
         g.drawCenteredString(this.font, name, (x0 + x1) / 2, y0 + 3,
                 n.alive ? (n.female ? 0xFF9EC4 : 0x8FD3FF) : 0xA0A0A0);
         g.drawCenteredString(this.font, sub, (x0 + x1) / 2, y0 + 13, 0x909090);
         if (hover) {
             List<Component> tip = new ArrayList<>();
-            tip.add(Component.literal("N" + n.serial + " · " + (n.female ? "암컷" : "수컷")
+            tip.add(Component.literal(n.name + " (N" + n.serial
+                    + (n.alive ? " · #" + n.entityId : "") + ") · " + (n.female ? "암컷" : "수컷")
                     + " · " + n.gen + "세대"));
             tip.add(Component.literal("출생 " + n.bornDay + "일차"
                     + (n.alive ? " · 생존" : (n.diedDay >= 0 ? " · 사망 " + n.diedDay + "일차" : " · 사망"))));

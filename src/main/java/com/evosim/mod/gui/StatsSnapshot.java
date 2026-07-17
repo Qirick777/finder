@@ -25,7 +25,7 @@ public class StatsSnapshot {
     public record Bar(String name, int count) { }
 
     public record Top(long id, int serial, int entityId, boolean female, int gen,
-                      boolean alive, int children, int descendants) { }
+                      boolean alive, int children, int descendants, String name) { }
 
     public final int living;
     public final List<Bar> bars;   // 발현 특성 분포(내림차순)
@@ -69,7 +69,8 @@ public class StatsSnapshot {
             }
             Integer eid = aliveIds.get(r.id);
             tops.add(new Top(r.id, r.serial, eid == null ? -1 : eid, r.female, r.gen,
-                    eid != null, Lineage.childCount(r.id, childrenIdx), desc));
+                    eid != null, Lineage.childCount(r.id, childrenIdx), desc,
+                    r.name == null ? "N" + r.serial : r.name));
         }
         tops.sort((a, b) -> Integer.compare(b.descendants(), a.descendants()));
         if (tops.size() > TOP_LEGACY) {
@@ -95,6 +96,7 @@ public class StatsSnapshot {
             buf.writeBoolean(t.alive());
             buf.writeVarInt(t.children());
             buf.writeVarInt(t.descendants());
+            buf.writeUtf(t.name());
         }
     }
 
@@ -109,7 +111,8 @@ public class StatsSnapshot {
         List<Top> tops = new ArrayList<>(nt);
         for (int i = 0; i < nt; i++) {
             tops.add(new Top(buf.readLong(), buf.readVarInt(), buf.readVarInt(), buf.readBoolean(),
-                    buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), buf.readVarInt()));
+                    buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), buf.readVarInt(),
+                    buf.readUtf()));
         }
         return new StatsSnapshot(living, bars, tops);
     }

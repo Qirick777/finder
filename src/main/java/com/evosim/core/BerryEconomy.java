@@ -30,7 +30,9 @@ public final class BerryEconomy {
     /** 부트스트랩 그루 수 — 이 수까지는 번식예비 면제(생존몫만 확보되면 심음). 들풀-단독 지형에서
      *  "정원을 만들 잉여"와 "번식 예비"가 같은 문턱(≈12)이라 성장 사다리가 순환 잠금되던 것을,
      *  '생산 자본(정원) 먼저 → 번식 나중' 순서로 교정한다. 생존몫(reserve)은 부트스트랩도 침범 불가. */
-    public static final int BOOTSTRAP_BUSHES = 2;
+    public static final int BOOTSTRAP_BUSHES = 8; // 2→8(=상한 전체): 정원은 생존 기반 — 번식예비
+    // 면제 게이트(생계 need+비용 ≈7)가 출산 게이트(12)보다 항상 낮아, "베리 13 > 출산 12" 순위
+    // 역전으로 2그루에서 동결되던 관측(53곳 중 완성 9%)을 구조적으로 제거한다.
 
     /** 투자 축 반영판 — costMult(장기투자 0.5 / 신속투자 2.0)로 정원 조성 속도가 갈린다. */
     public static int plant(double surplus, double reserve, double reproReserve, int bushCount, int cap,

@@ -145,8 +145,9 @@ public final class FoodEconomy {
         return false;
     }
 
-    /** 신혼 지참금 가산(정수) — 첫 출산 2일차 역산: t₁ = (게이트12 − (6+3)) ÷ 잉여 1.36 = 2.2일. */
-    public static final double INITIAL_LARDER_BONUS = 3.0;
+    /** 신혼 지참금 가산(정수) = 정원 전액(8그루 비용) — 정착 즉시 정원 8/8 완성이 설계 기준선.
+     *  식수 후 잔여 6 < 출산 게이트 12라 d0 출산은 없고, 완성 정원 잉여(+1.9/일)로 d2에 첫 출산. */
+    public static final double INITIAL_LARDER_BONUS = 8.0;
 
     /** 저장고 시작값 = ceil(하루소모) + 지참금 — 정수 유지(정수 입출금 불변식). */
     public static double initialLarder(double familyDailyNeed) {

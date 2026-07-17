@@ -669,8 +669,9 @@ public class MimicEntity extends PathfinderMob {
             if (mateState == MateState.IDLE || mateState == MateState.PAIRED) {
                 mateState = MateState.SEARCHING;
             }
-            // 족외혼(이주 설계 §3-B): 비근친 후보 0명이 오래가면 타향 모닥불로 구혼 여행.
-            if (candidates.isEmpty() && homePos != null && !isCourtTravel()) {
+            // 족외혼(이주 설계 §3-B): 비근친 <b>독신</b> 후보 0명이 오래가면 타향 모닥불로 구혼 여행.
+            // (기혼 폴백만 남은 목록은 외로움으로 친다 — A: 중혼 등록이 여행을 차단하던 결함.)
+            if (!anySingleCandidate() && homePos != null && !isCourtTravel()) {
                 // 점검용 강제 출발(일회성): 신생 월드는 gameTime<72000 이라 lonelySinceTick 뺄셈이
                 // 음수가 되고, 아래 '< 0L = 미설정' 센티넬에 걸려 매틱 리셋된다(구혼여행이 영영 출발 못
                 // 하던 원인). 클럭 산술을 우회해 실조건(단신·후보0·타향모닥불 존재)이 참일 때 바로 출발.
@@ -682,7 +683,7 @@ public class MimicEntity extends PathfinderMob {
                 } else if (level().getGameTime() - lonelySinceTick > Famine.LONELY_TRAVEL_AFTER) {
                     startCourtTravel();
                 }
-            } else if (!candidates.isEmpty()) {
+            } else if (anySingleCandidate()) {
                 lonelySinceTick = -1L;
             }
         }
@@ -801,8 +802,33 @@ public class MimicEntity extends PathfinderMob {
             candidateCharm.put(id, charm);
             candidates.add(id);
         }
-        candidates.sort((x, y) -> Integer.compare(
-                candidateCharm.getOrDefault(y, 0), candidateCharm.getOrDefault(x, 0)));
+        // 독신 우선 절대화(A) — 기혼남이 매력으로 독신을 제치면 미혼 여성이 성년기를 중혼 거절
+        // (관측: 거절의 92%)에 소진한다. 독신이 하나라도 보이면 그쪽 먼저, 기혼은 폴백만.
+        candidates.sort((x, y) -> {
+            boolean sx = isSingleCandidate(x);
+            boolean sy = isSingleCandidate(y);
+            if (sx != sy) {
+                return sx ? -1 : 1;
+            }
+            return Integer.compare(
+                    candidateCharm.getOrDefault(y, 0), candidateCharm.getOrDefault(x, 0));
+        });
+    }
+
+    /** 후보 id가 현재 독신 성년인가(정렬·외로움 판정용 — 기혼 폴백과 구분). */
+    private boolean isSingleCandidate(int id) {
+        return level().getEntity(id) instanceof MimicEntity m && m.isSingleAdult();
+    }
+
+    /** 후보 목록에 <b>독신</b>이 하나라도 있는가 — 기혼 폴백만 남은 상태는 '외로움'으로 계산해
+     *  족외혼 구혼여행 트리거가 기혼남 등록에 가로막히지 않게 한다(관측: 여행 5건 전부 d16 이후). */
+    private boolean anySingleCandidate() {
+        for (int id : candidates) {
+            if (isSingleCandidate(id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1247,7 +1273,8 @@ public class MimicEntity extends PathfinderMob {
             return 0;
         }
         int planted = 0;
-        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+        // 기본 8칸 우선 + 폴백 셀(gardenCells 순서) — 고정 칸이 지형에 막혀도 정원이 완성되게.
+        for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
             if (planted >= maxCount) {
                 break;
             }
@@ -1300,7 +1327,7 @@ public class MimicEntity extends PathfinderMob {
             return 0;
         }
         int cleared = 0;
-        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+        for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
             for (int dy = 3; dy >= -3; dy--) {
                 BlockPos p = tile.offset(0, dy, 0);
                 if (sl.getBlockState(p).is(Blocks.SWEET_BERRY_BUSH)) {
@@ -1312,13 +1339,13 @@ public class MimicEntity extends PathfinderMob {
         return cleared;
     }
 
-    /** 거처 옆 정원의 베리 그루 수. */
+    /** 거처 옆 정원(영역 — 기본 8칸+폴백 셀)의 베리 그루 수. 심기·수확·청소와 같은 목록(장부 대칭). */
     public int countBerries(ServerLevel sl) {
         if (homePos == null) {
             return 0;
         }
         int c = 0;
-        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+        for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
             for (int dy = 3; dy >= -3; dy--) {
                 if (sl.getBlockState(tile.offset(0, dy, 0)).is(Blocks.SWEET_BERRY_BUSH)) {
                     c++;
@@ -2069,6 +2096,30 @@ public class MimicEntity extends PathfinderMob {
         }
 
         // R5 번식: (L − 출산비용 − 하루소모) ≥ 성년수+1(±특성) & 무굶주림 & 쿨다운·상한·과밀.
+        // 옆 정원 베리 — 출산보다 <b>먼저</b>(정원 우선 원칙): 지참금이 출산 게이트(12)로 새기 전에
+        // 생존 기반(정원)부터 완성한다. 부트스트랩 8(=상한)이라 게이트는 생계 유보(need)+비용뿐 —
+        // 출산 게이트보다 항상 낮아 순위 역전(베리 13 > 출산 12로 2그루 동결되던 관측)이 사라진다.
+        if (homePos != null) {
+            int bushCount = countBerries(sl);
+            double reproReserve = FoodEconomy.BIRTH_COST + adults + 1; // 상한 도달 후 잔여분에만 의미
+            double costMult = BerryEconomy.costMult(
+                    father != null && father.getIndividual() != null ? father.getIndividual()
+                            : individual);
+            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP, costMult);
+            if (n > 0) {
+                int done = plantBerries(sl, n);
+                if (done > 0) {
+                    // 심은 만큼 저장고에서 실제 차감(정수 반올림 — L 정수 불변식 유지). 차감 없인
+                    // 저장고가 그대로인 채 베리만 늘어 공짜 식량 생성(착취 경로)이 된다.
+                    int cost = Math.max(1, (int) Math.round(done * BerryEconomy.BUSH_COST * costMult));
+                    larder = Math.max(0.0, larder - cost);
+                    SimEvents.event(this, "베리", "옆 정원 +" + done + " (비용 " + cost
+                            + " → 저장고 " + String.format("%.0f", larder)
+                            + " · 누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
+                }
+            }
+        }
+
         // 어미 = 아버지와 실제 혼인한 아내 중 출산이 가장 오래된 쪽(일부다처 교대 출산).
         // 성년 딸(미혼 동거)은 배우자 링크가 없어 제외 — 부녀 교배 방지.
         // 노년 가장은 번식만 제외(청년기=번식기 설계) — 가장 포지션·급식 순서·동원 기준은 유지.
@@ -2100,28 +2151,8 @@ public class MimicEntity extends PathfinderMob {
             }
         }
 
-        // 옆 정원 베리: 최하위 — 하루소모·번식 몫(비용+임계)을 뺀 잔여로만. 투자 성향이 속도를 가른다.
+        // 정산 마감·가계 기록 (베리·출산 반영 후의 저장고를 확정 저장).
         if (homePos != null) {
-            int bushCount = countBerries(sl);
-            double reproReserve = FoodEconomy.BIRTH_COST + adults + 1;
-            // 투자 성향 배율도 가장(혼인 링크 아버지) 기준 — R4 동원 기준과 귀속 통일(정산 실행
-            // 대표가 우연히 아내·아들이어도 정원 투자 속도가 흔들리지 않게). 가장 없으면 실행자.
-            double costMult = BerryEconomy.costMult(
-                    father != null && father.getIndividual() != null ? father.getIndividual()
-                            : individual);
-            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP, costMult);
-            if (n > 0) {
-                int done = plantBerries(sl, n);
-                if (done > 0) {
-                    // 심은 만큼 저장고에서 실제 차감(정수 반올림 — L 정수 불변식 유지). 차감 없인
-                    // 저장고가 그대로인 채 베리만 늘어 공짜 식량 생성(착취 경로)이 된다.
-                    int cost = Math.max(1, (int) Math.round(done * BerryEconomy.BUSH_COST * costMult));
-                    larder = Math.max(0.0, larder - cost);
-                    SimEvents.event(this, "베리", "옆 정원 +" + done + " (비용 " + cost
-                            + " → 저장고 " + String.format("%.0f", larder)
-                            + " · 누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
-                }
-            }
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,
@@ -2634,6 +2665,8 @@ public class MimicEntity extends PathfinderMob {
 
         lastBirthTick = level().getGameTime();
         childrenBorn++;
+        father.childrenBorn++; // 부친도 집계(D) — 자연사 로그 "자식 N명"이 남성만 0으로 찍히던
+        // 표시 결함. 번식 판정(birthLimit)은 어머니의 childrenBorn만 쓰므로 로직 무영향.
         StageObserver.record(this.getId(), "birth");
         // 신생아 변수를 정확히 기록: 성별·세대·발현 특성·부모 — 유전 흐름 검증의 근거.
         SimEvents.event(this, "출산", String.format(
@@ -3069,6 +3102,13 @@ public class MimicEntity extends PathfinderMob {
     /** 질식(벽 낌) 데미지 무시 — 건축 연출 중 서로/블럭에 잠시 겹쳐도 질식사하지 않게 한다. */
     @Override
     public boolean hurt(DamageSource source, float amount) {
+        // 유아·소년은 불(거처 모닥불 = IN_FIRE 계열·번짐 불) 면역 — 관측: d2 유아 #1102가 거처
+        // 모닥불에 올라 원인=onFire 소사. 피해 회피 AI가 없는 단계의 어이없는 죽음 방지.
+        // 성인의 화재·용암은 그대로 — 도태 경로 유지.
+        if ((getStage() == LifeStage.INFANT || getStage() == LifeStage.BOY)
+                && (source.is(DamageTypes.ON_FIRE) || source.is(DamageTypes.IN_FIRE))) {
+            return false;
+        }
         if (source.is(DamageTypes.IN_WALL) || source.is(DamageTypes.SWEET_BERRY_BUSH)) {
             return false; // 질식·베리 가시 무시(자기 밭에서 안 다침)
         }

@@ -98,6 +98,24 @@ public final class HomeStructure {
         return out;
     }
 
+    /**
+     * 정원 <b>영역</b> 셀(기본 8칸 우선 + 폴백 16칸: x=±3·±4, z=-3..+2) — 고정 8칸이 지형(모래·
+     * 경사·수풀)에 막히면 그 가구는 정원 상한이 지형 복권이 되던 문제의 폴백. 심기 순서는
+     * 기본 칸 먼저(모양 유지), 집계·수확·청소는 영역 전체를 같은 목록으로 본다(장부 대칭).
+     */
+    public static List<BlockPos> gardenCells(BlockPos home, Direction facing) {
+        List<BlockPos> out = new ArrayList<>(berryTiles(home, facing));
+        for (int dx : new int[] {3, -3, 4, -4}) {
+            for (int dz = -3; dz <= 2; dz++) {
+                BlockPos p = world(home, dx, 0, dz, facing);
+                if (!out.contains(p)) {
+                    out.add(p);
+                }
+            }
+        }
+        return out;
+    }
+
     /** 로컬(dx,dy,dz, +z=전방)을 facing 회전해 월드 좌표로. 좌우 대칭이라 right 부호는 무관. */
     private static BlockPos world(BlockPos home, int dx, int dy, int dz, Direction facing) {
         Vec3i front = facing.getNormal();

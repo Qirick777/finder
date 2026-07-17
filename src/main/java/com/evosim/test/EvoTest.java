@@ -444,23 +444,23 @@ public final class EvoTest {
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))),
                 "무등급 능력 = Ⅲ 취급(1.3)");
 
-        // 2c) 정원 배율 M(g) = 1 + 0.62×(g/5)³ — 성중립(성별 무관), 무능력 1.0 (세대 압축 재역산)
+        // 2c) 정원 배율 M(g) = 1 + 0.42×(g/5)³ — 성중립(성별 무관), 무능력 1.0 (여성당 2.4 재역산)
         boolean mg = close(Multipliers.gardenAbility(one(Sex.MALE)), 1.0)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.62)
+                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.42)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.31744)
+                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.21504)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.13392)
+                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.09072)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.03968)
+                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.02688)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.00496)
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.00336)
                 // 관리 4종 외 능력(도축Ⅴ)은 정원에 무효 — 사냥 특화가 정원을 끌지 않게
                 && close(Multipliers.gardenAbility(
                         one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))), 1.0);
         report.add("multiplier/정원등급", mg,
-                "M(g)=1+0.62(g/5)³ · Ⅴ1.62 Ⅳ1.317 Ⅲ1.134 Ⅱ1.040 Ⅰ1.005 · 성중립 · 도축 무효",
+                "M(g)=1+0.42(g/5)³ · Ⅴ1.42 Ⅳ1.215 Ⅲ1.091 Ⅱ1.027 Ⅰ1.003 · 성중립 · 도축 무효",
                 mg ? "정상" : "어긋남");
 
         // 3) 사냥: 도축업자Ⅴ(+0.5) + 육식Ⅴ(+0.2) = 1.7 / 그 개체 채집 = 육식Ⅴ(-0.3) = 0.7
@@ -1542,25 +1542,26 @@ public final class EvoTest {
     // /evotest berry — 베리 심기 잉여 배분(생존·번식 우선, 남으면 여러 그루)
     // ──────────────────────────────────────────────────────────────
     private static void berry(Report report) {
-        // 잉여10·예비2·번식몫2.5 → 잔여5.5 → 5그루(넉넉할수록 여러 그루)
-        boolean b1 = BerryEconomy.plant(10, 2, 2.5, 0, 8) == 5;
-        // 부트스트랩: 번식몫까지 빼면 0이지만 첫 2그루는 면제 — 잉여5·예비2 → 3 → 2그루
-        boolean b2 = BerryEconomy.plant(5, 2, 2.5, 0, 8) == 2;
-        // 부트스트랩 상한: 잉여6·예비2 → 4지만 첫 2그루까지만 면제 → 2그루(일반식 잔여1.5→1보다 큼)
-        boolean b3 = BerryEconomy.plant(6, 2, 2.5, 0, 8) == 2;
-        // 상한: 잉여20·현재6·상한8 → 잔여15.5지만 자리 2 → 2그루(부트스트랩 소진 — 일반식만)
+        // 부트스트랩 8(=상한): 정원 전량이 번식예비 면제 — 생존몫(예비)만 지키면 심는다.
+        // 잉여10·예비2 → 부트 8 → 8그루(상한)
+        boolean b1 = BerryEconomy.plant(10, 2, 2.5, 0, 8) == 8;
+        // 잉여5·예비2 → 부트 3그루
+        boolean b2 = BerryEconomy.plant(5, 2, 2.5, 0, 8) == 3;
+        // 잉여6·예비2 → 부트 4그루
+        boolean b3 = BerryEconomy.plant(6, 2, 2.5, 0, 8) == 4;
+        // 상한: 현재6이면 자리 2 → 2그루
         boolean b4 = BerryEconomy.plant(20, 2, 2.5, 6, 8) == 2;
-        // 독신(번식몫0): 잉여3 → 잔여1 → 1그루
+        // 독신(번식몫0): 잉여3 → 1그루
         boolean b5 = BerryEconomy.plant(3, 2, 0, 0, 8) == 1;
         // 굶는 가정: 잉여1 → 예비도 못 채움 → 0그루(부트스트랩도 생존몫은 침범 불가)
         boolean b6 = BerryEconomy.plant(1, 2, 2.5, 0, 8) == 0;
-        // 실사례(부부 저장고 7.5·생존몫6·번식예비6): 종전 0 → 부트스트랩 1그루(순환 잠금 해소 지점)
+        // 실사례(부부 저장고 7.5·생존몫6): 1.5 잔여 → 1그루(생계 유보 유지)
         boolean b7 = BerryEconomy.plant(7.5, 6, 6, 0, 8) == 1;
-        // 부트스트랩 소진 후엔 기존 게이트 그대로: 이미 2그루면 저장고 8로는 3그루째 불가
-        boolean b8 = BerryEconomy.plant(8, 6, 6, 2, 8) == 0;
+        // 2그루 보유 + 저장고 8: 부트 잔여 2 → +2그루(구게이트의 2그루 동결 해소 지점)
+        boolean b8 = BerryEconomy.plant(8, 6, 6, 2, 8) == 2;
 
         boolean ok = b1 && b2 && b3 && b4 && b5 && b6 && b7 && b8;
-        report.add("berry/잉여배분", ok, "생존몫 뒤 첫 2그루 부트스트랩(번식예비 면제) · 이후 잔여식·상한",
+        report.add("berry/잉여배분", ok, "부트스트랩 8(정원=생존 기반, 번식예비 면제) · 생존몫·상한 유지",
                 ok ? "정상" : "어긋남");
     }
 
@@ -1726,10 +1727,10 @@ public final class EvoTest {
 
         // [food/정수불변식] 시작값 올림·정산 반복 후에도 L 정수
         {
-            boolean b = isInt(FoodEconomy.initialLarder(6.9)) && close(FoodEconomy.initialLarder(6.9), 10.0)
-                    && close(FoodEconomy.initialLarder(6.0), 9.0) // 부부 지참금 9 — 첫 출산 2일차 역산
+            boolean b = isInt(FoodEconomy.initialLarder(6.9)) && close(FoodEconomy.initialLarder(6.9), 15.0)
+                    && close(FoodEconomy.initialLarder(6.0), 14.0) // 부부 지참금 14 = 생계 6 + 정원 전액 8
                     && isInt(FoodEconomy.initialLarder(3.0));
-            report.add("food/정수불변식", b, "시작 L=ceil(하루소모)+지참금3 정수 · 정산은 정수 입출금만",
+            report.add("food/정수불변식", b, "시작 L=ceil(하루소모)+정원몫8 정수 · 정산은 정수 입출금만",
                     b ? "정상" : "어긋남");
         }
     }
@@ -1807,9 +1808,9 @@ public final class EvoTest {
         boolean b1 = close(BerryEconomy.costMult(one(Sex.MALE, TraitInstance.of(Trait.LONG_INVESTMENT))), 0.5)
                 && close(BerryEconomy.costMult(one(Sex.MALE, TraitInstance.of(Trait.QUICK_INVESTMENT))), 2.0)
                 && close(BerryEconomy.costMult(plain), 1.0)
-                && BerryEconomy.plant(10, 2, 2.5, 0, 8, 0.5) == 8   // 잔여5.5/0.5=11 → 상한 8
-                && BerryEconomy.plant(10, 2, 2.5, 0, 8, 2.0) == 2;  // 5.5/2 = 2그루
-        report.add("traitfx/투자", b1, "장기투자 ×0.5(정원 2배 속도)·신속투자 ×2 — 같은 잉여 8그루 vs 2그루",
+                && BerryEconomy.plant(10, 2, 2.5, 0, 8, 0.5) == 8   // 부트 8/0.5=16 → 상한 8
+                && BerryEconomy.plant(10, 2, 2.5, 0, 8, 2.0) == 4;  // 부트 8/2 = 4그루
+        report.add("traitfx/투자", b1, "장기투자 ×0.5(정원 2배 속도)·신속투자 ×2 — 같은 잉여 8그루 vs 4그루",
                 b1 ? "정상" : "어긋남");
 
         // 시간지향(미래/현재) — R4 넉넉 기준 일수

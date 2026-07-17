@@ -46,10 +46,10 @@ public class MimicForageGoal extends Goal {
     private static final double GATHER_FOOD = 0.08;  // 채집물 1개 = 이 × 채집배율. 0.06→0.08(+33%):
     // 들풀-단독 지형 실측(부부 수입 3.1/일 vs 실효소모 2.9 → 잉여 +0.2)에서 잉여 +1.2/일로 —
     // 저장고 12(번식 문턱) 도달 ~4일. 밭 우위(틱당 0.0037)는 2.5배로 유지(역전 없음). 사냥 불변.
-    private static final double BERRY_FOOD = 0.44;   // 다 익은 베리 1수확 = 이 × 정원배율(성중립). 0.36→0.44:
-    // 세대 압축 재역산: 성년기 13일(가용 창 12일)에서 무특성 밴드 1~2명 중앙 잉여 1.36/일 →
-    // b = (1.36 + 부부소모 3.2 − 잔존 0.3) ÷ (8그루 × 픽업률 1.21/일) = 0.44.
-    // 성별·채집특성 곱은 정원에서 제거(분산 ±3배가 밴드 간격을 압도) — 등급 배율 M(g)만 적용.
+    private static final double BERRY_FOOD = 0.50;   // 다 익은 베리 1수확 = 이 × 정원배율(성중립). 0.44→0.50:
+    // 여성당 출산 2.4 역산(지참금이 정원으로 전환돼 저축 출발점이 6으로 내려간 밴드 재계산):
+    // 무특성 잉여 s₀ = 8×1.21×0.50 − 2.9 = 1.94 → 게이트 회복 3.9÷1.94 = 2.0일 = 쿨다운과 일치
+    // (출산 텀 2.0~2.4일), 기본 3명(불운 2) 밴드. 성별·채집특성 곱 없음 — 등급 배율 M(g)만.
     private static final double REACH = 1.9;         // 이 거리 안이면 채집(부수기) 가능
 
     private final MimicEntity mob;
@@ -264,7 +264,7 @@ public class MimicForageGoal extends Goal {
         if (home == null) {
             return null;
         }
-        for (BlockPos tile : HomeStructure.berryTiles(home, mob.getHomeFacingDir())) {
+        for (BlockPos tile : HomeStructure.gardenCells(home, mob.getHomeFacingDir())) {
             for (int dy = 3; dy >= -3; dy--) {
                 BlockPos p = tile.offset(0, dy, 0);
                 if (isRipeBerry(mob.level().getBlockState(p))) {

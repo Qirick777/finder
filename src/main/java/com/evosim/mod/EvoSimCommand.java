@@ -15,6 +15,7 @@ import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.FamilyLedger;
 import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.FarmTicker;
+import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
@@ -1883,47 +1884,109 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 부트스트랩 — 저장고 8(번식 문턱 12 미만)에서 정확히 2그루 + 비용 2 실차감(8→6).
-        //     출산(−3)·입출금(H1.5 밴드 내) 개입 불가 조성이라 저장고 델타가 베리 비용만 반영.
+        // [1] 정원 선완성 — 지참금 14 상당(저장고 14)에서 한 번의 정산으로 8그루 전량 + 비용 8
+        //     실차감(14→6), 그리고 <b>출산은 없어야</b> 함(식수가 출산보다 먼저·잔여 6 < 게이트 12).
         {
             BlockPos home = groundAt(level, b, -16, -24);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("berryx_bootstrap",
-                    "larder 8: bootstrap plants exactly 2 bushes, larder 8 -> 6", 200, false, () -> {
+            steps.add(new VerifySuite.Step("berryx_bootstrap_full",
+                    "larder 14: one settle -> 8 bushes, larder 6, NO birth", 200, false, () -> {
                 discardFamily(level, home);
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
                 c[0].debugClearBerries(level); // 같은 자리 재실행 잔재 제거
-                LarderStore.get(level).set(home, 8.0);
+                LarderStore.get(level).set(home, 14.0);
                 c[0].debugSettleOnce();
-            }, () -> String.format("bushes %d(expect 2) larder %.1f(expect 6.0)",
-                    c[0].countBerries(level), LarderStore.get(level).get(home)),
-                    () -> c[0].countBerries(level) == 2
-                            && Math.abs(LarderStore.get(level).get(home) - 6.0) < 1.0E-6,
+            }, () -> String.format("bushes %d(expect 8) larder %.1f(expect 6.0) infants %d(expect 0)",
+                    c[0].countBerries(level), LarderStore.get(level).get(home), infantsAt(level, home)),
+                    () -> c[0].countBerries(level) == 8
+                            && Math.abs(LarderStore.get(level).get(home) - 6.0) < 1.0E-6
+                            && infantsAt(level, home) == 0,
                     () -> {
                         c[0].debugClearBerries(level);
                         discardFamily(level, home, c);
                     }));
         }
-        // [2] 부트스트랩 소진 후 기존 게이트 — 이미 2그루·저장고 8이면 3그루째 금지(번식예비 우선 복원).
+        // [2] 생계 유보 — 저장고 6.9(생존몫 6 + 0.9)로는 0그루(부트스트랩도 생존몫 침범 불가).
         {
             BlockPos home = groundAt(level, b, 16, -24);
             MimicEntity[] c = new MimicEntity[2];
-            steps.add(new VerifySuite.Step("berryx_third_gated",
-                    "2 bushes present: larder 8 must NOT plant a 3rd (repro reserve restored)", 100, true, () -> {
+            steps.add(new VerifySuite.Step("berryx_survival_reserve",
+                    "larder 6.9: must NOT plant (survival reserve intact)", 100, true, () -> {
                 discardFamily(level, home);
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
                 c[0].debugClearBerries(level);
-                c[0].plantBerries(level, 2); // 부트스트랩 몫 소진 상태 조성
-                LarderStore.get(level).set(home, 8.0);
+                LarderStore.get(level).set(home, 6.9);
                 c[0].debugSettleOnce();
-            }, () -> String.format("bushes %d(must stay 2)", c[0].countBerries(level)),
-                    () -> c[0].countBerries(level) > 2, // ← 금지 결과
+            }, () -> String.format("bushes %d(must stay 0)", c[0].countBerries(level)),
+                    () -> c[0].countBerries(level) > 0, // ← 금지 결과
                     () -> {
                         c[0].debugClearBerries(level);
+                        discardFamily(level, home, c);
+                    }));
+        }
+        // [2b] 정원 후 출산 — 8그루 완성 상태에서 저장고 12 도달 시 출산 발동(순서·게이트 검산):
+        //      출산 후 저장고 9(−3), 그루 8 유지, 유아 1.
+        {
+            BlockPos home = groundAt(level, b, -16, 0);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("berryx_then_birth",
+                    "8 bushes + larder 12 -> birth fires (larder 9, infant 1, bushes stay 8)",
+                    200, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level);
+                LarderStore.get(level).set(home, 14.0);
+                c[0].debugSettleOnce(); // 정원 8/8 완성(잔여 6)
+                LarderStore.get(level).set(home, 12.0);
+                c[0].debugSettleOnce(); // 게이트 12 → 출산
+            }, () -> String.format("bushes %d(expect 8) larder %.1f(expect 9.0) infants %d(expect 1)",
+                    c[0].countBerries(level), LarderStore.get(level).get(home), infantsAt(level, home)),
+                    () -> c[0].countBerries(level) == 8
+                            && Math.abs(LarderStore.get(level).get(home) - 9.0) < 1.0E-6
+                            && infantsAt(level, home) == 1,
+                    () -> {
+                        c[0].debugClearBerries(level);
+                        discardFamily(level, home, c);
+                    }));
+        }
+        // [2c] 식수 폴백 — 고정 8칸을 원목으로 전부 막고도 폴백 셀로 8그루 완성(지형 복권 완화).
+        {
+            BlockPos home = groundAt(level, b, 16, 0);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("berryx_fallback_cells",
+                    "8 fixed tiles blocked by logs: fallback cells still complete 8 bushes",
+                    200, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level);
+                for (BlockPos tile : HomeStructure.berryTiles(home, c[0].getHomeFacingDir())) {
+                    BlockPos g = level.getHeightmapPos(
+                            net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                            tile);
+                    level.setBlockAndUpdate(g, Blocks.OAK_LOG.defaultBlockState()); // 자리 차단
+                }
+                LarderStore.get(level).set(home, 14.0);
+                c[0].debugSettleOnce();
+            }, () -> String.format("bushes %d(expect 8 via fallback)", c[0].countBerries(level)),
+                    () -> c[0].countBerries(level) == 8,
+                    () -> {
+                        c[0].debugClearBerries(level);
+                        for (BlockPos tile : HomeStructure.berryTiles(home, c[0].getHomeFacingDir())) {
+                            for (int dy = -2; dy <= 3; dy++) {
+                                BlockPos p = tile.offset(0, dy, 0);
+                                if (level.getBlockState(p).is(Blocks.OAK_LOG)) {
+                                    level.setBlockAndUpdate(p, Blocks.AIR.defaultBlockState());
+                                }
+                            }
+                        }
                         discardFamily(level, home, c);
                     }));
         }
@@ -1953,8 +2016,8 @@ public final class EvoSimCommand {
                     () -> discard(c)));
         }
         VerifySuite.start(ctx.getSource(), steps);
-        tell(ctx.getSource(), "베리 합본 검증(3단계) — 부트스트랩 2그루·정확 차감 / 3그루째 금지 / "
-                + "들풀 한 입 수율(H 정밀 판별). 결과값만 판정.");
+        tell(ctx.getSource(), "베리 합본 검증(5단계) — 정원 선완성(14→8그루·무출산) / 생계 유보 / "
+                + "정원 후 출산(12→유아1·저장고9) / 식수 폴백 / 들풀 수율. 결과값만 판정.");
         return 1;
     }
 
@@ -2024,49 +2087,52 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 남성 수확 — H 1.5 → 1.94(−이동소모 ≤0.03). 성별 곱 재유입 시 남 0.66→상한 2.0 컷(대역 위).
+        // [1] 남성 수확 — H 1.2 → 1.70(delta 0.50). 성별 곱 재유입 시 남 +0.75→1.95(대역 위),
+        //     여 +0.25→1.45(대역 아래) — 양방향 판별.
         {
             BlockPos pad = groundAt(level, b, -22, 30);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("bandx_neutral_m",
-                    "male berry pick: H 1.5 -> [1.90, 1.98] (delta 0.44, sex-mult bug 2.0-cut rejected)",
+                    "male berry pick: H 1.2 -> [1.65, 1.78] (delta 0.50, sex-mult bug rejected)",
                     300, false, () -> {
                 berryPad(level, pad);
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
+                c[0].debugSetHolding(1.2);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.5, expect 1.90~1.98)", c[0].getHolding()),
-                    () -> c[0].getHolding() >= 1.90 && c[0].getHolding() <= 1.98,
+            }, () -> String.format("H %.3f(start 1.2, expect 1.65~1.78)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.65 && c[0].getHolding() <= 1.78,
                     () -> discard(c)));
         }
-        // [2] 여성 수확 — 같은 대역이면 성중립 입증. 성별 곱 재유입 시 여 +0.22 → 1.72(대역 아래).
+        // [2] 여성 수확 — 같은 대역이면 성중립 입증.
         {
             BlockPos pad = groundAt(level, b, 0, 30);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("bandx_neutral_f",
-                    "female berry pick: same band [1.90, 1.98] (sex-mult bug +0.22 rejected)",
+                    "female berry pick: same band [1.65, 1.78] (sex-mult bug rejected)",
                     300, false, () -> {
                 berryPad(level, pad);
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.FEMALE);
+                c[0].debugSetHolding(1.2);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.5, expect 1.90~1.98)", c[0].getHolding()),
-                    () -> c[0].getHolding() >= 1.90 && c[0].getHolding() <= 1.98,
+            }, () -> String.format("H %.3f(start 1.2, expect 1.65~1.78)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.65 && c[0].getHolding() <= 1.78,
                     () -> discard(c)));
         }
-        // [3] 약초학자Ⅴ 수확 — H 1.0 → 1.713(0.44×M(5)=1.62). 등급 누락(Ⅲ 취급 1.499 / 무배율 1.44)은
-        //     하한 1.66 밖.
+        // [3] 약초학자Ⅴ 수확 — H 1.0 → 1.71(0.50×M(5)=1.42). 등급 누락(Ⅲ 취급 1.546 / 무배율 1.50)은
+        //     하한 1.65 밖.
         {
             BlockPos pad = groundAt(level, b, 22, 30);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("bandx_grade",
-                    "herbalist-V pick: H 1.0 -> [1.66, 1.77] (M(5)=1.62, delta 0.713)",
+                    "herbalist-V pick: H 1.0 -> [1.65, 1.78] (M(5)=1.42, delta 0.71)",
                     300, false, () -> {
                 berryPad(level, pad);
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE,
                         Trait.HERBALIST); // 무대 등급 Ⅴ 고정(spawnAdult)
                 c[0].debugSetHolding(1.0);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.0, expect 1.66~1.77)", c[0].getHolding()),
-                    () -> c[0].getHolding() >= 1.66 && c[0].getHolding() <= 1.77,
+            }, () -> String.format("H %.3f(start 1.0, expect 1.65~1.78)", c[0].getHolding()),
+                    () -> c[0].getHolding() >= 1.65 && c[0].getHolding() <= 1.78,
                     () -> discard(c)));
         }
         VerifySuite.start(ctx.getSource(), steps);
@@ -2254,29 +2320,29 @@ public final class EvoSimCommand {
         }
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 주입 → 발현 배율 실변화: 정원 베리 한 수확 — 무배율 0.44(→1.44) vs
-        //     약초학자Ⅴ 주입 후 M(5)=1.62 → 0.713(→1.713). Ⅲ 취급 버그(0.499→1.499)도 대역 밖.
+        // [1] 주입 → 발현 배율 실변화: 정원 베리 한 수확 — 무배율 0.50(→1.50) vs
+        //     약초학자Ⅴ 주입 후 M(5)=1.42 → 0.71(→1.71). Ⅲ 취급 버그(0.546→1.546)도 대역 밖.
         {
             BlockPos pad = groundAt(level, b, -22, 58);
             MimicEntity[] c = new MimicEntity[1];
             steps.add(new VerifySuite.Step("editx_inject",
-                    "inject herbalist-V dominant: berry pick 0.44 -> 0.713 (H 1.0 -> [1.66, 1.77])",
+                    "inject herbalist-V dominant: berry pick 0.50 -> 0.71 (H 1.0 -> [1.65, 1.78])",
                     300, false, () -> {
                 berryPad(level, pad); // 익은 덤불 1 = 유일 수입원
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad.offset(2, 0, 2)), Sex.MALE);
-                c[0].debugSetHolding(1.0); // Ⅴ 델타 0.713이 무주택 상한 2.0에 닿지 않게
+                c[0].debugSetHolding(1.0); // Ⅴ 델타 0.71이 무주택 상한 2.0에 닿지 않게
                 String st = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
                         com.evosim.mod.entity.TraitEditor.OP_ADD, Trait.HERBALIST.ordinal(),
                         0, 5, true);
                 SimEvents.note(level, "editx", "주입 상태: " + st);
                 level.setDayTime(2000L);
-            }, () -> String.format("H %.3f(start 1.0, expect 1.66~1.77) herbalist=%s dom=%s",
+            }, () -> String.format("H %.3f(start 1.0, expect 1.65~1.78) herbalist=%s dom=%s",
                     c[0].getHolding(),
                     com.evosim.core.ExpressionResolver.isExpressed(c[0].getIndividual(), Trait.HERBALIST),
                     c[0].getIndividual().allTraits().stream()
                             .filter(ti -> ti.trait() == Trait.HERBALIST)
                             .anyMatch(TraitInstance::isDominant)),
-                    () -> c[0].getHolding() >= 1.66 && c[0].getHolding() <= 1.77
+                    () -> c[0].getHolding() >= 1.65 && c[0].getHolding() <= 1.78
                             && com.evosim.core.ExpressionResolver.isExpressed(c[0].getIndividual(), Trait.HERBALIST),
                     () -> discard(c)));
         }
@@ -2361,33 +2427,33 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 문턱 역산 정확성 — 부부·정원2·저장고8: 번식부족 4.0(=3+6+3−8) ·
-        //     베리부족 5.0(부트스트랩 소진: 6+6+1−8) · 개간부족 28.0(30+6−8) · 동기 ✓
+        // [1] 문턱 역산 정확성 — 부부·정원2·저장고5: 번식부족 7.0(=3+6+3−5) ·
+        //     베리부족 2.0(부트스트랩 8 게이트: 생계6+비용1−5) · 개간부족 31.0(30+6−5) · 동기 ✓
         {
             BlockPos home = groundAt(level, b, -16, 24);
             MimicEntity[] c = new MimicEntity[2];
             steps.add(new VerifySuite.Step("scanx_thresholds",
-                    "snapshot lacks: repro 4.0, berry 5.0, farm 28.0, motive on, garden 2/8", 100, false, () -> {
+                    "snapshot lacks: repro 7.0, berry 2.0, farm 31.0, motive on, garden 2/8", 100, false, () -> {
                 discardFamily(level, home);
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
                 c[1] = cc[1];
                 c[0].debugClearBerries(level);
                 c[0].plantBerries(level, 2);
-                LarderStore.get(level).set(home, 8.0);
+                LarderStore.get(level).set(home, 5.0);
             }, () -> {
                 var s = c[0].buildScanSnapshot(level);
-                return String.format("repro %.1f(exp 4.0) berry %.1f(exp 5.0) farm %.1f(exp 28.0) "
+                return String.format("repro %.1f(exp 7.0) berry %.1f(exp 2.0) farm %.1f(exp 31.0) "
                                 + "motive %s garden %d/%d adults %d",
                         s.reproLack, s.berryLack, s.farmLack, s.farmMotive ? "Y" : "N",
                         s.garden, s.gardenCap, s.adults);
             }, () -> {
                 var s = c[0].buildScanSnapshot(level);
-                return Math.abs(s.reproLack - 4.0F) < 1.0E-3
-                        && Math.abs(s.berryLack - 5.0F) < 1.0E-3
-                        && Math.abs(s.farmLack - 28.0F) < 1.0E-3
+                return Math.abs(s.reproLack - 7.0F) < 1.0E-3
+                        && Math.abs(s.berryLack - 2.0F) < 1.0E-3
+                        && Math.abs(s.farmLack - 31.0F) < 1.0E-3
                         && s.farmMotive && s.garden == 2 && s.gardenCap == 8 && s.adults == 2
-                        && Math.abs(s.larder - 8.0F) < 1.0E-3;
+                        && Math.abs(s.larder - 5.0F) < 1.0E-3;
             }, () -> {
                 c[0].debugClearBerries(level);
                 discardFamily(level, home, c);

@@ -17,8 +17,8 @@ public final class Famine {
     public static final int RESETTLE_COOLDOWN = 48000;
     /** 이주 거리 = 활동반경 × 이 값("인지거리 외곽"). */
     public static final double MIGRATE_DISTANCE_MULT = 2.0;
-    /** 짝 후보 0명이 이 틱 지속되면 구혼 여행 출발(족외혼, 3게임일). */
-    public static final int LONELY_TRAVEL_AFTER = 72000;
+    /** 독신 짝 후보 0명이 이 틱 지속되면 구혼 여행 출발(족외혼, 1게임일 — 세대 압축 비례 3/35×13). */
+    public static final int LONELY_TRAVEL_AFTER = 24000;
     /** 구혼 여행 최대 기간 — 넘기면 귀향(2게임일). */
     public static final int TRAVEL_DURATION = 48000;
 

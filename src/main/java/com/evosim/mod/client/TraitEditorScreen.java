@@ -49,6 +49,12 @@ public final class TraitEditorScreen extends Screen {
     private Button gradeBtn;
     private Button domBtn;
     private Button addBtn;
+    private net.minecraft.client.gui.components.EditBox nameFirstBox;
+    private net.minecraft.client.gui.components.EditBox nameMiddleBox;
+    private net.minecraft.client.gui.components.EditBox nameLastBox;
+    private String nameFirst = "";
+    private String nameMiddle = "";
+    private String nameLast = "";
 
     private TraitEditorScreen(OpenTraitEditorPacket p) {
         super(Component.literal("특성 편집"));
@@ -70,7 +76,20 @@ public final class TraitEditorScreen extends Screen {
         this.headline = p.headline;
         this.entries = p.entries;
         this.status = p.status;
+        this.nameFirst = p.nameFirst;
+        this.nameMiddle = p.nameMiddle;
+        this.nameLast = p.nameLast;
         this.ownedScroll = Mth.clamp(ownedScroll, 0, Math.max(0, entries.size() - OWNED_ROWS));
+        // 편집 중 텍스트를 지우지 않게 — 입력란이 비어 있을 때만 서버 값으로 채움.
+        if (nameFirstBox != null && nameFirstBox.getValue().isEmpty()) {
+            nameFirstBox.setValue(nameFirst);
+        }
+        if (nameMiddleBox != null && nameMiddleBox.getValue().isEmpty()) {
+            nameMiddleBox.setValue(nameMiddle);
+        }
+        if (nameLastBox != null && nameLastBox.getValue().isEmpty()) {
+            nameLastBox.setValue(nameLast);
+        }
     }
 
     @Override
@@ -107,6 +126,30 @@ public final class TraitEditorScreen extends Screen {
         }).bounds(px + 304, by, 50, 14).build());
         addRenderableWidget(Button.builder(Component.literal("닫기"), b -> onClose())
                 .bounds(px + PANEL_W - 54, py + PANEL_H - 17, 50, 14).build());
+        // ── 성명 편집(First/Middle/Last + 저장) — 좌측 하단, 자유 입력 ──
+        int ny = py + PANEL_H - 34;
+        nameFirstBox = new net.minecraft.client.gui.components.EditBox(
+                font, px + 6, ny, 48, 12, Component.literal("이름"));
+        nameFirstBox.setMaxLength(24);
+        nameFirstBox.setSuggestion(nameFirst.isEmpty() ? "이름" : "");
+        nameFirstBox.setValue(nameFirst);
+        addRenderableWidget(nameFirstBox);
+        nameMiddleBox = new net.minecraft.client.gui.components.EditBox(
+                font, px + 56, ny, 48, 12, Component.literal("미들"));
+        nameMiddleBox.setMaxLength(24);
+        nameMiddleBox.setValue(nameMiddle);
+        addRenderableWidget(nameMiddleBox);
+        nameLastBox = new net.minecraft.client.gui.components.EditBox(
+                font, px + 106, ny, 48, 12, Component.literal("성"));
+        nameLastBox.setMaxLength(24);
+        nameLastBox.setValue(nameLast);
+        addRenderableWidget(nameLastBox);
+        addRenderableWidget(Button.builder(Component.literal("개명"), b ->
+                ModNetwork.CHANNEL.sendToServer(new EditTraitPacket(entityId,
+                        TraitEditor.OP_SET_NAME, 0, 0, 0, false,
+                        nameFirstBox.getValue() + "|" + nameMiddleBox.getValue() + "|"
+                                + nameLastBox.getValue())))
+                .bounds(px + 156, ny - 1, 32, 14).build());
     }
 
     private Component gradeLabel() {
@@ -176,7 +219,7 @@ public final class TraitEditorScreen extends Screen {
         }
         if (es.size() > OWNED_ROWS) {
             g.drawString(font, ownedScroll + 1 + "~" + Math.min(es.size(), ownedScroll + OWNED_ROWS)
-                    + "/" + es.size(), px + 6, py + PANEL_H - 30, 0xFF6E8492, false);
+                    + "/" + es.size(), px + 6, py + PANEL_H - 46, 0xFF6E8492, false);
         }
 
         // ── 우: 팔레트 ──

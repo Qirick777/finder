@@ -125,6 +125,23 @@ public final class Genetics {
     public static Individual breed(long childId, Individual a, Individual b,
                                    DeterministicRng rng, int generation, BreedStats stats, Sex sex) {
         Individual child = new Individual(childId, sex, a.id(), b.id(), generation);
+        // 성명: 성씨는 부계(남성 부모), first/middle은 자식 id 시드 결정론. 미들은 25% 확률로
+        // honor naming(아들=아버지 first, 딸=어머니 first) — 혈통이 이름에 남는다.
+        {
+            Individual father = a.sex() == Sex.MALE ? a : b;
+            Individual mother = a.sex() == Sex.MALE ? b : a;
+            String first = NameBook.first(childId, sex);
+            String middle;
+            if (NameBook.honor(childId)) {
+                middle = sex == Sex.MALE ? father.firstName() : mother.firstName();
+                if (middle.equals(first)) {
+                    middle = NameBook.middle(childId, sex, first);
+                }
+            } else {
+                middle = NameBook.middle(childId, sex, first);
+            }
+            child.setName(first, middle, father.surname());
+        }
         for (Category cat : Category.values()) {
             for (TraitInstance ti : selectCategory(cat, a, b, sex, rng, stats)) {
                 child.addTrait(ti);

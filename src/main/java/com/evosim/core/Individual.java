@@ -166,6 +166,61 @@ public final class Individual {
         return sex == Sex.MALE ? mateChoiceMale : mateChoiceFemale;
     }
 
+    // ── 성명(서양식 First·Middle·Last, 한글 표기) — 미설정(구 세이브·수동 생성)은 id 시드 지연 부여 ──
+    private String firstName;
+    private String middleName;
+    private String surname;
+
+    public String firstName() {
+        ensureName();
+        return firstName;
+    }
+
+    public String middleName() {
+        ensureName();
+        return middleName;
+    }
+
+    public String surname() {
+        ensureName();
+        return surname;
+    }
+
+    public void setName(String first, String middle, String last) {
+        this.firstName = first;
+        this.middleName = middle;
+        this.surname = last;
+    }
+
+    /** 혼인 개성(改姓) — 아내가 남편 성으로. */
+    public void setSurname(String last) {
+        ensureName();
+        this.surname = last;
+    }
+
+    /** 미설정이면 id 시드로 결정론 부여(구 세이브 호환 — 재로드에도 같은 이름). */
+    private void ensureName() {
+        if (firstName == null || firstName.isEmpty()) {
+            firstName = NameBook.first(id, sex);
+            middleName = NameBook.middle(id, sex, firstName);
+            surname = NameBook.surname(id);
+        }
+    }
+
+    /** 짧은 표기 — 로그·카드용: "윌리엄 스미스". */
+    public String shortName() {
+        ensureName();
+        return firstName + " " + surname;
+    }
+
+    /** 전체 표기 — 상세용: "윌리엄 재스퍼 스미스". */
+    public String fullName() {
+        ensureName();
+        return middleName == null || middleName.isEmpty()
+                ? firstName + " " + surname
+                : firstName + " " + middleName + " " + surname;
+    }
+
     /** 직계 조상 ID 명단(부모→조부모→… BFS 순). 비어 있으면 1세대 또는 구 세이브. */
     public long[] ancestorIds() {
         return ancestorIds;

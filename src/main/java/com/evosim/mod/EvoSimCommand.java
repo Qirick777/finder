@@ -114,6 +114,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("elderx").executes(EvoSimCommand::stageElderX))
                 .then(Commands.literal("glowx").executes(EvoSimCommand::stageGlowX))
                 .then(Commands.literal("editx").executes(EvoSimCommand::stageEditX))
+                .then(Commands.literal("namex").executes(EvoSimCommand::stageNameX))
                 .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
@@ -2409,6 +2410,91 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "편집봉 합본 검증(3단계) — 주입 후 수확 델타 실측 / 슬롯·중복 거부 / "
                 + "우성·등급 클램프·삭제. 패킷과 같은 TraitEditor.apply 경유, 결과값만 판정.");
+        return 1;
+    }
+
+    /**
+     * 성명 검증 — ① 출산 자식의 성 = 부친 성(부계 상속, 실개체) ② 편집봉 OP_SET_NAME 자유 입력
+     * 반영 + 형식 거부. 전부 Individual 상태 결과값 판정.
+     */
+    private static int stageNameX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 부계 상속 — 부부 출산 → 자식 성 == 부친 성, 로그 표기용 shortName 비어있지 않음
+        {
+            BlockPos home = groundAt(level, b, -16, 72);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("namex_patrilineal",
+                    "child surname equals father's after birth", 200, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].debugClearBerries(level);
+                LarderStore.get(level).set(home, 14.0);
+                c[0].debugSettleOnce(); // 정원 8/8 선완성(식수가 출산보다 먼저 — E-1 순서)
+                LarderStore.get(level).set(home, 12.0);
+                c[0].debugSettleOnce(); // 게이트 12 → 출산
+            }, () -> {
+                MimicEntity infant = null;
+                for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                        new net.minecraft.world.phys.AABB(home).inflate(8.0))) {
+                    if (m.getStage() == LifeStage.INFANT) {
+                        infant = m;
+                    }
+                }
+                MimicEntity father = c[0].isFemale() ? c[1] : c[0];
+                return String.format("infant=%s childSur=%s fatherSur=%s",
+                        infant != null,
+                        infant != null && infant.getIndividual() != null
+                                ? infant.getIndividual().surname() : "-",
+                        father.getIndividual().surname());
+            }, () -> {
+                MimicEntity infant = null;
+                for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                        new net.minecraft.world.phys.AABB(home).inflate(8.0))) {
+                    if (m.getStage() == LifeStage.INFANT) {
+                        infant = m;
+                    }
+                }
+                MimicEntity father = c[0].isFemale() ? c[1] : c[0];
+                return infant != null && infant.getIndividual() != null
+                        && infant.getIndividual().surname()
+                                .equals(father.getIndividual().surname())
+                        && !infant.getIndividual().shortName().isEmpty();
+            }, () -> discardFamily(level, home, c)));
+        }
+        // [2] 개명 op — 자유 입력 반영 + 빈 성 거부(상태 불변)
+        {
+            BlockPos pad = groundAt(level, b, 16, 72);
+            MimicEntity[] c = new MimicEntity[1];
+            String[] st = new String[2];
+            steps.add(new VerifySuite.Step("namex_rename",
+                    "OP_SET_NAME applies free text; empty-surname rejected", 100, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(pad), Sex.MALE);
+                c[0].setNoAi(true);
+                st[0] = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_SET_NAME, 0, 0, 0, false,
+                        "아무개|테스트|검증가");
+                st[1] = com.evosim.mod.entity.TraitEditor.apply(level, null, c[0].getId(),
+                        com.evosim.mod.entity.TraitEditor.OP_SET_NAME, 0, 0, 0, false,
+                        "이름만| |");
+            }, () -> String.format("full='%s' set='%s' reject='%s'",
+                    c[0].getIndividual().fullName(), st[0], st[1]),
+                    () -> "아무개 테스트 검증가".equals(c[0].getIndividual().fullName())
+                            && st[0] != null && st[0].startsWith("개명")
+                            && st[1] != null && st[1].contains("비울 수 없음"),
+                    () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "성명 합본 검증(2단계) — 부계 상속(실출산) / 개명 자유 입력·거부. "
+                + "Individual 상태 결과값만 판정.");
         return 1;
     }
 

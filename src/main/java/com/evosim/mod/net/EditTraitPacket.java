@@ -19,15 +19,22 @@ public final class EditTraitPacket {
     private final int index;
     private final int value;
     private final boolean dominant;
+    private final String text; // OP_SET_NAME 전용: "first|middle|last"
 
     public EditTraitPacket(int entityId, int op, int traitOrdinal, int index, int value,
                            boolean dominant) {
+        this(entityId, op, traitOrdinal, index, value, dominant, "");
+    }
+
+    public EditTraitPacket(int entityId, int op, int traitOrdinal, int index, int value,
+                           boolean dominant, String text) {
         this.entityId = entityId;
         this.op = op;
         this.traitOrdinal = traitOrdinal;
         this.index = index;
         this.value = value;
         this.dominant = dominant;
+        this.text = text;
     }
 
     public static void encode(EditTraitPacket p, FriendlyByteBuf buf) {
@@ -37,11 +44,12 @@ public final class EditTraitPacket {
         buf.writeVarInt(p.index);
         buf.writeByte(p.value);
         buf.writeBoolean(p.dominant);
+        buf.writeUtf(p.text);
     }
 
     public static EditTraitPacket decode(FriendlyByteBuf buf) {
         return new EditTraitPacket(buf.readVarInt(), buf.readByte(), buf.readVarInt(),
-                buf.readVarInt(), buf.readByte(), buf.readBoolean());
+                buf.readVarInt(), buf.readByte(), buf.readBoolean(), buf.readUtf());
     }
 
     public static void handle(EditTraitPacket p, Supplier<NetworkEvent.Context> ctx) {
@@ -51,7 +59,7 @@ public final class EditTraitPacket {
                 return;
             }
             String status = TraitEditor.apply(sp.serverLevel(), sp, p.entityId,
-                    p.op, p.traitOrdinal, p.index, p.value, p.dominant);
+                    p.op, p.traitOrdinal, p.index, p.value, p.dominant, p.text);
             com.evosim.mod.item.TraitEditorItem.sendEditor(sp, p.entityId, status);
         });
         ctx.get().setPacketHandled(true);

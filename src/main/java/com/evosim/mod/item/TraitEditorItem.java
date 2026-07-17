@@ -65,9 +65,10 @@ public class TraitEditorItem extends Item {
             case ADULT -> "성년";
             case ELDER -> "노년";
         };
-        String headline = "N" + ind.id() + " " + (m.isFemale() ? "♀" : "♂") + stage
+        String headline = ind.fullName() + " " + (m.isFemale() ? "♀" : "♂") + stage
                 + " · 세대" + ind.generation();
         ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> sp),
-                new OpenTraitEditorPacket(m.getId(), headline, entries, status));
+                new OpenTraitEditorPacket(m.getId(), headline, entries, status,
+                        ind.firstName(), ind.middleName(), ind.surname()));
     }
 }

@@ -23,6 +23,9 @@ public final class TraitEditor {
     public static final int OP_REMOVE = 1;
     public static final int OP_TOGGLE_DOMINANT = 2;
     public static final int OP_GRADE_DELTA = 3;
+    /** 성명 직접 입력 — text = "first|middle|last" (middle 공백 허용). */
+    public static final int OP_SET_NAME = 4;
+    private static final int NAME_MAX = 24;
 
     private TraitEditor() {
     }
@@ -37,6 +40,12 @@ public final class TraitEditor {
      */
     public static String apply(ServerLevel level, ServerPlayer editor, int entityId,
                                int op, int traitOrdinal, int index, int value, boolean dominant) {
+        return apply(level, editor, entityId, op, traitOrdinal, index, value, dominant, "");
+    }
+
+    public static String apply(ServerLevel level, ServerPlayer editor, int entityId,
+                               int op, int traitOrdinal, int index, int value, boolean dominant,
+                               String text) {
         Entity e = level.getEntity(entityId);
         if (!(e instanceof MimicEntity m) || !m.isAlive() || m.getIndividual() == null) {
             return "대상 없음";
@@ -99,6 +108,24 @@ public final class TraitEditor {
                 int g = TraitInstance.clampGrade((ti.grade() <= 0 ? 3 : ti.grade()) + value);
                 ind.replaceTrait(ti, new TraitInstance(ti.trait(), ti.tags(), ti.isAnti(), g));
                 status = ti.trait().koreanName() + " 등급 " + TraitInstance.roman(g);
+            }
+            case OP_SET_NAME -> {
+                // text = "first|middle|last" — middle 은 공백 허용, first·last 필수, 각 24자 제한.
+                String[] parts = (text == null ? "" : text).split("\\|", -1);
+                if (parts.length != 3) {
+                    return "이름 형식 오류";
+                }
+                String f = parts[0].trim();
+                String mid = parts[1].trim();
+                String l = parts[2].trim();
+                if (f.isEmpty() || l.isEmpty()) {
+                    return "이름·성은 비울 수 없음";
+                }
+                if (f.length() > NAME_MAX || mid.length() > NAME_MAX || l.length() > NAME_MAX) {
+                    return "이름이 너무 김(최대 " + NAME_MAX + "자)";
+                }
+                ind.setName(f, mid, l);
+                status = "개명: " + ind.fullName();
             }
             default -> {
                 return "알 수 없는 연산";

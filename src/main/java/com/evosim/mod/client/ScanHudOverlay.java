@@ -125,7 +125,8 @@ public final class ScanHudOverlay implements IGuiOverlay {
         String sex = s.female ? "♀" : "♂";
         int sexColor = s.female ? color(a, 0xFF8FB3) : color(a, 0x7CC0FF);
         g.drawString(font, sex, tx, ty, sexColor, true);
-        String idLine = "N" + s.serial + " " + stageName(s.stage) + " · 세대" + s.generation
+        String idLine = (s.name.isEmpty() ? "N" + s.serial : s.name)
+                + " " + stageName(s.stage) + " · 세대" + s.generation
                 + (s.stageActor ? " [무대]" : "");
         g.drawString(font, idLine, tx + 10, ty, color(a, 0xEFF5F8), true);
         if (pinned) {

@@ -116,6 +116,7 @@ public final class EvoTest {
             case "roaming" -> roaming(report);
             case "ability" -> ability(report);
             case "berry" -> berry(report);
+            case "name" -> name(report);
             case "food" -> food(report);
             case "famine" -> famine(report);
             case "traitfx" -> traitfx(report);
@@ -158,6 +159,7 @@ public final class EvoTest {
         farm(report);
         satisfaction(report);
         berry(report);
+        name(report);
         food(report);
         famine(report);
         traitfx(report);
@@ -1536,6 +1538,62 @@ public final class EvoTest {
                 && Multipliers.charmScore(plain, one(Sex.FEMALE)) == 0;
         report.add("ability/언변매력", charm, "달변가 +1·눌변가 −1·기본 0",
                 charm ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest name — 성명 사전(풀 크기·결정론·부계 상속·honor·개명)
+    // ──────────────────────────────────────────────────────────────
+    private static void name(Report report) {
+        // 1) 풀 크기·결정론(같은 시드 = 같은 이름) + 미들 ≠ 퍼스트
+        boolean pool = com.evosim.core.NameBook.SURNAMES.length == 50
+                && com.evosim.core.NameBook.MALE.length == 100
+                && com.evosim.core.NameBook.FEMALE.length == 100;
+        boolean det = com.evosim.core.NameBook.first(12345L, Sex.MALE)
+                        .equals(com.evosim.core.NameBook.first(12345L, Sex.MALE))
+                && com.evosim.core.NameBook.surname(12345L)
+                        .equals(com.evosim.core.NameBook.surname(12345L));
+        boolean midDiff = true;
+        for (long s = 1; s <= 300; s++) {
+            String f = com.evosim.core.NameBook.first(s, Sex.FEMALE);
+            if (com.evosim.core.NameBook.middle(s, Sex.FEMALE, f).equals(f)) {
+                midDiff = false;
+                break;
+            }
+        }
+        report.add("name/사전", pool && det && midDiff, "성50·남100·여100 · 시드 결정론 · 미들≠퍼스트",
+                (pool && det && midDiff) ? "정상" : "어긋남");
+
+        // 2) 부계 상속 + honor 25%(표본): breed 자식 성 = 부친 성, honor 시 미들 = 부모 first
+        Individual dad = new Individual(1001, Sex.MALE, 0, 0, 1);
+        Individual mom = new Individual(1002, Sex.FEMALE, 0, 0, 1);
+        DeterministicRng rng = new DeterministicRng(7L);
+        boolean patri = true;
+        int honors = 0;
+        int n = 400;
+        for (long cid = 1; cid <= n; cid++) {
+            Individual child = Genetics.breed(cid, dad, mom, rng, 2, null);
+            if (!child.surname().equals(dad.surname())) {
+                patri = false;
+            }
+            String parentFirst = child.sex() == Sex.MALE ? dad.firstName() : mom.firstName();
+            if (child.middleName().equals(parentFirst) && com.evosim.core.NameBook.honor(cid)) {
+                honors++;
+            }
+        }
+        boolean honorBand = honors > n * 0.12 && honors < n * 0.40; // 25% ± 판정 여유
+        report.add("name/상속", patri && honorBand,
+                "자식 성=부친 성(400표본) · honor 미들 계승 25%±(관측 " + honors + "/" + n + ")",
+                (patri && honorBand) ? "정상" : "어긋남");
+
+        // 3) 개명·개성: setName 자유 입력 + 혼인 개성(성만 교체)
+        Individual w = new Individual(1003, Sex.FEMALE, 0, 0, 1);
+        w.setName("엠마", "로즈", "브룩스");
+        w.setSurname("스미스");
+        boolean rename = w.firstName().equals("엠마") && w.middleName().equals("로즈")
+                && w.surname().equals("스미스") && w.fullName().equals("엠마 로즈 스미스")
+                && w.shortName().equals("엠마 스미스");
+        report.add("name/개명개성", rename, "setName 자유 입력 · setSurname 개성 · 표기 규칙",
+                rename ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

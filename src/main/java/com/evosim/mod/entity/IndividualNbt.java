@@ -32,6 +32,9 @@ public final class IndividualNbt {
         t.putLong("PB", ind.parentBId());
         t.putInt("Gen", ind.generation());
         t.putInt("Hunger", ind.hungerCount());
+        t.putString("NameF", ind.firstName());
+        t.putString("NameM", ind.middleName());
+        t.putString("NameL", ind.surname());
         t.putString("PCareM", ind.parentingCareMale().name());
         t.putString("PCareF", ind.parentingCareFemale().name());
         t.putString("MChM", ind.mateChoiceMale().name());   // 짝 까다로움 슬롯 — 누락돼 있던 영속
@@ -65,6 +68,9 @@ public final class IndividualNbt {
         Individual ind = new Individual(t.getLong("Id"), sex,
                 t.getLong("PA"), t.getLong("PB"), Math.max(1, t.getInt("Gen")));
         ind.setHungerCount(t.getInt("Hunger"));
+        if (!t.getString("NameF").isEmpty()) { // 구 세이브(무성명)는 지연 부여에 맡김
+            ind.setName(t.getString("NameF"), t.getString("NameM"), t.getString("NameL"));
+        }
         ind.setParentingCareMale(parentingOr(t.getString("PCareM")));
         ind.setParentingCareFemale(parentingOr(t.getString("PCareF")));
         ind.setMateChoiceMale(mateChoiceOr(t.getString("MChM")));

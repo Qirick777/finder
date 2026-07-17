@@ -976,6 +976,16 @@ public class MimicEntity extends PathfinderMob {
             resolveHome(sl, other);
         }
         StageObserver.record(getId(), "mating:pair");
+        // 혼인 개성(改姓) — 아내가 남편 성으로(서양식·가구=한 성). 로그로 1회 기록.
+        MimicEntity wife = isFemale() ? this : other;
+        MimicEntity husband = isFemale() ? other : this;
+        if (wife.getIndividual() != null && husband.getIndividual() != null) {
+            String before = wife.getIndividual().shortName();
+            wife.getIndividual().setSurname(husband.getIndividual().surname());
+            if (!before.equals(wife.getIndividual().shortName())) {
+                SimEvents.event(wife, "개성", before + " → " + wife.getIndividual().shortName());
+            }
+        }
         SimEvents.event(this, "짝성립", "상대 #" + other.getId());
         clearCourtshipPool();       // 성혼 — 낡은 후보·거절 기록 정리(사망까지 잔존하던 메모리·stale 캐시)
         other.clearCourtshipPool();
@@ -2430,6 +2440,7 @@ public class MimicEntity extends PathfinderMob {
         s.holding = (float) holding;
         s.health = getHealth();
         s.maxHealth = getMaxHealth();
+        s.name = individual != null ? individual.shortName() : "";
         s.action = currentActionLabel();
         BlockPos nav = getNavigation().isDone() ? null : getNavigation().getTargetPos();
         s.hasNav = nav != null;
@@ -2647,6 +2658,22 @@ public class MimicEntity extends PathfinderMob {
         int gen = Math.max(individual.generation(), father.getIndividual().generation()) + 1;
         long childId = Math.abs(getRandom().nextLong() | 1L);
         Individual childInd = Genetics.breed(childId, individual, father.getIndividual(), rng, gen, null);
+        // 동명 형제 회피 — 같은 가구 생존 구성원과 first 가 겹치면 다른 시드로 최대 3회 재추첨.
+        for (int salt = 5; salt <= 7; salt++) {
+            boolean clash = false;
+            for (MimicEntity m : householdMembers()) {
+                if (m.getIndividual() != null
+                        && m.getIndividual().firstName().equals(childInd.firstName())) {
+                    clash = true;
+                    break;
+                }
+            }
+            if (!clash) {
+                break;
+            }
+            childInd.setName(com.evosim.core.NameBook.given(childId, childInd.sex(), salt),
+                    childInd.middleName(), childInd.surname());
+        }
 
         MimicEntity child = ModEntities.MIMIC.get().create(sl);
         if (child == null) {

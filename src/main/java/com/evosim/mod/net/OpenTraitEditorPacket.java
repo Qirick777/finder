@@ -27,12 +27,20 @@ public final class OpenTraitEditorPacket {
     public final String headline;
     public final List<Entry> entries;
     public final String status;
+    // 성명 편집란 프리필(First/Middle/Last)
+    public final String nameFirst;
+    public final String nameMiddle;
+    public final String nameLast;
 
-    public OpenTraitEditorPacket(int entityId, String headline, List<Entry> entries, String status) {
+    public OpenTraitEditorPacket(int entityId, String headline, List<Entry> entries, String status,
+                                 String nameFirst, String nameMiddle, String nameLast) {
         this.entityId = entityId;
         this.headline = headline;
         this.entries = entries;
         this.status = status;
+        this.nameFirst = nameFirst;
+        this.nameMiddle = nameMiddle;
+        this.nameLast = nameLast;
     }
 
     public static void encode(OpenTraitEditorPacket p, FriendlyByteBuf buf) {
@@ -46,6 +54,9 @@ public final class OpenTraitEditorPacket {
             buf.writeBoolean(e.anti());
         }
         buf.writeUtf(p.status);
+        buf.writeUtf(p.nameFirst);
+        buf.writeUtf(p.nameMiddle);
+        buf.writeUtf(p.nameLast);
     }
 
     public static OpenTraitEditorPacket decode(FriendlyByteBuf buf) {
@@ -56,7 +67,8 @@ public final class OpenTraitEditorPacket {
         for (int i = 0; i < n; i++) {
             entries.add(new Entry(buf.readVarInt(), buf.readByte(), buf.readByte(), buf.readBoolean()));
         }
-        return new OpenTraitEditorPacket(id, head, entries, buf.readUtf());
+        return new OpenTraitEditorPacket(id, head, entries, buf.readUtf(),
+                buf.readUtf(), buf.readUtf(), buf.readUtf());
     }
 
     public static void handle(OpenTraitEditorPacket p, Supplier<NetworkEvent.Context> ctx) {

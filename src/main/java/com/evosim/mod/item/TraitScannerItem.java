@@ -169,8 +169,10 @@ public class TraitScannerItem extends Item {
             case ADULT -> "성년";
             case ELDER -> "노년";
         };
+        String fullName = mimic.getIndividual() != null
+                ? mimic.getIndividual().fullName() : "#" + mimic.getId();
         player.displayClientMessage(Component.literal(
-                        "=== 미믹 #" + mimic.getId() + " [" + sexLabel + " · " + stageLabel
+                        "=== " + fullName + " #" + mimic.getId() + " [" + sexLabel + " · " + stageLabel
                                 + "] · " + mode.label() + " ===")
                 .withStyle(ChatFormatting.GOLD), false);
 

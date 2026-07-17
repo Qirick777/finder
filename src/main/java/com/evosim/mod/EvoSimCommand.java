@@ -7,6 +7,7 @@ import com.evosim.core.FarmLayout;
 import com.evosim.core.Genetics;
 import com.evosim.core.Individual;
 import com.evosim.core.LifeStage;
+import com.evosim.core.ParentingClass;
 import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
@@ -117,6 +118,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("namex").executes(EvoSimCommand::stageNameX))
                 .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
                 .then(Commands.literal("hirex").executes(EvoSimCommand::stageHireX))
+                .then(Commands.literal("carex").executes(EvoSimCommand::stageCareX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -2701,6 +2703,194 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "소작 루프 v2 합본 검증(3단계) — 노동시장 개방 / 직영지 전용 수확 / "
                 + "운반 상한 6.0. 전부 서버 결과값 판정.");
+        return 1;
+    }
+
+    /** 무대 유아 — 지정 부모의 친자·거처 귀속(육아 구속 판정 입력). father 는 null 허용(편모). */
+    private static MimicEntity infantOf(ServerLevel level, BlockPos home,
+                                        MimicEntity father, MimicEntity mother) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        if (e == null) {
+            throw new IllegalStateException("유아 스폰 실패");
+        }
+        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        Individual ind = new Individual(id, Sex.FEMALE,
+                father == null ? 0L : father.getIndividual().id(),
+                mother.getIndividual().id(), mother.getIndividual().generation() + 1);
+        e.setIndividual(ind);
+        e.setStage(LifeStage.INFANT);
+        e.moveTo(home.getX() + 1.5, home.getY(), home.getZ() + 0.5, 0f, 0f);
+        e.markStageActor();
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
+        e.setHomePos(home);
+        return e;
+    }
+
+    /** 정원의 베리를 전부 익힘(AGE 3) — 구속 수확·carryCap 무대 조성. 익힌 그루 수 반환. */
+    private static int ripenGarden(ServerLevel level, BlockPos home, Direction facing) {
+        int n = 0;
+        for (BlockPos tile : com.evosim.mod.entity.HomeStructure.gardenCells(home, facing)) {
+            for (int dy = 3; dy >= -3; dy--) {
+                BlockPos p = tile.offset(0, dy, 0);
+                var st = level.getBlockState(p);
+                if (st.is(Blocks.SWEET_BERRY_BUSH)) {
+                    level.setBlockAndUpdate(p, st.setValue(SweetBerryBushBlock.AGE, 3));
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** 정원의 익은(AGE 3) 그루 수 — 구속 수확 판정의 결과값. */
+    private static int ripeGardenCount(ServerLevel level, BlockPos home, Direction facing) {
+        int n = 0;
+        for (BlockPos tile : com.evosim.mod.entity.HomeStructure.gardenCells(home, facing)) {
+            for (int dy = 3; dy >= -3; dy--) {
+                var st = level.getBlockState(tile.offset(0, dy, 0));
+                if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 육아 돌봄 개편 합본 검증(carex) — ① 커버리지 해제: 무심 남편은 적극 아내가 잔류 커버하면
+     * 자유(무시처럼) ② 적극 정원 예외: 편모 적극도 정원 익은 베리는 딴다 ③ 양쪽 적극: 효율 높은
+     * 남편이 해제되어 가구가 굶지 않는다 ④ carryCap 정원 제외: 정원 익음은 2.0, 밭 익음은 6.0.
+     * 전부 서버 결과값 판정 — 종전 코드(전면 구속·정원 포함 cap)면 ①~④ 모두 실패한다.
+     */
+    private static int stageCareX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 커버리지 해제 — 무심 남편+적극 아내+유아: 아내가 지정 잔류 → 남편은 무시처럼 채집.
+        //     종전 코드(전면 구속)면 두 부모 다 정지 → 풀 9 유지 → 실패.
+        {
+            BlockPos home = groundAt(level, b, -10, 24);
+            BlockPos pad = groundAt(level, b, 6, 24); // 간격 16 — berryPad(±12 클리어)가 천막을 안 민다
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("carex_release",
+                    "detached husband freed by devoted wife's coverage: grass 9 -> <9", 600, false, () -> {
+                berryPad(level, pad);
+                grassCluster(level, pad);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].getIndividual().setParentingCareMale(ParentingClass.DETACHED);
+                c[1].getIndividual().setParentingCareFemale(ParentingClass.DEVOTED);
+                c[2] = infantOf(level, home, c[0], c[1]);
+                LarderStore.get(level).set(home, 3.0); // 급식 여유·비위급(순수 구속 판정만 남김)
+                c[0].debugSetHolding(1.5);
+                c[0].moveTo(pad.getX() + 2.5, pad.getY(), pad.getZ() + 2.5, 0f, 0f); // 표본 탐색 사거리
+                level.setDayTime(2000L); // 노동 시간
+            }, () -> String.format("grass %d/9(expect <9) H %.2f bound=%s act=%s nav=%s pos=%s forage[%s]",
+                    countGrass(level, pad), c[0].getHolding(), c[0].isCaregiverBound(),
+                    c[0].currentActionLabel(),
+                    c[0].getNavigation().isDone() ? "done"
+                            : String.valueOf(c[0].getNavigation().getTargetPos()),
+                    c[0].blockPosition().toShortString(), c[0].forageDebug()),
+                    () -> countGrass(level, pad) < 9,
+                    () -> discard(c)));
+        }
+        // [2] 적극 정원 예외 — 편모 적극+유아+익은 정원 8그루: 반경 0이어도 정원은 딴다(8→≤5).
+        //     종전 코드면 정원도 금지 → 8 유지 → 실패.
+        {
+            BlockPos home = groundAt(level, b, -8, -24);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("carex_devoted_garden",
+                    "widowed devoted mother still harvests ripe garden: 8 -> <=5", 600, false, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.FEMALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[0].getIndividual().setParentingCareFemale(ParentingClass.DEVOTED);
+                c[0].debugClearBerries(level);
+                c[0].plantBerries(level, 8);
+                ripenGarden(level, home, Direction.NORTH);
+                c[1] = infantOf(level, home, null, c[0]);
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(1.5);
+                level.setDayTime(2000L);
+            }, () -> String.format("ripeGarden %d/8(expect <=5) H %.2f bound=%s act=%s pos=%s forage[%s]",
+                    ripeGardenCount(level, home, Direction.NORTH), c[0].getHolding(),
+                    c[0].isCaregiverBound(), c[0].currentActionLabel(),
+                    c[0].blockPosition().toShortString(), c[0].forageDebug()),
+                    () -> ripeGardenCount(level, home, Direction.NORTH) <= 5,
+                    () -> {
+                        c[0].debugClearBerries(level);
+                        discard(c);
+                    }));
+        }
+        // [3] 양쪽 적극 — 효율 높은 남편(채집 1.5×)이 해제(지시 사양: "대부분 남성"), 가구가 굶지
+        //     않는다. 종전 코드면 두 부모 다 정지 → 풀 9 유지 → 실패.
+        {
+            BlockPos home = groundAt(level, b, -10, 48);
+            BlockPos pad = groundAt(level, b, 6, 48);
+            MimicEntity[] c = new MimicEntity[3];
+            steps.add(new VerifySuite.Step("carex_both_devoted",
+                    "both devoted: higher-yield husband is freed, grass 9 -> <9", 600, false, () -> {
+                berryPad(level, pad);
+                grassCluster(level, pad);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+                c[0].getIndividual().setParentingCareMale(ParentingClass.DEVOTED);
+                c[1].getIndividual().setParentingCareFemale(ParentingClass.DEVOTED);
+                c[2] = infantOf(level, home, c[0], c[1]);
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(1.5);
+                c[0].moveTo(pad.getX() + 2.5, pad.getY(), pad.getZ() + 2.5, 0f, 0f);
+                level.setDayTime(2000L);
+            }, () -> String.format("grass %d/9(expect <9) H %.2f bound=%s act=%s pos=%s forage[%s]",
+                    countGrass(level, pad), c[0].getHolding(), c[0].isCaregiverBound(),
+                    c[0].currentActionLabel(),
+                    c[0].blockPosition().toShortString(), c[0].forageDebug()),
+                    () -> countGrass(level, pad) < 9,
+                    () -> discard(c)));
+        }
+        // [4] carryCap 정원 제외 — 같은 노동 시간: 정원 익은 가구는 2.0(입금 동결 해제),
+        //     직영지 익은 지주는 6.0(밭 수확 세션 유예 유지). 종전 코드면 정원도 6.0 → 실패.
+        {
+            BlockPos homeA = groundAt(level, b, -8, 72);
+            BlockPos homeB = groundAt(level, b, -8, 96);
+            BlockPos anchorB = groundAt(level, b, 8, 96);
+            MimicEntity[] c = new MimicEntity[2];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("carex_carry_gauge",
+                    "carry cap: ripe garden -> 2.0 / ripe own farm -> 6.0", 200, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+                c[0].debugSettleWithTent(homeA, Direction.NORTH);
+                c[0].debugClearBerries(level);
+                c[0].plantBerries(level, 8);
+                ripenGarden(level, homeA, Direction.NORTH);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
+                c[1].debugSettleWithTent(homeB, Direction.NORTH);
+                pl[0] = buildDemoPlot(level, anchorB, c[1].getIndividual().id(), 9);
+                level.setDayTime(2000L);
+            }, () -> String.format("gardenCap %.1f(expect 2.0) farmCap %.1f(expect 6.0)",
+                    c[0].carryCap(), c[1].carryCap()),
+                    () -> Math.abs(c[0].carryCap() - 2.0) < 1.0E-9
+                            && Math.abs(c[1].carryCap() - 6.0) < 1.0E-9,
+                    () -> {
+                        c[0].debugClearBerries(level);
+                        farmClearPlot(level, pl[0]);
+                        discard(c);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "육아 돌봄 개편 합본 검증(4단계) — 커버리지 해제 / 적극 정원 예외 / "
+                + "양쪽 적극 효율 해제 / carryCap 정원 제외. 전부 서버 결과값 판정.");
         return 1;
     }
 

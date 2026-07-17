@@ -1,7 +1,5 @@
 package com.evosim.mod.entity;
 
-import com.evosim.core.LifeStage;
-import com.evosim.core.ParentingClass;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.goal.Goal;
 
@@ -17,6 +15,11 @@ import java.util.EnumSet;
  */
 public class MimicParentingGoal extends Goal {
 
+    /** 돌봄 반경의 작업 여유 — 적극(반경 0)도 거처 옆 정원(최원 그루 ≈5.4블록)까지는 "반경 안"으로
+     *  본다. 이 여유가 없으면 반경 0은 어떤 위치에서도 "이탈"이라 이 goal(우선순위 1)이 영구 발동해
+     *  정원 수확(적극 예외 — 지시 사양)이 원천 봉쇄된다(carex 실측). ForageGoal.withinCare 와 동일값. */
+    public static final double CARE_SLACK = 6.5;
+
     private final MimicEntity mob;
 
     public MimicParentingGoal(MimicEntity mob) {
@@ -26,19 +29,13 @@ public class MimicParentingGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (mob.getStage() != LifeStage.ADULT
-                || mob.getHomePos() == null || mob.getIndividual() == null) {
-            return false; // 성별 게이트 없음 — 자기 육아 클래스(성별 슬롯 발동)가 전부 결정
+        // 지정 돌봄자만(돌봄 충분성) — 커버리지로 해제된 부모·무시·무자녀는 자유. 종전엔 자체
+        // 판정(비무시+유아)이라 해제된 부모까지 우선순위 1로 붙잡아 채집이 전면 봉쇄됐다(carex 실측).
+        if (!mob.isCaregiverBound() || mob.getHomePos() == null || mob.getIndividual() == null) {
+            return false;
         }
-        ParentingClass pc = mob.getIndividual().parentingCare();
-        if (pc == ParentingClass.NEGLECTFUL) {
-            return false; // 무시 = 무제한 → 구속하지 않음(자유 배회)
-        }
-        if (!mob.hasInfantAtHome()) {
-            return false; // 유아 자식이 있을 때만 작동
-        }
-        double r = pc.careRadius();
-        return mob.blockPosition().distSqr(mob.getHomePos()) > r * r; // 돌봄 반경 벗어남
+        double r = Math.max(mob.getIndividual().parentingCare().careRadius(), CARE_SLACK);
+        return mob.blockPosition().distSqr(mob.getHomePos()) > r * r; // 돌봄 반경(+정원 여유) 이탈
     }
 
     @Override

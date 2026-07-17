@@ -2,6 +2,7 @@ package com.evosim.test;
 
 import com.evosim.core.BehaviorDecision;
 import com.evosim.core.BreedStats;
+import com.evosim.core.Caregiving;
 import com.evosim.core.Category;
 import com.evosim.core.Activity;
 import com.evosim.core.Elder;
@@ -125,9 +126,10 @@ public final class EvoTest {
             case "lineage" -> lineage(report);
             case "farm" -> farm(report);
             case "satisfaction" -> satisfaction(report);
+            case "caregiving" -> caregiving(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | caregiving | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -158,6 +160,7 @@ public final class EvoTest {
         lineage(report);
         farm(report);
         satisfaction(report);
+        caregiving(report);
         berry(report);
         name(report);
         food(report);
@@ -2289,6 +2292,86 @@ public final class EvoTest {
                 && FarmEconomy.shortfall(30, 3) == 27; // 원거리 30타일 구획: 27 게시(3인 고용 규모)
         report.add("farm/케어배분", care, "{9,30}·12→{9,3} · {35}·12→{12} · {9,30}·24→{9,15} · 부족 30−3=27",
                 care ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest caregiving — 지정 돌봄자(돌봄 충분성)·기근 F-6 안전핀
+    // ──────────────────────────────────────────────────────────────
+    private static void caregiving(Report report) {
+        // 1) 강도 우선(R2): 적극+무심 → 적극 잔류·무심 해제(효율·성별 무시) / 소극+평범 → 소극 잔류
+        boolean strength = Caregiving.staysBound(ParentingClass.DEVOTED, 0.5, Sex.FEMALE, 2L,
+                        ParentingClass.DETACHED, 1.5, Sex.MALE, 1L)
+                && !Caregiving.staysBound(ParentingClass.DETACHED, 1.5, Sex.MALE, 1L,
+                        ParentingClass.DEVOTED, 0.5, Sex.FEMALE, 2L)
+                && Caregiving.staysBound(ParentingClass.CARING, 1.5, Sex.MALE, 1L,
+                        ParentingClass.MODERATE, 0.5, Sex.FEMALE, 2L)
+                && !Caregiving.staysBound(ParentingClass.MODERATE, 0.5, Sex.FEMALE, 2L,
+                        ParentingClass.CARING, 1.5, Sex.MALE, 1L);
+        report.add("caregiving/강도우선", strength,
+                "적극>소극>평범>무심 — 강한 쪽 잔류 (적극+무심→무심 자유, 소극+평범→평범 자유)",
+                strength ? "정상" : "어긋남");
+
+        // 2) 동급 → 효율 낮은 쪽 잔류(R3): 양쪽 적극, 여 0.5 vs 남 1.5 → 여 잔류·남 해제(아사 차단)
+        boolean yield = Caregiving.staysBound(ParentingClass.DEVOTED, 0.5, Sex.FEMALE, 2L,
+                        ParentingClass.DEVOTED, 1.5, Sex.MALE, 1L)
+                && !Caregiving.staysBound(ParentingClass.DEVOTED, 1.5, Sex.MALE, 1L,
+                        ParentingClass.DEVOTED, 0.5, Sex.FEMALE, 2L);
+        report.add("caregiving/동급효율", yield,
+                "적극+적극 → 채집효율 높은 쪽(대부분 남 1.5×) 해제·낮은 쪽 잔류",
+                yield ? "정상" : "어긋남");
+
+        // 3) 꼬리 결정론(R4): 효율 동률 → 여성 잔류 / 성별도 동률 → id 작은 쪽 잔류
+        boolean tail = Caregiving.staysBound(ParentingClass.MODERATE, 1.0, Sex.FEMALE, 9L,
+                        ParentingClass.MODERATE, 1.0, Sex.MALE, 1L)
+                && !Caregiving.staysBound(ParentingClass.MODERATE, 1.0, Sex.MALE, 1L,
+                        ParentingClass.MODERATE, 1.0, Sex.FEMALE, 9L)
+                && Caregiving.staysBound(ParentingClass.MODERATE, 1.0, Sex.MALE, 1L,
+                        ParentingClass.MODERATE, 1.0, Sex.MALE, 2L)
+                && !Caregiving.staysBound(ParentingClass.MODERATE, 1.0, Sex.MALE, 2L,
+                        ParentingClass.MODERATE, 1.0, Sex.MALE, 1L);
+        report.add("caregiving/꼬리결정론", tail, "효율 동률→여성 잔류 · 성별 동률→id 작은 쪽",
+                tail ? "정상" : "어긋남");
+
+        // 4) 대칭성 전수 — 비무시 4클래스 × 효율{0.5,1.5} × 성별 전 조합: 항상 정확히 1명 잔류
+        //    (양쪽에서 계산해 XOR — 이중 구속·구속 공백 금지의 구조 보증)
+        ParentingClass[] cs = {ParentingClass.DEVOTED, ParentingClass.CARING,
+                ParentingClass.MODERATE, ParentingClass.DETACHED};
+        double[] ys = {0.5, 1.5};
+        Sex[] sx = {Sex.MALE, Sex.FEMALE};
+        boolean sym = true;
+        int cases = 0;
+        for (ParentingClass ca : cs) {
+            for (ParentingClass cb : cs) {
+                for (double ya : ys) {
+                    for (double yb : ys) {
+                        for (Sex sa : sx) {
+                            for (Sex sb : sx) {
+                                boolean p = Caregiving.staysBound(ca, ya, sa, 1L, cb, yb, sb, 2L);
+                                boolean q = Caregiving.staysBound(cb, yb, sb, 2L, ca, ya, sa, 1L);
+                                if (p == q) {
+                                    sym = false;
+                                }
+                                cases++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        report.add("caregiving/대칭성", sym, "전 조합(" + cases + "건) 정확히 1명 잔류(XOR)",
+                sym ? "정상" : "이중 구속/공백 존재!");
+
+        // 5) 기근 F-6 안전핀(R8): 성공 30000틱 전·저장고 0 — 기본 창(24000)은 이주,
+        //    구속 폴백 창(48000)은 잔류. 60000틱 전이면 폴백 창도 이주(진짜 기근은 잡는다).
+        long now = 200000L;
+        boolean pin = Famine.shouldMigrate(now, 0L, new long[] {now - 30000L}, 0.0, 6.0)
+                && !Famine.shouldMigrate(now, 0L, new long[] {now - 30000L}, 0.0, 6.0,
+                        Famine.BOUND_WINDOW_MULT)
+                && Famine.shouldMigrate(now, 0L, new long[] {now - 60000L}, 0.0, 6.0,
+                        Famine.BOUND_WINDOW_MULT);
+        report.add("caregiving/기근안전핀", pin,
+                "성공 30000틱 전: 기본 창 이주 · F-6 창(×2) 잔류 / 60000틱 전: F-6도 이주",
+                pin ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 package com.evosim.mod.entity;
 
 import com.evosim.core.Activity;
+import com.evosim.core.Caregiving;
 import com.evosim.core.Combat;
 import com.evosim.core.Courtship;
 import com.evosim.core.DeterministicRng;
@@ -2213,6 +2214,7 @@ public class MimicEntity extends PathfinderMob {
         // 죽은 코드). 구속 부모도 실제로는 채집을 나가 시계가 살아 있으므로(동원·방치 이벤트 실측),
         // 전원 구속이면 그들의 시계로 기근을 판정한다. 빌더는 계속 제외(건축 중 재이주 방지),
         // 아이들만 가구는 아래 grown==0 이 계속 차단.
+        boolean boundFallback = success.isEmpty(); // F-6 경로 — 기근 창 완화 입력(R8)
         if (success.isEmpty()) {
             success = boundSuccess;
         }
@@ -2229,7 +2231,10 @@ public class MimicEntity extends PathfinderMob {
         for (int i = 0; i < arr.length; i++) {
             arr[i] = success.get(i);
         }
-        return Famine.shouldMigrate(now, settled, arr, larder, need);
+        // F-6 폴백이면 창 2배 — "못 나가서 무수확"을 "먹을 게 없음"으로 속단해 5가구가
+        // 동반 오탐 이주하던 실측의 안전핀. 반경 채집(R6)으로 시계가 살아 최후 보루로만 남는다.
+        return Famine.shouldMigrate(now, settled, arr, larder, need,
+                boundFallback ? Famine.BOUND_WINDOW_MULT : 1);
     }
 
     /**
@@ -3028,8 +3033,12 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 지금 육아에 매인 부모인가 (유아 자식 + 무시 아닌 육아 클래스 — <b>성별 무관</b>). 이때는 채집 대신
-     * 육아. 남성이 매이면 채집 1.5×를 버리는 셈 → 경제가 남무심·여적극 조합을 자연선택하는지 관측 대상.
+     * 지금 육아에 매인 부모인가 — <b>지정 돌봄자 체계</b>(돌봄 충분성): 유아마다 구속 후보(비무시
+     * 친부모)가 둘 다 실재하면 {@link Caregiving#staysBound} 우선순위(강한 성향 → 낮은 채집효율 →
+     * 여성 → id)로 <b>한 명만</b> 잔류하고 나머지는 해제(무시처럼 자유). 공동 돌봄자가 없거나
+     * (사별·원거리 이탈) 내가 지정이면 구속. 구속이어도 채집 전면 금지가 아니라 careRadius 노동
+     * (MimicForageGoal 반경 제한)이다 — 종전 이진 스위치가 "무심=적극=완전 정지"를 만들어
+     * 출산 직후 가구 경제가 동결(입금 0·기근 오탐 집단 이주)되던 실측 결함의 수정.
      */
     public boolean isCaregiverBound() {
         if (getStage() != LifeStage.ADULT || homePos == null || individual == null) {
@@ -3038,7 +3047,50 @@ public class MimicEntity extends PathfinderMob {
         if (individual.parentingCare() == ParentingClass.NEGLECTFUL) {
             return false; // 무시 = 자유 배회 → 채집 가능
         }
-        return hasInfantAtHome();
+        for (MimicEntity inf : level().getEntitiesOfClass(MimicEntity.class,
+                getBoundingBox().inflate(20.0))) {
+            if (inf.getStage() != LifeStage.INFANT || !homePos.equals(inf.getHomePos())
+                    || inf.getIndividual() == null) {
+                continue;
+            }
+            long pa = inf.getIndividual().parentAId();
+            long pb = inf.getIndividual().parentBId();
+            if (pa != individual.id() && pb != individual.id()) {
+                continue; // 내 자식 아님 — 형제·이웃 유아는 구속 안 함(관측 결함 수정 유지)
+            }
+            MimicEntity co = coCaregiver(pa == individual.id() ? pb : pa);
+            if (co == null || Caregiving.staysBound(
+                    individual.parentingCare(), FoodEconomy.forageYieldMult(individual),
+                    individual.sex(), individual.id(),
+                    co.individual.parentingCare(), FoodEconomy.forageYieldMult(co.individual),
+                    co.individual.sex(), co.individual.id())) {
+                return true; // 공동 돌봄자 부재 or 내가 지정 돌봄자 — 이 유아는 내가 맡는다
+            }
+        }
+        return false; // 유아 없음 or 전 유아를 공동 돌봄자가 잔류 커버 — 해제
+    }
+
+    /**
+     * 공동 돌봄자 실재 확인(R5) — 유아의 다른 친부모가 같은 거처 소속 성년·비무시이며
+     * <b>거처 16블록 내</b>에 실제로 있을 때만 유효. 지정자가 이탈(구혼 여행·이주 등)하면
+     * 남은 쪽이 즉시 재구속되어 돌봄 공백이 생기지 않는다.
+     */
+    private MimicEntity coCaregiver(long otherParentId) {
+        if (otherParentId == 0L || homePos == null) {
+            return null;
+        }
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
+                getBoundingBox().inflate(24.0))) {
+            if (m != this && m.isAlive() && m.getIndividual() != null
+                    && m.getIndividual().id() == otherParentId
+                    && m.getStage() == LifeStage.ADULT
+                    && homePos.equals(m.getHomePos())
+                    && m.getIndividual().parentingCare() != ParentingClass.NEGLECTFUL
+                    && m.blockPosition().distSqr(homePos) <= 256.0) {
+                return m;
+            }
+        }
+        return null;
     }
 
     /** 같은 거처에 <b>내 자식인</b> 유아가 있나 (육아 goal 판정용). 종전엔 "아무 유아"라
@@ -3063,7 +3115,9 @@ public class MimicEntity extends PathfinderMob {
     private long carryCheckTick = -100L;
     private double cachedCarryCap = FoodEconomy.BAND_HIGH;
 
-    /** 현재 입금 귀가 문턱 — 수확 세션(노동시간 ∧ 내 정원/직영지·배정 밭에 익은 것 존재)이면 6.0. */
+    /** 현재 입금 귀가 문턱 — 밭 수확 세션(노동시간 ∧ 직영지·배정 밭에 익은 타일)이면 6.0.
+     *  정원은 제외 — 집 옆이라 입금 왕복 비용이 0인데 유예를 주면 H가 6에 못 미치는 가구의
+     *  입금이 영구 동결된다(올리버 실측: d1부터 가계 입금 전부 0·저장고 10 고정). */
     public double carryCap() {
         long now = level().getGameTime();
         if (now - carryCheckTick >= 40) {
@@ -3081,19 +3135,7 @@ public class MimicEntity extends PathfinderMob {
         if (Schedule.phaseAt(individual, level().getDayTime()) != Schedule.Phase.WORK) {
             return FoodEconomy.BAND_HIGH;
         }
-        // 정원에 익은 그루?
-        if (homePos != null) {
-            for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
-                for (int dy = 3; dy >= -3; dy--) {
-                    var st = sl.getBlockState(tile.offset(0, dy, 0));
-                    if (st.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)
-                            && st.getValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE) >= 3) {
-                        return FoodEconomy.WORK_CARRY_CAP;
-                    }
-                }
-            }
-        }
-        // 직영지(최신 소유 구획) 또는 오늘 배정 밭에 익은 타일?
+        // 직영지(최신 소유 구획) 또는 오늘 배정 밭에 익은 타일? (정원은 제외 — 상단 주석)
         FarmStore fs = FarmStore.get(sl);
         long mine = fs.newestOwnedPlot(individual.id());
         long assigned = FarmTicker.assignedPlot(getId());

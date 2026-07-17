@@ -13,6 +13,9 @@ public final class Famine {
 
     /** 마지막 채집 성공 후 이 틱이 지나면 "주변에 먹을 게 없다"(1게임일). 임시값, 게임 관찰로 확정. */
     public static final int STARVE_WINDOW = 24000;
+    /** 전원 구속 폴백(F-6) 창 배율 — 구속발 무수확(먹을 게 없어서가 아니라 못 나가서)을
+     *  기근으로 속단해 집단 오탐 이주가 난 실측(d2 5가구 동반 이주)의 안전핀. 2일. */
+    public static final int BOUND_WINDOW_MULT = 2;
     /** 정착·이주 직후 이 틱 동안 재이주 금지(콜드스타트·연쇄 이주 오탐 방지, 2게임일). */
     public static final int RESETTLE_COOLDOWN = 48000;
     /** 이주 거리 = 활동반경 × 이 값("인지거리 외곽"). */
@@ -33,14 +36,21 @@ public final class Famine {
      */
     public static boolean shouldMigrate(long now, long settledTick, long[] foragerLastSuccess,
                                         double larder, double familyDailyNeed) {
+        return shouldMigrate(now, settledTick, foragerLastSuccess, larder, familyDailyNeed, 1);
+    }
+
+    /** windowMult: 비구속 채집자 판정 1 / 전원 구속 폴백(F-6) {@link #BOUND_WINDOW_MULT}. */
+    public static boolean shouldMigrate(long now, long settledTick, long[] foragerLastSuccess,
+                                        double larder, double familyDailyNeed, int windowMult) {
         if (foragerLastSuccess.length == 0) {
             return false; // 채집자 없음(육아 과부 등) → 이주 불가(제자리)
         }
         if (now - settledTick < RESETTLE_COOLDOWN) {
             return false; // 갓 정착 → 판단 유예
         }
+        long window = (long) STARVE_WINDOW * Math.max(1, windowMult);
         for (long t : foragerLastSuccess) {
-            if (now - t < STARVE_WINDOW) {
+            if (now - t < window) {
                 return false; // 누군가는 아직 벌고 있음 → 잔류
             }
         }

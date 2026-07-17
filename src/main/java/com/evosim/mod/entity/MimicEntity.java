@@ -143,7 +143,6 @@ public class MimicEntity extends PathfinderMob {
     // 번식(§6): 마지막 출산 시각 + 출산 수. 실제 발동은 가족 정산의 저장고 게이트(familyTick).
     private long lastBirthTick = -100_000L;
     private int childrenBorn = 0;
-    private static final int LOCAL_POP_CAP = 60;     // 지역 과밀 방지(임시)
     private static final double ZOMBIE_AGGRO_RANGE = 12.0; // 전투 가능 성년·노년의 유인 반경 — 위협 판정(12)과 정합
     private static final double ZOMBIE_CLOSE_AGGRO = 4.0;  // 유아·소년은 근접 조우만 — 원거리 자살 유인 제거, 밤 위협은 유지
 
@@ -415,6 +414,30 @@ public class MimicEntity extends PathfinderMob {
         other.setSpouse(getIndividual().id());
         mateState = MateState.PAIRED;
         other.setMateState(MateState.PAIRED);
+    }
+
+    /**
+     * 이 부지에 천막을 지으면 밭을 깔고 앉는가 — 신축 부지 검증(A-1). 천막 발자국·모닥불·정원
+     * 셀의 x/z 열이 등록된 밭 타일과 겹치면 참. 겹친 건축은 타일 블록을 파괴해 영구 수확불능
+     * 인데 원장엔 남아 유령 고용 슬롯을 게시하던 이중 결함(실측: 배정받고 수확 0)의 예방.
+     */
+    public static boolean homeSiteOnFarm(ServerLevel sl, BlockPos home, Direction facing) {
+        FarmStore fs = FarmStore.get(sl);
+        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
+            if (fs.isFarmColumn(p.pos().getX(), p.pos().getZ())) {
+                return true;
+            }
+        }
+        BlockPos hearth = HomeStructure.hearthPos(home, facing);
+        if (fs.isFarmColumn(hearth.getX(), hearth.getZ())) {
+            return true;
+        }
+        for (BlockPos cell : HomeStructure.gardenCells(home, facing)) {
+            if (fs.isFarmColumn(cell.getX(), cell.getZ())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 즉시 거처 정착 + 천막·모닥불 완성 배치(홀거처주/가족 사전 세팅용). */
@@ -1091,6 +1114,15 @@ public class MimicEntity extends PathfinderMob {
         int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
                 existing, Settlement.MIN_GAP, rng);
         Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
+        // A-1 부지 검증 — 밭을 깔고 앉는 후보는 재추첨(최대 8회, 전패 시 마지막 후보 수용·로그).
+        for (int attempt = 0; attempt < 8
+                && homeSiteOnFarm(sl, new BlockPos(pos[0], anchor[1], pos[1]), facing); attempt++) {
+            pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
+                    existing, Settlement.MIN_GAP, rng);
+            if (attempt == 7) {
+                SimEvents.event(this, "부지경고", "밭 회피 재추첨 전패 — 마지막 후보 수용");
+            }
+        }
         // 기단 높이 = 발자국 지형 '최고점'에 맞춤(파묻힘·공중부양 방지). 그보다 낮은 칸은 흙으로 메운다.
         BlockPos site = new BlockPos(pos[0], anchor[1], pos[1]);
         int baseY = terrainBaseY(sl, site, facing);
@@ -1197,6 +1229,9 @@ public class MimicEntity extends PathfinderMob {
             BlockPos home = new BlockPos(a[0], a[1], a[2]);
             if (home.distSqr(blockPosition()) > 96.0 * 96.0) {
                 continue;
+            }
+            if (homeSiteOnFarm(sl, home, Direction.from2DDataValue(a[3]))) {
+                continue; // 밭을 깔고 앉은 폐가는 재사용 금지(A-1) — fixhomes 도구가 철거한다
             }
             BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(a[3]));
             var st = sl.getBlockState(hp);
@@ -2181,9 +2216,10 @@ public class MimicEntity extends PathfinderMob {
                         >= (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
                 boolean underLimit = mother.childrenBorn
                         < Reproduction.birthLimit(mother.getIndividual(), father.getIndividual());
-                boolean underPop = sl.getEntitiesOfClass(MimicEntity.class,
-                        getBoundingBox().inflate(48.0)).size() <= LOCAL_POP_CAP;
-                if (cooldownOk && underLimit && underPop
+                // 지역 과밀 상한(LOCAL_POP_CAP)은 폐기(지시) — 식량 압력이 자연 조절자:
+                // 베리·밭이 케어하고, 부족해지면 기근 이주가 알아서 분산시킨다. 인위 상한은
+                // 마을 중심부 번식만 조용히 멈추는 관측 불가 벽이었다(d5~6 실측).
+                if (cooldownOk && underLimit
                         && FoodEconomy.canReproduce(larder, need, adults, adj, starving)
                         && mother.spawnChild(sl, father)) {
                     larder -= FoodEconomy.BIRTH_COST; // 비용은 출산이 실제 성사됐을 때만 차감(결과 기반)
@@ -2276,6 +2312,38 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
+     * 구제 도구(fixhomes) 전용 — 이 가구를 기존 이주 장치로 주변에 재정착시킨다. 기근 판정 없이
+     * 실행부만 재사용: 정찰 목적지 → (A-1 검증된) 신축 부지 → 여행식량 → 폐가화 → 가족 이동·신축.
+     */
+    public void debugRelocateFamily(ServerLevel sl) {
+        if (homePos == null) {
+            return;
+        }
+        migrate(sl, householdMembers());
+    }
+
+    /**
+     * 구제 도구(fixhomes) 전용 — 지정 거처의 구조물(천막·모닥불) 철거 + 폐가 목록·모닥불 전역
+     * 목록에서 소거. 밭을 깔고 앉은 잘못된 거처만 대상으로 호출된다(밭 타일은 밤 정비가 재식수).
+     */
+    public static void debugDemolishHome(ServerLevel sl, BlockPos home, Direction facing) {
+        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
+            var st = sl.getBlockState(p.pos());
+            if (st.is(Blocks.WHITE_WOOL) || st.is(Blocks.OAK_FENCE)) {
+                sl.setBlockAndUpdate(p.pos(), Blocks.AIR.defaultBlockState());
+            }
+        }
+        BlockPos hp = HomeStructure.hearthPos(home, facing);
+        if (sl.getBlockState(hp).getBlock() instanceof MimicHearthBlock) {
+            sl.setBlockAndUpdate(hp, Blocks.AIR.defaultBlockState());
+        }
+        ABANDONED_HOMES.removeIf(a -> a[0] == home.getX() && a[1] == home.getY()
+                && a[2] == home.getZ());
+        hearthLit(home, false);
+        LarderStore.get(sl).remove(home);
+    }
+
+    /**
      * 기근 이주 실행 — ① 목적지(마을 합의 동참 or 정찰·등록) ② 부지 선정(MIN_GAP) ③ 여행식량 인출
      * (남는 저장고는 폐가 유산) ④ 폐가화 → 전 가족 새 거처 귀속(리시가 캐러밴을 끈다) → 부부가 신축.
      * 유아는 어미가 업고 이동(방치 아사 방지), 도착하면 내려줌.
@@ -2293,9 +2361,16 @@ public class MimicEntity extends PathfinderMob {
         }
 
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
+        List<int[]> existingNear = collectExistingHomes(sl, dest.getX(), dest.getZ());
         int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, 8,
-                collectExistingHomes(sl, dest.getX(), dest.getZ()), Settlement.MIN_GAP, rng);
+                existingNear, Settlement.MIN_GAP, rng);
         Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
+        // A-1 부지 검증 — 이주 신축도 밭 회피 재추첨(혼인 신축과 동일 규칙).
+        for (int attempt = 0; attempt < 8
+                && homeSiteOnFarm(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), facing); attempt++) {
+            xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, 8,
+                    existingNear, Settlement.MIN_GAP, rng);
+        }
         int baseY = terrainBaseY(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), facing);
         BlockPos newHome = new BlockPos(xz[0], baseY, xz[1]);
 

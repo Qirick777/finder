@@ -190,6 +190,36 @@ public final class FarmTicker {
                         plot.id, placed, plot.tiles.length, bill, fromAccount, nTen));
             }
         }
+        // ①c 죽은 타일 정비(A-3) — 블록이 사라진 타일은 무상 재식수, 구조물(천막 등)에 깔려
+        //     복구 불능인 타일은 원장에서 소거. 깔린 타일이 원장에 남으면 영구 수확불능인데
+        //     부족분 게시(고용 슬롯)만 부풀리는 유령 일자리가 된다(실측: 배정받고 수확 0).
+        for (FarmStore.Plot plot : store.all().values()) {
+            for (int i = plot.tiles.length - 1; i >= 0; i--) {
+                BlockPos pos = BlockPos.of(plot.tiles[i]);
+                if (!level.isLoaded(pos)) {
+                    continue;
+                }
+                var st = level.getBlockState(pos);
+                if (st.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)) {
+                    continue;
+                }
+                if (st.isAir() || st.canBeReplaced()) {
+                    level.setBlockAndUpdate(pos.below(),
+                            net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
+                    level.setBlockAndUpdate(pos,
+                            net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH
+                                    .defaultBlockState().setValue(
+                                            net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
+                    plot.planted[i] = level.getGameTime();
+                    store.setDirty();
+                } else {
+                    store.removeTile(plot, i);
+                    com.evosim.mod.log.SimEvents.note(level, "밭정비", String.format(
+                            "@%d,%d 구획 %d 타일 소거(구조물에 깔림 — 잔여 %d타일)",
+                            pos.getX(), pos.getZ(), plot.id, plot.tiles.length));
+                }
+            }
+        }
         // ①b 무주지 선점 — 유주택 성년이 통근 내 무주 구획을 흡수(개간 비용 없음 — 이미 일군 땅).
         //    몰락 가문의 땅이 신흥 가문으로. 하루 1건(개체당 아님 — 전역 완만).
         for (FarmStore.Plot plot : store.all().values()) {

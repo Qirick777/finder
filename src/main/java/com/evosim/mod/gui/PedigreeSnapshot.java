@@ -54,11 +54,20 @@ public class PedigreeSnapshot {
         }
     }
 
+    /** 자식 행 표시 상한 — 초과분은 "+N명"으로 요약(다산 가문 화면 폭 보호). */
+    public static final int CHILD_CAP = 12;
+
     /** rows[d][i] — d=0 포커스 1칸, d 행은 2^d 칸(Lineage 그리드와 동일 인덱싱). */
     public final Node[][] rows;
+    /** 포커스의 직계 자식(출생순, 최대 {@link #CHILD_CAP}) — 하향 항해(클릭 = 자식 포커스). */
+    public final Node[] childrenRow;
+    /** 표시 상한 초과 자식 수("+N명"). */
+    public final int moreChildren;
 
-    public PedigreeSnapshot(Node[][] rows) {
+    public PedigreeSnapshot(Node[][] rows, Node[] childrenRow, int moreChildren) {
         this.rows = rows;
+        this.childrenRow = childrenRow;
+        this.moreChildren = moreChildren;
     }
 
     /** 서버측 조립 — 원장 + 살아있는 엔티티 대조(엔티티 id 병기·생존 표시). */
@@ -79,19 +88,36 @@ public class PedigreeSnapshot {
             for (int i = 0; i < grid[d].length; i++) {
                 long id = grid[d][i];
                 FamilyLedger.Rec r = id == 0 ? null : ledger.get(id);
-                if (r == null) {
-                    rows[d][i] = Node.unknown();
-                    continue;
-                }
-                Integer eid = aliveIds.get(id);
-                rows[d][i] = new Node(id, r.serial, eid == null ? -1 : eid, r.female, r.gen,
-                        eid != null, r.bornDay, r.diedDay,
-                        Lineage.descendantCount(id, childrenIdx),
-                        Lineage.childCount(id, childrenIdx),
-                        r.name == null ? "N" + r.serial : r.name);
+                rows[d][i] = r == null ? Node.unknown()
+                        : makeNode(r, aliveIds, childrenIdx);
             }
         }
-        return new PedigreeSnapshot(rows);
+        // 자식 행 — 포커스의 직계 자식(원장 출생순), 상한 초과는 "+N명" 요약. 클릭 하향 항해용.
+        List<FamilyLedger.Rec> kids = new java.util.ArrayList<>();
+        for (Long cid : childrenIdx.getOrDefault(focusId, List.of())) {
+            FamilyLedger.Rec r = ledger.get(cid);
+            if (r != null) {
+                kids.add(r);
+            }
+        }
+        kids.sort(java.util.Comparator.comparingLong((FamilyLedger.Rec r) -> r.bornDay)
+                .thenComparingLong(r -> r.id));
+        int shown = Math.min(kids.size(), CHILD_CAP);
+        Node[] childrenRow = new Node[shown];
+        for (int i = 0; i < shown; i++) {
+            childrenRow[i] = makeNode(kids.get(i), aliveIds, childrenIdx);
+        }
+        return new PedigreeSnapshot(rows, childrenRow, kids.size() - shown);
+    }
+
+    private static Node makeNode(FamilyLedger.Rec r, Map<Long, Integer> aliveIds,
+                                 Map<Long, List<Long>> childrenIdx) {
+        Integer eid = aliveIds.get(r.id);
+        return new Node(r.id, r.serial, eid == null ? -1 : eid, r.female, r.gen,
+                eid != null, r.bornDay, r.diedDay,
+                Lineage.descendantCount(r.id, childrenIdx),
+                Lineage.childCount(r.id, childrenIdx),
+                r.name == null ? "N" + r.serial : r.name);
     }
 
     public void encode(FriendlyByteBuf buf) {
@@ -99,19 +125,35 @@ public class PedigreeSnapshot {
         for (Node[] row : rows) {
             buf.writeVarInt(row.length);
             for (Node n : row) {
-                buf.writeLong(n.id);
-                buf.writeVarInt(n.serial);
-                buf.writeVarInt(n.entityId);
-                buf.writeBoolean(n.female);
-                buf.writeVarInt(n.gen);
-                buf.writeBoolean(n.alive);
-                buf.writeLong(n.bornDay);
-                buf.writeLong(n.diedDay);
-                buf.writeVarInt(n.descendants);
-                buf.writeVarInt(n.children);
-                buf.writeUtf(n.name);
+                writeNode(buf, n);
             }
         }
+        buf.writeVarInt(childrenRow.length); // 자식 행(맨끝 등록 규칙)
+        for (Node n : childrenRow) {
+            writeNode(buf, n);
+        }
+        buf.writeVarInt(moreChildren);
+    }
+
+    private static void writeNode(FriendlyByteBuf buf, Node n) {
+        buf.writeLong(n.id);
+        buf.writeVarInt(n.serial);
+        buf.writeVarInt(n.entityId);
+        buf.writeBoolean(n.female);
+        buf.writeVarInt(n.gen);
+        buf.writeBoolean(n.alive);
+        buf.writeLong(n.bornDay);
+        buf.writeLong(n.diedDay);
+        buf.writeVarInt(n.descendants);
+        buf.writeVarInt(n.children);
+        buf.writeUtf(n.name);
+    }
+
+    private static Node readNode(FriendlyByteBuf buf) {
+        return new Node(buf.readLong(), buf.readVarInt(), buf.readVarInt(),
+                buf.readBoolean(), buf.readVarInt(), buf.readBoolean(),
+                buf.readLong(), buf.readLong(), buf.readVarInt(), buf.readVarInt(),
+                buf.readUtf());
     }
 
     public static PedigreeSnapshot decode(FriendlyByteBuf buf) {
@@ -121,12 +163,14 @@ public class PedigreeSnapshot {
             int w = buf.readVarInt();
             rows[d] = new Node[w];
             for (int i = 0; i < w; i++) {
-                rows[d][i] = new Node(buf.readLong(), buf.readVarInt(), buf.readVarInt(),
-                        buf.readBoolean(), buf.readVarInt(), buf.readBoolean(),
-                        buf.readLong(), buf.readLong(), buf.readVarInt(), buf.readVarInt(),
-                        buf.readUtf());
+                rows[d][i] = readNode(buf);
             }
         }
-        return new PedigreeSnapshot(rows);
+        int nc = buf.readVarInt();
+        Node[] childrenRow = new Node[nc];
+        for (int i = 0; i < nc; i++) {
+            childrenRow[i] = readNode(buf);
+        }
+        return new PedigreeSnapshot(rows, childrenRow, buf.readVarInt());
     }
 }

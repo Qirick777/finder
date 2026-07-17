@@ -121,6 +121,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("hirex").executes(EvoSimCommand::stageHireX))
                 .then(Commands.literal("carex").executes(EvoSimCommand::stageCareX))
                 .then(Commands.literal("wanderx").executes(EvoSimCommand::stageWanderX))
+                .then(Commands.literal("fixhomes").executes(EvoSimCommand::fixHomes))
+                .then(Commands.literal("fixx").executes(EvoSimCommand::stageFixX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -2534,11 +2536,15 @@ public final class EvoSimCommand {
                 boolean focusNamed = ped.rows[0][0].name.equals(childRef.shortName())
                         && !ped.rows[0][0].name.isEmpty();
                 boolean fatherRenamed = ped.rows[1][0].name.equals("올리버 도일");
+                // 하향 항해(자식 행) — 부친 포커스 스냅샷의 자식 행에 자식 실명이 실려야 한다.
+                var pedF = com.evosim.mod.gui.PedigreeSnapshot.build(level, ids[0]);
+                boolean childRow = java.util.Arrays.stream(pedF.childrenRow)
+                        .anyMatch(n -> n.name.equals(childRef.shortName()));
                 // 랭킹은 후손수 상위 8 한정 — 실세계 대가문에 밀려 부재할 수 있으므로
                 // "있다면 반드시 실명"으로 판정(표시원 Rec.name 은 가계도 단언이 전수 검증).
                 boolean statsNamed = stats.tops.stream().filter(t -> t.id() == ids[0])
                         .allMatch(t -> "올리버 도일".equals(t.name()));
-                return focusNamed && fatherRenamed && statsNamed;
+                return focusNamed && fatherRenamed && statsNamed && childRow;
             }, () -> {
                 FamilyLedger.get(level).debugRemove(ids[0]);
                 FamilyLedger.get(level).debugRemove(ids[1]);
@@ -2786,6 +2792,172 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "소작 루프 v2 합본 검증(4단계) — 노동시장 개방 / 직영지 전용 수확 / "
                 + "운반 상한 6.0 / 원거리 통근(출근 앵커). 전부 서버 결과값 판정.");
+        return 1;
+    }
+
+    /**
+     * 구제 도구 — 밭을 깔고 앉은 거처를 전수 탐지해, 가족을 기존 이주 장치로 주변에 재정착시키고
+     * <b>잘못 설치된 천막만</b> 철거한다(밭은 보존 — 눌린 타일은 밤 정비 A-3이 재식수·복원).
+     * 멱등: 겹침이 없으면 아무것도 하지 않는다. 테스트 월드 연속 사용을 위한 소급 치유 도구.
+     */
+    private static int fixHomes(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int fixed = fixHomesCore(level, msg -> tell(ctx.getSource(), msg));
+        tell(ctx.getSource(), fixed == 0 ? "밭을 깔고 앉은 거처 없음 — 조치 불필요."
+                : "총 " + fixed + "가구 이주·철거 완료. 눌린 밭 타일은 다음 밤 정비에서 재식수됩니다.");
+        return fixed;
+    }
+
+    /** fixhomes 핵심(명령·검증 무대 공용). */
+    private static int fixHomesCore(ServerLevel level, java.util.function.Consumer<String> log) {
+        java.util.Map<Long, java.util.List<MimicEntity>> byHome = new java.util.HashMap<>();
+        java.util.Map<Long, Direction> facings = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getHomePos() != null)) {
+            byHome.computeIfAbsent(m.getHomePos().asLong(), k -> new java.util.ArrayList<>()).add(m);
+            facings.putIfAbsent(m.getHomePos().asLong(), m.getHomeFacingDir());
+        }
+        int fixed = 0;
+        for (var e : byHome.entrySet()) {
+            BlockPos home = BlockPos.of(e.getKey());
+            Direction f = facings.get(e.getKey());
+            if (!MimicEntity.homeSiteOnFarm(level, home, f)) {
+                continue;
+            }
+            MimicEntity head = null;
+            for (MimicEntity m : e.getValue()) {
+                if (m.getStage() == LifeStage.ADULT
+                        || (head == null && m.getStage() == com.evosim.core.LifeStage.ELDER)) {
+                    head = m;
+                    if (m.getStage() == LifeStage.ADULT) {
+                        break;
+                    }
+                }
+            }
+            if (head == null) {
+                head = e.getValue().get(0); // 아이들만 가구 — 이주는 불가하지만 철거는 수행
+            } else {
+                head.debugRelocateFamily(level); // 기존 이주 장치 재사용 — 주변 정찰·신축(A-1 검증됨)
+            }
+            MimicEntity.debugDemolishHome(level, home, f); // 폐가로 남은 잘못된 천막 철거
+            fixed++;
+            log.accept(String.format("@%d,%d 거처 철거·가족 %d명 이주 (%s)", home.getX(), home.getZ(),
+                    e.getValue().size(), head.getIndividual() != null
+                            ? head.getIndividual().shortName() : "?"));
+        }
+        return fixed;
+    }
+
+    /**
+     * 부지 충돌·치유 합본 검증(fixx) — ① 부지 검증 순수부: 밭 위 좌표는 차단, 빈 좌표는 통과
+     * ② 구제 도구: 밭 위 거처의 가족이 이주하고 천막이 철거되며 새 거처는 밭 밖
+     * ③ 죽은 타일 정비: 깔린 타일은 원장 소거, 파괴된 타일은 재식수. 전부 서버 결과값 판정.
+     */
+    private static int stageFixX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 부지 검증 — 밭 발자국 위 후보는 참, 20블록 밖 후보는 거짓(양·음성 동시).
+        {
+            BlockPos anchor = groundAt(level, b, 8, 24);
+            BlockPos clear = groundAt(level, b, -30, 24);
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("fixx_site_guard",
+                    "site validator: on-farm candidate blocked, clear candidate passes", 100, false, () -> {
+                FarmTicker.clearAssignments();
+                pl[0] = buildDemoPlot(level, anchor, 999999999L, 9);
+            }, () -> String.format("onFarm=%s clear=%s",
+                    MimicEntity.homeSiteOnFarm(level, anchor, Direction.NORTH),
+                    MimicEntity.homeSiteOnFarm(level, clear, Direction.NORTH)),
+                    () -> MimicEntity.homeSiteOnFarm(level, anchor, Direction.NORTH)
+                            && !MimicEntity.homeSiteOnFarm(level, clear, Direction.NORTH),
+                    () -> farmClearPlot(level, pl[0])));
+        }
+        // [2] 구제 도구 — 밭 한복판 거처: fixhomes 후 ① 새 거처 ≠ 옛 거처 ② 새 거처는 밭 밖
+        //     ③ 옛 발자국의 천막 블록 0. (눌린 타일 재식수는 [3]이 별도 판정)
+        {
+            BlockPos anchor = groundAt(level, b, 8, -24);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            BlockPos[] oldHome = new BlockPos[1];
+            steps.add(new VerifySuite.Step("fixx_rescue",
+                    "fixhomes relocates family off the farm and demolishes the bad tent",
+                    600, false, () -> {
+                FarmTicker.clearAssignments();
+                pl[0] = buildDemoPlot(level, anchor, 999999999L, 9);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(3, 0, 3), Sex.MALE);
+                c[0].debugSettleWithTent(anchor, Direction.NORTH); // 밭 한복판에 천막(재현)
+                oldHome[0] = anchor;
+                fixHomesCore(level, s -> { });
+            }, () -> {
+                int wool = 0;
+                for (var p : com.evosim.mod.entity.HomeStructure.plan(oldHome[0], Direction.NORTH)) {
+                    if (level.getBlockState(p.pos()).is(Blocks.WHITE_WOOL)) {
+                        wool++;
+                    }
+                }
+                return String.format("newHome=%s wool=%d onFarm=%s",
+                        c[0].getHomePos() == null ? "-" : c[0].getHomePos().toShortString(), wool,
+                        c[0].getHomePos() != null && MimicEntity.homeSiteOnFarm(
+                                level, c[0].getHomePos(), c[0].getHomeFacingDir()));
+            }, () -> {
+                if (c[0].getHomePos() == null || c[0].getHomePos().equals(oldHome[0])) {
+                    return false;
+                }
+                if (MimicEntity.homeSiteOnFarm(level, c[0].getHomePos(), c[0].getHomeFacingDir())) {
+                    return false;
+                }
+                for (var p : com.evosim.mod.entity.HomeStructure.plan(oldHome[0], Direction.NORTH)) {
+                    if (level.getBlockState(p.pos()).is(Blocks.WHITE_WOOL)) {
+                        return false;
+                    }
+                }
+                return true;
+            }, () -> {
+                if (c[0].getHomePos() != null) {
+                    MimicEntity.debugDemolishHome(level, c[0].getHomePos(), c[0].getHomeFacingDir());
+                }
+                discard(c);
+                farmClearPlot(level, pl[0]);
+                FarmTicker.clearAssignments();
+            }));
+        }
+        // [3] 죽은 타일 정비 — 타일0에 양털(깔림), 타일1 블록 제거(파괴) → 밤 정비 후:
+        //     원장 9→8타일(소거 1) ∧ 타일1 위치에 베리 재식수.
+        {
+            BlockPos anchor = groundAt(level, b, 8, 48);
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            BlockPos[] crushed = new BlockPos[1];
+            BlockPos[] broken = new BlockPos[1];
+            steps.add(new VerifySuite.Step("fixx_heal",
+                    "night pass: crushed tile purged from ledger, broken tile replanted",
+                    600, false, () -> {
+                FarmTicker.clearAssignments();
+                pl[0] = buildDemoPlot(level, anchor, 999999999L, 9);
+                crushed[0] = BlockPos.of(pl[0].tiles[0]);
+                broken[0] = BlockPos.of(pl[0].tiles[1]);
+                level.setBlockAndUpdate(crushed[0], Blocks.WHITE_WOOL.defaultBlockState());
+                level.setBlockAndUpdate(broken[0], Blocks.AIR.defaultBlockState());
+                level.setDayTime(13500L); // 밤 정비 창
+            }, () -> String.format("tiles %d(expect 8) replanted=%s", pl[0].tiles.length,
+                    level.getBlockState(broken[0]).is(Blocks.SWEET_BERRY_BUSH)),
+                    () -> pl[0].tiles.length == 8
+                            && level.getBlockState(broken[0]).is(Blocks.SWEET_BERRY_BUSH),
+                    () -> {
+                        level.setBlockAndUpdate(crushed[0], Blocks.AIR.defaultBlockState());
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "부지 충돌·치유 합본 검증(3단계) — 부지 검증 / 구제 도구 이주·철거 / "
+                + "죽은 타일 정비. 전부 서버 결과값 판정.");
         return 1;
     }
 

@@ -86,6 +86,34 @@ public class FarmStore extends SavedData {
         return tileIndex.contains(pos.asLong());
     }
 
+    /** 이 x/z 열에 밭 타일이 있는가(y 무시) — 신축 부지 검증용(천막 발자국은 y가 제각각). */
+    public boolean isFarmColumn(int x, int z) {
+        for (long l : tileIndex) {
+            BlockPos p = BlockPos.of(l);
+            if (p.getX() == x && p.getZ() == z) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 타일 1칸 소거(죽은 타일 정비 — 구조물에 깔려 복구 불능인 칸). 장부-실물 일치 복원. */
+    public void removeTile(Plot p, int i) {
+        if (i < 0 || i >= p.tiles.length) {
+            return;
+        }
+        tileIndex.remove(p.tiles[i]);
+        long[] t = new long[p.tiles.length - 1];
+        long[] g = new long[p.planted.length - 1];
+        System.arraycopy(p.tiles, 0, t, 0, i);
+        System.arraycopy(p.tiles, i + 1, t, i, p.tiles.length - i - 1);
+        System.arraycopy(p.planted, 0, g, 0, i);
+        System.arraycopy(p.planted, i + 1, g, i, p.planted.length - i - 1);
+        p.tiles = t;
+        p.planted = g;
+        setDirty();
+    }
+
     /** 소유 구획 수(신규 밭 체증 비용 입력). */
     public int ownedCount(long ownerId) {
         int n = 0;

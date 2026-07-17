@@ -67,7 +67,7 @@ public class PedigreeScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         this.renderBackground(g);
         g.drawCenteredString(this.font, this.title, this.width / 2, 10, 0xFFD700);
-        g.drawCenteredString(this.font, "조상 상자 클릭 = 그 조상 기준으로 위로 이동",
+        g.drawCenteredString(this.font, "조상 클릭 = 위로 이동 · 자식 클릭 = 아래로 이동",
                 this.width / 2, this.height - 16, 0x808080);
 
         boxes.clear();
@@ -81,12 +81,76 @@ public class PedigreeScreen extends Screen {
                 drawElbow(g, d, i, 2 * i + 1);
             }
         }
+        drawChildElbows(g);
         for (int d = 0; d < snapshot.rows.length; d++) {
             for (int i = 0; i < snapshot.rows[d].length; i++) {
                 drawNode(g, d, i, mouseX, mouseY);
             }
         }
+        drawChildrenRow(g, mouseX, mouseY);
         super.render(g, mouseX, mouseY, partialTick);
+    }
+
+    // ── 자식 행(하향 항해) — 포커스 아래에 직계 자식 상자, 클릭 시 그 자식이 새 포커스 ──
+    private int childRowY() {
+        return rowY(0) + NODE_H + ROW_GAP;
+    }
+
+    private int childCenterX(int i) {
+        int slots = Math.max(1, snapshot.childrenRow.length);
+        return this.width * (2 * i + 1) / (2 * slots);
+    }
+
+    private void drawChildElbows(GuiGraphics g) {
+        int px = slotCenterX(0, 0);
+        int py = rowY(0) + NODE_H; // 포커스 아랫변
+        int cy = childRowY();
+        int midY = (py + cy) / 2;
+        for (int i = 0; i < snapshot.childrenRow.length; i++) {
+            int cx = childCenterX(i);
+            g.fill(px, py, px + 1, midY, 0xFF6A9A6A);
+            g.fill(Math.min(cx, px), midY, Math.max(cx, px) + 1, midY + 1, 0xFF6A9A6A);
+            g.fill(cx, midY, cx + 1, cy, 0xFF6A9A6A);
+        }
+    }
+
+    private void drawChildrenRow(GuiGraphics g, int mouseX, int mouseY) {
+        int n = snapshot.childrenRow.length;
+        if (n == 0) {
+            return;
+        }
+        int w = Math.min(96, this.width / n - 6);
+        int y0 = childRowY();
+        for (int i = 0; i < n; i++) {
+            PedigreeSnapshot.Node c = snapshot.childrenRow[i];
+            int x0 = childCenterX(i) - w / 2;
+            int x1 = x0 + w;
+            int y1 = y0 + NODE_H;
+            Box box = new Box(x0, y0, x1, y1, c);
+            boxes.add(box);
+            boolean hover = box.contains(mouseX, mouseY);
+            g.fill(x0, y0, x1, y1, hover ? 0xFF254A25 : 0xFF142A14);
+            drawBorder(g, x0, y0, x1, y1,
+                    c.alive ? (c.female ? 0xFFFF9EC4 : 0xFF8FD3FF) : 0xFF707070);
+            String name = (c.female ? "♀ " : "♂ ") + c.name;
+            String sub = "G" + c.gen + (c.alive ? " 생존" : " 사망")
+                    + (c.children > 0 ? " · 자녀 " + c.children : "");
+            g.drawCenteredString(this.font, name, (x0 + x1) / 2, y0 + 3,
+                    c.alive ? (c.female ? 0xFF9EC4 : 0x8FD3FF) : 0xA0A0A0);
+            g.drawCenteredString(this.font, sub, (x0 + x1) / 2, y0 + 13, 0x909090);
+            if (hover) {
+                List<Component> tip = new ArrayList<>();
+                tip.add(Component.literal(c.name + " (N" + c.serial + ") · "
+                        + (c.female ? "암컷" : "수컷") + " · " + c.gen + "세대"));
+                tip.add(Component.literal("자식 " + c.children + " · 총 후손 " + c.descendants));
+                tip.add(Component.literal("클릭: 이 자식 기준 가계도").withStyle(s -> s.withColor(0x77DD77)));
+                g.renderComponentTooltip(this.font, tip, mouseX, mouseY);
+            }
+        }
+        if (snapshot.moreChildren > 0) {
+            g.drawCenteredString(this.font, "+" + snapshot.moreChildren + "명",
+                    this.width / 2, y0 + NODE_H + 4, 0x808080);
+        }
     }
 
     /** 자식(d,i) 상단 중앙 → 부모(d+1,pi) 하단 중앙을 ㄱ자(세로-가로-세로)로 잇는다. */

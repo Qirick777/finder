@@ -245,8 +245,15 @@ public final class ScanHudOverlay implements IGuiOverlay {
             }
             String l1 = String.format("저장고 %.1f · 정원 %d/%d · 밭 %s", s.larder, s.garden,
                     s.gardenCap, s.farmPlots == 0 ? "—" : s.farmPlots + "구획 " + s.farmTiles + "타일");
-            addLines(out, g, font, tx, new String[] {l1}, new int[] {0xEFF5F8});
-            int gy = LINE + 2;
+            boolean tenant = s.tenantInfo != null && !s.tenantInfo.isEmpty();
+            if (tenant) {
+                // 소작 근무처 — 누구의 어느 밭에서 일하는지(상시/일용 · 구획·타일 · 지주 실명)
+                addLines(out, g, font, tx, new String[] {l1, "소작 " + s.tenantInfo},
+                        new int[] {0xEFF5F8, 0xA8C79F});
+            } else {
+                addLines(out, g, font, tx, new String[] {l1}, new int[] {0xEFF5F8});
+            }
+            int gy = LINE * (tenant ? 2 : 1) + 2;
             gy = gauge(out, g, font, tx, gy, innerW, "번식", s.reproNeed, s.reproLack, s.larder, true);
             gy = gauge(out, g, font, tx, gy, innerW, "베리", s.berryNeed, s.berryLack, s.larder, true);
             final int fy = gy;

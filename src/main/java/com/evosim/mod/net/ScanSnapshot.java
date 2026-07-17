@@ -37,6 +37,9 @@ public final class ScanSnapshot {
     /** 성명(짧은 표기 "윌리엄 스미스") — 카드 헤더용. */
     public String name = "";
 
+    /** 소작 근무처 — "상시/일용 구획 N(T타일) · 지주 성명". 비소작이면 빈 문자열. */
+    public String tenantInfo = "";
+
     // ── 특성/성향 ──
     public String traits = "";   // 발현 특성 한글 나열
     public String parenting = "";
@@ -103,6 +106,7 @@ public final class ScanSnapshot {
         buf.writeFloat(farmLack);
         buf.writeBoolean(farmMotive);
         buf.writeUtf(name); // 성명 — 신규 필드는 맨 끝(encode/decode 순서 불변식)
+        buf.writeUtf(tenantInfo);
     }
 
     public static ScanSnapshot decode(FriendlyByteBuf buf) {
@@ -146,6 +150,7 @@ public final class ScanSnapshot {
         s.farmLack = buf.readFloat();
         s.farmMotive = buf.readBoolean();
         s.name = buf.readUtf();
+        s.tenantInfo = buf.readUtf();
         return s;
     }
 }

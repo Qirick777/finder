@@ -2567,6 +2567,22 @@ public class MimicEntity extends PathfinderMob {
         s.building = building;
         s.courtTravel = isCourtTravel();
         s.tenantFarm = getTenantFarm();
+        // 소작 근무처 — 상시(tenantFarm) 우선, 없으면 오늘 일용 배정. 지주는 원장 실명(사후 포함).
+        long workPlot = tenantFarm != 0L ? tenantFarm : FarmTicker.assignedPlot(getId());
+        if (workPlot != 0L) {
+            FarmStore.Plot wp = FarmStore.get(sl).get(workPlot);
+            if (wp != null) {
+                String owner;
+                if (wp.ownerId == 0L) {
+                    owner = "무주지";
+                } else {
+                    FamilyLedger.Rec rec = FamilyLedger.get(sl).get(wp.ownerId);
+                    owner = rec != null && rec.name != null ? rec.name : "?";
+                }
+                s.tenantInfo = String.format("%s 구획 %d(%d타일) · 지주 %s",
+                        tenantFarm != 0L ? "상시" : "일용", wp.id, wp.tiles.length, owner);
+            }
+        }
         if (individual != null) {
             s.traits = traitStr(individual);
             s.parenting = individual.parentingCare().label();

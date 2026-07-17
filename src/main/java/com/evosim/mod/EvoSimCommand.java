@@ -2618,6 +2618,36 @@ public final class EvoSimCommand {
             }, () -> "채집".equals(c[0].buildScanSnapshot(level).action),
                     () -> discard(c)));
         }
+        // [2b] 소작 근무처 — 상시 소작의 스냅샷에 "구획 N·지주 실명"이 실린다(관측 요구:
+        //      소작농이 누구의 어느 밭에서 일하는지). 지주는 원장 실명(사후에도 유지).
+        {
+            BlockPos anchor = groundAt(level, b, 32, 40);
+            BlockPos ohome = groundAt(level, b, 20, 40);
+            MimicEntity[] c = new MimicEntity[2];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("scanx_tenant_info",
+                    "tenant snapshot carries plot id + owner name", 100, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(ohome).add(3, 0, 3), Sex.MALE);
+                c[0].debugSettleWithTent(ohome, Direction.NORTH);
+                FamilyLedger.get(level).debugRemove(c[0].getIndividual().id());
+                FamilyLedger.get(level).register(c[0].getIndividual(), 1L); // 지주 실명 원장 조성
+                pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 9);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 0), Sex.MALE);
+                c[1].setTenant(pl[0].id, 3); // 상시 소작 관계 조성
+            }, () -> String.format("tenantInfo '%s'", c[1].buildScanSnapshot(level).tenantInfo),
+                    () -> {
+                        String info = c[1].buildScanSnapshot(level).tenantInfo;
+                        return info.contains("상시 구획 " + pl[0].id)
+                                && info.contains(c[0].getIndividual().shortName());
+                    },
+                    () -> {
+                        FamilyLedger.get(level).debugRemove(c[0].getIndividual().id());
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
         // [3] 인코드→디코드 왕복 무손실 — [1]과 같은 조성으로 스냅샷을 버퍼 왕복시켜 필드 대조
         {
             BlockPos home = groundAt(level, b, 0, 52);
@@ -2644,7 +2674,8 @@ public final class EvoSimCommand {
                         && Math.abs(d.berryLack - s.berryLack) < 1.0E-6
                         && Math.abs(d.farmLack - s.farmLack) < 1.0E-6
                         && d.farmMotive == s.farmMotive && d.spouseId == s.spouseId
-                        && d.adults == s.adults && d.garden == s.garden;
+                        && d.adults == s.adults && d.garden == s.garden
+                        && d.tenantInfo.equals(s.tenantInfo);
             }, () -> discardFamily(level, home, c)));
         }
         VerifySuite.start(ctx.getSource(), steps);

@@ -92,12 +92,11 @@ public class MimicForageGoal extends Goal {
             boundMode = false;
             return !mob.larderHasFood();
         }
-        // 지정 돌봄자(육아 개편) — 전면 금지가 아니라 <b>careRadius 노동</b>: 정원 수확은 전 등급
-        // 허용(적극 포함 — 지시 사양), 들풀은 반경 안에서만, 사냥은 금지(추격 이탈 방지).
-        // 적극(반경 0)은 정원 익음이 없으면 육아 전념. 종전 이진 차단이 무심(22)~적극(0)을
-        // 전부 동결시켜 출산 직후 경제가 멎던 결함의 수정 — 이제 반경이 말 그대로 구속한다.
+        // 지정 돌봄자(육아 개편) — <b>정원 전담</b>: 외부 채집·사냥은 불허, 정원 익은 베리만
+        // 딴다(적극 포함 전 등급 — 지시 사양 "집에만 있는 쪽이 정원을 맡는다"). 외부 노동은
+        // 커버리지로 해제된 배우자의 몫. 정원 익음이 없으면 육아 전념(goal 비활성).
         boundMode = mob.isCaregiverBound();
-        if (boundMode && ind.parentingCare().careRadius() <= 0.0 && ripeHomeBerry() == null) {
+        if (boundMode && ripeHomeBerry() == null) {
             return false;
         }
         Schedule.Phase phase = Schedule.phaseAt(ind, mob.level().getDayTime());
@@ -183,9 +182,9 @@ public class MimicForageGoal extends Goal {
         if (gatherTarget != null && !forageable(mob.level().getBlockState(gatherTarget), herbalist)) {
             gatherTarget = null;
         }
-        if (gatherTarget != null && boundMode && !withinCare(gatherTarget)
+        if (gatherTarget != null && boundMode
                 && !isRipeBerry(mob.level().getBlockState(gatherTarget))) {
-            gatherTarget = null; // 구속 전에 잡아둔 반경 밖 들풀 — 폐기(익은 베리=정원류는 허용)
+            gatherTarget = null; // 구속 전에 잡아둔 들풀 — 폐기(정원 전담: 익은 베리만 허용)
         }
         if (gatherTarget == null) {
             gatherTarget = findForage(herbalist, Multipliers.forageRange(ind));
@@ -290,22 +289,13 @@ public class MimicForageGoal extends Goal {
     private BlockPos findForage(boolean herbalist, double rangeMult) {
         BlockPos garden = ripeHomeBerry();
         if (garden != null) {
-            return garden; // 내 밭이 익었으면 어디 있든 그리로 가서 딴다 (구속 중에도 전 등급 허용)
+            return garden; // 내 밭이 익었으면 어디 있든 그리로 가서 딴다 (구속 중에도 허용 — 정원 전담)
         }
-        // 지정 돌봄자 — 표본 중심을 거처로, 반경을 careRadius로 죈다(적극 0은 위 정원 경로만).
-        double careR = boundMode && mob.getIndividual() != null
-                ? mob.getIndividual().parentingCare().careRadius() : Double.MAX_VALUE;
-        if (boundMode && careR <= 0.0) {
-            return null;
-        }
-        BlockPos base = boundMode && mob.getHomePos() != null ? mob.getHomePos() : mob.blockPosition();
-        int half = (int) Math.round(5 * rangeMult);
         if (boundMode) {
-            half = (int) Math.min(half, careR);
+            return null; // 지정 돌봄자는 정원 외 표적 없음(외부 채집 불허 — 해제된 배우자의 몫)
         }
-        if (half < 1) {
-            return null;
-        }
+        BlockPos base = mob.blockPosition();
+        int half = (int) Math.round(5 * rangeMult);
         BlockPos berry = nearestRipeBerry(base, half);
         if (berry != null) {
             return berry; // 익은 베리가 근처에 있으면 풀보다 먼저 딴다
@@ -316,8 +306,7 @@ public class MimicForageGoal extends Goal {
             int dz = mob.getRandom().nextInt(half * 2 + 1) - half;
             int dy = mob.getRandom().nextInt(3) - 1;
             BlockPos p = base.offset(dx, dy, dz);
-            if (forageable(mob.level().getBlockState(p), herbalist) && !farmTile(p)
-                    && (!boundMode || withinCare(p))) {
+            if (forageable(mob.level().getBlockState(p), herbalist) && !farmTile(p)) {
                 return p;
             }
         }

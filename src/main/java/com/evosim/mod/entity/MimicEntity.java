@@ -3036,9 +3036,9 @@ public class MimicEntity extends PathfinderMob {
      * 지금 육아에 매인 부모인가 — <b>지정 돌봄자 체계</b>(돌봄 충분성): 유아마다 구속 후보(비무시
      * 친부모)가 둘 다 실재하면 {@link Caregiving#staysBound} 우선순위(강한 성향 → 낮은 채집효율 →
      * 여성 → id)로 <b>한 명만</b> 잔류하고 나머지는 해제(무시처럼 자유). 공동 돌봄자가 없거나
-     * (사별·원거리 이탈) 내가 지정이면 구속. 구속이어도 채집 전면 금지가 아니라 careRadius 노동
-     * (MimicForageGoal 반경 제한)이다 — 종전 이진 스위치가 "무심=적극=완전 정지"를 만들어
-     * 출산 직후 가구 경제가 동결(입금 0·기근 오탐 집단 이주)되던 실측 결함의 수정.
+     * (사별·원거리 이탈) 내가 지정이면 구속. 구속자는 <b>정원 전담</b> — 외부 채집·사냥은 불허,
+     * 거처 옆 정원의 익은 베리만 수확(MimicForageGoal). 외부 노동은 해제된 배우자의 몫 —
+     * 종전 이진 스위치가 부모 양쪽을 완전 정지시켜 가구 경제가 동결되던 실측 결함의 수정.
      */
     public boolean isCaregiverBound() {
         if (getStage() != LifeStage.ADULT || homePos == null || individual == null) {

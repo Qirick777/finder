@@ -2706,17 +2706,19 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 무대 유아 — 지정 부모의 친자·거처 귀속(육아 구속 판정 입력). father 는 null 허용(편모). */
+    /** 무대 유아 — 지정 부모의 친자·거처 귀속(육아 구속 판정 입력). 한쪽 부모 null 허용(편부모). */
     private static MimicEntity infantOf(ServerLevel level, BlockPos home,
                                         MimicEntity father, MimicEntity mother) {
         MimicEntity e = ModEntities.MIMIC.get().create(level);
         if (e == null) {
             throw new IllegalStateException("유아 스폰 실패");
         }
+        MimicEntity ref = mother != null ? mother : father;
         long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
         Individual ind = new Individual(id, Sex.FEMALE,
                 father == null ? 0L : father.getIndividual().id(),
-                mother.getIndividual().id(), mother.getIndividual().generation() + 1);
+                mother == null ? 0L : mother.getIndividual().id(),
+                ref.getIndividual().generation() + 1);
         e.setIndividual(ind);
         e.setStage(LifeStage.INFANT);
         e.moveTo(home.getX() + 1.5, home.getY(), home.getZ() + 0.5, 0f, 0f);
@@ -2855,6 +2857,35 @@ public final class EvoSimCommand {
                     c[0].currentActionLabel(),
                     c[0].blockPosition().toShortString(), c[0].forageDebug()),
                     () -> countGrass(level, pad) < 9,
+                    () -> discard(c)));
+        }
+        // [3b] 구속자 외부 채집 불허(금지 감시) — 지정 돌봄자(무심 홀아비, 반경 22)는 정원이
+        //      없으면 반경 안에 풀이 있어도 손대지 않는다(정원 전담 — 지시 사양). 풀 감소 = 실패.
+        {
+            BlockPos home = groundAt(level, b, -10, -48);
+            BlockPos pad = groundAt(level, b, -4, -48); // 거처 6블록 — 반경 22 안(유혹 조성)
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("carex_bound_no_wild",
+                    "designated caregiver must NOT gather wild grass (garden-only): grass stays 9",
+                    400, true, () -> {
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                c[0].getIndividual().setParentingCareMale(ParentingClass.DETACHED);
+                c[0].debugClearBerries(level); // 정원 없음 — 유일한 허용 표적 제거
+                for (int dx = -1; dx <= 1; dx++) { // 3×3 평탄화 — 지지 블록 없는 풀의 즉시 탈락
+                    for (int dz = -1; dz <= 1; dz++) { // (9→8 오탐)이 금지 감시를 오염시키지 않게
+                        level.setBlockAndUpdate(pad.offset(dx, -1, dz), Blocks.DIRT.defaultBlockState());
+                        level.setBlockAndUpdate(pad.offset(dx, 0, dz), Blocks.AIR.defaultBlockState());
+                    }
+                }
+                grassCluster(level, pad);
+                c[1] = infantOf(level, home, c[0], null); // 홀아비 — 본인이 지정 돌봄자
+                LarderStore.get(level).set(home, 3.0);
+                c[0].debugSetHolding(1.5);
+                level.setDayTime(2000L);
+            }, () -> String.format("grass %d/9(must stay 9) bound=%s act=%s",
+                    countGrass(level, pad), c[0].isCaregiverBound(), c[0].currentActionLabel()),
+                    () -> countGrass(level, pad) < 9, // ← 금지 결과(구속자의 외부 채집)
                     () -> discard(c)));
         }
         // [4] carryCap 정원 제외 — 같은 노동 시간: 정원 익은 가구는 2.0(입금 동결 해제),

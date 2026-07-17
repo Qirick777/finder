@@ -2221,26 +2221,29 @@ public final class EvoTest {
                 "2번째=둘째줄 · 발자국 9→3x5, 15→5x5, 25→5x9, 49→7x13 · 49타일 좌표 중복 0",
                 (seq && !dup) ? "정상" : "어긋남");
 
-        // 2) 용량·슬롯: 기본 12 · 부지런 14 · 게으름 9 · 노년 6 / 부족분 최소 일감 10 게이트
+        // 2) 용량·슬롯(소작 루프 v2): 기본 8 · 부지런 9(9.6↓) · 게으름 6(6.4↓) · 노년 4 /
+        //    부족분 최소 일감 2 게이트 — 첫 고용 밭 = 착공 9 + 하루 확장 = 10타일.
         Individual man = one(Sex.MALE);
-        boolean cap = FarmEconomy.capacity(man, LifeStage.ADULT) == 12
-                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)), LifeStage.ADULT) == 14
-                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), LifeStage.ADULT) == 9
-                && FarmEconomy.capacity(man, LifeStage.ELDER) == 6
-                && FarmEconomy.shortfall(25, 24) == 0     // 잔여 1 < 최소일감 → 게시 안 함
-                && FarmEconomy.shortfall(35, 24) == 11    // 첫 고용(부부 기준 7칸5줄)
-                && FarmEconomy.shortfall(49, 24) == 25
+        boolean cap = FarmEconomy.capacity(man, LifeStage.ADULT) == 8
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)), LifeStage.ADULT) == 9
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), LifeStage.ADULT) == 6
+                && FarmEconomy.capacity(man, LifeStage.ELDER) == 4
+                && FarmEconomy.shortfall(9, 8) == 0       // 잔여 1 < 최소일감 2 → 게시 안 함
+                && FarmEconomy.shortfall(10, 8) == 2      // 첫 고용(착공 9타일 + 하루 확장)
+                && FarmEconomy.shortfall(35, 16) == 19    // 부부(8×2) 기준 7칸5줄
+                && FarmEconomy.shortfall(49, 16) == 33
                 && FarmEconomy.shortfall(9, 24) == 0;     // 소형 밭 절대 무고용(슬롯0 가드의 순수부)
-        report.add("farm/용량슬롯", cap, "C 12/14/9/6 · 부족 25→0(1<10)·35→11·49→25·9→0",
+        report.add("farm/용량슬롯", cap, "C 8/9/6/4 · 부족 9→0(1<2)·10→2·35→19·49→33·9→0",
                 cap ? "정상" : "어긋남");
 
         // 3) 지대 회계 항등식 + 비용 체증
         double y = 0.75;
         boolean acct = close(FarmEconomy.tenantShare(y), 0.525) && close(FarmEconomy.ownerShare(y), 0.225)
                 && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
-                && close(FarmEconomy.newFarmCost(0), 30.0) && close(FarmEconomy.newFarmCost(2), 67.5)
-                // 게이트는 타일당 한계비용 비교: 확장 3 < 신규 30/9타일(T1) ≈ 3.33 — 소작 확장 유인 유지
-                && FarmEconomy.EXPAND_COST < FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
+                && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
+                // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
+                // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)
+                && FarmEconomy.EXPAND_COST <= FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
         // 4) 능력 게이트·성장 상한: 무능력 35 캡 / 관리 능력 등급 Ⅳ 이상만 무제한(밴드 산출 ⑧).
         //    무등급 인스턴스는 Ⅲ 취급 → 대지주 불가(구 세이브도 동일 규칙).
         boolean gate = !FarmEconomy.canManageLarge(man)
@@ -2255,22 +2258,25 @@ public final class EvoTest {
                 // 사냥 계열(도축Ⅴ)은 관리 능력이 아님 — 경영 게이트 불통과
                 && !FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5)))
                 && FarmEconomy.EXPAND_PER_DAY == 3
+                // 소작 비례 확장 3×(1+상시소작)의 구획 캡 — 소작 3인이면 12로 포화
+                && FarmEconomy.EXPAND_DAY_MAX == 12
+                && FarmEconomy.MIN_JOB == 2
                 && close(FarmEconomy.INVEST_RESERVE, 6.0);
         report.add("farm/능력게이트", gate,
-                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3 · 예비 6",
+                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3(캡 12) · 최소일감 2 · 예비 6",
                 gate ? "정상" : "어긋남");
 
-        report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 30/67.5 · 확장(3)<신규 타일당(3.33)",
+        report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",
                 acct ? "정상" : "어긋남");
 
-        // 5) 지대 재투자(R1) — 소작 구획 확장 자금 = 밭 계정: floor(계정/타일당 3), 음수 0.
-        //    소작 1인 지대 ≈2.7/일 → 격일 1타일(2.7→0, 3.4→1) — PREDICTIONS.md 성장률 0.9타일/일의 근거.
-        boolean reinvest = FarmEconomy.reinvestTiles(2.7) == 0
+        // 5) 지대 재투자(R1) — 소작 구획 확장 자금 = 밭 계정: floor(계정/타일당 2.0), 음수 0.
+        //    소작 1인 지대 ≈2.7/일 → 매일 1타일(2.7→1) — 소작 루프 v2 성장률의 근거.
+        boolean reinvest = FarmEconomy.reinvestTiles(2.7) == 1
                 && FarmEconomy.reinvestTiles(3.0) == 1
-                && FarmEconomy.reinvestTiles(7.0) == 2
-                && FarmEconomy.reinvestTiles(12.5) == 4
+                && FarmEconomy.reinvestTiles(7.0) == 3
+                && FarmEconomy.reinvestTiles(12.5) == 6
                 && FarmEconomy.reinvestTiles(-1.0) == 0;
-        report.add("farm/재투자", reinvest, "계정 2.7→0 · 3→1 · 7→2 · 12.5→4 · 음수→0",
+        report.add("farm/재투자", reinvest, "계정 2.7→1 · 3→1 · 7→3 · 12.5→6 · 음수→0",
                 reinvest ? "정상" : "어긋남");
 
         // 6) 케어 배분 — 가구 노동 예산을 가까운 구획부터 소진(다구획 중복 차감 제거).

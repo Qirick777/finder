@@ -124,18 +124,33 @@ public final class FarmTicker {
                 continue;
             }
             int cap = com.evosim.core.FarmEconomy.growthCap(ownerEnt.getIndividual());
-            int labor = com.evosim.core.FarmEconomy.EXPAND_PER_DAY
-                    - grownToday.getOrDefault(grower.getId(), 0); // 노동 상한은 개체 단위(R3)
+            // 소작 비례 확장(소작 루프 v2): 구획 하루 노동 = 3×(1+상시소작 수), 상한 12 —
+            // "소작농들이 밭을 키운다"의 수치화. 자영(소작 0)은 종전대로 개체 단위 3.
+            int nTen = 0;
+            for (MimicEntity m : adults) {
+                if (m.getTenantFarm() == plot.id) {
+                    nTen++;
+                }
+            }
+            int plotLabor = Math.min(com.evosim.core.FarmEconomy.EXPAND_DAY_MAX,
+                    com.evosim.core.FarmEconomy.EXPAND_PER_DAY * (1 + nTen));
+            int labor = hasTenant
+                    ? plotLabor
+                    : com.evosim.core.FarmEconomy.EXPAND_PER_DAY
+                            - grownToday.getOrDefault(grower.getId(), 0); // 자영 상한은 개체 단위(R3)
             int room = Math.min(labor, cap - plot.tiles.length);
             if (room <= 0) {
                 continue;
             }
-            // 자금: 소작 구획은 밭 계정(지대 재투자 — R1), 자영은 종전대로 주인 저장고+생계 예비.
-            double funds = hasTenant ? plot.account : larders.get(grower.getHomePos());
-            int afford = hasTenant
-                    ? com.evosim.core.FarmEconomy.reinvestTiles(plot.account)
-                    : (int) Math.floor((funds - com.evosim.core.FarmEconomy.INVEST_RESERVE)
+            // 자금: 밭 계정(지대 재투자 — R1) 우선, 부족분은 주인 저장고(생계 예비 유지) —
+            // 지대가 아직 얇은 초기에도 확장이 멈추지 않게(소작 루프 v2).
+            double ownerFunds = ownerEnt.getHomePos() != null
+                    ? larders.get(ownerEnt.getHomePos()) : 0.0;
+            int affordAccount = com.evosim.core.FarmEconomy.reinvestTiles(plot.account);
+            int affordLarder = (int) Math.floor(
+                    Math.max(0.0, ownerFunds - com.evosim.core.FarmEconomy.INVEST_RESERVE)
                             / com.evosim.core.FarmEconomy.EXPAND_COST);
+            int afford = affordAccount + affordLarder;
             int k = Math.min(room, afford);
             if (k <= 0) {
                 continue;
@@ -158,18 +173,21 @@ public final class FarmTicker {
                 placed++;
             }
             if (placed > 0) {
-                if (hasTenant) {
-                    plot.account -= placed * com.evosim.core.FarmEconomy.EXPAND_COST;
-                    store.setDirty();
-                } else {
-                    larders.set(grower.getHomePos(),
-                            funds - placed * com.evosim.core.FarmEconomy.EXPAND_COST);
+                // 지불: 밭 계정 먼저 소진, 잔여는 주인 저장고 — 회계 합 = placed × EXPAND_COST.
+                double bill = placed * com.evosim.core.FarmEconomy.EXPAND_COST;
+                double fromAccount = Math.min(plot.account, bill);
+                plot.account -= fromAccount;
+                store.setDirty();
+                double fromLarder = bill - fromAccount;
+                if (fromLarder > 0 && ownerEnt.getHomePos() != null) {
+                    larders.set(ownerEnt.getHomePos(), Math.max(0.0,
+                            larders.get(ownerEnt.getHomePos()) - fromLarder));
                 }
                 grownToday.merge(grower.getId(), placed, Integer::sum);
                 com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
-                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f", hasTenant ? "재투자" : "자영",
-                        plot.id, placed, plot.tiles.length,
-                        placed * com.evosim.core.FarmEconomy.EXPAND_COST));
+                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f(계정 %.0f) 소작 %d",
+                        hasTenant ? "재투자" : "자영",
+                        plot.id, placed, plot.tiles.length, bill, fromAccount, nTen));
             }
         }
         // ①b 무주지 선점 — 유주택 성년이 통근 내 무주 구획을 흡수(개간 비용 없음 — 이미 일군 땅).
@@ -231,7 +249,7 @@ public final class FarmTicker {
                 continue;
             }
             FarmStore.Plot plot = store.create(site, m.getIndividual().id());
-            for (int[] t : com.evosim.core.FarmLayout.layout(3)) { // 착공 3타일 — 이후는 확장 경로
+            for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
                 BlockPos gp = level.getHeightmapPos(
                         net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                         site.offset(t[0], 0, t[1] * 2));
@@ -373,11 +391,10 @@ public final class FarmTicker {
                     }
                 }
                 java.util.List<FarmStore.Plot> plots = entry.getValue();
-                final BlockPos h = home;
+                // 직영지(소작 루프 v2): 주인 노동은 <b>최신 구획</b>부터 — 신규 개간 즉시 구 구획의
+                // 자가 몫이 0이 되어 부족분 전량 게시 = 100% 소작 인계, 주인은 지대만 수취.
                 plots.sort(java.util.Comparator
-                        .comparingDouble((FarmStore.Plot p) ->
-                                h == null ? 0.0 : p.anchor.distSqr(h))
-                        .thenComparingLong(p -> p.id)); // 동률·무주 결정론
+                        .comparingLong((FarmStore.Plot p) -> -p.id));
                 int[] tiles = new int[plots.size()];
                 for (int i = 0; i < plots.size(); i++) {
                     tiles[i] = plots.get(i).tiles.length;
@@ -413,20 +430,20 @@ public final class FarmTicker {
             final BlockPos oh = ownerHome;
             java.util.List<MimicEntity> cands = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
-                // 출근 관성(R2): 어제 이 구획에 출근한 자는 넉넉 필터 면제 — 하루 벌이로 넉넉해져
-                // 연속일이 끊기는 승격 진동 차단(예약석과 같은 원리의 수습기 소급). 신규 구직만 빈곤 조건.
-                boolean returning = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id;
+                // 노동시장 개방(소작 루프 v2): 빈곤 조건 삭제 — 소작 벌이(수확 70%)가 잔존 채집을
+                // 압도해 넉넉한 무밭 성인도 응한다(안정 정착 경로). 만족자는 제외(노동 정지 설계 보존).
                 if (m.getIndividual().id() == plot.ownerId || ASSIGNED.containsKey(m.getId())
                         || (oh != null && oh.equals(m.getHomePos()))
                         || store.ownedCount(m.getIndividual().id()) > 0
-                        || (m.larderComfortable() && !returning)
+                        || m.isSatisfiedToday()
                         || m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE) {
                     continue;
                 }
                 cands.add(m);
             }
             cands.sort(java.util.Comparator
-                    .comparingDouble((MimicEntity m) -> m.blockPosition().distSqr(plot.anchor))
+                    .comparingInt((MimicEntity m) -> m.larderComfortable() ? 1 : 0) // 빈곤 우선
+                    .thenComparingDouble(m -> m.blockPosition().distSqr(plot.anchor))
                     .thenComparingInt(MimicEntity::getId)); // 동률 결정론
             for (MimicEntity m : cands) {
                 if (covered >= need) {

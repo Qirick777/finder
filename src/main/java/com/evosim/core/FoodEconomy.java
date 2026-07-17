@@ -23,6 +23,9 @@ public final class FoodEconomy {
     public static final double FILL_TARGET = 1.5;
     /** 이 이상의 정수 여분은 거처 저장고에 입금. */
     public static final double BAND_HIGH = 2.0;
+    /** 수확 세션 운반 상한(소작 루프 v2) — 노동 중 내 밭·정원에 익은 것이 남아 있으면 입금 귀가를
+     *  이 값까지 미룬다: 일일 수확 8타일×0.75 = 6.0 → 귀가 왕복 6~9회가 1~2회로. 평시는 BAND_HIGH. */
+    public static final double WORK_CARRY_CAP = 6.0;
     /** 위급 — 소지 식량 고갈 임박(R6 발동·굶주림 판정). */
     public static final double CRITICAL = 0.3;
     /** 귀가 goal 발동 임계(급식 직후 재귀가 핑퐁 방지, 히스테리시스). 임시값. */

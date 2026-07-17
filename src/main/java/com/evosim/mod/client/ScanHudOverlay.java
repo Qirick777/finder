@@ -145,7 +145,10 @@ public final class ScanHudOverlay implements IGuiOverlay {
         badge(g, font, bx, ty, s.tenantFarm != 0, "소작", 0xA8C79F, a);
         ty += LINE;
         // ── 게이지: H (위급 펄스) ──
-        float hFrac = Mth.clamp(s.holding / 2.0F, 0.0F, 1.0F);
+        // 운반 상한이 상황부(2.0 기본 / 수확 세션 6.0 — 소작 루프 v2)라 게이지도 2 초과분은 6 스케일.
+        float hFrac = s.holding > 2.0F
+                ? Mth.clamp(s.holding / 6.0F, 0.0F, 1.0F)
+                : Mth.clamp(s.holding / 2.0F, 0.0F, 1.0F);
         int hColor = mix(0xE5533A, 0x53C46A, hFrac);
         if (s.critical) {
             float pulse = 0.5F + 0.5F * (float) Math.sin(now / 120.0);

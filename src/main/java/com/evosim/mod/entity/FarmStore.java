@@ -42,6 +42,17 @@ public class FarmStore extends SavedData {
         return level.getDataStorage().computeIfAbsent(FarmStore::load, FarmStore::new, KEY);
     }
 
+    /** 이 주인의 최신(=id 최대) 구획 id — 직영지(주인이 직접 일구는 구획). 없으면 0. */
+    public long newestOwnedPlot(long ownerId) {
+        long best = 0L;
+        for (Plot p : plots.values()) {
+            if (p.ownerId == ownerId && p.id > best) {
+                best = p.id;
+            }
+        }
+        return best;
+    }
+
     public Plot create(BlockPos anchor, long ownerId) {
         Plot p = new Plot(nextId++, anchor, ownerId);
         plots.put(p.id, p);

@@ -10,23 +10,28 @@ public final class FarmEconomy {
     public static final long RIPEN_TICKS = 24000L;
     /** 지대(수수료) — 소작 수확의 이 비율이 밭 계정으로. */
     public static final double FEE = 0.3;
-    /** 개인 수확 용량 기본(타일/일) — 밭 전담창 2400틱 ÷ 타일 200틱. */
-    public static final int C_BASE = 12;
+    /** 개인 수확 용량 기본(타일/일). 12→8(소작 루프 v2): "적은 노동의 지주" 수치화 —
+     *  고용 문턱을 8+최소일감으로 낮추고, 큰 밭일수록 소작 의존이 커진다. */
+    public static final int C_BASE = 8;
     /** 상시 소작 승격 — 같은 밭 연속 출근 일수(예약석: 이후 슬롯 변동 무관 유지). */
     public static final int PROMOTE_DAYS = 3;
-    /** 최소 일감(타일) — 이 미만의 부족분은 게시하지 않음(1타일 일자리 방지). */
-    public static final int MIN_JOB = 10;
-    /** 확장 비용(food/타일) — 신규 개간과 1:3.3 격차(소작 확장 유인 게이트). */
-    public static final double EXPAND_COST = 3.0;
-    /** 신규 밭 기본 비용(food) — 소유 밭 수에 ×1.5 체증(축적 폭주 제동). */
-    public static final double NEW_FARM_BASE = 30.0;
+    /** 최소 일감(타일). 10→2(소작 루프 v2): 첫 고용 밭 크기 = C_BASE 8 + 2 = 10타일 —
+     *  착공 9타일에서 하루 확장이면 게시(40~50분 첫 고용 역산). */
+    public static final int MIN_JOB = 2;
+    /** 확장 비용(food/타일). 3.0→2.0: 신규(18÷9타일=2.0/타일)와 동률 — 소작 비례 확장이 주 성장 경로. */
+    public static final double EXPAND_COST = 2.0;
+    /** 신규 밭 기본 비용(food). 30→18: 엘리트 초기 저축률(관측 10~12/일)로 착공 d2(40분) 역산.
+     *  체증 ×1.5 유지(2호 27·3호 40.5 — 축적 폭주 제동). */
+    public static final double NEW_FARM_BASE = 18.0;
 
     /** 무주지 등록 소거까지(틱, 2.5일) — 선점자가 없으면 야생으로 복원(등록만 소거, 베리는 남음). */
     public static final long VACANT_EXPIRE_TICKS = 60000L;
     /** 능력 게이트 경계(타일) — 이 규모 "초과" 확장은 주인의 발현 능력 특성을 요구(T4=첫 고용 규모). */
     public static final int SKILL_GATE_TILES = 35;
-    /** 하루 확장 상한(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */
+    /** 1인 하루 확장 기본(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */
     public static final int EXPAND_PER_DAY = 3;
+    /** 구획 하루 확장 상한 — 소작 비례 확장 3×(1+상시소작 수)의 캡("소작농들이 밭을 키운다"). */
+    public static final int EXPAND_DAY_MAX = 12;
     /** 확장·신규의 최소 여유 — 비용 지불 후에도 이틀치(6)는 남아야 투자(생계 우선). */
     public static final double INVEST_RESERVE = 6.0;
 

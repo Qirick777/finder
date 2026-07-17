@@ -135,11 +135,24 @@ public class MimicFarmGoal extends Goal {
         long id = mob.getIndividual().id();
         long sid = mob.getSpouseId();
         long assigned = FarmTicker.assignedPlot(mob.getId());
+        FarmStore fs = FarmStore.get(sl);
+        long newestMine = fs.newestOwnedPlot(id);
+        long newestSpouse = sid == 0L ? 0L : fs.newestOwnedPlot(sid);
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
-        for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
-            if (p.ownerId != id && (sid == 0L || p.ownerId != sid) && p.id != assigned) {
+        for (FarmStore.Plot p : fs.all().values()) {
+            boolean mine = p.ownerId == id;
+            boolean spouses = sid != 0L && p.ownerId == sid;
+            if (!mine && !spouses && p.id != assigned) {
                 continue; // 무단 수확 금지 — 소유·배우자 소유(가족 노동) 또는 오늘 배정만
+            }
+            // 직영지 원칙(소작 루프 v2): 다구획 주인 가족의 자가 노동은 최신 구획만 —
+            // 구 구획은 100% 소작 몫(신규 개간과 동시에 인계). 배정 소작 출근은 그대로.
+            if (mine && p.id != newestMine && p.id != assigned) {
+                continue;
+            }
+            if (spouses && p.id != newestSpouse && p.id != assigned) {
+                continue;
             }
             for (long l : p.tiles) {
                 BlockPos pos = BlockPos.of(l);

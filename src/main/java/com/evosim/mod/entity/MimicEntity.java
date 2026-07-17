@@ -133,10 +133,10 @@ public class MimicEntity extends PathfinderMob {
     private static final double BUILD_REACH = 2.4; // 이 수평 거리 안이어야 설치(밖이면 걸어감)
     private static final int BUILD_REACH_TIMEOUT = 60; // 이만큼 못 닿으면 강제 설치(막힌 자리 교착 방지)
     // 인식 범위 = 신중도(엄격할수록 넓음). 노동은 근접 위주, 배회는 넓게(구애 사양서 v2 확장).
-    private static final double WORK_PERCEPT_BASE = 3.0;
-    private static final double WORK_PERCEPT_PER = 2.0;   // 레벨당(0~4)
-    private static final double WANDER_PERCEPT_BASE = 8.0;
-    private static final double WANDER_PERCEPT_PER = 4.0;
+    private static final double WORK_PERCEPT_BASE = 6.0;
+    private static final double WORK_PERCEPT_PER = 3.0;   // 레벨당(0~4)
+    private static final double WANDER_PERCEPT_BASE = 16.0;
+    private static final double WANDER_PERCEPT_PER = 6.0;
     private static final double COURT_CONTACT = 2.5;      // 이 거리면 구애 요청
 
     // 번식(§6): 마지막 출산 시각 + 출산 수. 실제 발동은 가족 정산의 저장고 게이트(familyTick).
@@ -3041,17 +3041,79 @@ public class MimicEntity extends PathfinderMob {
         return hasInfantAtHome();
     }
 
-    /** 같은 거처에 유아 자식이 있나 (육아 goal 판정용). */
+    /** 같은 거처에 <b>내 자식인</b> 유아가 있나 (육아 goal 판정용). 종전엔 "아무 유아"라
+     *  육아 성향 적극인 미혼 성년이 동생 때문에 영구 구속돼 구애를 못 하던 관측 결함 —
+     *  구속은 친부모만, 형제는 자유(급식 출석 래치는 성년 근접이면 누구든 유효라 돌봄은 유지). */
     public boolean hasInfantAtHome() {
-        if (homePos == null) {
+        if (homePos == null || individual == null) {
             return false;
         }
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(20.0))) {
-            if (m.getStage() == LifeStage.INFANT && homePos.equals(m.getHomePos())) {
+            if (m.getStage() == LifeStage.INFANT && homePos.equals(m.getHomePos())
+                    && m.getIndividual() != null
+                    && (m.getIndividual().parentAId() == individual.id()
+                            || m.getIndividual().parentBId() == individual.id())) {
                 return true;
             }
         }
         return false;
+    }
+
+    // ── 운반 상한(소작 루프 v2) — 수확 세션 중 입금 귀가를 미루는 캐시(40틱) ──
+    private long carryCheckTick = -100L;
+    private double cachedCarryCap = FoodEconomy.BAND_HIGH;
+
+    /** 현재 입금 귀가 문턱 — 수확 세션(노동시간 ∧ 내 정원/직영지·배정 밭에 익은 것 존재)이면 6.0. */
+    public double carryCap() {
+        long now = level().getGameTime();
+        if (now - carryCheckTick >= 40) {
+            carryCheckTick = now;
+            cachedCarryCap = computeCarryCap();
+        }
+        return cachedCarryCap;
+    }
+
+    private double computeCarryCap() {
+        if (individual == null || getStage() == LifeStage.INFANT || getStage() == LifeStage.BOY
+                || !(level() instanceof ServerLevel sl)) {
+            return FoodEconomy.BAND_HIGH;
+        }
+        if (Schedule.phaseAt(individual, level().getDayTime()) != Schedule.Phase.WORK) {
+            return FoodEconomy.BAND_HIGH;
+        }
+        // 정원에 익은 그루?
+        if (homePos != null) {
+            for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
+                for (int dy = 3; dy >= -3; dy--) {
+                    var st = sl.getBlockState(tile.offset(0, dy, 0));
+                    if (st.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)
+                            && st.getValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE) >= 3) {
+                        return FoodEconomy.WORK_CARRY_CAP;
+                    }
+                }
+            }
+        }
+        // 직영지(최신 소유 구획) 또는 오늘 배정 밭에 익은 타일?
+        FarmStore fs = FarmStore.get(sl);
+        long mine = fs.newestOwnedPlot(individual.id());
+        long assigned = FarmTicker.assignedPlot(getId());
+        for (FarmStore.Plot p : fs.all().values()) {
+            if (p.id != mine && p.id != assigned) {
+                continue;
+            }
+            for (long l : p.tiles) {
+                BlockPos pos = BlockPos.of(l);
+                if (!sl.isLoaded(pos)) {
+                    continue;
+                }
+                var st = sl.getBlockState(pos);
+                if (st.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)
+                        && st.getValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE) >= 3) {
+                    return FoodEconomy.WORK_CARRY_CAP;
+                }
+            }
+        }
+        return FoodEconomy.BAND_HIGH;
     }
 
 

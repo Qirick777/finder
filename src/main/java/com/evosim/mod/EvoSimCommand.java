@@ -116,6 +116,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("editx").executes(EvoSimCommand::stageEditX))
                 .then(Commands.literal("namex").executes(EvoSimCommand::stageNameX))
                 .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
+                .then(Commands.literal("hirex").executes(EvoSimCommand::stageHireX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -273,7 +274,7 @@ public final class EvoSimCommand {
     }
 
     /**
-     * M2 관문 ① 고용 흐름 — 1인 지주(C=12) + 35타일 즉시 익음 밭(부족 23 ≥ 최소일감) + 가난한
+     * M2 관문 ① 고용 흐름 — 1인 지주(C=8) + 35타일 즉시 익음 밭(부족 27 ≥ 최소일감 2) + 가난한
      * 이웃 조성 → 새벽 배정 강제 → 결과값: 이웃 H 증가(소작 70%) ∧ 밭 계정 > 0(지대 30% 적립).
      */
     private static int farmHireDemo(CommandContext<CommandSourceStack> ctx) {
@@ -303,8 +304,9 @@ public final class EvoSimCommand {
     }
 
     /**
-     * M2 관문 ② 무단 금지 + 슬롯0 경계 — 부재 지주(ΣC=0)의 9타일 밭: 부족 9 < 최소일감 10이라
-     * 슬롯 0(운 무관 결정론), 배정 없는 이웃은 손대면 안 됨 → 금지 결과 감시(익은 타일 감소 = 실패).
+     * M2 관문 ② 무단 금지 + 슬롯0 경계 — 상주 지주(C=8, noAI 로 자가 수확 봉쇄)의 9타일 밭:
+     * 부족 1 < 최소일감 2라 슬롯 0(운 무관 결정론), 배정 없는 이웃은 손대면 안 됨 → 금지 결과
+     * 감시(익은 타일 감소 = 실패). (MIN_JOB 10→2 이후 부재 지주 무대는 9슬롯 개방이라 부적합.)
      */
     private static int farmGuardDemo(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
@@ -315,14 +317,16 @@ public final class EvoSimCommand {
         LiveCheck.cancelAll();
         FarmTicker.clearAssignments();
         BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 6, 6);
-        MimicEntity[] c = new MimicEntity[1];
+        MimicEntity[] c = new MimicEntity[2];
         FarmStore.Plot[] pl = new FarmStore.Plot[1];
         List<VerifySuite.Step> steps = new ArrayList<>();
         steps.add(new VerifySuite.Step("farm_guard_no_poach",
-                "9-tile absentee farm: slots 0 (9 < MIN_JOB) and no one may harvest", 400, true, () -> {
+                "9-tile owner-cared farm: slots 0 (shortfall 1 < MIN_JOB 2), no one may harvest", 400, true, () -> {
             c[0] = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 0), Sex.MALE);
             c[0].debugSetHolding(0.4); // 궁핍 — 유혹 상태 조성(위양성 차단: 배고파도 못 건드려야 함)
-            pl[0] = buildDemoPlot(level, anchor, 999999999L, 9); // 부재 지주(존재하지 않는 id)
+            c[1] = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, -4), Sex.MALE);
+            c[1].setNoAi(true); // 상주 지주 — 용량 8은 장부에 계상, 자가 수확은 봉쇄(위양성 차단)
+            pl[0] = buildDemoPlot(level, anchor, c[1].getIndividual().id(), 9);
             level.setDayTime(1200L);
         }, () -> String.format("ripe %d(must stay 9) H %.2f", countRipe(level, pl[0]), c[0].getHolding()),
                 () -> countRipe(level, pl[0]) < 9, // ← 금지 결과(무단 수확 발생)
@@ -537,7 +541,7 @@ public final class EvoSimCommand {
 
     /**
      * M5 관문 ③ 능력 게이트 — 무능력 지주(기본 특성엔 채집·저장 능력 없음)의 33타일 밭 + 충분한
-     * 저장고(30): 밤 후 성장은 하되 T4 경계(35)에서 정지 — 타일 == 35 ∧ 저장고 30→24(2타일만).
+     * 저장고(30): 밤 후 성장은 하되 T4 경계(35)에서 정지 — 타일 == 35 ∧ 저장고 30→26(2타일×2.0).
      */
     private static int farmCapDemo(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
@@ -551,10 +555,10 @@ public final class EvoSimCommand {
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 33);
         level.setDayTime(13500L);
         LiveCheck.watch(ctx.getSource(), "farm_skill_cap", 600,
-                () -> String.format("tiles %d(expect exactly 35) larder %.0f(expect 24)",
+                () -> String.format("tiles %d(expect exactly 35) larder %.0f(expect 26)",
                         plot.tiles.length, LarderStore.get(level).get(home)),
                 () -> plot.tiles.length == 35
-                        && Math.abs(LarderStore.get(level).get(home) - 24.0) < 1.0E-6,
+                        && Math.abs(LarderStore.get(level).get(home) - 26.0) < 1.0E-6,
                 () -> {
                     discard(owner);
                     farmClearPlot(level, plot);
@@ -840,7 +844,7 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** M9 관문 ⑥ 능력 게이트 양성측 — 약초학자 지주는 35를 넘는다: 33→36 ∧ 저장고 30→21(farmcap 대조). */
+    /** M9 관문 ⑥ 능력 게이트 양성측 — 약초학자 지주는 35를 넘는다: 33→36 ∧ 저장고 30→24(3타일×2.0, farmcap 대조). */
     private static int farmAbleDemo(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         LiveCheck.cancelAll();
@@ -853,10 +857,10 @@ public final class EvoSimCommand {
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), 33);
         level.setDayTime(13500L);
         LiveCheck.watch(ctx.getSource(), "farm_skill_pass", 600,
-                () -> String.format("tiles %d(expect 36 — must pass 35) larder %.0f(expect 21)",
+                () -> String.format("tiles %d(expect 36 — must pass 35) larder %.0f(expect 24)",
                         plot.tiles.length, LarderStore.get(level).get(home)),
                 () -> plot.tiles.length == 36
-                        && Math.abs(LarderStore.get(level).get(home) - 21.0) < 1.0E-6,
+                        && Math.abs(LarderStore.get(level).get(home) - 24.0) < 1.0E-6,
                 () -> {
                     discard(owner);
                     farmClearPlot(level, plot);
@@ -2514,12 +2518,12 @@ public final class EvoSimCommand {
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
         // [1] 문턱 역산 정확성 — 부부·정원2·저장고5: 번식부족 7.0(=3+6+3−5) ·
-        //     베리부족 2.0(부트스트랩 8 게이트: 생계6+비용1−5) · 개간부족 31.0(30+6−5) · 동기 ✓
+        //     베리부족 2.0(부트스트랩 8 게이트: 생계6+비용1−5) · 개간부족 19.0(18+6−5) · 동기 ✓
         {
             BlockPos home = groundAt(level, b, -16, 24);
             MimicEntity[] c = new MimicEntity[2];
             steps.add(new VerifySuite.Step("scanx_thresholds",
-                    "snapshot lacks: repro 7.0, berry 2.0, farm 31.0, motive on, garden 2/8", 100, false, () -> {
+                    "snapshot lacks: repro 7.0, berry 2.0, farm 19.0, motive on, garden 2/8", 100, false, () -> {
                 discardFamily(level, home);
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
@@ -2529,7 +2533,7 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 5.0);
             }, () -> {
                 var s = c[0].buildScanSnapshot(level);
-                return String.format("repro %.1f(exp 7.0) berry %.1f(exp 2.0) farm %.1f(exp 31.0) "
+                return String.format("repro %.1f(exp 7.0) berry %.1f(exp 2.0) farm %.1f(exp 19.0) "
                                 + "motive %s garden %d/%d adults %d",
                         s.reproLack, s.berryLack, s.farmLack, s.farmMotive ? "Y" : "N",
                         s.garden, s.gardenCap, s.adults);
@@ -2537,7 +2541,7 @@ public final class EvoSimCommand {
                 var s = c[0].buildScanSnapshot(level);
                 return Math.abs(s.reproLack - 7.0F) < 1.0E-3
                         && Math.abs(s.berryLack - 2.0F) < 1.0E-3
-                        && Math.abs(s.farmLack - 31.0F) < 1.0E-3
+                        && Math.abs(s.farmLack - 19.0F) < 1.0E-3
                         && s.farmMotive && s.garden == 2 && s.gardenCap == 8 && s.adults == 2
                         && Math.abs(s.larder - 5.0F) < 1.0E-3;
             }, () -> {
@@ -2592,6 +2596,111 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "렌즈 P1 합본 검증(3단계) — 문턱 역산 수치·행동 라벨 실측·패킷 왕복. "
                 + "전부 서버 결과값 판정.");
+        return 1;
+    }
+
+    /**
+     * 소작 루프 v2 합본 검증(hirex) — ① 노동시장 개방: 넉넉한(넉넉선 6 이상·만족 기준 12 미만)
+     * 무밭 성인이 새벽 배정을 받고 지대가 적립된다(빈곤 조건 삭제의 결과값). ② 직영지 원칙:
+     * 2구획 지주의 자가 수확은 최신 구획만 — 더 가까운 구 구획은 손대지 않는다(신규 개간과 동시에
+     * 구 밭 100% 소작 인계의 전제). ③ 운반 상한: 수확 세션 중 입금을 6.0까지 미룬다 — H가 종전
+     * 상한(2.0)으로는 불가능한 4.0 이상에 도달. 전부 서버 결과값 판정(블라인드).
+     */
+    private static int stageHireX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 노동시장 개방 — 저장고 8.0(넉넉선 3×2=6 이상, 만족 기준 3×2×σ2=12 미만) 유주택
+        //     무밭 성인: 종전 필터(larderComfortable 제외)면 영원히 미배정 → 배정+지대>0.2 로 판정.
+        {
+            BlockPos anchor = groundAt(level, b, 8, 24);
+            BlockPos whome = groundAt(level, b, -10, 24);
+            MimicEntity[] c = new MimicEntity[2];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("hirex_open_market",
+                    "comfortable(8.0) landless adult gets dawn assignment; rent accrues > 0.2",
+                    1800, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(anchor).add(-3, 0, 0), Sex.MALE);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(whome), Sex.MALE);
+                c[1].debugSettleWithTent(whome, Direction.NORTH);
+                LarderStore.get(level).set(whome, 8.0);
+                pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 35);
+                level.setDayTime(1200L); // 새벽 — 다음 200틱 스캔에서 배정
+            }, () -> String.format("assigned %s rent %.2f workerH %.2f larder %.1f",
+                    FarmTicker.assignedPlot(c[1].getId()) == pl[0].id ? "yes" : "no",
+                    pl[0].account, c[1].getHolding(), LarderStore.get(level).get(whome)),
+                    () -> FarmTicker.assignedPlot(c[1].getId()) == pl[0].id && pl[0].account > 0.2,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [2] 직영지 원칙 — 2구획 지주: 구 구획(id 작음)이 거처에 더 가까워도 자가 수확은 최신
+        //     구획만. 종전 코드(가까운 익은 타일 우선)면 구 구획부터 줄어 판정 실패(블라인드 대조).
+        {
+            BlockPos home = groundAt(level, b, -8, -24);
+            BlockPos aOld = groundAt(level, b, 6, -24);
+            BlockPos aNew = groundAt(level, b, 16, -24);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[2];
+            steps.add(new VerifySuite.Step("hirex_direct_only",
+                    "2-plot owner harvests ONLY newest plot; nearer old plot stays ripe 9",
+                    1500, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 2.0); // 빈곤 — 불만족(노동 동기)
+                c[0].debugSetHolding(1.2); // 밴드 안 — 인출 왕복 없이 곧장 노동
+                pl[0] = buildDemoPlot(level, aOld, c[0].getIndividual().id(), 9); // 구 구획(가까움)
+                pl[1] = buildDemoPlot(level, aNew, c[0].getIndividual().id(), 9); // 신 구획 = 직영지
+                level.setDayTime(1200L);
+            }, () -> String.format("oldRipe %d(must stay 9) newRipe %d(expect <=5) H %.2f",
+                    countRipe(level, pl[0]), countRipe(level, pl[1]), c[0].getHolding()),
+                    () -> countRipe(level, pl[1]) <= 5 && countRipe(level, pl[0]) == 9,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        farmClearPlot(level, pl[1]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [3] 운반 상한 — 자기 밭 익은 9타일 수확 세션: 종전 상한이면 H 2.0에서 귀가 입금이라
+        //     4.0 도달 불가(타일당 0.75, 2.0 초과 직후 귀가). WORK_CARRY_CAP 6.0 이면 도달.
+        {
+            BlockPos home = groundAt(level, b, -8, 48);
+            BlockPos anchor = groundAt(level, b, 8, 48);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("hirex_carry_cap",
+                    "harvest session defers deposit: holding reaches >= 4.0 (impossible at cap 2.0)",
+                    1800, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 2.0);
+                c[0].debugSetHolding(1.2);
+                pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 9);
+                level.setDayTime(1200L);
+            }, () -> String.format("H %.2f(expect >= 4.0) ripe %d cap %.1f",
+                    c[0].getHolding(), countRipe(level, pl[0]), c[0].carryCap()),
+                    () -> c[0].getHolding() >= 4.0,
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "소작 루프 v2 합본 검증(3단계) — 노동시장 개방 / 직영지 전용 수확 / "
+                + "운반 상한 6.0. 전부 서버 결과값 판정.");
         return 1;
     }
 
@@ -3273,17 +3382,19 @@ public final class EvoSimCommand {
         }
 
 
-        // [34] 밭 무단·슬롯0 — 부재지주 9타일: 아무도 못 딴다(farmguard 편입, 규칙 12)
+        // [34] 밭 무단·슬롯0 — 상주 지주(noAI) 9타일 전량 케어: 아무도 못 딴다(farmguard 편입, 규칙 12)
         {
             BlockPos fanchor = ground(level, b, 34);
-            MimicEntity[] c = new MimicEntity[1];
+            MimicEntity[] c = new MimicEntity[2];
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             steps.add(new VerifySuite.Step("farm_guard_no_poach",
-                    "9-tile absentee farm: slots 0 and no one may harvest", 300, true, () -> {
+                    "9-tile owner-cared farm: slots 0 (1 < MIN_JOB 2), no one may harvest", 300, true, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, 0), Sex.MALE);
                 c[0].debugSetHolding(0.4);
-                pl[0] = buildDemoPlot(level, fanchor, 999999999L, 9);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(fanchor).add(-3, 0, -4), Sex.MALE);
+                c[1].setNoAi(true); // 지주 상주(용량 8 계상) + 자가 수확 봉쇄
+                pl[0] = buildDemoPlot(level, fanchor, c[1].getIndividual().id(), 9);
                 level.setDayTime(1200L);
             }, () -> String.format("ripe %d(must stay 9)", countRipe(level, pl[0])),
                     () -> countRipe(level, pl[0]) < 9,
@@ -3666,17 +3777,17 @@ public final class EvoSimCommand {
             MimicEntity[] c = new MimicEntity[1];
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             steps.add(new VerifySuite.Step("farm_skill_cap",
-                    "unskilled owner stops at exactly 35 tiles (33 -> 35, larder 30 -> 24)", 600, false, () -> {
+                    "unskilled owner stops at exactly 35 tiles (33 -> 35, larder 30 -> 26)", 600, false, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
                 c[0].debugSettleWithTent(fhome, Direction.NORTH);
                 LarderStore.get(level).set(fhome, 30.0);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 33);
                 level.setDayTime(13500L);
-            }, () -> String.format("tiles %d(expect exactly 35) larder %.0f(expect 24)",
+            }, () -> String.format("tiles %d(expect exactly 35) larder %.0f(expect 26)",
                     pl[0].tiles.length, LarderStore.get(level).get(fhome)),
                     () -> pl[0].tiles.length == 35
-                            && Math.abs(LarderStore.get(level).get(fhome) - 24.0) < 1.0E-6,
+                            && Math.abs(LarderStore.get(level).get(fhome) - 26.0) < 1.0E-6,
                     () -> {
                         discard(c);
                         farmClearPlot(level, pl[0]);
@@ -3690,17 +3801,17 @@ public final class EvoSimCommand {
             MimicEntity[] c = new MimicEntity[1];
             FarmStore.Plot[] pl = new FarmStore.Plot[1];
             steps.add(new VerifySuite.Step("farm_skill_pass",
-                    "herbalist owner passes 35 (33 -> 36, larder 30 -> 21)", 600, false, () -> {
+                    "herbalist owner passes 35 (33 -> 36, larder 30 -> 24)", 600, false, () -> {
                 FarmTicker.clearAssignments();
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE, Trait.HERBALIST);
                 c[0].debugSettleWithTent(fhome, Direction.NORTH);
                 LarderStore.get(level).set(fhome, 30.0);
                 pl[0] = buildDemoPlot(level, fanchor, c[0].getIndividual().id(), 33);
                 level.setDayTime(13500L);
-            }, () -> String.format("tiles %d(expect 36 — must pass 35) larder %.0f(expect 21)",
+            }, () -> String.format("tiles %d(expect 36 — must pass 35) larder %.0f(expect 24)",
                     pl[0].tiles.length, LarderStore.get(level).get(fhome)),
                     () -> pl[0].tiles.length == 36
-                            && Math.abs(LarderStore.get(level).get(fhome) - 21.0) < 1.0E-6,
+                            && Math.abs(LarderStore.get(level).get(fhome) - 24.0) < 1.0E-6,
                     () -> {
                         discard(c);
                         farmClearPlot(level, pl[0]);

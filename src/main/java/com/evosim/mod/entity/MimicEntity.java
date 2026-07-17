@@ -669,9 +669,9 @@ public class MimicEntity extends PathfinderMob {
             if (mateState == MateState.IDLE || mateState == MateState.PAIRED) {
                 mateState = MateState.SEARCHING;
             }
-            // 족외혼(이주 설계 §3-B): 비근친 <b>독신</b> 후보 0명이 오래가면 타향 모닥불로 구혼 여행.
-            // (기혼 폴백만 남은 목록은 외로움으로 친다 — A: 중혼 등록이 여행을 차단하던 결함.)
-            if (!anySingleCandidate() && homePos != null && !isCourtTravel()) {
+            // 족외혼(이주 설계 §3-B): 비근친 후보 0명이 오래가면 타향 모닥불로 구혼 여행.
+            // (기혼 후보는 사전 자격 필터 통과자만 목록에 있으므로 "후보 있음 = 유망"이 성립.)
+            if (candidates.isEmpty() && homePos != null && !isCourtTravel()) {
                 // 점검용 강제 출발(일회성): 신생 월드는 gameTime<72000 이라 lonelySinceTick 뺄셈이
                 // 음수가 되고, 아래 '< 0L = 미설정' 센티넬에 걸려 매틱 리셋된다(구혼여행이 영영 출발 못
                 // 하던 원인). 클럭 산술을 우회해 실조건(단신·후보0·타향모닥불 존재)이 참일 때 바로 출발.
@@ -683,7 +683,7 @@ public class MimicEntity extends PathfinderMob {
                 } else if (level().getGameTime() - lonelySinceTick > Famine.LONELY_TRAVEL_AFTER) {
                     startCourtTravel();
                 }
-            } else if (anySingleCandidate()) {
+            } else if (!candidates.isEmpty()) {
                 lonelySinceTick = -1L;
             }
         }
@@ -775,9 +775,13 @@ public class MimicEntity extends PathfinderMob {
             if (m == this || m.getIndividual() == null || m.isFemale() == isFemale()) {
                 continue;
             }
-            // 일부다처: 여성은 기혼 성년 남성도 잠재 짝으로 고려(감점 등록). 남성 인식은 독신만(그대로).
+            // 일부다처: 여성은 기혼 성년 남성도 잠재 짝으로 고려 — 단 <b>부양 증명 사전 필터</b>
+            // (다처 수락 게이트 미러: 저장고 ≥ 가족소모×3) 통과자만 등록. 가망 없는 기혼남에게
+            // 구애를 반복 소진하던 낭비(관측: 거절의 92%)를 입구에서 차단하고, 부유한 기혼남은
+            // 매력 경쟁(감점 −2 vs 부유선호 가점 +1~+3)에 그대로 참여 — 세대차 다처의 창발 경로.
             boolean marriedMale = isFemale() && !m.isFemale() && !m.isSingleAdult()
-                    && m.getStage() == LifeStage.ADULT && !m.isBuilding();
+                    && m.getStage() == LifeStage.ADULT && !m.isBuilding()
+                    && marriedSuitorViable(m);
             if (!m.isSingleAdult() && !marriedMale) {
                 continue;
             }
@@ -802,33 +806,20 @@ public class MimicEntity extends PathfinderMob {
             candidateCharm.put(id, charm);
             candidates.add(id);
         }
-        // 독신 우선 절대화(A) — 기혼남이 매력으로 독신을 제치면 미혼 여성이 성년기를 중혼 거절
-        // (관측: 거절의 92%)에 소진한다. 독신이 하나라도 보이면 그쪽 먼저, 기혼은 폴백만.
-        candidates.sort((x, y) -> {
-            boolean sx = isSingleCandidate(x);
-            boolean sy = isSingleCandidate(y);
-            if (sx != sy) {
-                return sx ? -1 : 1;
-            }
-            return Integer.compare(
-                    candidateCharm.getOrDefault(y, 0), candidateCharm.getOrDefault(x, 0));
-        });
+        // 매력 내림차순 — 기혼 후보는 사전 자격 필터(marriedSuitorViable)를 통과한 유망주뿐이라
+        // 순수 매력 경쟁으로 충분: 감점 −2 vs 부유선호 가점이 독신/다처의 균형을 창발로 정한다.
+        candidates.sort((x, y) -> Integer.compare(
+                candidateCharm.getOrDefault(y, 0), candidateCharm.getOrDefault(x, 0)));
     }
 
-    /** 후보 id가 현재 독신 성년인가(정렬·외로움 판정용 — 기혼 폴백과 구분). */
-    private boolean isSingleCandidate(int id) {
-        return level().getEntity(id) instanceof MimicEntity m && m.isSingleAdult();
-    }
-
-    /** 후보 목록에 <b>독신</b>이 하나라도 있는가 — 기혼 폴백만 남은 상태는 '외로움'으로 계산해
-     *  족외혼 구혼여행 트리거가 기혼남 등록에 가로막히지 않게 한다(관측: 여행 5건 전부 d16 이후). */
-    private boolean anySingleCandidate() {
-        for (int id : candidates) {
-            if (isSingleCandidate(id)) {
-                return true;
-            }
+    /** 기혼 구혼 대상의 사전 자격 — 다처 부양 게이트(Polygyny.SUPPORT_DAYS) 미러. 통과 못 하면
+     *  후보 등록 자체를 안 해, 반복 거절로 성년기를 소진하는 낭비를 입구에서 막는다. */
+    private boolean marriedSuitorViable(MimicEntity m) {
+        if (m.getHomePos() == null || !(level() instanceof ServerLevel sl)) {
+            return false;
         }
-        return false;
+        return LarderStore.get(sl).get(m.getHomePos())
+                >= m.cachedFamilyNeed * Polygyny.SUPPORT_DAYS;
     }
 
     /**
@@ -3085,13 +3076,15 @@ public class MimicEntity extends PathfinderMob {
     private void growthTick() {
         LifeStage stage = getStage();
         growthTicks++;
-        // 단계별 임계: 유아 2일·소년 3일(혼기·모성애 배율) · 청년 35일 · 노년 8일±특성. fast 무대 40틱.
+        // 단계별 임계: 유아 1.5일·소년 2.5일(세대 겹침 확대 — 세대차 혼인·다처 관찰 목적) ·
+        // 청년 13일 · 노년 6일±특성. fast 무대 40틱. 세대주기 8.2→7.2일: 증손 출생 21.6일
+        // < 수명 24일 — 노인이 증손기를 ~2.4일 보게 됨(의도된 겹침).
         int threshold;
         switch (stage) {
             case INFANT -> threshold = fastGrowth ? 40
-                    : (int) (2 * 24000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+                    : (int) (36000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case BOY -> threshold = fastGrowth ? 40
-                    : (int) (3 * 24000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+                    : (int) (60000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case ADULT -> threshold = fastGrowth ? 40 : Elder.ADULT_DAYS * 24000;
             case ELDER -> threshold = fastGrowth ? 40
                     : (individual != null ? Elder.elderDays(individual) : Elder.ELDER_BASE_DAYS) * 24000;

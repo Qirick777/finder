@@ -178,6 +178,11 @@ public class MimicEntity extends PathfinderMob {
     private boolean hearthRegistered = false;   // 로드 첫 틱에 켜진 모닥불 전역 목록 재등록(휘발)
     private boolean stageActor = false;         // 검증 무대 개체 — 혈통 원장·인구 통계에서 제외(NBT)
     private long tenantFarm = 0L;               // 상시 소작 중인 밭 구획 id(0=없음, NBT — 봉건 관계)
+    // 배회 생활(놀이·마실, NBT) — 조우 관문(Encounter)이 갱신. lastChat/topic 은 미래 평판 입력.
+    private long lastPlayDay = -1L;             // 마지막 놀아주기 게임일(쿨다운 1일)
+    private long lastVisitDay = -100L;          // 마지막 마실 게임일(쿨다운 2일)
+    private long lastChatId = 0L;               // 마지막 대화 상대 Individual id
+    private String lastTopic = "";              // 마지막 대화 주제 id(렌즈·검증·평판 훅)
     private boolean satisfiedToday = false;     // 만족 캐시(휘발 — 새벽마다 재계산, M7)
     private boolean competitiveDriven = false;  // 경쟁 발동 캐시(이웃 우위 — 배회 노동 트리거)
     private int tenantStreak = 0;               // 같은 밭 연속 출근 일수(NBT — 승격 카운터)
@@ -272,9 +277,11 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
         this.goalSelector.addGoal(6, new MimicFarmGoal(this)); // 자기 밭 우선 — 채집(7)보다 엄격히 높아 실행 중 채집 선점
         this.goalSelector.addGoal(7, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
-        this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
-        this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(8, new MimicPlayGoal(this));      // 배회 생활: 자녀 놀아주기(궁핍 채집이 항상 우선)
+        this.goalSelector.addGoal(9, new MimicVisitGoal(this));     // 배회 생활: 이웃 마실·잡담(조우 관문 경유)
+        this.goalSelector.addGoal(10, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
+        this.goalSelector.addGoal(11, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(12, new RandomLookAroundGoal(this));
     }
 
     @Override
@@ -403,6 +410,8 @@ public class MimicEntity extends PathfinderMob {
                 sl.setBlockAndUpdate(p.pos(), state);
             }
             placeHearth(sl, home, facing, true);
+            hearthLit(home, true); // 전역 목록 등록 — 자연 건축은 점화 이벤트로 등록되지만
+            // 무대 정착은 블록 직설치라 여기서 직접(마실·구혼여행 목적지 후보가 되도록).
         }
     }
 
@@ -718,8 +727,13 @@ public class MimicEntity extends PathfinderMob {
         lonelySinceTick = -1L;
     }
 
-    // 켜진 모닥불 전역 목록(구혼 여행 목적지) — ABANDONED_HOMES처럼 휘발성(재점화 이벤트로 복구).
+    // 켜진 모닥불 전역 목록(구혼 여행·마실 목적지) — ABANDONED_HOMES처럼 휘발성(재점화 이벤트로 복구).
     private static final List<Long> LIT_HEARTHS = new ArrayList<>();
+
+    /** 마실(MimicVisitGoal) 목적지 후보 — 켜진 모닥불 보유 거처 좌표 뷰(읽기 전용 취급). */
+    public static List<Long> litHearthsView() {
+        return LIT_HEARTHS;
+    }
 
     private static void hearthLit(BlockPos home, boolean lit) {
         Long key = home.asLong();
@@ -2403,6 +2417,12 @@ public class MimicEntity extends PathfinderMob {
         if (g instanceof ElderVisitGoal) {
             return "마실";
         }
+        if (g instanceof MimicPlayGoal) {
+            return "놀이";
+        }
+        if (g instanceof MimicVisitGoal) {
+            return "마실";
+        }
         if (g instanceof MimicReturnGoal) {
             return "귀가";
         }
@@ -2782,6 +2802,38 @@ public class MimicEntity extends PathfinderMob {
 
     public long getTenantFarm() {
         return tenantFarm;
+    }
+
+    // ── 배회 생활(놀이·마실) — goal·조우 관문·검증 무대 공용 접근자 ──
+    public long lastPlayDay() {
+        return lastPlayDay;
+    }
+
+    public void setLastPlayDay(long day) {
+        this.lastPlayDay = day;
+    }
+
+    public long lastVisitDay() {
+        return lastVisitDay;
+    }
+
+    public void setLastVisitDay(long day) {
+        this.lastVisitDay = day;
+    }
+
+    public String lastTopic() {
+        return lastTopic;
+    }
+
+    /** 검증 전용 — 주제 기록 소거(같은 날 재조우 금지 감시의 재설정 판정용). */
+    public void debugClearTopic() {
+        this.lastTopic = "";
+    }
+
+    /** 조우 관문(Encounter.begin)이 호출 — 대화 상대·주제 기록(렌즈 표시·미래 평판 입력). */
+    public void noteEncounter(long partnerId, String topicId) {
+        this.lastChatId = partnerId;
+        this.lastTopic = topicId == null ? "" : topicId;
     }
 
     public int getTenantStreak() {
@@ -3308,6 +3360,10 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("StageActor", stageActor); // 무대 표식 유지 — 리로드 후 원장 재등록 방지
         tag.putLong("TenantFarm", tenantFarm);    // 봉건 소작 관계(상시) — 리로드에도 유지
         tag.putInt("TenantStreak", tenantStreak);
+        tag.putLong("PlayDay", lastPlayDay);      // 배회 생활(놀이·마실) 쿨다운·대화 기록
+        tag.putLong("VisitDay", lastVisitDay);
+        tag.putLong("ChatId", lastChatId);
+        tag.putString("ChatTopic", lastTopic);
         tag.putLong("SpouseId", spouseId);
         tag.putBoolean("Widowed", widowed);
         tag.putLong("LonelySince", lonelySinceTick); // 족외혼 클럭 — 리로드로 3일 재대기 방지
@@ -3365,6 +3421,10 @@ public class MimicEntity extends PathfinderMob {
         stageActor = tag.getBoolean("StageActor");
         tenantFarm = tag.getLong("TenantFarm");
         tenantStreak = tag.getInt("TenantStreak");
+        lastPlayDay = tag.contains("PlayDay") ? tag.getLong("PlayDay") : -1L;
+        lastVisitDay = tag.contains("VisitDay") ? tag.getLong("VisitDay") : -100L;
+        lastChatId = tag.getLong("ChatId");
+        lastTopic = tag.getString("ChatTopic");
         spouseId = tag.getLong("SpouseId");
         widowed = tag.getBoolean("Widowed");
         lonelySinceTick = tag.contains("LonelySince") ? tag.getLong("LonelySince") : -1L;

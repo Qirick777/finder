@@ -18,6 +18,7 @@ import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.FarmTicker;
 import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.MimicEntity;
+import com.evosim.mod.entity.MimicVisitGoal;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.net.ModNetwork;
@@ -119,6 +120,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("scanx").executes(EvoSimCommand::stageScanX))
                 .then(Commands.literal("hirex").executes(EvoSimCommand::stageHireX))
                 .then(Commands.literal("carex").executes(EvoSimCommand::stageCareX))
+                .then(Commands.literal("wanderx").executes(EvoSimCommand::stageWanderX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -2966,6 +2968,118 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "육아 돌봄 개편 합본 검증(4단계) — 커버리지 해제 / 적극 정원 예외 / "
                 + "양쪽 적극 효율 해제 / carryCap 정원 제외. 전부 서버 결과값 판정.");
+        return 1;
+    }
+
+    /**
+     * 배회 생활 합본 검증(wanderx) — ① 놀이: 배회 시간 부친이 자식 곁 도달·조우(topic=play)
+     * ② 놀이 쿨다운(같은 날 재조우 금지 감시) ③ 마실: 이웃 모닥불 도달·잡담(topic=smalltalk)
+     * ④ 좌석 상한: 만석이면 방문 조우 불성립(금지 감시). 조우 관문(Encounter) 경유를 lastTopic
+     * 상태로 판정 — 종전 코드(무작위 배회뿐)면 ①③이 성립할 수 없다.
+     */
+    private static int stageWanderX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 놀이 — 부친+소년 자식 12블록: 배회 시간(dayTime 9000, 짝수일=부친 차례)에 접근·조우.
+        {
+            BlockPos home = groundAt(level, b, -10, 24);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("wanderx_play",
+                    "wandering father approaches own boy and plays (lastTopic=play)", 600, false, () -> {
+                MimicVisitGoal.clearSeats();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 20.0); // 넉넉 — 배회 채집(R4) 소거, 놀이만 남김
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(home).add(12, 0, 0), c[0], Sex.MALE);
+                c[1].setStage(LifeStage.BOY);
+                c[1].setHomePos(home);
+                level.setDayTime(9000L); // 배회 시간 + todDay 0(짝수) = 부친 차례
+            }, () -> String.format("topic '%s' dist %.1f act=%s", c[0].lastTopic(),
+                    Math.sqrt(c[0].distanceToSqr(c[1])), c[0].currentActionLabel()),
+                    () -> "play".equals(c[0].lastTopic()) && c[0].distanceToSqr(c[1]) <= 36.0,
+                    () -> discard(c)));
+        }
+        // [2] 놀이 쿨다운(금지 감시) — 오늘 이미 논 부친: 재조우(topic 재기록)가 있으면 실패.
+        {
+            BlockPos home = groundAt(level, b, -10, -24);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("wanderx_play_once",
+                    "father who already played today must NOT re-encounter (topic stays clear)",
+                    400, true, () -> {
+                MimicVisitGoal.clearSeats();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 20.0);
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(home).add(12, 0, 0), c[0], Sex.MALE);
+                c[1].setStage(LifeStage.BOY);
+                c[1].setHomePos(home);
+                c[0].setLastPlayDay(level.getGameTime() / 24000L); // 오늘 완료 상태 조성
+                c[0].debugClearTopic();
+                level.setDayTime(9000L);
+            }, () -> String.format("topic '%s'(must not become play) dist %.1f", c[0].lastTopic(),
+                    Math.sqrt(c[0].distanceToSqr(c[1]))),
+                    () -> "play".equals(c[0].lastTopic()), // ← 금지 결과(쿨다운 뚫림)
+                    () -> discard(c)));
+        }
+        // [3] 마실 — 두 정착 가구 20블록(격리 슬롯): 방문자가 이웃 모닥불 도달·잡담 조우.
+        {
+            BlockPos base = ground(level, b, 3); // z≈192 — 타 무대 천막(≤96)과 48블록 격리
+            BlockPos homeA = base;
+            BlockPos homeB = base.offset(20, 0, 0);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("wanderx_visit",
+                    "settler visits neighbor hearth and chats (lastTopic=smalltalk)", 900, false, () -> {
+                MimicVisitGoal.clearSeats();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+                c[0].debugSettleWithTent(homeA, Direction.NORTH);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
+                c[1].debugSettleWithTent(homeB, Direction.NORTH);
+                LarderStore.get(level).set(homeA, 20.0);
+                LarderStore.get(level).set(homeB, 20.0);
+                level.setDayTime(9000L);
+            }, () -> String.format("topicA '%s' posA %s act=%s hearths=%d visitDay=%d phase=%s",
+                    c[0].lastTopic(), c[0].blockPosition().toShortString(),
+                    c[0].currentActionLabel(), MimicEntity.litHearthsView().size(),
+                    c[0].lastVisitDay(), com.evosim.core.Schedule.phaseAt(
+                            c[0].getIndividual(), level.getDayTime())),
+                    () -> "smalltalk".equals(c[0].lastTopic()),
+                    () -> discard(c)));
+        }
+        // [4] 좌석 상한(금지 감시) — 유일 후보 모닥불을 만석(2)으로 선점: 방문 조우가 성립하면 실패.
+        {
+            BlockPos base = ground(level, b, -2); // z≈-128 — 격리 슬롯
+            BlockPos homeA = base;
+            BlockPos homeB = base.offset(20, 0, 0);
+            MimicEntity[] c = new MimicEntity[2];
+            steps.add(new VerifySuite.Step("wanderx_visit_cap",
+                    "full hearth (2 seats taken): visitor must NOT begin a visit encounter",
+                    400, true, () -> {
+                MimicVisitGoal.clearSeats();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(homeA), Sex.MALE);
+                c[0].debugSettleWithTent(homeA, Direction.NORTH);
+                c[1] = spawnAdult(level, Vec3.atBottomCenterOf(homeB), Sex.MALE);
+                c[1].debugSettleWithTent(homeB, Direction.NORTH);
+                LarderStore.get(level).set(homeA, 20.0);
+                LarderStore.get(level).set(homeB, 20.0);
+                c[1].setLastVisitDay(level.getGameTime() / 24000L); // B는 오늘 방문 불가(교란 제거)
+                MimicVisitGoal.debugFillSeats(homeB, 2, level.getGameTime() / 24000L);
+                MimicVisitGoal.debugFillSeats(homeA, 2, level.getGameTime() / 24000L);
+                level.setDayTime(9000L);
+            }, () -> String.format("topicA '%s'(must stay empty) posA %s", c[0].lastTopic(),
+                    c[0].blockPosition().toShortString()),
+                    () -> !c[0].lastTopic().isEmpty(), // ← 금지 결과(만석인데 조우 성립)
+                    () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "배회 생활 합본 검증(4단계) — 놀이 조우 / 놀이 쿨다운 / 마실 잡담 / "
+                + "좌석 상한. lastTopic 상태 결과값 판정(조우 관문 경유 증명).");
         return 1;
     }
 

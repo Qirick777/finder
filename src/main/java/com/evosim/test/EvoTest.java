@@ -127,9 +127,10 @@ public final class EvoTest {
             case "farm" -> farm(report);
             case "satisfaction" -> satisfaction(report);
             case "caregiving" -> caregiving(report);
+            case "encounter" -> encounter(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | caregiving | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | caregiving | encounter | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -161,6 +162,7 @@ public final class EvoTest {
         farm(report);
         satisfaction(report);
         caregiving(report);
+        encounter(report);
         berry(report);
         name(report);
         food(report);
@@ -2372,6 +2374,89 @@ public final class EvoTest {
         report.add("caregiving/기근안전핀", pin,
                 "성공 30000틱 전: 기본 창 이주 · F-6 창(×2) 잔류 / 60000틱 전: F-6도 이주",
                 pin ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest encounter — 조우 레지스트리 계약(배회 생활·확장 플러그인 관문)
+    // ──────────────────────────────────────────────────────────────
+    /** 가짜 핸들러 — 레지스트리 계약 검증용(무상태·결정론). */
+    private static com.evosim.mod.encounter.Interaction fakeTopic(String id, int prio,
+            boolean applies, com.evosim.mod.encounter.Outcome.Result result) {
+        return new com.evosim.mod.encounter.Interaction() {
+            @Override
+            public String id() {
+                return id;
+            }
+
+            @Override
+            public int priority() {
+                return prio;
+            }
+
+            @Override
+            public boolean applies(com.evosim.mod.encounter.EncounterContext c) {
+                return applies;
+            }
+
+            @Override
+            public com.evosim.mod.encounter.Outcome perform(
+                    com.evosim.mod.encounter.EncounterContext c) {
+                return new com.evosim.mod.encounter.Outcome(id, result, "test");
+            }
+        };
+    }
+
+    private static void encounter(Report report) {
+        var ctx = new com.evosim.mod.encounter.EncounterContext(null, null, null,
+                com.evosim.mod.encounter.EncounterContext.Place.HEARTH,
+                com.evosim.mod.encounter.EncounterContext.Occasion.VISIT, 42L, 300);
+
+        // 1) 우선순위 선정 — 낮은 priority 우선, 동순위는 id 사전순(결정론)
+        var reg = new com.evosim.mod.encounter.InteractionRegistry();
+        reg.register(fakeTopic("late", 300, true, com.evosim.mod.encounter.Outcome.Result.DONE));
+        reg.register(fakeTopic("mid", 200, true, com.evosim.mod.encounter.Outcome.Result.DONE));
+        reg.register(fakeTopic("b-first", 100, true, com.evosim.mod.encounter.Outcome.Result.DONE));
+        reg.register(fakeTopic("a-first", 100, true, com.evosim.mod.encounter.Outcome.Result.DONE));
+        boolean prio = "a-first".equals(reg.pick(ctx).id()) && reg.size() == 4;
+        report.add("encounter/우선순위", prio, "priority 오름차순 · 동순위 id 사전순 첫 통과",
+                prio ? "정상" : "어긋남");
+
+        // 2) applies 거절 → 다음 후보 / 전원 거절 → null(전용 인스턴스) — 폴백은 SmallTalk 등록이 담보
+        var reg2 = new com.evosim.mod.encounter.InteractionRegistry();
+        reg2.register(fakeTopic("refuse1", 10, false, com.evosim.mod.encounter.Outcome.Result.DONE));
+        reg2.register(fakeTopic("accept", 20, true, com.evosim.mod.encounter.Outcome.Result.DONE));
+        var reg3 = new com.evosim.mod.encounter.InteractionRegistry();
+        reg3.register(fakeTopic("refuse2", 10, false, com.evosim.mod.encounter.Outcome.Result.DONE));
+        reg3.register(new com.evosim.mod.encounter.SmallTalk());
+        boolean skip = "accept".equals(reg2.pick(ctx).id())
+                && com.evosim.mod.encounter.SmallTalk.ID.equals(reg3.pick(ctx).id())
+                && new com.evosim.mod.encounter.InteractionRegistry().pick(ctx) == null;
+        report.add("encounter/폴백", skip, "거절→다음 후보 · 잡담 폴백 항상 성립 · 빈 레지스트리 null",
+                skip ? "정상" : "어긋남");
+
+        // 3) 전역 레지스트리 — 놀이(PLAY·상대 有 전제라 순수측은 미적용)와 잡담 폴백 상주.
+        //    실전 놀이 선정은 wanderx_play(lastTopic=="play")가 라이브로 판정.
+        var global = com.evosim.mod.encounter.InteractionRegistry.GLOBAL;
+        boolean glob = global.size() >= 2
+                && com.evosim.mod.encounter.SmallTalk.ID.equals(global.pick(ctx).id());
+        report.add("encounter/전역폴백", glob, "GLOBAL: 잡담 폴백 상주(조우 항상 성립)",
+                glob ? "정상" : "어긋남");
+
+        // 4) 결정론·시드 전달 — 같은 문맥 재질의 → 같은 선정, seed 원형 보존
+        boolean det = reg.pick(ctx) == reg.pick(ctx) && ctx.seed == 42L && ctx.budgetTicks == 300;
+        report.add("encounter/결정론", det, "동일 문맥 재질의 = 동일 선정 · seed/budget 원형",
+                det ? "정상" : "어긋남");
+
+        // 5) Outcome 어휘 — 합의(REFUSED)·유예(DEFERRED)가 정상 결과로 왕복(미래 교환·요청 훅)
+        var refused = fakeTopic("barter", 1,
+                true, com.evosim.mod.encounter.Outcome.Result.REFUSED).perform(ctx);
+        var deferred = fakeTopic("request", 1,
+                true, com.evosim.mod.encounter.Outcome.Result.DEFERRED).perform(ctx);
+        boolean vocab = refused.result() == com.evosim.mod.encounter.Outcome.Result.REFUSED
+                && deferred.result() == com.evosim.mod.encounter.Outcome.Result.DEFERRED
+                && "barter".equals(refused.topicId());
+        report.add("encounter/결과어휘", vocab, "REFUSED(합의 실패)·DEFERRED(요청 유예) 왕복",
+                vocab ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

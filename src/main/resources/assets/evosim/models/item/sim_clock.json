@@ -1,3 +1,6 @@
 {
-    "parent": "minecraft:item/clock"
+    "parent": "minecraft:item/generated",
+    "textures": {
+        "layer0": "evosim:item/sim_clock"
+    }
 }

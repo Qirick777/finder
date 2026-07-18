@@ -208,7 +208,9 @@ public class MimicForageGoal extends Goal {
                     // 다 익은 베리는 부수지 않고 수확 → age 1 로 되돌려 재성장(바닐라 수확).
                     // 성중립 × 능력 등급 M(g) — 익음률이 상한인 정원은 "누가 따느냐"가 아니라
                     // "얼마나 잘 관리하느냐(등급)"만 수익을 가른다(밴드 산출 ②③).
-                    double food = BERRY_FOOD * Multipliers.gardenAbility(ind) * stageMult();
+                    // 가구 관리등급 배율(mob.gardenMult) — 수확자 개인이 아닌 '정원 관리' 기준
+                    // (설계 주석 정합·관측 결함 수정: 돌봄자 수확이 관리자 배율을 무효화하던 것).
+                    double food = BERRY_FOOD * mob.gardenMult() * stageMult();
                     mob.addHarvest(food);
                     com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.GARDEN, food);
                     mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));

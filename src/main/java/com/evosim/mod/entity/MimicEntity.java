@@ -193,6 +193,7 @@ public class MimicEntity extends PathfinderMob {
     private double cachedFamilyNeed = 6.0;      // 가족틱이 갱신하는 가족 하루소모 캐시(goal용)
     private boolean cachedProvider = true;      // 가족틱이 갱신하는 제공자 역할 캐시(R4)
     private boolean cachedOwnsFarm = false;     // 가족틱이 갱신하는 밭 보유 캐시(농사 집중 게이트)
+    private double cachedGardenMult = 1.0;      // 가족틱이 갱신하는 정원 배율(가구 최고 관리등급 기준)
     private int cachedMaternal = 0;             // 어미 모성애 캐시(+1 강함/−1 없음) — 자식 허기·성장에 적용
     private double dayGathered = 0.0;           // 오늘 채집 누적(노년 쿼터 판정 — 휘발)
     private long gatherDay = -1L;               // dayGathered 의 날짜(바뀌면 리셋)
@@ -2224,6 +2225,19 @@ public class MimicEntity extends PathfinderMob {
             FarmStore fs = FarmStore.get(sl);
             m.cachedOwnsFarm = m.getIndividual() != null && (fs.owns(m.getIndividual().id())
                     || (m.spouseId != 0L && fs.owns(m.spouseId)));
+            // 정원 배율 = 가구 최고 관리등급(M(g)) — "누가 따느냐가 아니라 얼마나 잘 관리하느냐"
+            // (gardenAbility 설계 주석)의 구현 정합화. 종전엔 수확자 개인 기준이라 돌봄자(대개
+            // 무능력 아내)가 정원을 전담하는 출산 후 국면에서 관리자의 배율이 실현되지 않았다
+            // (관측 실측: 엘리트 정원 실효 43%). 가구 성인의 최고 등급으로 가구 전원에 캐시.
+            int bestG = 0;
+            for (MimicEntity a : fam) {
+                if (a.getIndividual() != null && (a.getStage() == LifeStage.ADULT
+                        || a.getStage() == LifeStage.ELDER)) {
+                    bestG = Math.max(bestG, Multipliers.manageAbilityGrade(a.getIndividual()));
+                }
+            }
+            double rG = bestG / 5.0;
+            m.cachedGardenMult = 1.0 + 1.6 * rG * rG * rG;
             // 모성애 축은 각 자식의 <b>친어미</b>(부모 링크 PA/PB)로 판정 — 명단 첫 성년 여성 추측은
             // 성년 딸·(일부다처의) 다른 부인 특성이 남의 자식에게 적용되는 오류였다.
             m.cachedMaternal = (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)
@@ -3235,6 +3249,11 @@ public class MimicEntity extends PathfinderMob {
     /** 밭 보유(자기 or 배우자, 가족틱이 갱신) — 농사 집중 게이트: 채집으로 이탈하지 않는 조건. */
     public boolean ownsFarm() {
         return cachedOwnsFarm;
+    }
+
+    /** 정원 배율(가구 최고 관리등급 M(g), 가족틱 갱신) — 수확자 무관 "관리" 배율(설계 정합). */
+    public double gardenMult() {
+        return cachedGardenMult;
     }
 
     /** 귀가 도착 시 즉석 입출금 — 가족틱(1200틱)을 기다리지 않고 순수 settleHome을 자신 1인으로. */

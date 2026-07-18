@@ -2703,12 +2703,16 @@ public class MimicEntity extends PathfinderMob {
         s.garden = bushes;
         s.gardenCap = BERRY_CAP;
         long myId = individual != null ? individual.id() : 0L;
+        java.util.List<FarmStore.Plot> mine = new java.util.ArrayList<>();
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
             if (p.ownerId == myId && myId != 0L) {
                 s.farmPlots++;
                 s.farmTiles += p.tiles.length;
+                mine.add(p);
             }
         }
+        // ── 토지 요약(LAND 탭) — 소유 밭의 원장 개요: 구획별 규모·부익부(소작 기여)·수확·소작 수. ──
+        s.landSummary = buildLandSummary(sl, myId, mine);
         // ── 문턱(familyTick 판정식 역산 — 저장고 부족량만 표시, 쿨다운·과밀 등 시간 게이트는 제외) ──
         double need = cachedFamilyNeed;
         if (homePos == null) {
@@ -2748,6 +2752,51 @@ public class MimicEntity extends PathfinderMob {
                 : (float) Math.max(0.0, farmNeed - Math.max(0.0, larder));
         s.farmMotive = individual != null && !satisfiedToday && !Satisfaction.neverExpands(individual);
         return s;
+    }
+
+    /**
+     * 토지 요약(LAND 탭) — 소유 밭 원장을 규모 큰 순으로 개요. 헤더(총 구획·타일·소작 기여·수확)
+     * + 상위 구획별 한 줄(규모·소작 기여·현 소작 수·누적 수확). 관측 전용 문자열("\n" 다행).
+     */
+    private String buildLandSummary(ServerLevel sl, long myId, java.util.List<FarmStore.Plot> mine) {
+        if (mine.isEmpty() || myId == 0L) {
+            return "";
+        }
+        mine.sort((a, b) -> Integer.compare(b.tiles.length, a.tiles.length));
+        java.util.Map<Long, Integer> tenantCount = new java.util.HashMap<>();
+        for (MimicEntity m : sl.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getTenantFarm() != 0L)) {
+            tenantCount.merge(m.getTenantFarm(), 1, Integer::sum);
+        }
+        int totalTiles = 0;
+        long founderTiles = 0;
+        long ownerTiles = 0;
+        long tenantTiles = 0;
+        double yield = 0.0;
+        for (FarmStore.Plot p : mine) {
+            totalTiles += p.tiles.length;
+            founderTiles += p.tilesByFounder;
+            ownerTiles += p.tilesByOwner;
+            tenantTiles += p.tilesByTenant;
+            yield += p.totalYield;
+        }
+        long grown = Math.max(1, founderTiles + ownerTiles + tenantTiles);
+        int tenPct = (int) Math.round(100.0 * tenantTiles / grown);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("영지 %d구획 · %d타일 · 누적수확 %.0f", mine.size(), totalTiles, yield));
+        sb.append(String.format("\n부익부: 소작이 키운 비율 %d%% (%d타일)", tenPct, tenantTiles));
+        int shown = 0;
+        for (FarmStore.Plot p : mine) {
+            if (shown >= 3) {
+                sb.append(String.format("\n… 외 %d구획", mine.size() - shown));
+                break;
+            }
+            sb.append(String.format("\n#%d %d타일(소작+%d) 소작%d명 수확%.0f",
+                    p.id, p.tiles.length, p.tilesByTenant, tenantCount.getOrDefault(p.id, 0),
+                    p.totalYield));
+            shown++;
+        }
+        return sb.toString();
     }
 
     /** 점검용 — 즉시 '오래 외로움' 상태로: 다음 mateTick에서 구혼 여행이 바로 출발. /evosim suitor. */

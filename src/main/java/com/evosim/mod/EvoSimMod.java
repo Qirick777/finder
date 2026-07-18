@@ -35,6 +35,7 @@ public final class EvoSimMod {
         ModItems.ITEMS.register(modBus);
         com.evosim.mod.reg.ModBlocks.BLOCKS.register(modBus);
         com.evosim.mod.reg.ModMenus.MENUS.register(modBus);
+        com.evosim.mod.reg.ModTabs.TABS.register(modBus);
         modBus.addListener(this::onAttributes);
         modBus.addListener(this::onBuildTabs);
         modBus.addListener(this::onCommonSetup);
@@ -59,6 +60,8 @@ public final class EvoSimMod {
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(ModItems.TRAIT_SCANNER.get());
             event.accept(ModItems.SIM_CLOCK.get());
+            event.accept(ModItems.TRAIT_EDITOR.get());
+            event.accept(ModItems.LAND_DEED.get());
         }
     }
 

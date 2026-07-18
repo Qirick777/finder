@@ -40,6 +40,9 @@ public final class ScanSnapshot {
     /** 소작 근무처 — "상시/일용 구획 N(T타일) · 지주 성명". 비소작이면 빈 문자열. */
     public String tenantInfo = "";
 
+    /** 토지 요약(서버 사전 포맷, "\n" 구분 다행) — 이 미믹이 소유·창설한 밭의 원장 개요(LAND 탭). */
+    public String landSummary = "";
+
     // ── 특성/성향 ──
     public String traits = "";   // 발현 특성 한글 나열
     public String parenting = "";
@@ -107,6 +110,7 @@ public final class ScanSnapshot {
         buf.writeBoolean(farmMotive);
         buf.writeUtf(name); // 성명 — 신규 필드는 맨 끝(encode/decode 순서 불변식)
         buf.writeUtf(tenantInfo);
+        buf.writeUtf(landSummary);
     }
 
     public static ScanSnapshot decode(FriendlyByteBuf buf) {
@@ -151,6 +155,7 @@ public final class ScanSnapshot {
         s.farmMotive = buf.readBoolean();
         s.name = buf.readUtf();
         s.tenantInfo = buf.readUtf();
+        s.landSummary = buf.readUtf();
         return s;
     }
 }

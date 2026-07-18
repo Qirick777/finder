@@ -136,6 +136,7 @@ public final class EvoSimCommand {
                                         IntegerArgumentType.getInteger(ctx, "tiles")))))
                 .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
                 .then(Commands.literal("lords").executes(EvoSimCommand::lords))
+                .then(Commands.literal("estates").executes(EvoSimCommand::estates))
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
                 .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
@@ -1102,6 +1103,74 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  아직 밭 소유자가 없습니다.");
         }
         return rank.size();
+    }
+
+    /**
+     * 영지 원장(밭 원장 P3·P4) — 규모 상위 구획을 원장(창설자·소작 기여율·수확 분배)과 함께 열거하고,
+     * 창설 가문(개간자 기준)을 집계한다. lords(생존 소유자 랭킹)와 상보 — 이쪽은 "한 가문이 얼마나
+     * 땅을 창설·집중했는가"(부익부)를 본다. GUI 땅 문서와 같은 데이터원(FarmStore.Plot 원장).
+     */
+    private static int estates(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore store = FarmStore.get(level);
+        java.util.List<FarmStore.Plot> plots = new java.util.ArrayList<>(store.all().values());
+        plots.sort((a, b) -> Integer.compare(b.tiles.length, a.tiles.length));
+        java.util.Map<Long, Integer> tenants = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getTenantFarm() != 0L)) {
+            tenants.merge(m.getTenantFarm(), 1, Integer::sum);
+        }
+        tell(ctx.getSource(), "영지 원장 — 구획 " + store.all().size() + "개 (규모 순 상위)");
+        int shown = Math.min(8, plots.size());
+        for (int i = 0; i < shown; i++) {
+            FarmStore.Plot p = plots.get(i);
+            long grown = Math.max(1, p.tilesByFounder + p.tilesByOwner + p.tilesByTenant);
+            int tenPct = (int) Math.round(100.0 * p.tilesByTenant / grown);
+            tell(ctx.getSource(), String.format(
+                    "  #%d %d타일 · 소유 %s · 창설 %s(d%d) · 소작%d명 · 부익부 %d%% · 수확 %.0f(지대 %.0f)",
+                    p.id, p.tiles.length, ownerLabel(level, p.ownerId), nameLabel(level, p.founderId),
+                    p.foundedDay, tenants.getOrDefault(p.id, 0), tenPct, p.totalYield, p.totalToOwner));
+        }
+        // 창설 가문 집계 — founderId별 구획·타일 합(부익부 집중도). 상속·선점 무관, 최초 개간자 기준.
+        java.util.Map<Long, long[]> byFounder = new java.util.HashMap<>();
+        for (FarmStore.Plot p : plots) {
+            long[] a = byFounder.computeIfAbsent(p.founderId, k -> new long[2]);
+            a[0]++;
+            a[1] += p.tiles.length;
+        }
+        java.util.List<java.util.Map.Entry<Long, long[]>> frank =
+                new java.util.ArrayList<>(byFounder.entrySet());
+        frank.sort((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1]));
+        tell(ctx.getSource(), "창설 가문(개간자 기준) 상위 3:");
+        int fi = 1;
+        for (var e : frank) {
+            if (fi > 3) {
+                break;
+            }
+            tell(ctx.getSource(), String.format("  %d위 %s — 창설 %d구획·%d타일",
+                    fi++, nameLabel(level, e.getKey()), e.getValue()[0], e.getValue()[1]));
+        }
+        if (plots.isEmpty()) {
+            tell(ctx.getSource(), "  아직 밭이 없습니다.");
+        }
+        return shown;
+    }
+
+    /** 개체 id → 표시명(원장 우선, 사후 포함). 이름 없으면 N{serial}, 원장 없으면 id. */
+    private static String nameLabel(ServerLevel level, long id) {
+        if (id == 0L) {
+            return "—";
+        }
+        FamilyLedger.Rec r = FamilyLedger.get(level).get(id);
+        if (r != null && r.name != null && !r.name.isEmpty()) {
+            return r.name;
+        }
+        return r != null ? "N" + r.serial : "id" + id;
+    }
+
+    /** 소유자 라벨(0=무주지). */
+    private static String ownerLabel(ServerLevel level, long id) {
+        return id == 0L ? "무주지" : nameLabel(level, id);
     }
 
     /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */

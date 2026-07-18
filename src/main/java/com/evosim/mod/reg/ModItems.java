@@ -30,6 +30,10 @@ public final class ModItems {
     public static final RegistryObject<Item> TRAIT_EDITOR = ITEMS.register("trait_editor",
             () -> new com.evosim.mod.item.TraitEditorItem(new Item.Properties().stacksTo(1)));
 
+    /** 밭 타일 우클릭 → 그 구획의 원장 GUI(창설·소유·소작·확장 이력·수확 분배). */
+    public static final RegistryObject<Item> LAND_DEED = ITEMS.register("land_deed",
+            () -> new com.evosim.mod.item.LandDeedItem(new Item.Properties().stacksTo(1)));
+
     private ModItems() {
     }
 }

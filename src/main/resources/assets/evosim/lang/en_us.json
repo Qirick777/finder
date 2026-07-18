@@ -4,5 +4,7 @@
     "item.evosim.sim_clock": "Ecology Clock",
     "block.evosim.mimic_hearth": "Mimic Hearth",
     "entity.evosim.mimic": "Mimic",
-    "item.evosim.trait_editor": "Mimic Trait Editor"
+    "item.evosim.trait_editor": "Mimic Trait Editor",
+    "item.evosim.land_deed": "Land Deed",
+    "itemGroup.evosim.mimic_tools": "Mimic Tools"
 }

@@ -4,5 +4,7 @@
     "item.evosim.sim_clock": "생태 시계",
     "block.evosim.mimic_hearth": "거처 모닥불",
     "entity.evosim.mimic": "미믹",
-    "item.evosim.trait_editor": "미믹 특성 편집봉"
+    "item.evosim.trait_editor": "미믹 특성 편집봉",
+    "item.evosim.land_deed": "땅 문서",
+    "itemGroup.evosim.mimic_tools": "미믹 도구"
 }

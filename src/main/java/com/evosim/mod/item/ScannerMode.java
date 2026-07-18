@@ -7,7 +7,8 @@ public enum ScannerMode {
     TRAIT("특성"),
     MATE("짝"),
     HOME("거처"),
-    INVENTORY("가족 인벤토리");
+    INVENTORY("가족 인벤토리"),
+    LAND("토지");
 
     private final String label;
 

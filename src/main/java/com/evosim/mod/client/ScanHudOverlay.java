@@ -176,7 +176,7 @@ public final class ScanHudOverlay implements IGuiOverlay {
         ty += bodyH[0] + 4;
 
         // ── 탭 인디케이터 ──
-        String[] tabs = {"특성", "짝", "거처", "가족"};
+        String[] tabs = {"특성", "짝", "거처", "가족", "토지"};
         int tw = innerW / tabs.length;
         for (int i = 0; i < tabs.length; i++) {
             boolean on = i == mode;
@@ -264,6 +264,20 @@ public final class ScanHudOverlay implements IGuiOverlay {
             });
             gy = gauge(out, g, font, tx, gy, innerW, "개간", s.farmNeed, s.farmLack, s.larder, false);
             h[0] = gy;
+        } else if (mode == ScannerMode.LAND.ordinal()) {
+            if (s.landSummary == null || s.landSummary.isEmpty()) {
+                addLines(out, g, font, tx, new String[] {"소유한 밭 없음"}, new int[] {0x8FA0AB});
+                h[0] = LINE;
+            } else {
+                String[] lines = s.landSummary.split("\n");
+                int[] cols = new int[lines.length];
+                for (int i = 0; i < lines.length; i++) {
+                    cols[i] = i == 0 ? 0xEFF5F8 : lines[i].startsWith("부익부") ? 0xA8C79F
+                            : lines[i].startsWith("…") ? 0x8FA0AB : 0xCBBE96;
+                }
+                addLines(out, g, font, tx, lines, cols);
+                h[0] = LINE * lines.length;
+            }
         } else { // INVENTORY(가족)
             String l1 = "구성: 성인 " + s.adults + " · 소년 " + s.boys
                     + " · 유아 " + s.infants + " · 노년 " + s.elders;
@@ -332,8 +346,9 @@ public final class ScanHudOverlay implements IGuiOverlay {
         if (from == to) {
             return 0;
         }
-        int d = Math.floorMod(to - from, 4);
-        return d <= 2 ? 1 : -1;
+        int modes = ScannerMode.values().length;
+        int d = Math.floorMod(to - from, modes);
+        return d <= modes / 2 ? 1 : -1;
     }
 
     private static String stageName(int ordinal) {

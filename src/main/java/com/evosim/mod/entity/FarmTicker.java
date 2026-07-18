@@ -185,6 +185,8 @@ public final class FarmTicker {
                             larders.get(ownerEnt.getHomePos()) - fromLarder));
                 }
                 grownToday.merge(grower.getId(), placed, Integer::sum);
+                store.recordExpand(plot, grower.getIndividual().id(), placed,
+                        level.getGameTime() / 24000L, hasTenant); // 밭 원장(P3): 자영/소작 귀속
                 com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
                         "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f(계정 %.0f) 소작 %d",
                         hasTenant ? "재투자" : "자영",
@@ -288,6 +290,8 @@ public final class FarmTicker {
                 continue;
             }
             FarmStore.Plot plot = store.create(site, m.getIndividual().id());
+            plot.foundedDay = level.getGameTime() / 24000L; // 밭 원장(P3) — 개간 게임일
+            plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
             for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
                 BlockPos gp = level.getHeightmapPos(
                         net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,

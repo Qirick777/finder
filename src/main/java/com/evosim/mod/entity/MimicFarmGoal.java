@@ -110,11 +110,15 @@ public class MimicFarmGoal extends Goal {
                 // 소작: 70% 본인 H, 30% 밭 계정(밤 정산에서 정수 유닛만 주인 저장고 — M3)
                 mob.addHarvest(FarmEconomy.tenantShare(yield));
                 p.account += FarmEconomy.ownerShare(yield);
-                farmStore().setDirty();
+                farmStore().recordHarvest(p, yield, FarmEconomy.ownerShare(yield),
+                        FarmEconomy.tenantShare(yield)); // 밭 원장(P3) — setDirty 포함
                 SimEvents.event(mob, "소작수확", String.format("+%.2f (지대 %.2f 적립, 오늘 %d타일)",
                         FarmEconomy.tenantShare(yield), FarmEconomy.ownerShare(yield), harvestedToday + 1));
             } else {
                 mob.addHarvest(yield); // 자기 밭 = 100% 본인 몫
+                if (p != null) {
+                    farmStore().recordHarvest(p, yield, yield, 0.0); // 자영 수확도 원장에(주인 몫)
+                }
                 SimEvents.event(mob, "밭수확", String.format("자영 +%.2f (오늘 %d타일)",
                         yield, harvestedToday + 1));
             }

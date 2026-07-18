@@ -2291,6 +2291,31 @@ public final class EvoTest {
                 "개간 G≥0.95(무특성✗·약초Ⅲ✓·여✗) · FEE 0.6 · 성숙 24 · 상속 30→20/5/5·잔0",
                 feud ? "정상" : "어긋남");
 
+        // 7b) 밭 원장(P3) — recordExpand 귀속·이력 유계화, recordHarvest 항등. 순수 상태 조작(무서버).
+        com.evosim.mod.entity.FarmStore ledger = new com.evosim.mod.entity.FarmStore();
+        net.minecraft.core.BlockPos anc = new net.minecraft.core.BlockPos(0, 64, 0);
+        com.evosim.mod.entity.FarmStore.Plot lp = ledger.create(anc, 100L);
+        boolean deed = lp.founderId == 100L && lp.foundedDay == -1L;   // create: 창설자=주인, 일자 미상
+        ledger.recordExpand(lp, 200L, 5, 3L, true);   // 소작 확장 5타일
+        ledger.recordExpand(lp, 100L, 3, 4L, false);  // 자영 확장 3타일
+        deed = deed && lp.tilesByTenant == 5 && lp.tilesByOwner == 3
+                && lp.expandDay.length == 2 && lp.expandBy[0] == 200L && lp.expandBy[1] == 100L;
+        // 이력 유계화 — MAX_EXPAND_LOG 초과분은 최고항부터 폐기(길이 고정, 최신 보존)
+        for (int i = 0; i < com.evosim.mod.entity.FarmStore.MAX_EXPAND_LOG + 3; i++) {
+            ledger.recordExpand(lp, 900L + i, 1, 10L + i, false);
+        }
+        deed = deed && lp.expandDay.length == com.evosim.mod.entity.FarmStore.MAX_EXPAND_LOG
+                && lp.expandBy[lp.expandBy.length - 1]
+                        == 900L + com.evosim.mod.entity.FarmStore.MAX_EXPAND_LOG + 2; // 최신 항 보존
+        ledger.recordHarvest(lp, 1.0, 0.6, 0.4);  // 소작 수확 분배
+        ledger.recordHarvest(lp, 2.0, 2.0, 0.0);  // 자영 수확(전액 주인)
+        deed = deed && close(lp.totalYield, 3.0) && close(lp.totalToOwner, 2.6)
+                && close(lp.totalToTenant, 0.4) && lp.harvestCount == 2
+                && close(lp.totalYield, lp.totalToOwner + lp.totalToTenant); // 분배 항등
+        report.add("farm/밭원장", deed,
+                "창설자 고정 · 소작5/자영3 귀속 · 이력 최근16 유계 · 수확 3.0=2.6+0.4·2회",
+                deed ? "정상" : "어긋남");
+
         // 5) 지대 재투자(R1) — 소작 구획 확장 자금 = 밭 계정: floor(계정/타일당 2.0), 음수 0.
         //    소작 1인 지대 ≈2.7/일 → 매일 1타일(2.7→1) — 소작 루프 v2 성장률의 근거.
         boolean reinvest = FarmEconomy.reinvestTiles(2.7) == 1

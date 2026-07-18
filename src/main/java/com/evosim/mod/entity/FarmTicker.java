@@ -304,8 +304,10 @@ public final class FarmTicker {
                 store.addTile(plot, gp, level.getGameTime());
             }
             larders.set(m.getHomePos(), funds - cost);
+            // 수율 G 병기 — "능력자만 독립" 검수: 개간자의 G가 낮은 사례가 잦으면 잠금 누수 신호.
             com.evosim.mod.log.SimEvents.event(m, "밭개간", String.format(
-                    "신규 구획 %d(%d번째) 착공 — 비용 %.0f", plot.id, owned + 1, cost));
+                    "신규 구획 %d(%d번째) 착공 — 비용 %.0f G%.2f", plot.id, owned + 1, cost,
+                    com.evosim.core.FarmEconomy.tileYield(m.getIndividual())));
             break; // 하루 1건
         }
     }

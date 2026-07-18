@@ -64,6 +64,7 @@ public final class SimAudit {
     public static synchronized String emit(ServerLevel level, boolean reset) {
         // ── 인구·상태 (레벨 전체 스캔 — 무인 관측 대응) ──
         int adult = 0;
+        int adultF = 0; // 성년 여성 — 여성당 출산율(2.3 목표) 판정 분모
         int boy = 0;
         int infant = 0;
         int elder = 0;
@@ -71,12 +72,21 @@ public final class SimAudit {
         int satisfied = 0;
         int tenantsPerm = 0;
         Set<Long> homes = new HashSet<>();
+        // 계층별 가구 분해 — 지주(밭 보유)/소작(상시)/무밭 평민. "완만한 굶주림"은 평민 저장고
+        // 추세로만 판정 가능(전체 평균은 부유한 지주가 가려버린다 — 관측 함정).
+        Set<Long> ownerHomes = new HashSet<>();
+        Set<Long> tenantHomes = new HashSet<>();
         java.util.List<MimicEntity> mimics = new java.util.ArrayList<>();
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null)) {
             mimics.add(m);
             switch (m.getStage()) {
-                case ADULT -> adult++;
+                case ADULT -> {
+                    adult++;
+                    if (m.isFemale()) {
+                        adultF++;
+                    }
+                }
                 case BOY -> boy++;
                 case INFANT -> infant++;
                 case ELDER -> elder++;
@@ -90,15 +100,35 @@ public final class SimAudit {
             }
             if (m.getTenantFarm() != 0L) {
                 tenantsPerm++;
+                if (m.getHomePos() != null) {
+                    tenantHomes.add(m.getHomePos().asLong());
+                }
             }
             if (m.getHomePos() != null) {
                 homes.add(m.getHomePos().asLong());
+                if (FarmStore.get(level).owns(m.getIndividual().id())) {
+                    ownerHomes.add(m.getHomePos().asLong());
+                }
             }
         }
+        tenantHomes.removeAll(ownerHomes); // 지주 우선 분류(자기 밭 소작 역설 방어)
         double larderSum = 0.0;
+        double ownerLarder = 0.0;
+        double tenantLarder = 0.0;
+        double landlessLarder = 0.0;
+        int landlessHomes = 0;
         LarderStore larders = LarderStore.get(level);
         for (long h : homes) {
-            larderSum += larders.get(BlockPos.of(h));
+            double v = larders.get(BlockPos.of(h));
+            larderSum += v;
+            if (ownerHomes.contains(h)) {
+                ownerLarder += v;
+            } else if (tenantHomes.contains(h)) {
+                tenantLarder += v;
+            } else {
+                landlessLarder += v;
+                landlessHomes++;
+            }
         }
         // ── 밭·왕조 집중 ──
         FarmStore farms = FarmStore.get(level);
@@ -162,19 +192,25 @@ public final class SimAudit {
         }
         long day = level.getGameTime() / 24000L;
         String line = String.format(
-                "day=%d pop=%d adult=%d boy=%d infant=%d elder=%d homes=%d births=%d"
+                "day=%d pop=%d adult=%d adult_f=%d boy=%d infant=%d elder=%d homes=%d births=%d"
                         + " grass=%.1f garden=%.1f hunt=%.1f farm_self=%.1f farm_tenant=%.1f"
                         + " rent=%.1f aid=%.1f plots=%d tiles=%d tenants_perm=%d tenants_today=%d"
                         + " top_owner=%s top_tiles=%d top_plots=%d dyn_deps=%d"
-                        + " critical=%d satisfied=%d larder_sum=%.0f larder_avg=%.1f",
-                day, mimics.size(), adult, boy, infant, elder, homes.size(), births,
+                        + " critical=%d satisfied=%d larder_sum=%.0f larder_avg=%.1f"
+                        + " homes_owner=%d homes_tenant=%d homes_landless=%d"
+                        + " larder_owner=%.1f larder_tenant=%.1f larder_landless=%.1f",
+                day, mimics.size(), adult, adultF, boy, infant, elder, homes.size(), births,
                 INCOME.getOrDefault(Src.GRASS, 0.0), INCOME.getOrDefault(Src.GARDEN, 0.0),
                 INCOME.getOrDefault(Src.HUNT, 0.0), INCOME.getOrDefault(Src.FARM_SELF, 0.0),
                 INCOME.getOrDefault(Src.FARM_TENANT, 0.0), INCOME.getOrDefault(Src.RENT, 0.0),
                 INCOME.getOrDefault(Src.AID, 0.0), plots, tiles, tenantsPerm,
                 FarmTicker.assignedCount(), topName, topTiles, topPlots, dynDeps,
                 critical, satisfied, larderSum,
-                homes.isEmpty() ? 0.0 : larderSum / homes.size());
+                homes.isEmpty() ? 0.0 : larderSum / homes.size(),
+                ownerHomes.size(), tenantHomes.size(), landlessHomes,
+                ownerHomes.isEmpty() ? 0.0 : ownerLarder / ownerHomes.size(),
+                tenantHomes.isEmpty() ? 0.0 : tenantLarder / tenantHomes.size(),
+                landlessHomes == 0 ? 0.0 : landlessLarder / landlessHomes);
         SimEvents.note(level, "AUDIT", line);
         if (reset) {
             INCOME.clear();

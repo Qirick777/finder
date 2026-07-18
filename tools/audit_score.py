@@ -19,12 +19,12 @@ MILESTONES = [
      lambda r, d: r[d]["grass"] < 30
      and r[d]["garden"] > 0.6 * max(1e-9, r[d]["grass"] + r[d]["garden"] + r[d]["hunt"])
      if d in r else None),
-    (4, 6,  "첫 소작(tenants_today>=1 | perm>=1)",
+    (4, 6,  "첫 소작(고용 성립 & 평민 한계 전: landless 저장고>4)",
      lambda r, d: (r[d]["tenants_today"] >= 1 or r[d]["tenants_perm"] >= 1)
-     if d in r else None),
-    (5, 8,  "완만한 굶주림(larder_avg 감소 & critical<pop 10%)",
+     and r[d].get("larder_landless", 99) > 4 if d in r else None),
+    (5, 8,  "완만한 굶주림(평민 저장고 -0.3~-3/일 & critical<10%)",
      lambda r, d: (d - 1) in r and d in r
-     and r[d]["larder_avg"] < r[d - 1]["larder_avg"]
+     and -3.0 <= r[d].get("larder_landless", 99) - r[d - 1].get("larder_landless", 0) <= -0.3
      and r[d]["critical"] < 0.1 * max(1, r[d]["pop"]) or None),
     (7, 9,  "상시 소작+확장(perm>=1 & top_tiles>=20)",
      lambda r, d: r[d]["tenants_perm"] >= 1 and r[d]["top_tiles"] >= 20
@@ -33,6 +33,9 @@ MILESTONES = [
      lambda r, d: r[d]["top_plots"] >= 2 if d in r else None),
     (10, 12, "출산 재개(당일 births>=1, 소작 존재)",
      lambda r, d: r[d]["births"] >= 1 and r[d]["tenants_perm"] >= 1 if d in r else None),
+    (10, 20, "여성당 출산율 1.5+ 진입(누적births/adult_f)",
+     lambda r, d: sum(r[x]["births"] for x in r if x <= d)
+     >= 1.5 * r[d]["adult_f"] if d in r and r[d].get("adult_f", 0) > 0 else None),
     (12, 16, "왕조 집중(top_tiles>=전체 60% & tenants>=8)",
      lambda r, d: r[d]["tiles"] > 0 and r[d]["top_tiles"] >= 0.6 * r[d]["tiles"]
      and (r[d]["tenants_perm"] + r[d]["tenants_today"]) >= 8 if d in r else None),
@@ -64,13 +67,15 @@ def main():
     days = sorted(rows)
     print(f"{'d':>3} {'pop':>4} {'grass':>7} {'garden':>7} {'farmT':>6} {'rent':>6} "
           f"{'plots':>5} {'tiles':>5} {'perm':>4} {'today':>5} {'top':>4} {'deps':>4} "
-          f"{'birth':>5} {'crit':>4} {'avgL':>6}")
+          f"{'birth':>5} {'crit':>4} {'avgL':>6} {'L무밭':>6} {'L소작':>6} {'L지주':>6}")
     for d in days:
         r = rows[d]
         print(f"d{d:>2} {r['pop']:4.0f} {r['grass']:7.1f} {r['garden']:7.1f} "
               f"{r['farm_tenant']:6.1f} {r['rent']:6.1f} {r['plots']:5.0f} {r['tiles']:5.0f} "
               f"{r['tenants_perm']:4.0f} {r['tenants_today']:5.0f} {r['top_tiles']:4.0f} "
-              f"{r['dyn_deps']:4.0f} {r['births']:5.0f} {r['critical']:4.0f} {r['larder_avg']:6.1f}")
+              f"{r['dyn_deps']:4.0f} {r['births']:5.0f} {r['critical']:4.0f} {r['larder_avg']:6.1f} "
+              f"{r.get('larder_landless', 0):6.1f} {r.get('larder_tenant', 0):6.1f} "
+              f"{r.get('larder_owner', 0):6.1f}")
     print("\n── 이정표 판정 ──")
     last = days[-1]
     for lo, hi, name, judge in MILESTONES:
@@ -99,5 +104,17 @@ def main():
         print(f"  [{'d%d~%d' % (lo, hi):>7}] {name:38} {verdict}")
 
 
+def leak_check(rows):
+    last = max(rows)
+    r = rows[last]
+    others = r["plots"] - r.get("top_plots", 0)
+    if others >= 3:
+        print(f"\n⚠ 독립 누수 의심: 왕조 외 밭 {others:.0f}개 — 이벤트 로그의 밭개간 G값 확인 요망")
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        leak_check(parse(sys.argv[1]))
+    except BrokenPipeError:
+        pass  # head 등 파이프 조기 종료 — 정상

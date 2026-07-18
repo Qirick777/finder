@@ -28,8 +28,6 @@ public final class FarmEconomy {
 
     /** 무주지 등록 소거까지(틱, 2.5일) — 선점자가 없으면 야생으로 복원(등록만 소거, 베리는 남음). */
     public static final long VACANT_EXPIRE_TICKS = 60000L;
-    /** 능력 게이트 경계(타일) — 이 규모 "초과" 확장은 주인의 발현 능력 특성을 요구(T4=첫 고용 규모). */
-    public static final int SKILL_GATE_TILES = 35;
     /** 1인 하루 확장 기본(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */
     public static final int EXPAND_PER_DAY = 3;
     /** 구획 하루 확장 상한 — 소작 비례 확장 3×(1+상시소작 수)의 캡. 12→30(B3 지수 확장): 캡이
@@ -45,17 +43,26 @@ public final class FarmEconomy {
     private FarmEconomy() {
     }
 
-    /** 대규모 경영에 요구하는 최소 능력 등급 — "능력 Ⅴ급 야망가 = 대지주" 서사(밴드 산출 ⑧). */
-    public static final int MANAGE_GRADE_MIN = 4;
-
-    /** 대규모 경영 능력 — 채집·저장 계열 발현 능력 특성이 등급 Ⅳ 이상(성향·저등급으로 대지주 불가). */
-    public static boolean canManageLarge(Individual owner) {
-        return Multipliers.manageAbilityGrade(owner) >= MANAGE_GRADE_MIN;
+    /**
+     * 관리용량(타일) = 8 + 6×관리등급 — 무능력 8 · Ⅲ 26 · Ⅴ 38. 구 하드캡(특성 보유 검사
+     * SKILL_GATE 35) 폐지의 대체: 천장 규칙이 아니라 <b>초과분의 수확 손실</b>로 자연 정체.
+     */
+    public static int manageCapacity(Individual owner) {
+        return 8 + 6 * Multipliers.manageAbilityGrade(owner);
     }
 
-    /** 이 주인이 키울 수 있는 밭 규모 상한 — 능력 보유면 무제한, 아니면 SKILL_GATE_TILES. */
-    public static int growthCap(Individual owner) {
-        return canManageLarge(owner) ? Integer.MAX_VALUE : SKILL_GATE_TILES;
+    /**
+     * 관리 효율 E = min(1, 용량/타일수)² — 용량 내 손실 0, 초과분 제곱 감쇠. 밭 수확(자영·소작)
+     * 전량에 곱해져 지대가 마르며 확장이 <b>스스로</b> 멈춘다(강제 규칙 없음): 무능력 ~10-14타일
+     * 정체(성숙 24 불가·밭 1개 소형), Ⅲ ~30대 중반 정체(소지주), Ⅴ는 성숙 분할(24<38)로 손실
+     * 전에 다밭 지수 확장. E(8,14)=0.33 · E(26,24)=1 · E(26,35)=0.55 · E(38,≤38)=1.
+     */
+    public static double manageEfficiency(Individual owner, int tiles) {
+        if (tiles <= 0) {
+            return 1.0;
+        }
+        double r = Math.min(1.0, (double) manageCapacity(owner) / tiles);
+        return r * r;
     }
 
     /** 타일당 수확 수율 G = 0.5 × 채집수확배율(성별×gather) — 소득 격차·개간 로그 병기의 입력.

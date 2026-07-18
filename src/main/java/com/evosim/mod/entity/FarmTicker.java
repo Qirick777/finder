@@ -81,7 +81,7 @@ public final class FarmTicker {
      * 밤 성장 — 하루 1회(지대 정산과 같은 시각창): ① 확장 — 소작 붙은 밭은 <b>가장 가까운 상시
      * 소작농</b>이 확장 주체(확장권 이전, 주인 금지), 무소작이면 주인. 주체의 거처 저장고에서
      * 타일당 EXPAND_COST 차감(INVEST_RESERVE 여유 필수), 하루 EXPAND_PER_DAY 상한(노동 병목 P1-ⓐ),
-     * 능력 게이트(growthCap — 주인 기준)로 T4 초과 차단. ② 신규 개간 — 주인 저장고가
+     * 규모 천장 없음 — 관리 효율 감쇠가 지대를 깎아 자연 정체(수치 유도). ② 신규 개간 — 주인 저장고가
      * newFarmCost(체증)+여유면 집 주변 빈 부지에 T1 착공(부지 없으면 건너뜀).
      */
     private static void growFarms(ServerLevel level) {
@@ -124,7 +124,8 @@ public final class FarmTicker {
                     || com.evosim.core.Satisfaction.neverExpands(ownerEnt.getIndividual())) {
                 continue;
             }
-            int cap = com.evosim.core.FarmEconomy.growthCap(ownerEnt.getIndividual());
+            // 규모 상한 없음(하드캡 폐지) — 관리 효율 감쇠(FarmEconomy.manageEfficiency)가
+            // 수확·지대를 깎아 확장 자금이 마르는 것으로 자연 정체(강제 규칙 → 수치 유도).
             // 소작 비례 확장(소작 루프 v2): 구획 하루 노동 = 3×(1+상시소작 수), 상한 12 —
             // "소작농들이 밭을 키운다"의 수치화. 자영(소작 0)은 종전대로 개체 단위 3.
             int nTen = 0;
@@ -139,7 +140,7 @@ public final class FarmTicker {
                     ? plotLabor
                     : com.evosim.core.FarmEconomy.EXPAND_PER_DAY
                             - grownToday.getOrDefault(grower.getId(), 0); // 자영 상한은 개체 단위(R3)
-            int room = Math.min(labor, cap - plot.tiles.length);
+            int room = labor;
             if (room <= 0) {
                 continue;
             }

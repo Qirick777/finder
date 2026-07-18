@@ -104,6 +104,21 @@ public class MimicFarmGoal extends Goal {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
             double yield = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
             FarmStore.Plot p = plotOf(target);
+            // 관리 효율(하드캡 폐지 대체) — 주인의 관리용량 초과분은 수확이 제곱 감쇠.
+            // 지대가 말라 확장이 스스로 멈춘다: 무능력 ~12타일·Ⅲ ~30대(소지주)·Ⅴ 다밭 분할.
+            if (p != null) {
+                MimicEntity ownerEnt = null;
+                for (MimicEntity o : serverLevel().getEntities(
+                        com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null
+                                && e.getIndividual().id() == p.ownerId)) {
+                    ownerEnt = o;
+                }
+                if (ownerEnt != null) {
+                    yield *= FarmEconomy.manageEfficiency(
+                            ownerEnt.getIndividual(), p.tiles.length);
+                }
+            }
             boolean household = p != null && (p.ownerId == mob.getIndividual().id()
                     || (mob.getSpouseId() != 0L && p.ownerId == mob.getSpouseId()));
             if (p != null && !household) {

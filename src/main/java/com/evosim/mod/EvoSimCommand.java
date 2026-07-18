@@ -123,6 +123,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("wanderx").executes(EvoSimCommand::stageWanderX))
                 .then(Commands.literal("fixhomes").executes(EvoSimCommand::fixHomes))
                 .then(Commands.literal("fixx").executes(EvoSimCommand::stageFixX))
+                .then(Commands.literal("feudx").executes(EvoSimCommand::stageFeudX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -522,16 +523,16 @@ public final class EvoSimCommand {
         LiveCheck.cancelAll();
         FarmTicker.clearAssignments();
         BlockPos home = groundAt(level, ctx.getSource().getPosition(), -8, -8);
-        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.HERBALIST);
         owner.debugSettleWithTent(home, Direction.NORTH);
         LarderStore.get(level).set(home, 40.0);
         long oid = owner.getIndividual().id();
         level.setDayTime(13500L);
         LiveCheck.watch(ctx.getSource(), "farm_found_new", 600,
-                () -> String.format("owned %d(expect 1) larder %.0f(expect 10)",
+                () -> String.format("owned %d(expect 1) larder %.0f(expect 22)",
                         FarmStore.get(level).ownedCount(oid), LarderStore.get(level).get(home)),
                 () -> FarmStore.get(level).ownedCount(oid) == 1
-                        && Math.abs(LarderStore.get(level).get(home) - 10.0) < 1.0E-6,
+                        && Math.abs(LarderStore.get(level).get(home) - 22.0) < 1.0E-6,
                 () -> {
                     for (FarmStore.Plot p : new java.util.ArrayList<>(
                             FarmStore.get(level).all().values())) {
@@ -2992,6 +2993,19 @@ public final class EvoSimCommand {
         return 1;
     }
 
+    /** 무대 헬퍼 — parentId의 살아있는 자식 수(getEntities 인덱싱 확인용). */
+    private static int countChildrenOf(ServerLevel level, long parentId) {
+        int n = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            var ind = m.getIndividual();
+            if (ind.parentAId() == parentId || ind.parentBId() == parentId) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /** 무대 유아 — 지정 부모의 친자·거처 귀속(육아 구속 판정 입력). 한쪽 부모 null 허용(편부모). */
     private static MimicEntity infantOf(ServerLevel level, BlockPos home,
                                         MimicEntity father, MimicEntity mother) {
@@ -3097,7 +3111,7 @@ public final class EvoSimCommand {
             BlockPos home = groundAt(level, b, -8, -24);
             MimicEntity[] c = new MimicEntity[2];
             steps.add(new VerifySuite.Step("carex_devoted_garden",
-                    "widowed devoted mother still harvests ripe garden: 8 -> <=5", 600, false, () -> {
+                    "widowed devoted mother still harvests ripe garden: 8 -> <=6", 600, false, () -> {
                 c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home).add(3, 0, 3), Sex.FEMALE);
                 c[0].debugSettleWithTent(home, Direction.NORTH); // 스폰 비킴 — 지붕(y+3) 고착 방지(F-2)
                 c[0].getIndividual().setParentingCareFemale(ParentingClass.DEVOTED);
@@ -3108,11 +3122,11 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 3.0);
                 c[0].debugSetHolding(1.5);
                 level.setDayTime(2000L);
-            }, () -> String.format("ripeGarden %d/8(expect <=5) H %.2f bound=%s act=%s pos=%s forage[%s]",
+            }, () -> String.format("ripeGarden %d/8(expect <=6) H %.2f bound=%s act=%s pos=%s forage[%s]",
                     ripeGardenCount(level, home, Direction.NORTH), c[0].getHolding(),
                     c[0].isCaregiverBound(), c[0].currentActionLabel(),
                     c[0].blockPosition().toShortString(), c[0].forageDebug()),
-                    () -> ripeGardenCount(level, home, Direction.NORTH) <= 5,
+                    () -> ripeGardenCount(level, home, Direction.NORTH) <= 6,
                     () -> {
                         c[0].debugClearBerries(level);
                         discard(c);
@@ -3208,6 +3222,164 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "육아 돌봄 개편 합본 검증(4단계) — 커버리지 해제 / 적극 정원 예외 / "
                 + "양쪽 적극 효율 해제 / carryCap 정원 제외. 전부 서버 결과값 판정.");
+        return 1;
+    }
+
+    /**
+     * 봉건 집중 합본 검증(feudx) — ① 무특성 개간 금지(P1 게이트, 금지 감시) ② 능력자(약초학자)
+     * 개간 성립 ③ 장남 우선 상속(장녀보다 아들) ④ 식량 상속(가구 해체 → 상속인 2/3).
+     * 전부 서버 결과값 판정.
+     */
+    private static int stageFeudX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 무특성 개간 금지 — 욕심(불만족)+무특성(G=0.75) 지주, 저장고 30, 밤: 개간 시도해도
+        //     구획 미생성(P1 게이트). 종전(게이트 없음)이면 owned 1 → 금지 감시 실패.
+        {
+            BlockPos home = groundAt(level, b, -12, 24);
+            MimicEntity[] c = new MimicEntity[1];
+            long[] oid = new long[1];
+            steps.add(new VerifySuite.Step("feudx_no_found",
+                    "unskilled (G=0.75) owner must NOT found a farm (P1 gate)", 400, true, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.GREEDY);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 30.0);
+                oid[0] = c[0].getIndividual().id();
+                level.setDayTime(13500L);
+            }, () -> {
+                FarmTicker.debugGrow(level); // 매 poll 강제 성장 — 인덱싱 후 결정론
+                return String.format("owned %d(must stay 0) larder %.0f",
+                        FarmStore.get(level).ownedCount(oid[0]), LarderStore.get(level).get(home));
+            },
+                    () -> FarmStore.get(level).ownedCount(oid[0]) >= 1, // ← 금지 결과(개간 발생)
+                    () -> {
+                        for (FarmStore.Plot p : new java.util.ArrayList<>(
+                                FarmStore.get(level).all().values())) {
+                            if (p.ownerId == oid[0]) {
+                                farmClearPlot(level, p);
+                            }
+                        }
+                        discard(c);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [2] 능력자 개간 성립 — 욕심+약초학자(G=1.125≥0.95), 저장고 30, 밤 → 구획 1.
+        {
+            BlockPos home = groundAt(level, b, -12, -24);
+            MimicEntity[] c = new MimicEntity[1];
+            long[] oid = new long[1];
+            steps.add(new VerifySuite.Step("feudx_skilled_found",
+                    "skilled (herbalist) owner founds a farm (larder 30 -> owned 1)", 600, false, () -> {
+                FarmTicker.clearAssignments();
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE,
+                        Trait.GREEDY, Trait.HERBALIST);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 30.0);
+                oid[0] = c[0].getIndividual().id();
+                level.setDayTime(13500L);
+            }, () -> {
+                FarmTicker.debugGrow(level);
+                return String.format("owned %d(expect 1)", FarmStore.get(level).ownedCount(oid[0]));
+            },
+                    () -> FarmStore.get(level).ownedCount(oid[0]) == 1,
+                    () -> {
+                        for (FarmStore.Plot p : new java.util.ArrayList<>(
+                                FarmStore.get(level).all().values())) {
+                            if (p.ownerId == oid[0]) {
+                                farmClearPlot(level, p);
+                            }
+                        }
+                        discard(c);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [3] 장남 우선 상속 — 지주 사망, 장녀 + 아들 생존: 아들이 밭 승계(성별 우선).
+        {
+            BlockPos home = groundAt(level, b, -12, 48);
+            BlockPos anchor = groundAt(level, b, 6, 48);
+            MimicEntity[] c = new MimicEntity[3]; // [0]장녀 [1]장남 [2]지주(지연 사망)
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            long[] sonId = new long[1];
+            boolean[] fired = new boolean[1];
+            steps.add(new VerifySuite.Step("feudx_son_priority",
+                    "eldest SON inherits over daughter (plot owner == son)", 200, false, () -> {
+                FarmTicker.clearAssignments();
+                c[2] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[2].debugSettleWithTent(home, Direction.NORTH);
+                pl[0] = buildDemoPlot(level, anchor, c[2].getIndividual().id(), 9);
+                c[0] = spawnChildOf(level, Vec3.atBottomCenterOf(home).add(2, 0, 0), c[2], Sex.FEMALE);
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(home).add(-2, 0, 0), c[2], Sex.MALE);
+                sonId[0] = c[1].getIndividual().id();
+            }, () -> {
+                // 지연 사망 — 자식 2명이 getEntities에 인덱싱된 뒤에야 상속 발동(레이스 차단)
+                long pid = c[2].getIndividual().id();
+                int kids = countChildrenOf(level, pid);
+                if (!fired[0] && kids >= 2) {
+                    fired[0] = true;
+                    c[2].discard();
+                }
+                return String.format("owner %d(expect son %d) kids=%d fired=%s",
+                        pl[0].ownerId, sonId[0], kids, fired[0]);
+            },
+                    () -> pl[0].ownerId == sonId[0],
+                    () -> {
+                        discard(new MimicEntity[] {c[0], c[1]});
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [4] 식량 상속 — 홀아비(저장고 30) 사망 → 거주자 0 → 분가 자식 3명(장남+2)에게 분배:
+        //     장남 거처 +20(2/3), 타 자식 각 +5. 각 자식은 자기 거처 보유.
+        {
+            BlockPos home = groundAt(level, b, -12, 72);
+            BlockPos hA = groundAt(level, b, 12, 72);
+            BlockPos hB = groundAt(level, b, 24, 72);
+            BlockPos hC = groundAt(level, b, 36, 72);
+            MimicEntity[] c = new MimicEntity[4]; // [0]장남 [1][2]딸 [3]부(지연 사망)
+            boolean[] fired = new boolean[1];
+            steps.add(new VerifySuite.Step("feudx_food_split",
+                    "empty household: heir(son) home +20 (2/3), other 2 children +5 each", 200, false, () -> {
+                FarmTicker.clearAssignments();
+                c[3] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                c[3].debugSettleWithTent(home, Direction.NORTH);
+                LarderStore.get(level).set(home, 30.0);
+                c[0] = spawnChildOf(level, Vec3.atBottomCenterOf(hA), c[3], Sex.MALE); // 장남
+                c[0].debugSettleWithTent(hA, Direction.NORTH);
+                c[1] = spawnChildOf(level, Vec3.atBottomCenterOf(hB), c[3], Sex.FEMALE);
+                c[1].debugSettleWithTent(hB, Direction.NORTH);
+                c[2] = spawnChildOf(level, Vec3.atBottomCenterOf(hC), c[3], Sex.FEMALE);
+                c[2].debugSettleWithTent(hC, Direction.NORTH);
+                LarderStore.get(level).set(hA, 0.0);
+                LarderStore.get(level).set(hB, 0.0);
+                LarderStore.get(level).set(hC, 0.0);
+            }, () -> {
+                long pid = c[3].getIndividual().id();
+                int kids = countChildrenOf(level, pid);
+                if (!fired[0] && kids >= 3) { // 자식 3명 인덱싱 후 사망 → 분배
+                    fired[0] = true;
+                    c[3].discard();
+                }
+                return String.format("sonHome %.0f(exp 20) B %.0f(exp 5) C %.0f(exp 5) old %.0f kids=%d",
+                        LarderStore.get(level).get(hA), LarderStore.get(level).get(hB),
+                        LarderStore.get(level).get(hC), LarderStore.get(level).get(home), kids);
+            },
+                    () -> Math.abs(LarderStore.get(level).get(hA) - 20.0) < 1.0E-6
+                            && Math.abs(LarderStore.get(level).get(hB) - 5.0) < 1.0E-6
+                            && Math.abs(LarderStore.get(level).get(hC) - 5.0) < 1.0E-6
+                            && Math.abs(LarderStore.get(level).get(home) - 0.0) < 1.0E-6,
+                    () -> discard(new MimicEntity[] {c[0], c[1], c[2]})));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "봉건 집중 합본 검증(4단계) — 무특성 개간 금지 / 능력자 개간 / "
+                + "장남 우선 상속 / 식량 2/3 분배. 전부 서버 결과값 판정.");
         return 1;
     }
 
@@ -4372,23 +4544,24 @@ public final class EvoSimCommand {
                         FarmTicker.clearAssignments();
                     }));
         }
-        // [48] 신규 개간 — 무밭 지주(저장고 40) → 구획 +1 ∧ 저장고 10(farmfound 편입)
+        // [48] 신규 개간 — 무밭 <b>능력자</b> 지주(약초학자, 저장고 40) → 구획 +1 ∧ 저장고 10.
+        //      P1 게이트(G≥0.95)로 개간엔 약초/채집 능력 필요 — 무특성은 [58] feudx가 금지 감시.
         {
             BlockPos fhome = ground(level, b, 48);
             MimicEntity[] c = new MimicEntity[1];
             long[] oid = new long[1];
             steps.add(new VerifySuite.Step("farm_found_new",
-                    "landless founder (larder 40) breaks ground: owned 1 & larder 10", 600, false, () -> {
+                    "landless SKILLED founder (larder 40) breaks ground: owned 1 & larder 10", 600, false, () -> {
                 FarmTicker.clearAssignments();
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(fhome), Sex.MALE, Trait.HERBALIST);
                 c[0].debugSettleWithTent(fhome, Direction.NORTH);
                 LarderStore.get(level).set(fhome, 40.0);
                 oid[0] = c[0].getIndividual().id();
                 level.setDayTime(13500L);
-            }, () -> String.format("owned %d(expect 1) larder %.0f(expect 10)",
+            }, () -> String.format("owned %d(expect 1) larder %.0f(expect 22)",
                     FarmStore.get(level).ownedCount(oid[0]), LarderStore.get(level).get(fhome)),
                     () -> FarmStore.get(level).ownedCount(oid[0]) == 1
-                            && Math.abs(LarderStore.get(level).get(fhome) - 10.0) < 1.0E-6,
+                            && Math.abs(LarderStore.get(level).get(fhome) - 22.0) < 1.0E-6,
                     () -> {
                         for (FarmStore.Plot p : new java.util.ArrayList<>(
                                 FarmStore.get(level).all().values())) {

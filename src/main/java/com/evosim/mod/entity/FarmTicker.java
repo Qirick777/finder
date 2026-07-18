@@ -255,22 +255,30 @@ public final class FarmTicker {
             if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
                 continue; // 만족·무욕 — 신규 개간 안 함
             }
+            // 개간 생산성 게이트(P1) — 타일당 수율 G≥0.95(약초/채집 Ⅲ+)만 자기 밭 창설.
+            // 무특성 소작은 여기서 걸려 확장 노동만 제공 → 주인 밭이 커짐(부익부).
+            if (!com.evosim.core.FarmEconomy.canFound(m.getIndividual())) {
+                continue;
+            }
             int owned = store.ownedCount(m.getIndividual().id());
             double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
             double funds = larders.get(m.getHomePos());
-            if (owned == 0 && funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
-                continue;
+            if (funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
+                continue; // 자금(owned==0이면 저장고≥24)
             }
             if (owned > 0) {
-                // 기존 밭에 상시 소작이 있어야 신규 창설(확장권을 잃은 주인의 경로 — 설계 17)
-                boolean anyTenanted = false;
+                // 성숙 트리거(P6) — 최신(직영) 밭이 24타일 이상 + 상시 소작 1명 이상이어야 다음 밭.
+                // "직접 일구기 벅찬 규모에 도달 → 소작에 넘기고 새 밭 개간"의 수치화.
+                long newest = store.newestOwnedPlot(m.getIndividual().id());
+                FarmStore.Plot np = store.get(newest);
+                boolean mature = np != null && np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES;
+                int permTenants = 0;
                 for (MimicEntity t : adults) {
-                    if (t.getTenantFarm() != 0L && store.get(t.getTenantFarm()) != null
-                            && store.get(t.getTenantFarm()).ownerId == m.getIndividual().id()) {
-                        anyTenanted = true;
+                    if (t.getTenantFarm() == newest) {
+                        permTenants++;
                     }
                 }
-                if (!anyTenanted || funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
+                if (!mature || permTenants < 1) {
                     continue;
                 }
             }
@@ -349,6 +357,13 @@ public final class FarmTicker {
         assignDay = -1;
         rentDay = -1;
         growDay = -1;
+    }
+
+    /** 검증 전용 — 밤 성장(개간·확장)을 즉시 1회 강제(growDay 리셋). 다중스텝의 growDay 충돌·
+     *  신규 엔티티 인덱싱 레이스를 우회해 결정론 판정(엔티티가 인덱싱된 poll 시점에 호출). */
+    public static void debugGrow(ServerLevel level) {
+        growDay = -1;
+        growFarms(level);
     }
 
     /**
@@ -505,8 +520,10 @@ public final class FarmTicker {
     }
 
     /**
-     * 보호 의무(봉건 쌍무) — 200틱 스캔: 위급(H<0.3) 상시 소작농을 영주 저장고에서 1유닛 구제.
-     * 저장고가 비어 이행 불가면 관계 자동 해제(지대↔보호의 쌍무성 — 몰락 경로).
+     * 위기 구휼(봉건 쌍무 — P2) — 200틱 스캔: 위급(H&lt;0.3) 상시 소작농을 영주 저장고에서 구제.
+     * FEE 0.6으로 소작 임금(2.4/일)이 소비(3.0)를 밑돌아 발생하는 만성 부족을 메워 <b>생존은
+     * 시키되 축적은 못 하게</b>(독립 차단·소작 고착). 이체 = min(2, 저장고−예비6)로 영주 예비를
+     * 보호. 영주가 예비조차 없으면(몰락) 이행 불가 → 관계 해제(지대↔보호의 쌍무성).
      */
     private static void protectTenants(ServerLevel level) {
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
@@ -526,14 +543,16 @@ public final class FarmTicker {
                 home = o.getHomePos();
             }
             double larder = home == null ? 0.0 : LarderStore.get(level).get(home);
-            if (home != null && larder >= 1.0) {
-                LarderStore.get(level).set(home, larder - 1.0);
-                m.addHarvest(1.0);
-                com.evosim.mod.log.SimEvents.event(m, "구제", String.format(
-                        "영주 저장고 1 인출 — H %.2f (구획 %d)", m.getHolding(), plot.id));
+            double aid = Math.min(2.0, larder - com.evosim.core.FarmEconomy.INVEST_RESERVE);
+            if (home != null && aid >= 1.0) {
+                int units = (int) Math.floor(aid); // 정수 유닛(L 정수성)
+                LarderStore.get(level).set(home, larder - units);
+                m.addHarvest(units);
+                com.evosim.mod.log.SimEvents.event(m, "구휼", String.format(
+                        "영주 저장고 %d 나눔 — H %.2f (구획 %d)", units, m.getHolding(), plot.id));
             } else {
                 m.setTenant(0L, 0);
-                com.evosim.mod.log.SimEvents.event(m, "소작해제", "영주 구제 불이행 — 관계 소멸");
+                com.evosim.mod.log.SimEvents.event(m, "소작해제", "영주 구휼 불이행(몰락) — 관계 소멸");
             }
         }
     }

@@ -17,6 +17,7 @@ import com.evosim.core.DeterministicRng;
 import com.evosim.core.ExpressionResolver;
 import com.evosim.core.Feeding;
 import com.evosim.core.Genetics;
+import com.evosim.core.Inheritance;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.Lineage;
@@ -2241,9 +2242,9 @@ public final class EvoTest {
         report.add("farm/용량슬롯", cap, "C 8/9/6/4 · 부족 9→0(1<2)·10→2·35→19·49→33·9→0",
                 cap ? "정상" : "어긋남");
 
-        // 3) 지대 회계 항등식 + 비용 체증
+        // 3) 지대 회계 항등식 + 비용 체증 (FEE 0.6 — 봉건 집중)
         double y = 0.75;
-        boolean acct = close(FarmEconomy.tenantShare(y), 0.525) && close(FarmEconomy.ownerShare(y), 0.225)
+        boolean acct = close(FarmEconomy.tenantShare(y), 0.30) && close(FarmEconomy.ownerShare(y), 0.45)
                 && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
@@ -2271,8 +2272,24 @@ public final class EvoTest {
                 "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3(캡 12) · 최소일감 2 · 예비 6",
                 gate ? "정상" : "어긋남");
 
-        report.add("farm/지대비용", acct, "0.75→0.525/0.225(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",
+        report.add("farm/지대비용", acct, "FEE 0.6: 0.75→0.30/0.45(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",
                 acct ? "정상" : "어긋남");
+
+        // 7) 봉건 집중 — 개간 생산성 게이트(P1)·성숙 트리거·식량 상속(P4)
+        boolean feud = !FarmEconomy.canFound(man)  // 무특성 남 G=0.75 < 0.95 → 확장만
+                && FarmEconomy.canFound(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)))  // Ⅲ G=0.975
+                && !FarmEconomy.canFound(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 2))) // Ⅱ G=0.90
+                && !FarmEconomy.canFound(one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))) // 여 G=0.375
+                && close(FarmEconomy.FEE, 0.6) && FarmEconomy.MATURE_TILES == 24
+                // 식량 상속: 저장고 30, 타 자식 2명 → 상속인 20(⌊30×2/3⌋)·각 5·잔여 0 (합=30)
+                && Inheritance.split(30.0, 2).heir() == 20
+                && Inheritance.split(30.0, 2).perOther() == 5
+                && Inheritance.split(30.0, 2).remainder() == 0
+                && Inheritance.split(30.0, 2).total(2) == 30
+                && Inheritance.split(10.0, 0).heir() == 10;   // 단독 상속인 전액
+        report.add("farm/봉건집중", feud,
+                "개간 G≥0.95(무특성✗·약초Ⅲ✓·여✗) · FEE 0.6 · 성숙 24 · 상속 30→20/5/5·잔0",
+                feud ? "정상" : "어긋남");
 
         // 5) 지대 재투자(R1) — 소작 구획 확장 자금 = 밭 계정: floor(계정/타일당 2.0), 음수 0.
         //    소작 1인 지대 ≈2.7/일 → 매일 1타일(2.7→1) — 소작 루프 v2 성장률의 근거.

@@ -11,6 +11,7 @@ import com.evosim.core.Famine;
 import com.evosim.core.FoodEconomy;
 import com.evosim.core.HomeResolution;
 import com.evosim.core.Genetics;
+import com.evosim.core.Inheritance;
 import com.evosim.core.Individual;
 import com.evosim.core.Kinship;
 import com.evosim.core.LifeStage;
@@ -1265,6 +1266,78 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
+    /**
+     * 식량 상속(P4) — 해체 가구 저장고를 분가 자식(자기 거처 보유·생존)에게 분배. 상속인은
+     * <b>장남→장녀</b>(분가 자식 한정 — 받을 거처가 있어야 함), 몫은 {@link Inheritance}(2/3).
+     * 자식이 없으면 전액 폐가 유산(현 흐름). 잔여(내림 오차)는 폐가에 남아 재사용 가구가 계승.
+     */
+    /** 분가 자식 조회(super.remove 전) — 자기 거처 보유·생존·이 가구 밖의 친자. 식량 상속 수령인. */
+    private java.util.List<MimicEntity> collectFoundedChildren(ServerLevel sl, BlockPos home) {
+        java.util.List<MimicEntity> kids = new java.util.ArrayList<>();
+        if (individual == null || home == null) {
+            return kids;
+        }
+        for (MimicEntity m : sl.getEntities(ModEntities.MIMIC.get(),
+                e -> e != this && e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && !home.equals(e.getHomePos()))) {
+            var ind = m.getIndividual();
+            if (ind.parentAId() == individual.id() || ind.parentBId() == individual.id()) {
+                kids.add(m);
+            }
+        }
+        return kids;
+    }
+
+    private void distributeInheritanceFood(ServerLevel sl, BlockPos home,
+                                           java.util.List<MimicEntity> kids) {
+        if (individual == null || kids == null) {
+            return;
+        }
+        double larder = LarderStore.get(sl).get(home);
+        if (larder < 1.0) {
+            return;
+        }
+        kids = new java.util.ArrayList<>(kids);
+        kids.removeIf(m -> !m.isAlive() || m.getHomePos() == null); // 사전 포착 후 사망 방어
+        if (kids.isEmpty()) {
+            return; // 상속 자식 없음 — 저장고는 폐가 유산으로 남김
+        }
+        FamilyLedger ledger = FamilyLedger.get(sl);
+        MimicEntity heir = null;
+        MimicEntity daughter = null;
+        long sonBorn = Long.MAX_VALUE;
+        long dauBorn = Long.MAX_VALUE;
+        for (MimicEntity m : kids) {
+            FamilyLedger.Rec r = ledger.get(m.getIndividual().id());
+            long born = r == null ? Long.MAX_VALUE : r.bornDay;
+            if (!m.isFemale()) {
+                if (heir == null || born < sonBorn) { // 최초 아들 무조건(bornDay MAX 동률 방어)
+                    sonBorn = born;
+                    heir = m;
+                }
+            } else if (daughter == null || born < dauBorn) {
+                dauBorn = born;
+                daughter = m;
+            }
+        }
+        if (heir == null) {
+            heir = daughter; // 아들 없음 → 장녀
+        }
+        int otherCount = kids.size() - 1;
+        Inheritance.Split split = Inheritance.split(larder, otherCount);
+        LarderStore ls = LarderStore.get(sl);
+        ls.set(heir.getHomePos(), ls.get(heir.getHomePos()) + split.heir());
+        for (MimicEntity m : kids) {
+            if (m != heir) {
+                ls.set(m.getHomePos(), ls.get(m.getHomePos()) + split.perOther());
+            }
+        }
+        ls.set(home, split.remainder()); // 폐가 잔여
+        SimEvents.event(heir, "유산", String.format(
+                "%s 상속 +%d (형제 %d명 각 +%d, 부모 %s 유산)", heir.getIndividual().shortName(),
+                split.heir(), otherCount, split.perOther(), individual.shortName()));
+    }
+
     private static final int MAX_FLATTEN = 16; // 메움·파냄 최대 깊이(협곡 폭주 방지)
     private static final net.minecraft.world.level.levelgen.Heightmap.Types SURFACE_MAP =
             net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
@@ -1784,15 +1857,26 @@ public class MimicEntity extends PathfinderMob {
         BlockPos home = homePos;
         byte facing = homeFacing;
         boolean destroy = reason.shouldDestroy();
+        // 사전 포착(super.remove 전) — 상속인·분가 자식을 제거 <b>이전</b>에 조회한다. 제거 콜백
+        // 도중의 getEntities 는 자식을 놓쳐 heir null(무주지화)·분배 실패를 일으키던 잠복 버그.
+        MimicEntity preHeir = null;
+        java.util.List<MimicEntity> preKids = null;
+        if (destroy && individual != null && level() instanceof ServerLevel pre) {
+            preHeir = FarmStore.selectHeir(pre, individual.id(), spouseId);
+            preKids = collectFoundedChildren(pre, home);
+        }
         super.remove(reason);
         if (destroy && individual != null && level() instanceof ServerLevel sld) {
             // 혈통 원장 사망 마킹 — 전투사·아사·노년 소멸 전부 이 경로(청크 언로드는 destroy 아님).
             // 무대 개체는 등록이 없어 markDead 가 무시한다.
             FamilyLedger.get(sld).markDead(individual.id(), level().getGameTime() / 24000L);
-            // 밭 상속(M6) — 장자→배우자→무주지. 소유가 없으면 inherit 가 즉시 반환.
-            FarmStore.get(sld).inherit(sld, individual.id(), spouseId);
+            // 밭 상속(M6·P3) — 사전 포착 상속인(장남→장녀→배우자)에게. 소유 없으면 즉시 반환.
+            FarmStore.get(sld).inheritTo(sld, preHeir, individual.id());
         }
         if (destroy && home != null && level() instanceof ServerLevel sl && !anyResidentAt(sl, home)) {
+            // 식량 상속(P4) — 가구 해체(거주자 0): 저장고를 사전 포착 분가 자식에게 분배.
+            //   상속인(장남→장녀) 2/3, 나머지 균등, 잔여는 폐가 유산(현 흐름 유지).
+            distributeInheritanceFood(sl, home, preKids);
             BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(facing));
             var st = sl.getBlockState(hp);
             if (st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT)) {

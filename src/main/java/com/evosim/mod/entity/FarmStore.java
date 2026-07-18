@@ -130,7 +130,54 @@ public class FarmStore extends SavedData {
      * 최후순위) → 배우자 → 무주지 순으로 승계. 상시 소작 관계는 밭(plotId)에 붙어 있어 자동
      * 승계되고, 상속인 본인이 그 밭의 소작이었다면 해소(자기 소작 역설 — 계획 허점 6).
      */
+    /**
+     * 상속인 선정 (봉건 집중 P3) — <b>장남(생존 아들 중 bornDay 최소) → 없으면 장녀 → 배우자</b>.
+     * 밭·식량 상속이 같은 상속인을 쓰도록 공용화. 원장 없는 무대 개체는 최후순위(bornDay MAX).
+     */
+    public static MimicEntity selectHeir(ServerLevel level, long deadId, long spouseId) {
+        FamilyLedger ledger = FamilyLedger.get(level);
+        MimicEntity son = null;
+        MimicEntity daughter = null;
+        long sonBorn = Long.MAX_VALUE;
+        long dauBorn = Long.MAX_VALUE;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            var ind = m.getIndividual();
+            if (ind.parentAId() != deadId && ind.parentBId() != deadId) {
+                continue;
+            }
+            FamilyLedger.Rec r = ledger.get(ind.id());
+            long born = r == null ? Long.MAX_VALUE : r.bornDay;
+            if (!m.isFemale()) {
+                if (son == null || born < sonBorn) { // 최초 후보는 무조건(bornDay MAX 동률 방어)
+                    sonBorn = born;
+                    son = m;
+                }
+            } else if (daughter == null || born < dauBorn) {
+                dauBorn = born;
+                daughter = m;
+            }
+        }
+        MimicEntity heir = son != null ? son : daughter; // 장남 우선, 없으면 장녀
+        if (heir == null && spouseId != 0L) {
+            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null
+                            && e.getIndividual().id() == spouseId)) {
+                heir = m;
+            }
+        }
+        return heir;
+    }
+
     public void inherit(ServerLevel level, long deadId, long spouseId) {
+        inheritTo(level, selectHeir(level, deadId, spouseId), deadId);
+    }
+
+    /**
+     * 밭 상속 적용 — 사전 포착한 상속인(heir)에게 사망자 전 구획을 넘긴다. 상속인은 사망 콜백
+     * <b>이전</b>에 조회해야 한다(제거 도중 getEntities가 자식을 놓치는 잠복 버그 — heir null → 무주지화).
+     */
+    public void inheritTo(ServerLevel level, MimicEntity heir, long deadId) {
         java.util.List<Plot> owned = new java.util.ArrayList<>();
         for (Plot p : plots.values()) {
             if (p.ownerId == deadId) {
@@ -139,28 +186,6 @@ public class FarmStore extends SavedData {
         }
         if (owned.isEmpty()) {
             return;
-        }
-        FamilyLedger ledger = FamilyLedger.get(level);
-        MimicEntity heir = null;
-        long bestBorn = Long.MAX_VALUE;
-        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getIndividual() != null)) {
-            var ind = m.getIndividual();
-            if (ind.parentAId() == deadId || ind.parentBId() == deadId) {
-                FamilyLedger.Rec r = ledger.get(ind.id());
-                long born = r == null ? Long.MAX_VALUE : r.bornDay; // 원장 없음(무대) = 최후순위
-                if (heir == null || born < bestBorn) {
-                    heir = m;
-                    bestBorn = born;
-                }
-            }
-        }
-        if (heir == null && spouseId != 0L) {
-            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                    e -> e.isAlive() && e.getIndividual() != null
-                            && e.getIndividual().id() == spouseId)) {
-                heir = m;
-            }
         }
         for (Plot p : owned) {
             if (heir != null) {

@@ -125,6 +125,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("fixx").executes(EvoSimCommand::stageFixX))
                 .then(Commands.literal("feudx").executes(EvoSimCommand::stageFeudX))
                 .then(Commands.literal("spreadx").executes(EvoSimCommand::stageSpreadX))
+                .then(Commands.literal("farmfocus").executes(EvoSimCommand::stageFarmFocus))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -3550,6 +3551,135 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "밭 확산·지수 합본 검증(2단계) — 통근 해제(원거리 배정) / 부지 확산. "
                 + "지수 캡 30은 evotest farm 이 대조. 서버 결과값 판정.");
+        return 1;
+    }
+
+    /**
+     * 농사 집중 게이트 검증(farmfocus) — 밭 익은 채 방치하고 채집 나가던 결함의 수정.
+     * ① 지주 집중: 밭 보유 provider + 저장고 넉넉이면 채집 goal 발동 안 함(밭에 매임).
+     * ② 안전판: 같은 지주라도 저장고가 넉넉선(12) 미만이면 채집 재개(생계).
+     * ③ 기준선: 밭 없는 provider는 종전대로 채집(무밭 자급 경로 불변).
+     * canUse 를 직접 관측(debugForageWouldRun) — 네비 무관 결정론 판정. 종전 코드면 ①이 true 로 실패.
+     */
+    private static int stageFarmFocus(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 지주 집중 — 밭 보유 + 저장고 40(>넉넉선 12) → 채집 억제
+        {
+            BlockPos home = groundAt(level, b, 6, 6);
+            BlockPos anchor = groundAt(level, b, 11, 6);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farmfocus_owner_suppressed",
+                    "farm-owning provider with comfortable larder does NOT forage (farm focus)", 200, false,
+                () -> {
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                    c[0].debugSettleWithTent(home, Direction.NORTH);
+                    LarderStore.get(level).set(home, 40.0);
+                    pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 9);
+                    level.setDayTime(2000L);
+                },
+                () -> {
+                    level.setDayTime(2000L);
+                    c[0].debugSetHolding(5.0);
+                    c[0].debugRefreshOwnsFarm(level);
+                    return String.format("owns=%s comfy=%s crit=%s forageRun=%s",
+                            c[0].ownsFarm(), c[0].larderComfortable(), c[0].isCritical(),
+                            c[0].debugForageWouldRun());
+                },
+                () -> {
+                    level.setDayTime(2000L);
+                    c[0].debugSetHolding(5.0);
+                    c[0].debugRefreshOwnsFarm(level);
+                    return c[0].ownsFarm() && c[0].larderComfortable() && !c[0].isCritical()
+                            && !c[0].debugForageWouldRun();
+                },
+                () -> {
+                    discard(c);
+                    farmClearPlot(level, pl[0]);
+                }));
+        }
+        // [2] 안전판 — 같은 지주, 저장고 4(<넉넉선 12), 위급 아님 → 채집 재개
+        {
+            BlockPos home = groundAt(level, b, 6, -8);
+            BlockPos anchor = groundAt(level, b, 11, -8);
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            steps.add(new VerifySuite.Step("farmfocus_hungry_forages",
+                    "same owner with larder below comfort DOES forage (survival safety)", 200, false,
+                () -> {
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                    c[0].debugSettleWithTent(home, Direction.NORTH);
+                    LarderStore.get(level).set(home, 4.0);
+                    pl[0] = buildDemoPlot(level, anchor, c[0].getIndividual().id(), 9);
+                    level.setDayTime(2000L);
+                },
+                () -> {
+                    level.setDayTime(2000L);
+                    c[0].debugSetHolding(5.0);
+                    c[0].debugRefreshOwnsFarm(level);
+                    return String.format("owns=%s comfy=%s crit=%s forageRun=%s",
+                            c[0].ownsFarm(), c[0].larderComfortable(), c[0].isCritical(),
+                            c[0].debugForageWouldRun());
+                },
+                () -> {
+                    level.setDayTime(2000L);
+                    c[0].debugSetHolding(5.0);
+                    c[0].debugRefreshOwnsFarm(level);
+                    return c[0].ownsFarm() && !c[0].larderComfortable() && !c[0].isCritical()
+                            && c[0].debugForageWouldRun();
+                },
+                () -> {
+                    discard(c);
+                    farmClearPlot(level, pl[0]);
+                }));
+        }
+        // [3] 기준선 — 밭 없는 provider + 저장고 넉넉 → 종전대로 채집(불변)
+        {
+            BlockPos home = groundAt(level, b, -8, 6);
+            MimicEntity[] c = new MimicEntity[1];
+            steps.add(new VerifySuite.Step("farmfocus_landless_forages",
+                    "landless provider still forages when comfortable (baseline unchanged)", 200, false,
+                () -> {
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE);
+                    c[0].debugSettleWithTent(home, Direction.NORTH);
+                    LarderStore.get(level).set(home, 40.0);
+                    level.setDayTime(2000L);
+                },
+                () -> {
+                    level.setDayTime(2000L);
+                    c[0].debugSetHolding(5.0);
+                    c[0].debugRefreshOwnsFarm(level);
+                    return String.format("owns=%s comfy=%s forageRun=%s",
+                            c[0].ownsFarm(), c[0].larderComfortable(), c[0].debugForageWouldRun());
+                },
+                () -> {
+                    level.setDayTime(2000L);
+                    c[0].debugSetHolding(5.0);
+                    c[0].debugRefreshOwnsFarm(level);
+                    return !c[0].ownsFarm() && c[0].larderComfortable() && c[0].debugForageWouldRun();
+                },
+                () -> discard(c)));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "농사 집중 게이트 검증(3단계) — 지주+넉넉→채집 억제 / 지주+궁핍→채집(안전판) "
+                + "/ 무밭→채집(불변). canUse 직접 판정.");
         return 1;
     }
 

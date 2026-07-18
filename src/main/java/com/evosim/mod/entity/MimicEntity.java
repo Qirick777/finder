@@ -192,6 +192,7 @@ public class MimicEntity extends PathfinderMob {
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
     private double cachedFamilyNeed = 6.0;      // 가족틱이 갱신하는 가족 하루소모 캐시(goal용)
     private boolean cachedProvider = true;      // 가족틱이 갱신하는 제공자 역할 캐시(R4)
+    private boolean cachedOwnsFarm = false;     // 가족틱이 갱신하는 밭 보유 캐시(농사 집중 게이트)
     private int cachedMaternal = 0;             // 어미 모성애 캐시(+1 강함/−1 없음) — 자식 허기·성장에 적용
     private double dayGathered = 0.0;           // 오늘 채집 누적(노년 쿼터 판정 — 휘발)
     private long gatherDay = -1L;               // dayGathered 의 날짜(바뀌면 리셋)
@@ -2218,6 +2219,11 @@ public class MimicEntity extends PathfinderMob {
             m.lastFed = !m.isCritical();
             m.cachedFamilyNeed = need;
             m.cachedProvider = (m == father) || (father == null && m.getStage() == LifeStage.ADULT);
+            // 밭 보유(자기 or 배우자) — 농사 집중 게이트용. 자기 밭이 있으면 채집으로 이탈하지 않고
+            // 밭에 매인다(채집 goal 이 매 틱 밭 원장을 스캔하지 않도록 여기서 캐시).
+            FarmStore fs = FarmStore.get(sl);
+            m.cachedOwnsFarm = m.getIndividual() != null && (fs.owns(m.getIndividual().id())
+                    || (m.spouseId != 0L && fs.owns(m.spouseId)));
             // 모성애 축은 각 자식의 <b>친어미</b>(부모 링크 PA/PB)로 판정 — 명단 첫 성년 여성 추측은
             // 성년 딸·(일부다처의) 다른 부인 특성이 남의 자식에게 적용되는 오류였다.
             m.cachedMaternal = (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)
@@ -2563,6 +2569,18 @@ public class MimicEntity extends PathfinderMob {
     /** 채집 goal 내부 상태(표적·쿨타임) — 검증 무대 progress 전용. */
     public String forageDebug() {
         return forageGoalRef == null ? "-" : forageGoalRef.debugState();
+    }
+
+    /** 검증 전용 — 지금 채집 goal 이 발동 조건을 만족하는가(농사 집중 게이트 판정 관측). */
+    public boolean debugForageWouldRun() {
+        return forageGoalRef != null && forageGoalRef.canUse();
+    }
+
+    /** 검증 전용 — 밭 보유 캐시를 즉시 재계산(가족틱 대기 없이 게이트 관측). */
+    public void debugRefreshOwnsFarm(ServerLevel sl) {
+        FarmStore fs = FarmStore.get(sl);
+        cachedOwnsFarm = individual != null
+                && (fs.owns(individual.id()) || (spouseId != 0L && fs.owns(spouseId)));
     }
 
     /** 실행 중 최우선(낮은 번호) goal 의 한글 라벨 — 렌즈 카드 '행동' 라인(P1). 이동/전투류만. */
@@ -3211,6 +3229,11 @@ public class MimicEntity extends PathfinderMob {
     /** 제공자 역할(가족틱이 갱신) — 남편 또는 성년 홀로 가장. R4에서 항상 채집. */
     public boolean isProviderRole() {
         return cachedProvider;
+    }
+
+    /** 밭 보유(자기 or 배우자, 가족틱이 갱신) — 농사 집중 게이트: 채집으로 이탈하지 않는 조건. */
+    public boolean ownsFarm() {
+        return cachedOwnsFarm;
     }
 
     /** 귀가 도착 시 즉석 입출금 — 가족틱(1200틱)을 기다리지 않고 순수 settleHome을 자신 1인으로. */

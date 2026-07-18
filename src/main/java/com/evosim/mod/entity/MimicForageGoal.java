@@ -106,6 +106,14 @@ public class MimicForageGoal extends Goal {
             return phase == Schedule.Phase.WORK && tod < Elder.WORK_END && !mob.elderQuotaMet();
         }
         if (phase == Schedule.Phase.WORK) {
+            // 농사 집중(수렵채집→농사 전환) — 자기(배우자) 밭을 가진 provider 는 저장고가 넉넉하면
+            // 채집으로 이탈하지 않는다: 밭 익은 타일은 MimicFarmGoal(우선순위 6)이 하루 용량까지
+            // 수확하고, 초과분(익은 backlog)은 소작 고용으로 넘긴다. 즉 밭 수입(자가 수확 7.8/일 +
+            // 지대)이 채집(9.0/일)을 대체 — 소작을 들일수록 지주로 굳는다. 넉넉선 미만이면(대가족·
+            // 흉작) 채집 보충 허용(생계 안전판) — 이때도 밭 goal 이 익은 타일을 먼저 가져간다.
+            if (mob.ownsFarm() && mob.larderComfortable()) {
+                return false;
+            }
             return mob.isProviderRole() || !mob.larderComfortable(); // R4: 넉넉하면 비제공자는 쉼
         }
         if (phase == Schedule.Phase.WANDER) {

@@ -184,6 +184,19 @@ public class FarmStore extends SavedData {
         setDirty();
     }
 
+    /** 이 개체가 밭을 하나라도 소유하는가 — 조기 종료(ownedCount 전수보다 싸다, goal 캐시 갱신용). */
+    public boolean owns(long ownerId) {
+        if (ownerId == 0L) {
+            return false;
+        }
+        for (Plot p2 : plots.values()) {
+            if (p2.ownerId == ownerId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 소유 구획 수(신규 밭 체증 비용 입력). */
     public int ownedCount(long ownerId) {
         int n = 0;

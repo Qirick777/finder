@@ -30,7 +30,9 @@ import java.util.Set;
 public final class GardenTicker {
 
     private static final int SCAN_INTERVAL = 200;
-    private static final int STAGE_TICKS = 6827; // 바닐라 기대: 4096/3 × 5
+    private static final int STAGE_TICKS = 3840; // 기준 월드 실측 재현: 그루당 3.125회/일 =
+    // 주기 7680틱(2스테이지). 바닐라 이론치(6827)로는 실측(3.1회/그루/일)의 57%에 그쳐
+    // 정원 5.0/가구 캘리브레이션이 깨졌다(시도3 실측: 2.5/가구 → 개간·굶주림 관문 연쇄 실패).
     private static final int HOME_RADIUS = 8;    // 정원 탐색 반경(거처 기준)
 
     private GardenTicker() {

@@ -57,6 +57,7 @@ public final class NightSkipTicker {
         long delta = 24000L - tod + WAKE_FIRST;
         level.setDayTime(level.getDayTime() + delta);
         SimTime.addSkip(level, delta);
+        GardenTicker.catchUp(level, delta); // 스킵된 밤에도 정원은 자란 것으로(유인 월드 등가)
         com.evosim.mod.log.SimEvents.note(level, "밤스킵", String.format(
                 "tod %d → 기상(+%d틱, 누적 오프셋 %d)", tod, delta, SimTime.offset()));
     }

@@ -2251,11 +2251,14 @@ public final class EvoTest {
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)
                 && FarmEconomy.EXPAND_COST <= FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
-        // 4) 관리 효율(하드캡 폐지 — 수치 유도): 용량 8+6g, E=min(1,C/T)² — 초과분 제곱 감쇠로
-        //    지대가 말라 자연 정체. 무능력 ~12타일 / Ⅲ 30대 중반(소지주) / Ⅴ 다밭 분할(무손실).
+        // 4) 관리 효율(총량 기준 — 수치 유도): 용량 8+g³(무능력 8·Ⅱ16·Ⅲ35·Ⅳ72·Ⅴ133),
+        //    E=min(1,C/총소유타일)² — 준엘리트는 다밭 가능하되 총량 묶임(소지주 35), 엘리트만
+        //    총 133(다밭 대지주·100명 의존권). 미러 순서 = 공간 적응(막힌 칸 방향 전환).
         boolean gate = FarmEconomy.manageCapacity(man) == 8
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3))) == 26
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.COOK, 5))) == 38
+                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 2))) == 16
+                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3))) == 35
+                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 4))) == 72
+                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.COOK, 5))) == 133
                 // 사냥 계열(도축Ⅴ)은 관리 능력이 아님 — 용량 기본치
                 && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))) == 8
                 && close(FarmEconomy.manageEfficiency(man, 14), 64.0 / 196.0)          // 0.327
@@ -2263,18 +2266,20 @@ public final class EvoTest {
                 && close(FarmEconomy.manageEfficiency(
                         one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)), 24), 1.0)
                 && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)), 35), 676.0 / 1225.0) // 0.552
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)), 50), 0.49)   // (35/50)²
                 && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 38), 1.0)
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 133), 1.0)
                 && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 76), 0.25)
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 266), 0.25)
+                && java.util.Arrays.deepEquals(FarmLayout.mirrors(2, 1),
+                        new int[][] {{2, 1}, {-2, 1}, {2, -1}, {-2, -1}})
                 && FarmEconomy.EXPAND_PER_DAY == 3
                 // 소작 비례 확장 3×(1+상시소작)의 구획 캡 12→30(B3 지수 확장 — 자금·소작이 자연 한계)
                 && FarmEconomy.EXPAND_DAY_MAX == 30
                 && FarmEconomy.MIN_JOB == 2
                 && close(FarmEconomy.INVEST_RESERVE, 12.0);
         report.add("farm/관리효율", gate,
-                "용량 8/26/38(도축 제외) · E: 무능력14→0.33·Ⅲ24→1·Ⅲ35→0.55·Ⅴ76→0.25 · 확장3(캡30)·일감2·예비12",
+                "용량 8+g³(8/16/35/72/133·도축 제외) · E: 무능력14→0.33·Ⅲ50→0.49·Ⅴ266→0.25 · 미러4방 · 확장3(캡30)·예비12",
                 gate ? "정상" : "어긋남");
 
         report.add("farm/지대비용", acct, "FEE 0.45: 0.75→0.4125/0.3375(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",

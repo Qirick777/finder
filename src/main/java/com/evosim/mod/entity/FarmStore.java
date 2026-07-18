@@ -29,6 +29,7 @@ public class FarmStore extends SavedData {
         public long[] tiles = new long[0];
         public long[] planted = new long[0];
         public double account = 0.0;
+        public int blockedDays = 0; // 자금·노동 있는데 배치 0칸이던 연속 일수 — 2일이면 성숙 간주(공간 포화)
 
         // ── 밭 원장(봉건 집중 P3) — 관측 전용 누계. 시뮬 결정에는 관여하지 않음(땅 문서 GUI 표시원). ──
         public long founderId;         // 최초 개간자 개체 id(상속·선점으로 ownerId가 바뀌어도 고정)
@@ -197,6 +198,17 @@ public class FarmStore extends SavedData {
         return false;
     }
 
+    /** 총소유타일(전 구획 합) — 관리 효율 E의 분모(총량 기준 감쇠). */
+    public int ownedTiles(long ownerId) {
+        int n = 0;
+        for (Plot p2 : plots.values()) {
+            if (p2.ownerId == ownerId) {
+                n += p2.tiles.length;
+            }
+        }
+        return n;
+    }
+
     /** 소유 구획 수(신규 밭 체증 비용 입력). */
     public int ownedCount(long ownerId) {
         int n = 0;
@@ -319,6 +331,7 @@ public class FarmStore extends SavedData {
             p.totalToOwner = c.getDouble("TTO");
             p.totalToTenant = c.getDouble("TTT");
             p.harvestCount = c.getInt("HC");
+            p.blockedDays = c.getInt("BlkD");
             p.expandDay = c.getLongArray("ExD");
             p.expandBy = c.getLongArray("ExB");
             p.expandTiles = c.getIntArray("ExT");
@@ -355,6 +368,7 @@ public class FarmStore extends SavedData {
             c.putDouble("TTO", p.totalToOwner);
             c.putDouble("TTT", p.totalToTenant);
             c.putInt("HC", p.harvestCount);
+            c.putInt("BlkD", p.blockedDays);
             c.putLongArray("ExD", p.expandDay);
             c.putLongArray("ExB", p.expandBy);
             c.putIntArray("ExT", p.expandTiles);

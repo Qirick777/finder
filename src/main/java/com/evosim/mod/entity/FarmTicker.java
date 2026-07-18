@@ -160,11 +160,10 @@ public final class FarmTicker {
             var seq = com.evosim.core.FarmLayout.layout(plot.tiles.length + k);
             int placed = 0;
             for (int i = plot.tiles.length; i < seq.size(); i++) {
-                BlockPos gp = level.getHeightmapPos(
-                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        plot.anchor.offset(seq.get(i)[0], 0, seq.get(i)[1] * 2));
-                if (!level.isLoaded(gp)) {
-                    continue;
+                BlockPos gp = adaptiveSpot(level, store, plot.anchor,
+                        seq.get(i)[0], seq.get(i)[1]);
+                if (gp == null) {
+                    continue; // 4방 전부 막힘 — 이 칸 스킵(비용 미지불)
                 }
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
@@ -173,6 +172,15 @@ public final class FarmTicker {
                                 .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
                 store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
                 placed++;
+            }
+            // 공간 포화 감지 — 자금·노동은 있었는데 한 칸도 못 심음. 2일 연속이면 성숙 간주(막힌
+            // 밭도 다음 밭을 연다 — 교착 방지). 심었으면 리셋.
+            if (placed == 0) {
+                plot.blockedDays++;
+                store.setDirty();
+            } else if (plot.blockedDays != 0) {
+                plot.blockedDays = 0;
+                store.setDirty();
             }
             if (placed > 0) {
                 // 지불: 밭 계정 먼저 소진, 잔여는 주인 저장고 — 회계 합 = placed × EXPAND_COST.
@@ -273,14 +281,20 @@ public final class FarmTicker {
                 // "직접 일구기 벅찬 규모에 도달 → 소작에 넘기고 새 밭 개간"의 수치화.
                 long newest = store.newestOwnedPlot(m.getIndividual().id());
                 FarmStore.Plot np = store.get(newest);
-                boolean mature = np != null && np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES;
+                if (np == null) {
+                    continue;
+                }
                 int permTenants = 0;
                 for (MimicEntity t : adults) {
                     if (t.getTenantFarm() == newest) {
                         permTenants++;
                     }
                 }
-                if (!mature || permTenants < 1) {
+                // 성숙 = (24타일 + 상시소작 인계) OR 공간 포화(2일 연속 배치 0 — 막힌 밭 교착 방지)
+                boolean sizeMature = np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES
+                        && permTenants >= 1;
+                boolean blockedMature = np.blockedDays >= 2;
+                if (!sizeMature && !blockedMature) {
                     continue;
                 }
             }
@@ -292,9 +306,10 @@ public final class FarmTicker {
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
             for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
-                BlockPos gp = level.getHeightmapPos(
-                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        site.offset(t[0], 0, t[1] * 2));
+                BlockPos gp = adaptiveSpot(level, store, site, t[0], t[1]);
+                if (gp == null) {
+                    continue; // 막힌 칸 스킵 — 착공 부지는 findFarmSite가 회피해 대개 전부 성립
+                }
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
                 level.setBlockAndUpdate(gp,
@@ -322,6 +337,33 @@ public final class FarmTicker {
                 store.debugRemove(p.id); // 등록·타일 색인 소거(멱등 정리 경로 재사용)
             }
         }
+    }
+
+    /**
+     * 공간 적응 배치(v1) — 수열 칸 (c,r)의 4방 미러([기본, 좌우반전, 상하반전, 대각]) 중 첫
+     * 설치 가능 지점. 설치 가능 = 그 자리 블록이 자연 대체물(공기·풀·꽃)이고 밭 타일이 아니며
+     * 발밑이 자연 지반(잔디/흙) — 천막 지붕·구조물 위 설치를 차단한다. 전부 막히면 null(스킵).
+     */
+    private static BlockPos adaptiveSpot(ServerLevel level, FarmStore store, BlockPos anchor,
+                                         int c, int r) {
+        for (int[] m : com.evosim.core.FarmLayout.mirrors(c, r)) {
+            BlockPos gp = level.getHeightmapPos(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    anchor.offset(m[0], 0, m[1] * 2));
+            if (!level.isLoaded(gp) || store.isFarmTile(gp)) {
+                continue;
+            }
+            var at = level.getBlockState(gp);
+            var below = level.getBlockState(gp.below());
+            boolean natural = at.isAir() || at.canBeReplaced();
+            boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                    || below.is(net.minecraft.world.level.block.Blocks.DIRT)
+                    || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT);
+            if (natural && ground) {
+                return gp;
+            }
+        }
+        return null;
     }
 
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */

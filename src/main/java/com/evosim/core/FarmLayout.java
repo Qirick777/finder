@@ -53,6 +53,14 @@ public final class FarmLayout {
         return out;
     }
 
+    /**
+     * 막힌 칸의 대체 방향 순서(공간 적응 v1) — 기본(우·하) → 좌우반전(우 막히면 좌) →
+     * 상하반전(하단 막히면 상단) → 대각. 첫 설치 가능 후보를 쓰고 전부 막히면 그 칸 스킵.
+     */
+    public static int[][] mirrors(int c, int r) {
+        return new int[][] {{c, r}, {-c, r}, {c, -r}, {-c, -r}};
+    }
+
     /** n타일 밭의 발자국 (가로, 세로 — 고랑 포함 월드 칸수). */
     public static int[] footprint(int n) {
         int maxC = 0;

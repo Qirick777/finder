@@ -124,6 +124,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("fixhomes").executes(EvoSimCommand::fixHomes))
                 .then(Commands.literal("fixx").executes(EvoSimCommand::stageFixX))
                 .then(Commands.literal("feudx").executes(EvoSimCommand::stageFeudX))
+                .then(Commands.literal("spreadx").executes(EvoSimCommand::stageSpreadX))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -3380,6 +3381,106 @@ public final class EvoSimCommand {
         VerifySuite.start(ctx.getSource(), steps);
         tell(ctx.getSource(), "봉건 집중 합본 검증(4단계) — 무특성 개간 금지 / 능력자 개간 / "
                 + "장남 우선 상속 / 식량 2/3 분배. 전부 서버 결과값 판정.");
+        return 1;
+    }
+
+    /**
+     * 밭 확산·지수 합본 검증(spreadx) — ① 통근 해제: 60블록 밖 무밭 성인도 배정된다(종전 48 컷이면
+     * 배정 불가) ② 부지 확산: 근거리가 밭으로 다 찬 지주도 바깥 반경에 새 밭을 연다 ③ 지수 캡:
+     * EXPAND_DAY_MAX 30. 전부 서버 결과값 판정.
+     */
+    private static int stageSpreadX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "이미 검증이 진행 중 — 끝난 뒤 다시 실행.");
+            return 0;
+        }
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        LiveCheck.cancelAll();
+        List<VerifySuite.Step> steps = new ArrayList<>();
+        // [1] 통근 해제 — 밭 앵커에서 60블록(종전 상한 48 초과) 무밭 성인이 배정된다.
+        {
+            BlockPos anchor = groundAt(level, b, 40, 40);
+            BlockPos whome = groundAt(level, b, -22, 40); // 밭에서 62블록(>48)
+            MimicEntity[] c = new MimicEntity[1];
+            FarmStore.Plot[] pl = new FarmStore.Plot[1];
+            boolean[] fired = new boolean[1];
+            steps.add(new VerifySuite.Step("spreadx_far_assign",
+                    "landless adult 62 blocks away IS assigned (commute cap removed)", 400, false, () -> {
+                FarmTicker.clearAssignments();
+                for (FarmStore.Plot p : new java.util.ArrayList<>(FarmStore.get(level).all().values())) {
+                    farmClearPlot(level, p); // 이전 런 잔재 구획 청소(유일 구획 보장)
+                }
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(whome), Sex.MALE);
+                c[0].debugSettleWithTent(whome, Direction.NORTH);
+                LarderStore.get(level).set(whome, 2.0);
+                pl[0] = buildDemoPlot(level, anchor, 999999999L, 35); // 부재지주 대형밭 — 전량 게시
+                level.setDayTime(1200L);
+            }, () -> {
+                FarmTicker.debugAssign(level);
+                boolean indexed = !level.getEntities(ModEntities.MIMIC.get(),
+                        e -> e == c[0]).isEmpty();
+                return String.format("assignedPlot %d(want %d) dist %.0f idx=%s sat=%s plots=%d",
+                        FarmTicker.assignedPlot(c[0].getId()), pl[0].id,
+                        Math.sqrt(c[0].blockPosition().distSqr(anchor)), indexed,
+                        c[0].isSatisfiedToday(), FarmStore.get(level).all().size());
+            },
+                    () -> {
+                        FarmTicker.debugAssign(level);
+                        return FarmTicker.assignedPlot(c[0].getId()) == pl[0].id;
+                    },
+                    () -> {
+                        discard(c);
+                        farmClearPlot(level, pl[0]);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        // [2] 부지 확산 — 지주 집 반경 20이 기존 밭으로 포화 → 신규 개간이 40~60 반경에 성립.
+        {
+            BlockPos home = groundAt(level, b, -12, -40);
+            MimicEntity[] c = new MimicEntity[1];
+            long[] oid = new long[1];
+            FarmStore.Plot[] blockers = new FarmStore.Plot[8];
+            steps.add(new VerifySuite.Step("spreadx_site",
+                    "near ring full: skilled owner founds at outer radius (2nd plot appears)", 600, false, () -> {
+                FarmTicker.clearAssignments();
+                for (FarmStore.Plot p : new java.util.ArrayList<>(FarmStore.get(level).all().values())) {
+                    farmClearPlot(level, p); // 잔재 청소
+                }
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.GREEDY, Trait.HERBALIST);
+                c[0].debugSettleWithTent(home, Direction.NORTH);
+                oid[0] = c[0].getIndividual().id();
+                LarderStore.get(level).set(home, 30.0);
+                // 반경 20 8방향을 더미 밭으로 채워 근거리 부지 고갈 → 확산 반경 강제
+                for (int d = 0; d < 8; d++) {
+                    double ang = d * Math.PI / 4.0;
+                    BlockPos c2 = home.offset((int) Math.round(Math.cos(ang) * 20), 0,
+                            (int) Math.round(Math.sin(ang) * 20));
+                    blockers[d] = buildDemoPlot(level, groundAt(level,
+                            Vec3.atBottomCenterOf(c2), 0, 0), 888888800L + d, 1);
+                }
+                level.setDayTime(13500L);
+            }, () -> {
+                FarmTicker.debugGrow(level);
+                return String.format("owned %d(expect 1 at outer radius)",
+                        FarmStore.get(level).ownedCount(oid[0]));
+            },
+                    () -> FarmStore.get(level).ownedCount(oid[0]) == 1,
+                    () -> {
+                        for (FarmStore.Plot p : new java.util.ArrayList<>(
+                                FarmStore.get(level).all().values())) {
+                            if (p.ownerId == oid[0] || (p.ownerId >= 888888800L && p.ownerId <= 888888808L)) {
+                                farmClearPlot(level, p);
+                            }
+                        }
+                        discard(c);
+                        FarmTicker.clearAssignments();
+                    }));
+        }
+        VerifySuite.start(ctx.getSource(), steps);
+        tell(ctx.getSource(), "밭 확산·지수 합본 검증(2단계) — 통근 해제(원거리 배정) / 부지 확산. "
+                + "지수 캡 30은 evotest farm 이 대조. 서버 결과값 판정.");
         return 1;
     }
 

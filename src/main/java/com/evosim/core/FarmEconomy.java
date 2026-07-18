@@ -34,8 +34,9 @@ public final class FarmEconomy {
     public static final int SKILL_GATE_TILES = 35;
     /** 1인 하루 확장 기본(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */
     public static final int EXPAND_PER_DAY = 3;
-    /** 구획 하루 확장 상한 — 소작 비례 확장 3×(1+상시소작 수)의 캡("소작농들이 밭을 키운다"). */
-    public static final int EXPAND_DAY_MAX = 12;
+    /** 구획 하루 확장 상한 — 소작 비례 확장 3×(1+상시소작 수)의 캡. 12→30(B3 지수 확장): 캡이
+     *  dT/dt≈0.225T(3일 2배)를 선형화하던 것을 풀어, 자금(지대)·소작공급이 자연 한계가 되게 한다. */
+    public static final int EXPAND_DAY_MAX = 30;
     /** 확장·신규의 최소 여유 — 비용 지불 후에도 이틀치(6)는 남아야 투자(생계 우선). */
     public static final double INVEST_RESERVE = 6.0;
 

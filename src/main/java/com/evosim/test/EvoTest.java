@@ -2264,12 +2264,12 @@ public final class EvoTest {
                 // 사냥 계열(도축Ⅴ)은 관리 능력이 아님 — 경영 게이트 불통과
                 && !FarmEconomy.canManageLarge(one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5)))
                 && FarmEconomy.EXPAND_PER_DAY == 3
-                // 소작 비례 확장 3×(1+상시소작)의 구획 캡 — 소작 3인이면 12로 포화
-                && FarmEconomy.EXPAND_DAY_MAX == 12
+                // 소작 비례 확장 3×(1+상시소작)의 구획 캡 12→30(B3 지수 확장 — 자금·소작이 자연 한계)
+                && FarmEconomy.EXPAND_DAY_MAX == 30
                 && FarmEconomy.MIN_JOB == 2
                 && close(FarmEconomy.INVEST_RESERVE, 6.0);
         report.add("farm/능력게이트", gate,
-                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3(캡 12) · 최소일감 2 · 예비 6",
+                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3(캡 30) · 최소일감 2 · 예비 6",
                 gate ? "정상" : "어긋남");
 
         report.add("farm/지대비용", acct, "FEE 0.6: 0.75→0.30/0.45(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",

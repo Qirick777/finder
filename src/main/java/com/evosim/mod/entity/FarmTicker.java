@@ -20,7 +20,8 @@ import net.minecraftforge.fml.common.Mod;
 public final class FarmTicker {
 
     private static final int SCAN_INTERVAL = 200;
-    private static final double COMMUTE = 48.0;              // 통근 상한(블록)
+    private static final double COMMUTE = 48.0;              // 통근 도달 기대(블록) — 안전판 기준
+    private static final double DISSOLVE_DIST = 128.0;       // 상시 소작 해제 거리(이 밖 이주 시)
     /** 그날 배정표(휘발 — 재접속 시 하루 공침 허용, 계획 F6): entityId → plotId. */
     private static final java.util.Map<Integer, Long> ASSIGNED = new java.util.HashMap<>();
     private static long assignDay = -1;
@@ -229,7 +230,7 @@ public final class FarmTicker {
             MimicEntity claimer = null;
             for (MimicEntity m : adults) {
                 if (m.getHomePos() != null
-                        && m.blockPosition().distSqr(plot.anchor) <= COMMUTE * COMMUTE
+                        && m.blockPosition().distSqr(plot.anchor) <= DISSOLVE_DIST * DISSOLVE_DIST
                         && (claimer == null || m.blockPosition().distSqr(plot.anchor)
                                 < claimer.blockPosition().distSqr(plot.anchor))) {
                     claimer = m;
@@ -321,25 +322,29 @@ public final class FarmTicker {
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,
                                          java.util.List<MimicEntity> adults) {
-        for (int d = 0; d < 8; d++) {
-            double ang = d * Math.PI / 4.0;
-            BlockPos c = home.offset((int) Math.round(Math.cos(ang) * 20), 0,
-                    (int) Math.round(Math.sin(ang) * 20));
-            BlockPos site = level.getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c);
-            boolean bad = false;
-            for (FarmStore.Plot p : store.all().values()) {
-                if (p.anchor.distSqr(site) < 20 * 20) {
-                    bad = true;
+        // 부지 확산(B2) — 반경 20→40→60으로 넓혀가며 8방향 탐색. 근거리가 다 차면 바깥에
+        // 새 밭을 펼쳐 "수많은 밭"을 지도에 분산(통근 해제 B1이 원거리 소작을 뒷받침).
+        for (int radius = 20; radius <= 60; radius += 20) {
+            for (int d = 0; d < 8; d++) {
+                double ang = d * Math.PI / 4.0;
+                BlockPos c = home.offset((int) Math.round(Math.cos(ang) * radius), 0,
+                        (int) Math.round(Math.sin(ang) * radius));
+                BlockPos site = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c);
+                boolean bad = false;
+                for (FarmStore.Plot p : store.all().values()) {
+                    if (p.anchor.distSqr(site) < 20 * 20) {
+                        bad = true;
+                    }
                 }
-            }
-            for (MimicEntity a : adults) {
-                if (a.getHomePos() != null && a.getHomePos().distSqr(site) < 12 * 12) {
-                    bad = true;
+                for (MimicEntity a : adults) {
+                    if (a.getHomePos() != null && a.getHomePos().distSqr(site) < 12 * 12) {
+                        bad = true;
+                    }
                 }
-            }
-            if (!bad) {
-                return site;
+                if (!bad) {
+                    return site;
+                }
             }
         }
         return null;
@@ -364,6 +369,14 @@ public final class FarmTicker {
     public static void debugGrow(ServerLevel level) {
         growDay = -1;
         growFarms(level);
+    }
+
+    /** 검증 전용 — "첫 새벽" 배정을 즉시 강제(assignDay 리셋 + ASSIGNED 선청소로 LAST_ASSIGNED가
+     *  비어 미도달 안전판 무발동). 신규 워커 인덱싱 레이스 우회 — 단일 배정 관측용. */
+    public static void debugAssign(ServerLevel level) {
+        assignDay = -1;
+        ASSIGNED.clear();
+        assignDawn(level);
     }
 
     /**
@@ -461,9 +474,9 @@ public final class FarmTicker {
                 if (m.getTenantFarm() != plot.id) {
                     continue;
                 }
-                if (m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE) {
+                if (m.blockPosition().distSqr(plot.anchor) > DISSOLVE_DIST * DISSOLVE_DIST) {
                     m.setTenant(0L, 0);
-                    com.evosim.mod.log.SimEvents.event(m, "소작해제", "통근 초과 이주 — 관계 소멸");
+                    com.evosim.mod.log.SimEvents.event(m, "소작해제", "원거리 이주(>128) — 관계 소멸");
                     continue;
                 }
                 ASSIGNED.put(m.getId(), plot.id);
@@ -475,13 +488,18 @@ public final class FarmTicker {
             final BlockPos oh = ownerHome;
             java.util.List<MimicEntity> cands = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
-                // 노동시장 개방(소작 루프 v2): 빈곤 조건 삭제 — 소작 벌이(수확 70%)가 잔존 채집을
-                // 압도해 넉넉한 무밭 성인도 응한다(안정 정착 경로). 만족자는 제외(노동 정지 설계 보존).
+                // 노동시장 개방(소작 루프 v2): 빈곤 조건 삭제 — 소작 벌이가 잔존 채집을 압도해 넉넉한
+                // 무밭 성인도 응한다. 만족자 제외(노동 정지 설계). 통근 거리 상한 삭제(B1 — 밭을
+                // 사방에 펼침): 가까운순 정렬로 실제론 근거리부터 배정되고, F1 호위가 원거리 출근을
+                // 실현한다. 안전판(아사 방지): 어제 이 밭에 배정됐으나 미도달(>COMMUTE)이면 하루 유예
+                // (배정 소멸) — 채집으로 생계 후 재배정. 무한 원거리 강제통근 차단.
+                boolean failedReach = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id
+                        && m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE;
                 if (m.getIndividual().id() == plot.ownerId || ASSIGNED.containsKey(m.getId())
                         || (oh != null && oh.equals(m.getHomePos()))
                         || store.ownedCount(m.getIndividual().id()) > 0
                         || m.isSatisfiedToday()
-                        || m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE) {
+                        || failedReach) {
                     continue;
                 }
                 cands.add(m);

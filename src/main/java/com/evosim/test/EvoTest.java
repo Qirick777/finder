@@ -2250,7 +2250,11 @@ public final class EvoTest {
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)
-                && FarmEconomy.EXPAND_COST <= FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0];
+                && FarmEconomy.EXPAND_COST <= FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0]
+                // 확장 예비(다음 밭 저축 유도): 미성숙 12 · 성숙 1밭 27+12=39 · 성숙 2밭 40.5+12=52.5
+                && close(FarmEconomy.expandReserve(false, 1), 12.0)
+                && close(FarmEconomy.expandReserve(true, 1), 39.0)
+                && close(FarmEconomy.expandReserve(true, 2), 52.5);
         // 4) 관리 효율(총량 기준 — 수치 유도): 용량 8+g³(무능력 8·Ⅱ16·Ⅲ35·Ⅳ72·Ⅴ133),
         //    E=min(1,C/총소유타일)² — 준엘리트는 다밭 가능하되 총량 묶임(소지주 35), 엘리트만
         //    총 133(다밭 대지주·100명 의존권). 미러 순서 = 공간 적응(막힌 칸 방향 전환).

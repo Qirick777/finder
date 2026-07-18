@@ -83,6 +83,17 @@ public final class FarmEconomy {
         return NEW_FARM_BASE * Math.pow(1.5, Math.max(0, owned));
     }
 
+    /**
+     * 확장 시 저장고 예비 — 다음 밭 자격(성숙)에 도달한 지주는 다음 신규 밭 자금(비용+예비)을
+     * 저장고에 보존하고, 확장은 지대(밭 계정)로만 굴린다: "다음 밭을 위한 저축"의 산술화.
+     * 2배속 압축에서 확장 6/일 지출이 저장고를 상시 소진해 2호 밭 저축이 영구 불가하던 병목의
+     * 수치 해소(런3 실측: 지주 저장고 3일째 15 정체 vs 필요 39). 성숙 전엔 기존 예비 12 —
+     * 초기 성장(9→24)은 지대가 얇아 저장고 보충이 필수라 종전 그대로.
+     */
+    public static double expandReserve(boolean nextFarmEligible, int ownedPlots) {
+        return nextFarmEligible ? newFarmCost(ownedPlots) + INVEST_RESERVE : INVEST_RESERVE;
+    }
+
     /** 개인 수확 용량 — 부지런 ×1.2 / 게으름 ×0.8 / 노년 ×0.5 (내림). */
     public static int capacity(Individual ind, LifeStage stage) {
         double c = C_BASE;

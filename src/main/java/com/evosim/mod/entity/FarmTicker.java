@@ -145,12 +145,16 @@ public final class FarmTicker {
                 continue;
             }
             // 자금: 밭 계정(지대 재투자 — R1) 우선, 부족분은 주인 저장고(생계 예비 유지) —
-            // 지대가 아직 얇은 초기에도 확장이 멈추지 않게(소작 루프 v2).
+            // 지대가 아직 얇은 초기에도 확장이 멈추지 않게(소작 루프 v2). 단 다음 밭 자격(성숙)에
+            // 도달한 지주의 저장고 예비는 다음 신규 밭 자금까지 올라간다(expandReserve — 저축 유도).
             double ownerFunds = ownerEnt.getHomePos() != null
                     ? larders.get(ownerEnt.getHomePos()) : 0.0;
             int affordAccount = com.evosim.core.FarmEconomy.reinvestTiles(plot.account);
+            double reserve = com.evosim.core.FarmEconomy.expandReserve(
+                    nextFarmEligible(store, adults, plot.ownerId),
+                    store.ownedCount(plot.ownerId));
             int affordLarder = (int) Math.floor(
-                    Math.max(0.0, ownerFunds - com.evosim.core.FarmEconomy.INVEST_RESERVE)
+                    Math.max(0.0, ownerFunds - reserve)
                             / com.evosim.core.FarmEconomy.EXPAND_COST);
             int afford = affordAccount + affordLarder;
             int k = Math.min(room, afford);
@@ -276,27 +280,8 @@ public final class FarmTicker {
             if (funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
                 continue; // 자금(owned==0이면 저장고≥24)
             }
-            if (owned > 0) {
-                // 성숙 트리거(P6) — 최신(직영) 밭이 24타일 이상 + 상시 소작 1명 이상이어야 다음 밭.
-                // "직접 일구기 벅찬 규모에 도달 → 소작에 넘기고 새 밭 개간"의 수치화.
-                long newest = store.newestOwnedPlot(m.getIndividual().id());
-                FarmStore.Plot np = store.get(newest);
-                if (np == null) {
-                    continue;
-                }
-                int permTenants = 0;
-                for (MimicEntity t : adults) {
-                    if (t.getTenantFarm() == newest) {
-                        permTenants++;
-                    }
-                }
-                // 성숙 = (24타일 + 상시소작 인계) OR 공간 포화(2일 연속 배치 0 — 막힌 밭 교착 방지)
-                boolean sizeMature = np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES
-                        && permTenants >= 1;
-                boolean blockedMature = np.blockedDays >= 1; // 2→1(2배속 — 대기 반감)
-                if (!sizeMature && !blockedMature) {
-                    continue;
-                }
+            if (owned > 0 && !nextFarmEligible(store, adults, m.getIndividual().id())) {
+                continue; // 성숙 트리거(P6) — nextFarmEligible 참조(확장 예비 산정과 단일 출처)
             }
             BlockPos site = findFarmSite(level, store, m.getHomePos(), adults);
             if (site == null) {
@@ -344,6 +329,28 @@ public final class FarmTicker {
      * 설치 가능 지점. 설치 가능 = 그 자리 블록이 자연 대체물(공기·풀·꽃)이고 밭 타일이 아니며
      * 발밑이 자연 지반(잔디/흙) — 천막 지붕·구조물 위 설치를 차단한다. 전부 막히면 null(스킵).
      */
+    /**
+     * 다음 밭 자격(성숙 트리거 P6) — 최신(직영) 밭이 24타일 + 상시 소작 ≥1(인계 완료) 또는
+     * 공간 포화(연속 배치 0). 신규 개간 판정과 확장 예비 산정(expandReserve)의 단일 출처.
+     */
+    private static boolean nextFarmEligible(FarmStore store,
+            java.util.List<MimicEntity> adults, long ownerId) {
+        long newest = store.newestOwnedPlot(ownerId);
+        FarmStore.Plot np = store.get(newest);
+        if (np == null) {
+            return false;
+        }
+        int permTenants = 0;
+        for (MimicEntity t : adults) {
+            if (t.getTenantFarm() == newest) {
+                permTenants++;
+            }
+        }
+        boolean sizeMature = np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES
+                && permTenants >= 1;
+        return sizeMature || np.blockedDays >= 1; // 막힘 성숙 2→1(2배속 — 대기 반감)
+    }
+
     private static BlockPos adaptiveSpot(ServerLevel level, FarmStore store, BlockPos anchor,
                                          int c, int r) {
         for (int[] m : com.evosim.core.FarmLayout.mirrors(c, r)) {

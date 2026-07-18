@@ -8,12 +8,10 @@ public final class FarmEconomy {
 
     /** 익음 주기(틱) — 심은 뒤 이 시간이 지나면 결정론적으로 익음(랜덤틱은 보너스 하한). */
     public static final long RIPEN_TICKS = 24000L;
-    /** 지대(수수료) — 소작 수확의 이 비율이 밭 계정으로. 0.3→0.6(봉건 집중): 소작 임금(2.4/일)이
-     *  본인 소비(3.0)를 밑돌아 독립 축적 불가 → 자식 2명·확장만. 부족분은 위기 구휼로 보전. */
-    public static final double FEE = 0.6;
-    /** 개간 생산성 게이트 — 자기 밭 창설엔 타일당 수율 G ≥ 이 값 필요("능력자만 독립"). 무특성
-     *  남성 G=0.75 < 0.95 → 확장만, 약초/채집 Ⅲ+ (G≥0.975) → 개간. 경제 게이트(FEE 0.6)와 수렴. */
-    public static final double FOUND_YIELD_MIN = 0.95;
+    /** 지대(수수료) — 소작 수확의 이 비율이 밭 계정으로. 0.6→0.45(계층 분화 v2): 소작 임금
+     *  8×0.75×0.55=3.3 → 소작가구(정원5.0+임금)가 자식 2명대 소모(8.4)에 닿는다(E2 출산 재개).
+     *  독립 차단은 임금이 아니라 "만족의 덫"(개간 임계 30 > 만족선 — 아래 INVEST_RESERVE 참조). */
+    public static final double FEE = 0.45;
     /** 개인 수확 용량 기본(타일/일). 12→8(소작 루프 v2): "적은 노동의 지주" 수치화 —
      *  고용 문턱을 8+최소일감으로 낮추고, 큰 밭일수록 소작 의존이 커진다. */
     public static final int C_BASE = 8;
@@ -37,8 +35,12 @@ public final class FarmEconomy {
     /** 구획 하루 확장 상한 — 소작 비례 확장 3×(1+상시소작 수)의 캡. 12→30(B3 지수 확장): 캡이
      *  dT/dt≈0.225T(3일 2배)를 선형화하던 것을 풀어, 자금(지대)·소작공급이 자연 한계가 되게 한다. */
     public static final int EXPAND_DAY_MAX = 30;
-    /** 확장·신규의 최소 여유 — 비용 지불 후에도 이틀치(6)는 남아야 투자(생계 우선). */
-    public static final double INVEST_RESERVE = 6.0;
+    /** 확장·신규의 최소 여유. 6→12(만족의 덫): 개간 임계 = 18+12 = <b>30</b> — 빈둥지 부부
+     *  만족선(6.0×2×σ2=24)·1자녀 가구 만족선(27.6)보다 위. 평민은 "궁핍해서 불만족 ⟹ 자금<30,
+     *  자금≥30 ⟹ 이미 만족 ⟹ 개간 동기 없음"의 모순에 잠긴다(규칙 아닌 수치 잠금 — G 하드게이트
+     *  대체). 탈출구 = 동기특성(야망·욕심·부지런·경쟁: 만족 무시) × 능력 소득. 예비는 소모되지
+     *  않으므로(착공 후 저장고에 12 잔존) 엘리트 초기 밭 경영의 안전판을 겸한다. */
+    public static final double INVEST_RESERVE = 12.0;
 
     private FarmEconomy() {
     }
@@ -56,14 +58,10 @@ public final class FarmEconomy {
         return canManageLarge(owner) ? Integer.MAX_VALUE : SKILL_GATE_TILES;
     }
 
-    /** 타일당 수확 수율 G = 0.5 × 채집수확배율(성별×gather) — 개간 생산성 게이트 입력. */
+    /** 타일당 수확 수율 G = 0.5 × 채집수확배율(성별×gather) — 소득 격차·개간 로그 병기의 입력.
+     *  (구 하드게이트 canFound(G≥0.95)는 삭제 — 독립 잠금은 만족의 덫이 담당, INVEST_RESERVE 참조.) */
     public static double tileYield(Individual ind) {
         return 0.5 * FoodEconomy.forageYieldMult(ind);
-    }
-
-    /** 자기 밭 개간 자격 — 타일당 수율이 문턱 이상(약초/채집 Ⅲ+). 저장고(자금) 게이트는 호출부. */
-    public static boolean canFound(Individual ind) {
-        return tileYield(ind) >= FOUND_YIELD_MIN;
     }
 
     /** 밭 성숙 판정 — 최신(직영) 밭이 이 타일 수 이상이면 다음 밭 개간 자격(소작 2명 붙는 규모). */

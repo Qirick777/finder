@@ -3379,24 +3379,27 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 무특성 개간 금지 — 욕심(불만족)+무특성(G=0.75) 지주, 저장고 30, 밤: 개간 시도해도
-        //     구획 미생성(P1 게이트). 종전(게이트 없음)이면 owned 1 → 금지 감시 실패.
+        // [1] 만족의 덫(계층 분화 v2) — 무동기 평민, 저장고 30(임계 도달!): 만족선(홀몸 12)을 이미
+        //     지나 만족 → 개간 동기 소멸 → 구획 미생성. 하드게이트 없이 수치만으로 잠긴다.
+        //     종전(만족 미반영·게이트 삭제만)이면 owned 1 → 금지 감시 실패.
         {
             BlockPos home = groundAt(level, b, -12, 24);
             MimicEntity[] c = new MimicEntity[1];
             long[] oid = new long[1];
-            steps.add(new VerifySuite.Step("feudx_no_found",
-                    "unskilled (G=0.75) owner must NOT found a farm (P1 gate)", 400, true, () -> {
+            steps.add(new VerifySuite.Step("feudx_trap_satisfied",
+                    "motiveless commoner at threshold 30 is SATISFIED -> never founds (trap)", 400, true, () -> {
                 FarmTicker.clearAssignments();
-                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.GREEDY);
+                c[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE); // 무동기·무능력
                 c[0].debugSettleWithTent(home, Direction.NORTH);
                 LarderStore.get(level).set(home, 30.0);
                 oid[0] = c[0].getIndividual().id();
                 level.setDayTime(13500L);
             }, () -> {
-                FarmTicker.debugGrow(level); // 매 poll 강제 성장 — 인덱싱 후 결정론
-                return String.format("owned %d(must stay 0) larder %.0f",
-                        FarmStore.get(level).ownedCount(oid[0]), LarderStore.get(level).get(home));
+                c[0].updateMotivation(level); // 만족 캐시 최신화(잉여 30 > 홀몸 만족선 12)
+                FarmTicker.debugGrow(level);  // 매 poll 강제 성장 — 인덱싱 후 결정론
+                return String.format("owned %d(must stay 0) larder %.0f sat=%s",
+                        FarmStore.get(level).ownedCount(oid[0]), LarderStore.get(level).get(home),
+                        c[0].isSatisfiedToday());
             },
                     () -> FarmStore.get(level).ownedCount(oid[0]) >= 1, // ← 금지 결과(개간 발생)
                     () -> {

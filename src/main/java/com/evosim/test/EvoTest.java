@@ -452,23 +452,24 @@ public final class EvoTest {
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))),
                 "무등급 능력 = Ⅲ 취급(1.3)");
 
-        // 2c) 정원 배율 M(g) = 1 + 0.42×(g/5)³ — 성중립(성별 무관), 무능력 1.0 (여성당 2.4 재역산)
+        // 2c) 정원 배율 M(g) = 1 + 1.0×(g/5)³ — 성중립(성별 무관), 무능력 1.0. 0.42→1.0(계층 분화
+        //     v2): 능력Ⅴ 정원 2.0배(=10/일) — 엘리트만 정원 자급, 평민(1.0 → 5/일)은 완만한 적자.
         boolean mg = close(Multipliers.gardenAbility(one(Sex.MALE)), 1.0)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.42)
+                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 2.0)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.21504)
+                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.512)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.09072)
+                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.216)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.02688)
+                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.064)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.00336)
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.008)
                 // 관리 4종 외 능력(도축Ⅴ)은 정원에 무효 — 사냥 특화가 정원을 끌지 않게
                 && close(Multipliers.gardenAbility(
                         one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))), 1.0);
         report.add("multiplier/정원등급", mg,
-                "M(g)=1+0.42(g/5)³ · Ⅴ1.42 Ⅳ1.215 Ⅲ1.091 Ⅱ1.027 Ⅰ1.003 · 성중립 · 도축 무효",
+                "M(g)=1+1.0(g/5)³ · Ⅴ2.0 Ⅳ1.512 Ⅲ1.216 Ⅱ1.064 Ⅰ1.008 · 성중립 · 도축 무효",
                 mg ? "정상" : "어긋남");
 
         // 3) 사냥: 도축업자Ⅴ(+0.5) + 육식Ⅴ(+0.2) = 1.7 / 그 개체 채집 = 육식Ⅴ(-0.3) = 0.7
@@ -2242,9 +2243,9 @@ public final class EvoTest {
         report.add("farm/용량슬롯", cap, "C 8/9/6/4 · 부족 9→0(1<2)·10→2·35→19·49→33·9→0",
                 cap ? "정상" : "어긋남");
 
-        // 3) 지대 회계 항등식 + 비용 체증 (FEE 0.6 — 봉건 집중)
+        // 3) 지대 회계 항등식 + 비용 체증 (FEE 0.45 — 계층 분화 v2: 소작임금 8타일×0.4125=3.3/일)
         double y = 0.75;
-        boolean acct = close(FarmEconomy.tenantShare(y), 0.30) && close(FarmEconomy.ownerShare(y), 0.45)
+        boolean acct = close(FarmEconomy.tenantShare(y), 0.4125) && close(FarmEconomy.ownerShare(y), 0.3375)
                 && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
@@ -2267,20 +2268,25 @@ public final class EvoTest {
                 // 소작 비례 확장 3×(1+상시소작)의 구획 캡 12→30(B3 지수 확장 — 자금·소작이 자연 한계)
                 && FarmEconomy.EXPAND_DAY_MAX == 30
                 && FarmEconomy.MIN_JOB == 2
-                && close(FarmEconomy.INVEST_RESERVE, 6.0);
+                && close(FarmEconomy.INVEST_RESERVE, 12.0);
         report.add("farm/능력게이트", gate,
-                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3(캡 30) · 최소일감 2 · 예비 6",
+                "무능력 캡 35 · 약초학자Ⅳ+/요리사Ⅴ 무제한 · Ⅲ이하·무등급·도축Ⅴ 캡 · 일일확장 3(캡 30) · 최소일감 2 · 예비 12",
                 gate ? "정상" : "어긋남");
 
-        report.add("farm/지대비용", acct, "FEE 0.6: 0.75→0.30/0.45(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",
+        report.add("farm/지대비용", acct, "FEE 0.45: 0.75→0.4125/0.3375(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",
                 acct ? "정상" : "어긋남");
 
-        // 7) 봉건 집중 — 개간 생산성 게이트(P1)·성숙 트리거·식량 상속(P4)
-        boolean feud = !FarmEconomy.canFound(man)  // 무특성 남 G=0.75 < 0.95 → 확장만
-                && FarmEconomy.canFound(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)))  // Ⅲ G=0.975
-                && !FarmEconomy.canFound(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 2))) // Ⅱ G=0.90
-                && !FarmEconomy.canFound(one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))) // 여 G=0.375
-                && close(FarmEconomy.FEE, 0.6) && FarmEconomy.MATURE_TILES == 24
+        // 7) 봉건 집중 v2 — 만족의 덫(규칙 아닌 수치 잠금)·성숙 트리거·식량 상속(P4).
+        //    부등식 사슬: 개간 임계 30 = 18+12 > 1자녀 가구 만족선 27.6(6.9×2×2) > 빈둥지 만족선
+        //    24(6.0×2×2) — 평민은 만족이 먼저 와 개간 동기가 소멸(동기특성만 돌파).
+        double foundBar = FarmEconomy.NEW_FARM_BASE + FarmEconomy.INVEST_RESERVE;
+        double coupleBar = 6.0 * 2.0 * com.evosim.core.Satisfaction.SIGMA_BASE;     // 빈둥지 부부
+        double oneKidBar = 6.9 * 2.0 * com.evosim.core.Satisfaction.SIGMA_BASE;     // +유아1
+        boolean feud = close(foundBar, 30.0)
+                && foundBar > oneKidBar && oneKidBar > coupleBar                     // 30 > 27.6 > 24
+                // 소작 임금(무특성 남 8타일) = 8×0.75×0.55 = 3.3 — 정원 5.0과 합쳐 8.3(자식2 소모 8.4 경계)
+                && close(8 * 0.75 * (1 - FarmEconomy.FEE), 3.3)
+                && close(FarmEconomy.FEE, 0.45) && FarmEconomy.MATURE_TILES == 24
                 // 식량 상속: 저장고 30, 타 자식 2명 → 상속인 20(⌊30×2/3⌋)·각 5·잔여 0 (합=30)
                 && Inheritance.split(30.0, 2).heir() == 20
                 && Inheritance.split(30.0, 2).perOther() == 5
@@ -2288,7 +2294,7 @@ public final class EvoTest {
                 && Inheritance.split(30.0, 2).total(2) == 30
                 && Inheritance.split(10.0, 0).heir() == 10;   // 단독 상속인 전액
         report.add("farm/봉건집중", feud,
-                "개간 G≥0.95(무특성✗·약초Ⅲ✓·여✗) · FEE 0.6 · 성숙 24 · 상속 30→20/5/5·잔0",
+                "만족의 덫 30>27.6>24 · 소작임금 3.3 · FEE 0.45 · 성숙 24 · 상속 30→20/5/5·잔0",
                 feud ? "정상" : "어긋남");
 
         // 7b) 밭 원장(P3) — recordExpand 귀속·이력 유계화, recordHarvest 항등. 순수 상태 조작(무서버).

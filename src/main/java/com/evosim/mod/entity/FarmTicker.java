@@ -258,11 +258,9 @@ public final class FarmTicker {
             if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
                 continue; // 만족·무욕 — 신규 개간 안 함
             }
-            // 개간 생산성 게이트(P1) — 타일당 수율 G≥0.95(약초/채집 Ⅲ+)만 자기 밭 창설.
-            // 무특성 소작은 여기서 걸려 확장 노동만 제공 → 주인 밭이 커짐(부익부).
-            if (!com.evosim.core.FarmEconomy.canFound(m.getIndividual())) {
-                continue;
-            }
+            // 독립 잠금(계층 분화 v2) — 하드게이트 없음. 잠금은 "만족의 덫": 위의 만족 게이트 +
+            // 아래 자금 임계(30 = 18+12)가 서로를 배제한다. 궁핍한 평민은 자금이 없고, 자금이 모인
+            // 평민은 이미 만족선(≤27.6)을 지나 만족 → 개간 동기 소멸. 동기특성×능력 소득만이 돌파.
             int owned = store.ownedCount(m.getIndividual().id());
             double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
             double funds = larders.get(m.getHomePos());

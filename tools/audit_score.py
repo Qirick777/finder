@@ -12,12 +12,12 @@ MILESTONES = [
     # (판정일 하한, 상한, 이름, 판정 함수: rows dict{day: fields} -> True/False/None(미판정))
     (0, 1,  "풀 러시(grass>garden)",
      lambda r, d: r[d]["grass"] > r[d]["garden"] if d in r else None),
-    (2, 3,  "1호 밭 착공(plots>=1)",   # 흐름 지배(엘리트 저축 30) — 원창 유지
+    (2, 4,  "1호 밭 착공(plots>=1)",   # 흐름 지배(저축 30 도달 실측 3.2일 — 런1·런3 2회) → 상한 d4
      lambda r, d: r[d]["plots"] >= 1 if d in r else None),
     (1, 3,  "첫 출산 물결(births 누적>=가구 0.6)",
      lambda r, d: sum(r[x]["births"] for x in r if x <= d) >= 0.6 * r[d]["homes"]
      if d in r and r[d]["homes"] > 0 else None),
-    (3, 5,  "풀 붕괴(grass<30 & garden 비중>60%)",  # 인구 가속으로 반나절~1일 조기화
+    (3, 6,  "풀 붕괴(grass<30 & garden 비중>60%)",  # 결정론 풀밭(950그루)은 소진이 1일 느림(런3 실측)
      lambda r, d: r[d]["grass"] < 30
      and r[d]["garden"] > 0.6 * max(1e-9, r[d]["grass"] + r[d]["garden"] + r[d]["hunt"])
      if d in r else None),

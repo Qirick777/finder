@@ -126,6 +126,17 @@ public final class EvoSimCommand {
                 .then(Commands.literal("feudx").executes(EvoSimCommand::stageFeudX))
                 .then(Commands.literal("spreadx").executes(EvoSimCommand::stageSpreadX))
                 .then(Commands.literal("farmfocus").executes(EvoSimCommand::stageFarmFocus))
+                .then(Commands.literal("elite")
+                        .executes(ctx -> spawnElite(ctx, 1))
+                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 8))
+                                .executes(ctx -> spawnElite(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "count")))))
+                .then(Commands.literal("audit").executes(EvoSimCommand::auditNow))
+                .then(Commands.literal("obs")
+                        .executes(ctx -> obsStart(ctx, 6))
+                        .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))
+                                .executes(ctx -> obsStart(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "pairs")))))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -167,6 +178,63 @@ public final class EvoSimCommand {
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
                                         IntegerArgumentType.getInteger(ctx, "plot"))))));
+    }
+
+    /**
+     * 엘리트 방랑자 소환 — 야망가+약초학자Ⅴ 남성(자연 개체 — 혈통·상속 정상 편입). 관측 런의
+     * "대지주 후보" 표준 시드: 개간 게이트·만족 무시(야망)·최상 수율이 한 몸.
+     */
+    private static int spawnElite(CommandContext<CommandSourceStack> ctx, int count) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 base = ctx.getSource().getPosition();
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            MimicEntity e = spawnMatingReady(level, scatter(level, base), Sex.MALE,
+                    Trait.AMBITIOUS, Trait.HERBALIST);
+            if (e != null && e.getIndividual() != null) {
+                names.append(names.length() > 0 ? ", " : "").append(e.getIndividual().shortName());
+                SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ 관측 시드");
+            }
+        }
+        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ ♂): " + names
+                + " — 구애·정착·개간은 전부 자연 경로.");
+        return count;
+    }
+
+    /** AUDIT 즉시 조회 — 일일 자동 발행과 같은 산출(어큐뮬레이터 보존: 자동 발행 무영향). */
+    private static int auditNow(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        boolean wasOn = SimEvents.enabled();
+        if (!wasOn) {
+            SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        }
+        String line = com.evosim.mod.log.SimAudit.emit(level, false);
+        tell(ctx.getSource(), "AUDIT " + line);
+        return 1;
+    }
+
+    /**
+     * 관측 런 원클릭 조성 — 이벤트 로그 ON + 평민 부부 후보 pairs쌍 + 엘리트(야망+약초Ⅴ) 1명.
+     * 이후는 전부 자연 경로: 짝→정착→정원→풀 고갈→개간→소작. AUDIT이 매일 1줄 채점 근거를 남긴다.
+     */
+    private static int obsStart(CommandContext<CommandSourceStack> ctx, int pairs) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 base = ctx.getSource().getPosition();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        for (int i = 0; i < pairs; i++) {
+            spawnMatingReady(level, scatter(level, base), Sex.MALE);
+            spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
+        }
+        MimicEntity elite = spawnMatingReady(level, scatter(level, base), Sex.MALE,
+                Trait.AMBITIOUS, Trait.HERBALIST);
+        spawnMatingReady(level, scatter(level, base), Sex.FEMALE); // 엘리트 몫 여성 1 보충
+        if (elite != null) {
+            SimEvents.event(elite, "엘리트투입", "관측 런 시드(야망가+약초학자Ⅴ)");
+        }
+        tell(ctx.getSource(), String.format(
+                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(야망+약초Ⅴ) 소환, 이벤트 로그 ON. "
+                        + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.", pairs));
+        return pairs * 2 + 2;
     }
 
     /** 매력 맞는 방랑자 남녀를 흩뿌려 소환 → 자기들끼리 짝 형성·거처 정착을 눈으로 관찰. */
@@ -5599,9 +5667,17 @@ public final class EvoSimCommand {
     }
 
     private static void spawnMatingReady(ServerLevel level, Vec3 pos, Sex sex) {
+        spawnMatingReady(level, pos, sex, new Trait[0]);
+    }
+
+    /**
+     * 자연 개체 스폰(무대 아님 — 혈통·통계·상속에 정상 편입) + 추가 특성. 등급 특성은 Ⅴ로
+     * 부여(관측 런의 엘리트는 최상급 기준 — 이정표 수식이 Ⅴ 수치로 역산돼 있음).
+     */
+    private static MimicEntity spawnMatingReady(ServerLevel level, Vec3 pos, Sex sex, Trait... extra) {
         MimicEntity e = ModEntities.MIMIC.get().create(level);
         if (e == null) {
-            return;
+            return null;
         }
         // 서로 매력 3점(선호↔특성 일치) → 신중(여) 기준선도 통과해 짝 잘 형성.
         long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
@@ -5612,12 +5688,16 @@ public final class EvoSimCommand {
         ind.addTrait(TraitInstance.of(Trait.STRONG));
         ind.addTrait(TraitInstance.of(Trait.BRIGHT));
         ind.addTrait(TraitInstance.of(Trait.NIMBLE));
+        for (Trait t : extra) {
+            ind.addTrait(t.isGraded() ? TraitInstance.graded(t, 5) : TraitInstance.of(t));
+        }
         e.setIndividual(ind);
         e.setStage(LifeStage.ADULT);
         e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
         e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
+        return e;
     }
 
     private static int spawn(CommandContext<CommandSourceStack> ctx, Sex sex, LifeStage stage, int count) {

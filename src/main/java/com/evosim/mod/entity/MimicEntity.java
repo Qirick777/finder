@@ -2978,6 +2978,7 @@ public class MimicEntity extends PathfinderMob {
         father.childrenBorn++; // 부친도 집계(D) — 자연사 로그 "자식 N명"이 남성만 0으로 찍히던
         // 표시 결함. 번식 판정(birthLimit)은 어머니의 childrenBorn만 쓰므로 로직 무영향.
         StageObserver.record(this.getId(), "birth");
+        com.evosim.mod.log.SimAudit.recordBirth(); // AUDIT 일일 출산 집계
         // 신생아 변수를 정확히 기록: 성별·세대·발현 특성·부모 — 유전 흐름 검증의 근거.
         SimEvents.event(this, "출산", String.format(
                 "자식 #%d(%s) 세대%d 특성[%s] · 부친 #%d 모친 #%d (누적 %d)",

@@ -57,7 +57,18 @@ public final class SimEventTicker {
                     }
                 }
             }
+            if (level.players().isEmpty()) {
+                // 무인(헤드리스 관측 런) 폴백 — 플레이어 반경 스캔이 인구 0으로 찍히는 함정 방지.
+                for (MimicEntity m : level.getEntities(
+                        com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null)) {
+                    if (seen.add(m)) {
+                        mimics.add(m);
+                    }
+                }
+            }
             SimEvents.census(level, mimics);
+            SimAudit.daily(level); // AI 검수용 일일 감사 1줄(어큐뮬레이터 리셋)
             return; // 하루 1회면 충분(첫 레벨 기준)
         }
     }

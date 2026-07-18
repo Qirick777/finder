@@ -174,6 +174,7 @@ public class MimicForageGoal extends Goal {
                             ? FoodEconomy.MALE_FORAGE : FoodEconomy.FEMALE_FORAGE;
                     double food = HUNT_FOOD * Multipliers.hunt(ind) * sexM * stageMult();
                     mob.addHarvest(food);
+                    com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.HUNT, food);
                     SimEvents.event(mob, "사냥", String.format("동물 처치 → 식량 +%.2f", food));
                     huntTarget = null;
                 }
@@ -206,6 +207,7 @@ public class MimicForageGoal extends Goal {
                     // "얼마나 잘 관리하느냐(등급)"만 수익을 가른다(밴드 산출 ②③).
                     double food = BERRY_FOOD * Multipliers.gardenAbility(ind) * stageMult();
                     mob.addHarvest(food);
+                    com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.GARDEN, food);
                     mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));
                     mob.swing(InteractionHand.MAIN_HAND);
                     SimEvents.event(mob, "수확", String.format("옆 정원 베리 → 식량 +%.2f", food));
@@ -213,6 +215,7 @@ public class MimicForageGoal extends Goal {
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
                     double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind) * stageMult();
                     mob.addHarvest(food);
+                    com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.GRASS, food);
                     SimEvents.event(mob, "채집", String.format("+%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
                 }

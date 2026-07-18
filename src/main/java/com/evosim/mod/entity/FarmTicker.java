@@ -359,6 +359,11 @@ public final class FarmTicker {
         ASSIGNED.put(entityId, plotId);
     }
 
+    /** 오늘 배정(일용 포함) 인원 수 — AUDIT 관측용. */
+    public static int assignedCount() {
+        return ASSIGNED.size();
+    }
+
     /** 검증 인수 — 무대 시작 시 배정 잔재 제거(같은 자리 2회 규칙). */
     public static void clearAssignments() {
         ASSIGNED.clear();
@@ -570,6 +575,7 @@ public final class FarmTicker {
                 int units = (int) Math.floor(aid); // 정수 유닛(L 정수성)
                 LarderStore.get(level).set(home, larder - units);
                 m.addHarvest(units);
+                com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.AID, aid);
                 com.evosim.mod.log.SimEvents.event(m, "구휼", String.format(
                         "영주 저장고 %d 나눔 — H %.2f (구획 %d)", units, m.getHolding(), plot.id));
             } else {

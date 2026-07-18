@@ -5665,8 +5665,12 @@ public final class EvoSimCommand {
     }
 
     private static Vec3 scatter(ServerLevel level, Vec3 base) {
+        // 지면 스냅 — 자연 지형(관측 런)에서 고정 y 흩뿌리기가 공중 스폰→추락사를 만들던 결함
+        // 수정(실측: obs 14명 중 여성 전멸). heightmap으로 각 지점의 실지면에 내려 앉힌다.
         double r = 12.0;
-        return base.add((level.random.nextDouble() - 0.5) * r, 0, (level.random.nextDouble() - 0.5) * r);
+        double dx = (level.random.nextDouble() - 0.5) * r;
+        double dz = (level.random.nextDouble() - 0.5) * r;
+        return Vec3.atBottomCenterOf(groundAt(level, base, dx, dz));
     }
 
     private static void spawnMatingReady(ServerLevel level, Vec3 pos, Sex sex) {

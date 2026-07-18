@@ -452,24 +452,24 @@ public final class EvoTest {
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))),
                 "무등급 능력 = Ⅲ 취급(1.3)");
 
-        // 2c) 정원 배율 M(g) = 1 + 1.0×(g/5)³ — 성중립(성별 무관), 무능력 1.0. 0.42→1.0(계층 분화
-        //     v2): 능력Ⅴ 정원 2.0배(=10/일) — 엘리트만 정원 자급, 평민(1.0 → 5/일)은 완만한 적자.
+        // 2c) 정원 배율 M(g) = 1 + 1.6×(g/5)³ — 성중립(성별 무관), 무능력 1.0. 1.0→1.6(관측 런1
+        //     실측 보정): 엘리트 정원 13/일 — 개간(30) d2~3 창 복원(+3/일 역산). 평민 5.0 불변.
         boolean mg = close(Multipliers.gardenAbility(one(Sex.MALE)), 1.0)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 2.0)
+                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 2.6)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.512)
+                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 1.8192)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.216)
+                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.3456)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.064)
+                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.1024)
                 && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.008)
+                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.0128)
                 // 관리 4종 외 능력(도축Ⅴ)은 정원에 무효 — 사냥 특화가 정원을 끌지 않게
                 && close(Multipliers.gardenAbility(
                         one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))), 1.0);
         report.add("multiplier/정원등급", mg,
-                "M(g)=1+1.0(g/5)³ · Ⅴ2.0 Ⅳ1.512 Ⅲ1.216 Ⅱ1.064 Ⅰ1.008 · 성중립 · 도축 무효",
+                "M(g)=1+1.6(g/5)³ · Ⅴ2.6 Ⅳ1.819 Ⅲ1.346 Ⅱ1.102 Ⅰ1.013 · 성중립 · 도축 무효",
                 mg ? "정상" : "어긋남");
 
         // 3) 사냥: 도축업자Ⅴ(+0.5) + 육식Ⅴ(+0.2) = 1.7 / 그 개체 채집 = 육식Ⅴ(-0.3) = 0.7

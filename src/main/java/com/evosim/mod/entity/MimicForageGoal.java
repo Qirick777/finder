@@ -99,8 +99,13 @@ public class MimicForageGoal extends Goal {
         // 딴다(적극 포함 전 등급 — 지시 사양 "집에만 있는 쪽이 정원을 맡는다"). 외부 노동은
         // 커버리지로 해제된 배우자의 몫. 정원 익음이 없으면 육아 전념(goal 비활성).
         boundMode = mob.isCaregiverBound();
-        if (boundMode && ripeHomeBerry() == null) {
-            return false;
+        if (boundMode) {
+            // 돌봄자 정원 전담은 <b>만족·넉넉 무관</b>(부엌일 — 노동 정지 게이트의 예외).
+            // 관측 실측: 돌봄 아내가 만족 진입 후 정원 픽업 0회 → 가구 정원 공급(25회/일)의
+            // 절반이 방치돼 관리등급 배율이 실효 소득으로 이어지지 않던 결함. 외부 채집·사냥
+            // 불허(승인 사양 "집에만 있는 쪽이 정원을 맡는다")는 그대로 — 익은 정원만 딴다.
+            Schedule.Phase p = Schedule.phaseAt(ind, mob.level().getDayTime());
+            return p != Schedule.Phase.SLEEP && ripeHomeBerry() != null;
         }
         Schedule.Phase phase = Schedule.phaseAt(ind, mob.level().getDayTime());
         // 노년 쿼터 노동: 노동시간(마감 6000) 안에서 하루 필요량(dailyQuota)만 벌고 쉼. R4 동원 제외.

@@ -91,7 +91,7 @@ public final class SimEvents {
         // 성명 표기: "윌리엄 스미스#1234(남성 H1.50)" — #id는 파서·절대 식별용으로 유지.
         String name = e.getIndividual() != null ? e.getIndividual().shortName() : "";
         String line = String.format("[d%d %s] %-4s %s#%d(%s%s H%.2f) %s @%d,%d",
-                lv.getGameTime() / 24000L, phaseLabel(lv.getDayTime()), type, name,
+                com.evosim.mod.entity.SimTime.tick(lv) / 24000L, phaseLabel(lv.getDayTime()), type, name,
                 e.getId(), e.isFemale() ? "여" : "남", stageLabel(e.getStage()),
                 e.getHolding(), detail, p.getX(), p.getZ());
         append(line);
@@ -103,7 +103,7 @@ public final class SimEvents {
             return;
         }
         String line = String.format("[d%d %s] %-4s %s",
-                lv.getGameTime() / 24000L, phaseLabel(lv.getDayTime()), type, detail);
+                com.evosim.mod.entity.SimTime.tick(lv) / 24000L, phaseLabel(lv.getDayTime()), type, detail);
         append(line);
     }
 

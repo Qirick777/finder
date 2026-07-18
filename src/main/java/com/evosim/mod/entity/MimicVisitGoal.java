@@ -61,7 +61,7 @@ public class MimicVisitGoal extends Goal {
         sb.append(" build=").append(m.isBuilding());
         sb.append(" travel=").append(m.isCourtTravel());
         sb.append(" bound=").append(m.isCaregiverBound());
-        long gameDay = m.level().getGameTime() / 24000L;
+        long gameDay = com.evosim.mod.entity.SimTime.tick(m.level()) / 24000L;
         sb.append(" day=").append(gameDay).append(" lastVisit=").append(m.lastVisitDay());
         int cands = 0;
         int nearRejected = 0;
@@ -106,7 +106,7 @@ public class MimicVisitGoal extends Goal {
                 != Schedule.Phase.WANDER) {
             return false;
         }
-        long gameDay = mob.level().getGameTime() / 24000L;
+        long gameDay = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
         if (gameDay - mob.lastVisitDay() < VISIT_COOLDOWN_DAYS) {
             return false; // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변
         }
@@ -157,7 +157,7 @@ public class MimicVisitGoal extends Goal {
         MimicEntity partner = nearestAdultAt(dest);
         if (!began) {
             began = true;
-            mob.setLastVisitDay(mob.level().getGameTime() / 24000L); // 도착 = 방문 성립
+            mob.setLastVisitDay(com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L); // 도착 = 방문 성립
             if (mob.level() instanceof ServerLevel sl) {
                 Encounter.begin(sl, mob, partner, EncounterContext.Place.HEARTH,
                         EncounterContext.Occasion.VISIT, CHAT_TICKS);

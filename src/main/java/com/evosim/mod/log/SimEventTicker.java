@@ -41,7 +41,7 @@ public final class SimEventTicker {
             return;
         }
         for (ServerLevel level : server.getAllLevels()) {
-            long day = level.getGameTime() / 24000L;
+            long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
             long tod = level.getDayTime() % 24000L;
             if (day == lastCensusDay || tod < CENSUS_TIME) {
                 continue;

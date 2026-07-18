@@ -132,6 +132,20 @@ public final class EvoSimCommand {
                                 .executes(ctx -> spawnElite(ctx,
                                         IntegerArgumentType.getInteger(ctx, "count")))))
                 .then(Commands.literal("audit").executes(EvoSimCommand::auditNow))
+                .then(Commands.literal("skip")
+                        .then(Commands.literal("on").executes(ctx -> {
+                            com.evosim.mod.entity.SimTime.setSkipEnabled(
+                                    ctx.getSource().getLevel(), true);
+                            tell(ctx.getSource(), "밤 스킵 ON (전원 취침 tod≥14100 → 기상 점프, "
+                                    + "누적 오프셋 " + com.evosim.mod.entity.SimTime.offset() + ")");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            com.evosim.mod.entity.SimTime.setSkipEnabled(
+                                    ctx.getSource().getLevel(), false);
+                            tell(ctx.getSource(), "밤 스킵 OFF");
+                            return 1;
+                        })))
                 .then(Commands.literal("obs")
                         .executes(ctx -> obsStart(ctx, 6))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))
@@ -221,6 +235,7 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 base = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        com.evosim.mod.entity.SimTime.setSkipEnabled(level, true); // 관측 가속 — 밤 스킵 ON
         for (int i = 0; i < pairs; i++) {
             spawnMatingReady(level, scatter(level, base), Sex.MALE);
             spawnMatingReady(level, scatter(level, base), Sex.FEMALE);

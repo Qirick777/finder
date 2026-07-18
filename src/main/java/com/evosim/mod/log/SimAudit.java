@@ -190,7 +190,7 @@ public final class SimAudit {
             topName = r != null && r.name != null && !r.name.isEmpty()
                     ? r.name.replace(' ', '_') : ("id" + topOwner);
         }
-        long day = level.getGameTime() / 24000L;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         String line = String.format(
                 "day=%d pop=%d adult=%d adult_f=%d boy=%d infant=%d elder=%d homes=%d births=%d"
                         + " grass=%.1f garden=%.1f hunt=%.1f farm_self=%.1f farm_tenant=%.1f"

@@ -36,7 +36,7 @@ public class SimClockItem extends Item {
         }
 
         long dayTime = level.getDayTime();
-        long day = level.getGameTime() / 24000L;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         Schedule.Phase phase = Schedule.globalPhase(dayTime);
         int tod = (int) (((dayTime % 24000L) + 24000L) % 24000L);
 

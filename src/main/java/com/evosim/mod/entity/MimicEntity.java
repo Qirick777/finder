@@ -330,7 +330,7 @@ public class MimicEntity extends PathfinderMob {
 
     public void setHomePos(@Nullable BlockPos pos) {
         this.homePos = pos;
-        this.settledTick = level().getGameTime(); // 정착 시각 — 재이주 쿨다운 기준(기근 오탐 방지)
+        this.settledTick = com.evosim.mod.entity.SimTime.tick(level()); // 정착 시각 — 재이주 쿨다운 기준(기근 오탐 방지)
     }
 
     /** 태어난 위치 — 없으면 현재 위치로 지연 확정(1세대·스폰 개체). 애향심 신축 앵커. */
@@ -594,17 +594,17 @@ public class MimicEntity extends PathfinderMob {
                 birthPos = blockPosition(); // 스폰 위치 확정(1세대 정착 기준)
             }
             if (lastForageSuccessTick == 0L) {
-                lastForageSuccessTick = level().getGameTime(); // 미초기화(신규/구세이브) → 지금부터 계측
+                lastForageSuccessTick = com.evosim.mod.entity.SimTime.tick(level()); // 미초기화(신규/구세이브) → 지금부터 계측
             }
             if (settledTick == 0L) {
-                settledTick = level().getGameTime(); // 구 세이브 호환 — 로드 직후 즉시 이주 방지
+                settledTick = com.evosim.mod.entity.SimTime.tick(level()); // 구 세이브 호환 — 로드 직후 즉시 이주 방지
             }
             if (!ledgerChecked && individual != null && level() instanceof ServerLevel sl0) {
                 // 혈통 원장 등록 — 첫 서버 틱(출생·스폰·구세이브 로드 모두 이 경로 통과, register 멱등).
                 // 무대 개체는 통계 오염 방지를 위해 제외(스폰 헬퍼가 addFreshEntity 전에 마킹).
                 ledgerChecked = true;
                 if (!stageActor) {
-                    FamilyLedger.get(sl0).register(individual, level().getGameTime() / 24000L);
+                    FamilyLedger.get(sl0).register(individual, com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
                 }
             }
             if (!hearthRegistered) {
@@ -639,7 +639,7 @@ public class MimicEntity extends PathfinderMob {
      * 이미 살아있는 대상(다른 미믹·플레이어)을 노리는 좀비는 뺏지 않는다(좀비 한 마리=한 대상, 진동 방지).
      */
     private void attractZombies() {
-        if ((level().getGameTime() + getId()) % 10 != 0) {
+        if ((com.evosim.mod.entity.SimTime.tick(level()) + getId()) % 10 != 0) {
             return; // 스태거(부하 분산)
         }
         // 미믹은 바닐라 좀비의 자연 표적이 아니라 이 함수가 유일한 어그로 공급원이다.
@@ -666,7 +666,7 @@ public class MimicEntity extends PathfinderMob {
         // 구혼 여행 만료 잔재 정리: 빈손 귀환인데 그 사이 가족이 이주해 고향이 폐가(모닥불 꺼짐)면
         // 폐가에 홀로 좌초되지 않게 방랑자로 전환(구애 풀 합류·재정착 경로).
         // 성년 게이트보다 먼저 — 여행 중 노년 전이돼도 잔재가 남지 않게.
-        if (courtTravelTarget != 0L && level().getGameTime() >= courtTravelUntil) {
+        if (courtTravelTarget != 0L && com.evosim.mod.entity.SimTime.tick(level()) >= courtTravelUntil) {
             endCourtTravel();
             if (homePos != null && !hearthLitAt(homePos)) {
                 BlockPos gone = homePos;
@@ -680,7 +680,7 @@ public class MimicEntity extends PathfinderMob {
         // 성년 게이트보다 앞 — 노년도 사별·승계는 감지(포지션·표시 정확성). 재구애는 여전히
         // 성년 전용(isSingleAdult 가 ADULT 한정 + 아래 게이트가 노년 mateState 를 IDLE 로).
         if (individual != null && spouseId != 0L && !widowed
-                && (level().getGameTime() + getId()) % 40 == 0) {
+                && (com.evosim.mod.entity.SimTime.tick(level()) + getId()) % 40 == 0) {
             if (!spouseAlive()) {
                 MimicEntity nextWife = null;
                 if (!isFemale() && individual != null) {
@@ -734,8 +734,8 @@ public class MimicEntity extends PathfinderMob {
                     debugForceTravel = false;
                     startCourtTravel();
                 } else if (lonelySinceTick < 0L) {
-                    lonelySinceTick = level().getGameTime();
-                } else if (level().getGameTime() - lonelySinceTick > Famine.LONELY_TRAVEL_AFTER) {
+                    lonelySinceTick = com.evosim.mod.entity.SimTime.tick(level());
+                } else if (com.evosim.mod.entity.SimTime.tick(level()) - lonelySinceTick > Famine.LONELY_TRAVEL_AFTER) {
                     startCourtTravel();
                 }
             } else if (!candidates.isEmpty()) {
@@ -750,12 +750,12 @@ public class MimicEntity extends PathfinderMob {
         if (target == 0L) {
             // 알려진 타향 없음 — 외로움 클럭을 통째로 되감지 않고 반나절 뒤 재시도 지점으로만 되감기
             // (여기서 -1로 리셋하면 실패할 때마다 3일을 다시 다 기다리는 버그).
-            lonelySinceTick = level().getGameTime() - Famine.LONELY_TRAVEL_AFTER + 12000L;
+            lonelySinceTick = com.evosim.mod.entity.SimTime.tick(level()) - Famine.LONELY_TRAVEL_AFTER + 12000L;
             return;
         }
         lonelySinceTick = -1L;
         courtTravelTarget = target;
-        courtTravelUntil = level().getGameTime() + Famine.TRAVEL_DURATION;
+        courtTravelUntil = com.evosim.mod.entity.SimTime.tick(level()) + Famine.TRAVEL_DURATION;
         BlockPos t = BlockPos.of(target);
         SimEvents.event(this, "구혼여행", String.format("비근친 후보 0 지속 → 타향 모닥불 @%d,%d 로 출발",
                 t.getX(), t.getZ()));
@@ -763,7 +763,7 @@ public class MimicEntity extends PathfinderMob {
 
     /** 구혼 여행 중인가 — 여행 중엔 리시 앵커가 타향 모닥불, 귀가·취침 goal은 물러난다. */
     public boolean isCourtTravel() {
-        return courtTravelTarget != 0L && level().getGameTime() < courtTravelUntil;
+        return courtTravelTarget != 0L && com.evosim.mod.entity.SimTime.tick(level()) < courtTravelUntil;
     }
 
     private void endCourtTravel() {
@@ -847,7 +847,7 @@ public class MimicEntity extends PathfinderMob {
             }
             int id = m.getId();
             if (candidateCharm.containsKey(id)
-                    || approachRetryAt.getOrDefault(id, 0L) > level().getGameTime()) {
+                    || approachRetryAt.getOrDefault(id, 0L) > com.evosim.mod.entity.SimTime.tick(level())) {
                 continue; // 이미 후보 / 쿨다운 중(거절 1일·접근 실패 2400틱)
             }
             if (Kinship.isRelated(individual, m.getIndividual())) {
@@ -1717,7 +1717,7 @@ public class MimicEntity extends PathfinderMob {
      *  같은 틱 안에서는 첫 계산을 재사용(리시·건축·나눔·대사 판정이 틱당 3~5회 부르던 좀비 스캔 중복 제거).
      *  틱 중간에 발생한 피격은 다음 틱에 반영(1틱 지연 — 종전에도 goal 평가 순서에 따라 동일했음). */
     public boolean isUnderThreat() {
-        long now = level().getGameTime();
+        long now = com.evosim.mod.entity.SimTime.tick(level());
         if (threatCacheTick == now) {
             return threatCacheValue;
         }
@@ -1870,7 +1870,7 @@ public class MimicEntity extends PathfinderMob {
         if (destroy && individual != null && level() instanceof ServerLevel sld) {
             // 혈통 원장 사망 마킹 — 전투사·아사·노년 소멸 전부 이 경로(청크 언로드는 destroy 아님).
             // 무대 개체는 등록이 없어 markDead 가 무시한다.
-            FamilyLedger.get(sld).markDead(individual.id(), level().getGameTime() / 24000L);
+            FamilyLedger.get(sld).markDead(individual.id(), com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
             // 밭 상속(M6·P3) — 사전 포착 상속인(장남→장녀→배우자)에게. 소유 없으면 즉시 반환.
             FarmStore.get(sld).inheritTo(sld, preHeir, individual.id());
         }
@@ -1955,7 +1955,7 @@ public class MimicEntity extends PathfinderMob {
 
     /** 거절/포기: 상대를 하루 쿨다운에 넣고 후보에서 제거. 접근 실패는 {@link #backOffFrom}(짧은 쿨다운). */
     public void giveUpOn(int id) {
-        approachRetryAt.put(id, level().getGameTime() + REJECT_RETRY_TICKS);
+        approachRetryAt.put(id, com.evosim.mod.entity.SimTime.tick(level()) + REJECT_RETRY_TICKS);
         candidates.remove((Integer) id);
         candidateCharm.remove(id);
     }
@@ -1968,7 +1968,7 @@ public class MimicEntity extends PathfinderMob {
      * 경로 실패·상대 이동 같은 일시 사유가 이웃 이성을 하나씩 영구 소진시키던 결함 방지.
      */
     public void backOffFrom(int id) {
-        approachRetryAt.put(id, level().getGameTime() + APPROACH_RETRY_TICKS);
+        approachRetryAt.put(id, com.evosim.mod.entity.SimTime.tick(level()) + APPROACH_RETRY_TICKS);
         candidates.remove((Integer) id);
         candidateCharm.remove(id);
     }
@@ -2051,7 +2051,7 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         int interval = fastSettle ? FAST_HUNGER_INTERVAL : HUNGER_INTERVAL;
-        if ((level().getGameTime() + getId()) % interval != 0) {
+        if ((com.evosim.mod.entity.SimTime.tick(level()) + getId()) % interval != 0) {
             return;
         }
         double scale = fastSettle ? FAST_TIME_SCALE : 1.0;
@@ -2117,7 +2117,7 @@ public class MimicEntity extends PathfinderMob {
                     // 건축(이주·신축)인 가구의 급식·입출금이 완공까지 멎는 결함 방지
         }
         int interval = fastSettle ? FAST_SETTLE_INTERVAL : FoodEconomy.FAMILY_TICK_INTERVAL;
-        if ((level().getGameTime() + getId()) % interval != 0) {
+        if ((com.evosim.mod.entity.SimTime.tick(level()) + getId()) % interval != 0) {
             return;
         }
         if (!(level() instanceof ServerLevel sl)) {
@@ -2301,7 +2301,7 @@ public class MimicEntity extends PathfinderMob {
             if (mother != null && mother.getIndividual() != null) {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
                         - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출
-                long now = level().getGameTime();
+                long now = com.evosim.mod.entity.SimTime.tick(level());
                 boolean cooldownOk = now - mother.lastBirthTick
                         >= (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
                 boolean underLimit = mother.childrenBorn
@@ -2349,7 +2349,7 @@ public class MimicEntity extends PathfinderMob {
      *  정착 시각은 성년·노년만 집계(신생아 출생이 setHomePos로 쿨다운을 계속 리셋하는 결함 방지).
      *  인솔 성년·노년이 하나도 없는 가구는 이주하지 않는다(아이들만의 캐러밴 좌초 방지). */
     private boolean shouldFamilyMigrate(List<MimicEntity> fam, double larder, double need) {
-        long now = level().getGameTime();
+        long now = com.evosim.mod.entity.SimTime.tick(level());
         // 초기값 0 이면 점검용 과거화(settledTick = now − 쿨다운 − 1000)가 젊은 월드에서 음수가 됐을 때
         // Math.max 가 0으로 클램프 → now − 0 < 쿨다운 → 이주 영구 차단(월드 나이 2일 미만). MIN_VALUE
         // 초기화로 실값이 그대로 살게 한다(grown>0 보장 뒤에만 사용 — 실플레이 값은 항상 ≥0이라 무변화).
@@ -2440,7 +2440,7 @@ public class MimicEntity extends PathfinderMob {
      */
     private void migrate(ServerLevel sl, List<MimicEntity> fam) {
         BlockPos oldHome = homePos;
-        long now = level().getGameTime();
+        long now = com.evosim.mod.entity.SimTime.tick(level());
 
         MigrationDest consensus = MigrationDest.get(sl);
         BlockPos dest = consensus.resolve(oldHome, now);
@@ -2822,14 +2822,14 @@ public class MimicEntity extends PathfinderMob {
         // 뺄셈-음수 트릭 폐기(신생 월드 gameTime<72000 에서 음수→미설정 센티넬 충돌). 일회성 플래그로
         // 다음 mateTick 에서 실조건 충족 시 즉시 출발. lonelySinceTick 도 과거화(구세이브·노령 월드 경로).
         this.debugForceTravel = true;
-        this.lonelySinceTick = level().getGameTime() - Famine.LONELY_TRAVEL_AFTER - 1000L;
+        this.lonelySinceTick = com.evosim.mod.entity.SimTime.tick(level()) - Famine.LONELY_TRAVEL_AFTER - 1000L;
     }
 
     /** 점검용 — 온 가족을 즉시 기근 조건으로(성공·정착 시각 과거화, 저장고 비움). /evosim exodus. */
     public void debugForceFamine(ServerLevel sl) {
         for (MimicEntity m : householdMembers()) {
-            m.lastForageSuccessTick = level().getGameTime() - Famine.STARVE_WINDOW - 1000L;
-            m.settledTick = level().getGameTime() - Famine.RESETTLE_COOLDOWN - 1000L;
+            m.lastForageSuccessTick = com.evosim.mod.entity.SimTime.tick(level()) - Famine.STARVE_WINDOW - 1000L;
+            m.settledTick = com.evosim.mod.entity.SimTime.tick(level()) - Famine.RESETTLE_COOLDOWN - 1000L;
         }
         if (homePos != null) {
             LarderStore.get(sl).set(homePos, 0.0);
@@ -2973,7 +2973,7 @@ public class MimicEntity extends PathfinderMob {
         child.moveTo(where.getX() + 0.5, where.getY(), where.getZ() + 0.5, 0.0F, 0.0F);
         sl.addFreshEntity(child);
 
-        lastBirthTick = level().getGameTime();
+        lastBirthTick = com.evosim.mod.entity.SimTime.tick(level());
         childrenBorn++;
         father.childrenBorn++; // 부친도 집계(D) — 자연사 로그 "자식 N명"이 남성만 0으로 찍히던
         // 표시 결함. 번식 판정(birthLimit)은 어머니의 childrenBorn만 쓰므로 로직 무영향.
@@ -3097,7 +3097,7 @@ public class MimicEntity extends PathfinderMob {
     /** 검증 전용 — 출산 쿨다운을 지금부터로 조성(넉넉 저장고 무대에서 돌발 출산이 배회 생활
      *  판정을 교란하는 것 방지 — 실측: 신생아와 놀이 조우가 만석 금지 감시를 오염). */
     public void debugSetLastBirthNow() {
-        this.lastBirthTick = level().getGameTime();
+        this.lastBirthTick = com.evosim.mod.entity.SimTime.tick(level());
     }
 
     /** 조우 관문(Encounter.begin)이 호출 — 대화 상대·주제 기록(렌즈 표시·미래 평판 입력). */
@@ -3138,8 +3138,8 @@ public class MimicEntity extends PathfinderMob {
         // 노동량 원량 기준을 유지해야 하므로 아래 누적에는 배율을 태우지 않는다.
         holding += food * (individual != null ? FoodEconomy.intakeMult(individual) : 1.0);
         if (food > 0.0) {
-            lastForageSuccessTick = level().getGameTime(); // 기근 판정 근거(결과 기반)
-            long day = level().getGameTime() / 24000L;
+            lastForageSuccessTick = com.evosim.mod.entity.SimTime.tick(level()); // 기근 판정 근거(결과 기반)
+            long day = com.evosim.mod.entity.SimTime.tick(level()) / 24000L;
             if (day != gatherDay) {
                 gatherDay = day;
                 dayGathered = 0.0;
@@ -3156,7 +3156,7 @@ public class MimicEntity extends PathfinderMob {
         if (getStage() != LifeStage.ELDER || individual == null) {
             return false;
         }
-        if (level().getGameTime() / 24000L != gatherDay) {
+        if (com.evosim.mod.entity.SimTime.tick(level()) / 24000L != gatherDay) {
             return false; // 새 날 — 아직 아무것도 못 범
         }
         double ownNeed = FoodEconomy.consumptionPerDay(LifeStage.ELDER, Activity.MOVE, individual, false);
@@ -3294,7 +3294,7 @@ public class MimicEntity extends PathfinderMob {
         }
         // 무대 검증(fastCare)은 종전 그대로 틱 주기 즉시 판정 — checkall ④⑯ 판정 불변.
         if (fastCare) {
-            if ((level().getGameTime() + getId()) % CARE_INTERVAL == 0) {
+            if ((com.evosim.mod.entity.SimTime.tick(level()) + getId()) % CARE_INTERVAL == 0) {
                 judgeCare(adultNear());
             }
             return;
@@ -3306,7 +3306,7 @@ public class MimicEntity extends PathfinderMob {
         // careTimeScale 은 하루 길이·창·간격을 같은 비율로 압축할 뿐, 샘플→래치→롤오버 평가라는
         // 실경로 코드를 그대로 지난다(검증 전용 훅이 별도 구현이 되지 않도록 — 규칙 9).
         long dayLen = 24000L / careTimeScale;
-        long now = level().getGameTime();
+        long now = com.evosim.mod.entity.SimTime.tick(level());
         long day = now / dayLen;
         long tod = now % dayLen;
         if (lastCareDay == 0L) {
@@ -3450,7 +3450,7 @@ public class MimicEntity extends PathfinderMob {
      *  정원은 제외 — 집 옆이라 입금 왕복 비용이 0인데 유예를 주면 H가 6에 못 미치는 가구의
      *  입금이 영구 동결된다(올리버 실측: d1부터 가계 입금 전부 0·저장고 10 고정). */
     public double carryCap() {
-        long now = level().getGameTime();
+        long now = com.evosim.mod.entity.SimTime.tick(level());
         if (now - carryCheckTick >= 40) {
             carryCheckTick = now;
             cachedCarryCap = computeCarryCap();

@@ -44,7 +44,7 @@ public final class FarmTicker {
      * 무주택이면 건너뜀 — 계정은 구획에 붙어 있어 손실 없음(F8).
      */
     private static void settleRent(ServerLevel level) {
-        long day = level.getGameTime() / 24000L;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         long tod = level.getDayTime() % 24000L;
         if (day == rentDay || tod < 13000L) {
             return;
@@ -85,7 +85,7 @@ public final class FarmTicker {
      * newFarmCost(체증)+여유면 집 주변 빈 부지에 T1 착공(부지 없으면 건너뜀).
      */
     private static void growFarms(ServerLevel level) {
-        long day = level.getGameTime() / 24000L;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         long tod = level.getDayTime() % 24000L;
         if (day == growDay || tod < 13000L) {
             return;
@@ -170,7 +170,7 @@ public final class FarmTicker {
                 level.setBlockAndUpdate(gp,
                         net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
                                 .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
-                store.addTile(plot, gp, level.getGameTime());
+                store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
                 placed++;
             }
             if (placed > 0) {
@@ -186,7 +186,7 @@ public final class FarmTicker {
                 }
                 grownToday.merge(grower.getId(), placed, Integer::sum);
                 store.recordExpand(plot, grower.getIndividual().id(), placed,
-                        level.getGameTime() / 24000L, hasTenant); // 밭 원장(P3): 자영/소작 귀속
+                        com.evosim.mod.entity.SimTime.tick(level) / 24000L, hasTenant); // 밭 원장(P3): 자영/소작 귀속
                 com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
                         "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f(계정 %.0f) 소작 %d",
                         hasTenant ? "재투자" : "자영",
@@ -213,7 +213,7 @@ public final class FarmTicker {
                             net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH
                                     .defaultBlockState().setValue(
                                             net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
-                    plot.planted[i] = level.getGameTime();
+                    plot.planted[i] = com.evosim.mod.entity.SimTime.tick(level);
                     store.setDirty();
                 } else {
                     store.removeTile(plot, i);
@@ -288,7 +288,7 @@ public final class FarmTicker {
                 continue;
             }
             FarmStore.Plot plot = store.create(site, m.getIndividual().id());
-            plot.foundedDay = level.getGameTime() / 24000L; // 밭 원장(P3) — 개간 게임일
+            plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
             for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
                 BlockPos gp = level.getHeightmapPos(
@@ -299,7 +299,7 @@ public final class FarmTicker {
                 level.setBlockAndUpdate(gp,
                         net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
                                 .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
-                store.addTile(plot, gp, level.getGameTime());
+                store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
             }
             larders.set(m.getHomePos(), funds - cost);
             // 수율 G 병기 — "능력자만 독립" 검수: 개간자의 G가 낮은 사례가 잦으면 잠금 누수 신호.
@@ -317,7 +317,7 @@ public final class FarmTicker {
             // 센티넬은 정확히 -1(무주 아님)만 — '>= 0' 이면 점검용 과거화(now − 60001)가 젊은 월드에서
             // 음수가 될 때 만료 스캔이 영영 건너뛴다(음수-시각 계열). 실플레이 값은 항상 ≥0이라 무변화.
             if (p.ownerId == 0L && p.vacantSince != -1L
-                    && level.getGameTime() - p.vacantSince > com.evosim.core.FarmEconomy.VACANT_EXPIRE_TICKS) {
+                    && com.evosim.mod.entity.SimTime.tick(level) - p.vacantSince > com.evosim.core.FarmEconomy.VACANT_EXPIRE_TICKS) {
                 store.debugRemove(p.id); // 등록·타일 색인 소거(멱등 정리 경로 재사용)
             }
         }
@@ -393,7 +393,7 @@ public final class FarmTicker {
      * 구직자(성년·비소유·저장고 비넉넉·통근 내·소유 가구 제외)로 거리순 커버. 운(익음) 무관 결정론.
      */
     private static void assignDawn(ServerLevel level) {
-        long day = level.getGameTime() / 24000L;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         long tod = level.getDayTime() % 24000L;
         if (day == assignDay || tod < 1000L || tod > 9000L) {
             return;
@@ -591,7 +591,7 @@ public final class FarmTicker {
             return;
         }
         ServerLevel level = event.getServer().overworld();
-        if (level.getGameTime() % SCAN_INTERVAL != 0) {
+        if (com.evosim.mod.entity.SimTime.tick(level) % SCAN_INTERVAL != 0) {
             return;
         }
         assignDawn(level);
@@ -601,7 +601,7 @@ public final class FarmTicker {
         expireVacant(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
-                if (p.planted[i] < 0 || level.getGameTime() - p.planted[i] < FarmEconomy.RIPEN_TICKS) {
+                if (p.planted[i] < 0 || com.evosim.mod.entity.SimTime.tick(level) - p.planted[i] < FarmEconomy.RIPEN_TICKS) {
                     continue;
                 }
                 BlockPos pos = BlockPos.of(p.tiles[i]);

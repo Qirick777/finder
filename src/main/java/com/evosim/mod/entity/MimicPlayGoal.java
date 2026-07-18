@@ -47,7 +47,7 @@ public class MimicPlayGoal extends Goal {
                 != Schedule.Phase.WANDER) {
             return false;
         }
-        long gameDay = mob.level().getGameTime() / 24000L;
+        long gameDay = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
         if (mob.lastPlayDay() >= gameDay) {
             return false; // 쿨다운 1일(단조 시계)
         }
@@ -93,7 +93,7 @@ public class MimicPlayGoal extends Goal {
         if (!began) {
             began = true;
             // 도착 = 놀이 시작 — 오늘 완료 마킹(중단돼도 재접근 반복 안 함) + 조우 관문 경유.
-            mob.setLastPlayDay(mob.level().getGameTime() / 24000L);
+            mob.setLastPlayDay(com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L);
             if (mob.level() instanceof ServerLevel sl) {
                 Encounter.begin(sl, mob, child, EncounterContext.Place.HOME,
                         EncounterContext.Occasion.PLAY, PLAY_TICKS);

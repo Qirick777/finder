@@ -42,7 +42,7 @@ public class MimicFarmGoal extends Goal {
         if (Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) != Schedule.Phase.WORK) {
             return idle();
         }
-        long today = mob.level().getGameTime() / 24000L;
+        long today = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
         if (today != day) {
             day = today;
             harvestedToday = 0; // 일일 용량 리셋
@@ -208,7 +208,7 @@ public class MimicFarmGoal extends Goal {
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
                 if (p.tiles[i] == pos.asLong()) {
-                    p.planted[i] = sl.getGameTime();
+                    p.planted[i] = com.evosim.mod.entity.SimTime.tick(sl);
                     FarmStore.get(sl).setDirty();
                     return;
                 }

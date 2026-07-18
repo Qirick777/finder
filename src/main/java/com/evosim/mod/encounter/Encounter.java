@@ -30,7 +30,7 @@ public final class Encounter {
     public static Encounter begin(ServerLevel level, MimicEntity initiator,
                                   @Nullable MimicEntity partner, EncounterContext.Place place,
                                   EncounterContext.Occasion occasion, int budgetTicks) {
-        long day = level.getGameTime() / 24000L;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         long iid = initiator.getIndividual() != null ? initiator.getIndividual().id()
                 : initiator.getId();
         long pid = partner != null && partner.getIndividual() != null

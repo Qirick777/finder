@@ -66,7 +66,7 @@ public class TraitScannerItem extends Item {
         }
         // ── 렌즈(P1): 조준한 미믹 스냅샷을 5틱마다 push, 조준 해제 시 clear 1회 ──
         if (level instanceof ServerLevel scanLevel && entity instanceof ServerPlayer sp
-                && level.getGameTime() % SCAN_INTERVAL == 0) {
+                && com.evosim.mod.entity.SimTime.tick(level) % SCAN_INTERVAL == 0) {
             net.minecraft.world.phys.Vec3 eye = sp.getEyePosition();
             net.minecraft.world.phys.Vec3 dir = sp.getViewVector(1.0F);
             net.minecraft.world.phys.Vec3 end = eye.add(dir.scale(SCAN_REACH));
@@ -92,7 +92,7 @@ public class TraitScannerItem extends Item {
         if (ScannerMode.of(stack) != ScannerMode.HOME) {
             return;
         }
-        if (level.getGameTime() % HOME_MARK_INTERVAL != 0
+        if (com.evosim.mod.entity.SimTime.tick(level) % HOME_MARK_INTERVAL != 0
                 || !(level instanceof ServerLevel sl) || !(entity instanceof Player player)) {
             return;
         }

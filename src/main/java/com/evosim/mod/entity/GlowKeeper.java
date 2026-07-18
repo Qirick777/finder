@@ -39,7 +39,7 @@ public final class GlowKeeper {
         }
         if (on) {
             e.setGlowingTag(true);
-            ACTIVE.put(entityId, new Entry(level, level.getGameTime() + GRACE_TICKS));
+            ACTIVE.put(entityId, new Entry(level, com.evosim.mod.entity.SimTime.tick(level) + GRACE_TICKS));
         } else {
             e.setGlowingTag(false);
             ACTIVE.remove(entityId);
@@ -60,10 +60,10 @@ public final class GlowKeeper {
         while (it.hasNext()) {
             Map.Entry<Integer, Entry> en = it.next();
             ServerLevel level = en.getValue().level();
-            if (level.getGameTime() % SWEEP_INTERVAL != 0) {
+            if (com.evosim.mod.entity.SimTime.tick(level) % SWEEP_INTERVAL != 0) {
                 continue;
             }
-            if (level.getGameTime() >= en.getValue().expireGameTime()) {
+            if (com.evosim.mod.entity.SimTime.tick(level) >= en.getValue().expireGameTime()) {
                 Entity e = level.getEntity(en.getKey());
                 if (e != null) {
                     e.setGlowingTag(false);

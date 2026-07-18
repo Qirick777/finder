@@ -281,7 +281,7 @@ public class FarmStore extends SavedData {
                         "구획 %d 승계(%d타일) — 소작 관계는 밭에 붙어 유지", p.id, p.tiles.length));
             } else {
                 p.ownerId = 0L;
-                p.vacantSince = level.getGameTime(); // 무주지 — 선점 대기, 만료 시 소거
+                p.vacantSince = com.evosim.mod.entity.SimTime.tick(level); // 무주지 — 선점 대기, 만료 시 소거
             }
         }
         setDirty();

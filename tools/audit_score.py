@@ -6,40 +6,42 @@
 """
 import sys, re, collections
 
+# 2배속 압축판 창(대기 상수 반감: 성장 0.75/1.25일·쿨다운 1일·승격 2일·확장 6/일·수명 7+3).
+# 소득·소모율은 불변이므로 흐름 지배 관문(착공 저축·풀 붕괴)은 원창 유지 — 정직한 혼합 압축.
 MILESTONES = [
     # (판정일 하한, 상한, 이름, 판정 함수: rows dict{day: fields} -> True/False/None(미판정))
     (0, 1,  "풀 러시(grass>garden)",
      lambda r, d: r[d]["grass"] > r[d]["garden"] if d in r else None),
-    (2, 3,  "1호 밭 착공(plots>=1)",
+    (2, 3,  "1호 밭 착공(plots>=1)",   # 흐름 지배(엘리트 저축 30) — 원창 유지
      lambda r, d: r[d]["plots"] >= 1 if d in r else None),
-    (2, 4,  "첫 출산 물결(births 누적>=가구 0.6)",
+    (1, 3,  "첫 출산 물결(births 누적>=가구 0.6)",
      lambda r, d: sum(r[x]["births"] for x in r if x <= d) >= 0.6 * r[d]["homes"]
      if d in r and r[d]["homes"] > 0 else None),
-    (4, 5,  "풀 붕괴(grass<30 & garden 비중>60%)",
+    (3, 5,  "풀 붕괴(grass<30 & garden 비중>60%)",  # 인구 가속으로 반나절~1일 조기화
      lambda r, d: r[d]["grass"] < 30
      and r[d]["garden"] > 0.6 * max(1e-9, r[d]["grass"] + r[d]["garden"] + r[d]["hunt"])
      if d in r else None),
-    (4, 6,  "첫 소작(고용 성립 & 평민 한계 전: landless 저장고>4)",
+    (4, 6,  "첫 소작(고용 성립 & 평민 한계 전: landless 저장고>4)",  # 확장 6/일(자금 캡)·성인화 2일 → d5~6
      lambda r, d: (r[d]["tenants_today"] >= 1 or r[d]["tenants_perm"] >= 1)
      and r[d].get("larder_landless", 99) > 4 if d in r else None),
-    (5, 8,  "완만한 굶주림(평민 저장고 -0.3~-3/일 & critical<10%)",
+    (3, 6,  "완만한 굶주림(평민 저장고 -0.3~-3/일 & critical<10%)",
      lambda r, d: (d - 1) in r and d in r
      and -3.0 <= r[d].get("larder_landless", 99) - r[d - 1].get("larder_landless", 0) <= -0.3
      and r[d]["critical"] < 0.1 * max(1, r[d]["pop"]) or None),
-    (7, 9,  "상시 소작+확장(perm>=1 & top_tiles>=20)",
+    (5, 8,  "상시 소작+확장(perm>=1 & top_tiles>=20)",  # 첫 소작 +2일(승격 2일)
      lambda r, d: r[d]["tenants_perm"] >= 1 and r[d]["top_tiles"] >= 20
      if d in r else None),
-    (8, 10, "2호 밭(top_plots>=2)",
+    (5, 8,  "2호 밭(top_plots>=2)",  # 24성숙(확장 6/일) + 상시 성립 직후
      lambda r, d: r[d]["top_plots"] >= 2 if d in r else None),
-    (10, 12, "출산 재개(당일 births>=1, 소작 존재)",
+    (6, 9,  "출산 재개(당일 births>=1, 소작 존재)",
      lambda r, d: r[d]["births"] >= 1 and r[d]["tenants_perm"] >= 1 if d in r else None),
-    (10, 20, "여성당 출산율 1.5+ 진입(누적births/adult_f)",
+    (5, 10, "여성당 출산율 1.5+ 진입(누적births/adult_f)",  # 쿨다운 1일·성인화 2일
      lambda r, d: sum(r[x]["births"] for x in r if x <= d)
      >= 1.5 * r[d]["adult_f"] if d in r and r[d].get("adult_f", 0) > 0 else None),
-    (12, 16, "왕조 집중(top_tiles>=전체 60% & tenants>=8)",
+    (7, 10, "왕조 집중(top_tiles>=전체 60% & tenants>=8)",
      lambda r, d: r[d]["tiles"] > 0 and r[d]["top_tiles"] >= 0.6 * r[d]["tiles"]
      and (r[d]["tenants_perm"] + r[d]["tenants_today"]) >= 8 if d in r else None),
-    (16, 20, "100명 의존(dyn_deps>=100)",
+    (8, 11, "100명 의존(dyn_deps>=100)",  # 최종 관문 — 목표 d10 중심(±1 창)
      lambda r, d: r[d]["dyn_deps"] >= 100 if d in r else None),
 ]
 

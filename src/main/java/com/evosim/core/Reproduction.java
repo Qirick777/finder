@@ -11,8 +11,8 @@ public final class Reproduction {
     public static final double BASE_THRESHOLD = 2.5;
     /** 출산 상한 기본 (설계서 §6). */
     public static final int BASE_BIRTH_LIMIT = 5;
-    /** 여성 출산 쿨다운 (게임 3일 ≈ 60분, 설계서 §6). */
-    public static final int FEMALE_COOLDOWN_DAYS = 2; // 3→2(세대 압축): 5명이 성년기 13일 안에 물리적으로 가능해지는 조건
+    /** 여성 출산 쿨다운 (설계서 §6). */
+    public static final int FEMALE_COOLDOWN_DAYS = 1; // 2→1(2배속 압축): 5명이 성년기 7일 안에 물리적으로 가능해지는 조건
 
     private Reproduction() {
     }

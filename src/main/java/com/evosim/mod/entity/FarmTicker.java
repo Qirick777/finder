@@ -293,7 +293,7 @@ public final class FarmTicker {
                 // 성숙 = (24타일 + 상시소작 인계) OR 공간 포화(2일 연속 배치 0 — 막힌 밭 교착 방지)
                 boolean sizeMature = np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES
                         && permTenants >= 1;
-                boolean blockedMature = np.blockedDays >= 2;
+                boolean blockedMature = np.blockedDays >= 1; // 2→1(2배속 — 대기 반감)
                 if (!sizeMature && !blockedMature) {
                     continue;
                 }

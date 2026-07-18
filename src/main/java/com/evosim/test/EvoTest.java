@@ -1971,10 +1971,10 @@ public final class EvoTest {
         // 공유 자격·노년 기간
         boolean s1 = Elder.sharesLeftover(plain) && Elder.sharesLeftover(resp)
                 && !Elder.sharesLeftover(irre)
-                && Elder.elderDays(plain) == 6
-                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 8
-                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 4;
-        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 6일(강건8/병약4 — 세대 압축)",
+                && Elder.elderDays(plain) == 3
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 4
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 2;
+        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 3일(강건4/병약2 — 2배속 압축)",
                 s1 ? "정상" : "어긋남");
 
         // 능력치: 소모 2.0 · 속도 0.8 · 채집·전투 가능 · 수확 배율 상수 0.5
@@ -2273,13 +2273,14 @@ public final class EvoTest {
                         one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 266), 0.25)
                 && java.util.Arrays.deepEquals(FarmLayout.mirrors(2, 1),
                         new int[][] {{2, 1}, {-2, 1}, {2, -1}, {-2, -1}})
-                && FarmEconomy.EXPAND_PER_DAY == 3
-                // 소작 비례 확장 3×(1+상시소작)의 구획 캡 12→30(B3 지수 확장 — 자금·소작이 자연 한계)
-                && FarmEconomy.EXPAND_DAY_MAX == 30
+                && FarmEconomy.EXPAND_PER_DAY == 6 // 3→6(2배속 압축 — 하루당 진행률 2배)
+                // 소작 비례 확장 6×(1+상시소작)의 구획 캡 30→60(2배속 비례 유지)
+                && FarmEconomy.EXPAND_DAY_MAX == 60
                 && FarmEconomy.MIN_JOB == 2
+                && FarmEconomy.PROMOTE_DAYS == 2 // 3→2(2배속 — 1.5의 올림)
                 && close(FarmEconomy.INVEST_RESERVE, 12.0);
         report.add("farm/관리효율", gate,
-                "용량 8+g³(8/16/35/72/133·도축 제외) · E: 무능력14→0.33·Ⅲ50→0.49·Ⅴ266→0.25 · 미러4방 · 확장3(캡30)·예비12",
+                "용량 8+g³(8/16/35/72/133·도축 제외) · E: 무능력14→0.33·Ⅲ50→0.49·Ⅴ266→0.25 · 미러4방 · 확장6(캡60)·승격2일·예비12",
                 gate ? "정상" : "어긋남");
 
         report.add("farm/지대비용", acct, "FEE 0.45: 0.75→0.4125/0.3375(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",

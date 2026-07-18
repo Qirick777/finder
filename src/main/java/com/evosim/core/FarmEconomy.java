@@ -15,8 +15,9 @@ public final class FarmEconomy {
     /** 개인 수확 용량 기본(타일/일). 12→8(소작 루프 v2): "적은 노동의 지주" 수치화 —
      *  고용 문턱을 8+최소일감으로 낮추고, 큰 밭일수록 소작 의존이 커진다. */
     public static final int C_BASE = 8;
-    /** 상시 소작 승격 — 같은 밭 연속 출근 일수(예약석: 이후 슬롯 변동 무관 유지). */
-    public static final int PROMOTE_DAYS = 3;
+    /** 상시 소작 승격 — 같은 밭 연속 출근 일수(예약석: 이후 슬롯 변동 무관 유지).
+     *  3→2(2배속 압축 — 1.5의 올림, 반나절 관대해지는 왜곡은 정직 표기). */
+    public static final int PROMOTE_DAYS = 2;
     /** 최소 일감(타일). 10→2(소작 루프 v2): 첫 고용 밭 크기 = C_BASE 8 + 2 = 10타일 —
      *  착공 9타일에서 하루 확장이면 게시(40~50분 첫 고용 역산). */
     public static final int MIN_JOB = 2;
@@ -26,13 +27,14 @@ public final class FarmEconomy {
      *  체증 ×1.5 유지(2호 27·3호 40.5 — 축적 폭주 제동). */
     public static final double NEW_FARM_BASE = 18.0;
 
-    /** 무주지 등록 소거까지(틱, 2.5일) — 선점자가 없으면 야생으로 복원(등록만 소거, 베리는 남음). */
-    public static final long VACANT_EXPIRE_TICKS = 60000L;
-    /** 1인 하루 확장 기본(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ). */
-    public static final int EXPAND_PER_DAY = 3;
-    /** 구획 하루 확장 상한 — 소작 비례 확장 3×(1+상시소작 수)의 캡. 12→30(B3 지수 확장): 캡이
-     *  dT/dt≈0.225T(3일 2배)를 선형화하던 것을 풀어, 자금(지대)·소작공급이 자연 한계가 되게 한다. */
-    public static final int EXPAND_DAY_MAX = 30;
+    /** 무주지 등록 소거까지(틱, 1.25일) — 선점자가 없으면 야생으로 복원(등록만 소거, 베리는 남음).
+     *  60000→30000(2배속 — 대기 반감). */
+    public static final long VACANT_EXPIRE_TICKS = 30000L;
+    /** 1인 하루 확장 기본(타일) — 개간도 노동이라는 병목 근사(축적 폭주 제동 P1-ⓐ).
+     *  3→6(2배속 압축: 하루당 진행률 2배 — 소득·소모율은 불변이라 자금이 자연 병목). */
+    public static final int EXPAND_PER_DAY = 6;
+    /** 구획 하루 확장 상한 — 소작 비례 확장 6×(1+상시소작 수)의 캡. 30→60(2배속 비례 유지). */
+    public static final int EXPAND_DAY_MAX = 60;
     /** 확장·신규의 최소 여유. 6→12(만족의 덫): 개간 임계 = 18+12 = <b>30</b> — 빈둥지 부부
      *  만족선(6.0×2×σ2=24)·1자녀 가구 만족선(27.6)보다 위. 평민은 "궁핍해서 불만족 ⟹ 자금<30,
      *  자금≥30 ⟹ 이미 만족 ⟹ 개간 동기 없음"의 모순에 잠긴다(규칙 아닌 수치 잠금 — G 하드게이트

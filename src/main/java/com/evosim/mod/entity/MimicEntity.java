@@ -1952,7 +1952,7 @@ public class MimicEntity extends PathfinderMob {
     /** 거절 쿨다운(틱) — 하루 뒤 재구애 허용. 영구 배제가 아닌 이유: 눈낮춤(§10)은 거절이 반복될수록
      *  수신자의 k 가 내려가 결국 성사되는 구조라, 구혼자가 재시도할 수 있어야 수렴한다(2인 마을 교착 방지).
      *  스팸 방지는 1일 간격으로 유지. */
-    private static final long REJECT_RETRY_TICKS = 24000L;
+    private static final long REJECT_RETRY_TICKS = 12000L; // 24000→12000(2배속 — 대기 반감)
 
     /** 거절/포기: 상대를 하루 쿨다운에 넣고 후보에서 제거. 접근 실패는 {@link #backOffFrom}(짧은 쿨다운). */
     public void giveUpOn(int id) {
@@ -3533,15 +3533,15 @@ public class MimicEntity extends PathfinderMob {
     private void growthTick() {
         LifeStage stage = getStage();
         growthTicks++;
-        // 단계별 임계: 유아 1.5일·소년 2.5일(세대 겹침 확대 — 세대차 혼인·다처 관찰 목적) ·
-        // 청년 13일 · 노년 6일±특성. fast 무대 40틱. 세대주기 8.2→7.2일: 증손 출생 21.6일
-        // < 수명 24일 — 노인이 증손기를 ~2.4일 보게 됨(의도된 겹침).
+        // 단계별 임계(2배속 압축판): 유아 0.75일·소년 1.25일 · 청년 7일 · 노년 3일±특성.
+        // fast 무대 40틱. 대기 상수만 반감(소득·소모율 불변 — 계층 산술 보존): 세대주기 ~3.6일,
+        // 증손 출생 ~10.8일 vs 수명 12일 — "증손 직전 노환사" 세대 시계의 비율 유지.
         int threshold;
         switch (stage) {
             case INFANT -> threshold = fastGrowth ? 40
-                    : (int) (36000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+                    : (int) (18000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case BOY -> threshold = fastGrowth ? 40
-                    : (int) (60000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+                    : (int) (30000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case ADULT -> threshold = fastGrowth ? 40 : Elder.ADULT_DAYS * 24000;
             case ELDER -> threshold = fastGrowth ? 40
                     : (individual != null ? Elder.elderDays(individual) : Elder.ELDER_BASE_DAYS) * 24000;

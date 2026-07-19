@@ -1428,7 +1428,9 @@ public class MimicEntity extends PathfinderMob {
             if (planted >= maxCount) {
                 break;
             }
-            if (tryPlantBerry(sl, tile, 1)) {
+            if (tryPlantBerry(sl, tile, 3)) { // 1→3: "정착 즉시 정원 8/8 완성이 설계 기준선"
+                // (FoodEconomy.INITIAL_LARDER_BONUS 주석)의 복원 — 미숙 식재는 성숙까지 1~2일을
+                // 지연시켜 착공·굶주림 골짜기·소작 반등 사슬 전체를 밀었다(전 가구 공통 시작 조건).
                 planted++;
             }
         }

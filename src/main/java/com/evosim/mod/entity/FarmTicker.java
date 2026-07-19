@@ -559,7 +559,15 @@ public final class FarmTicker {
                 }
             }
         }
-        for (FarmStore.Plot plot : store.all().values()) {
+        // 노동시장 순번(집중 유도): 구획 순회를 규모(타일) 내림차순으로 — "일감 많고 임금 실적
+        // 좋은 큰 밭에 먼저 줄 선다"의 산술화. 큰 밭 = 능력 지주(E·확장력의 산물)이므로 능력
+        // 경사 그대로이고, 강제 없이 대지주 구획이 후보 풀을 우선 흡수한다(런6 실측: 무순서
+        // 순회가 공급을 8구획에 1명씩 분산 → 왕조 의존 스케일 정체).
+        java.util.List<FarmStore.Plot> market = new java.util.ArrayList<>(store.all().values());
+        market.sort(java.util.Comparator
+                .comparingInt((FarmStore.Plot p) -> -p.tiles.length)
+                .thenComparingLong(p -> p.id));
+        for (FarmStore.Plot plot : market) {
             int ownCap = effCap.getOrDefault(plot.id, 0);
             BlockPos ownerHome = ownerHomes.get(plot.ownerId);
             int need = com.evosim.core.FarmEconomy.shortfall(plot.tiles.length, ownCap);

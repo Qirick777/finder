@@ -287,27 +287,38 @@ public final class FarmTicker {
             int owned = store.ownedCount(m.getIndividual().id());
             double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
             double funds = larders.get(m.getHomePos());
-            // 가구 회계 존중(런6 실측: 배우자가 같은 저장고로 자기 명의 개간 → 왕조 다음 밭 자금
-            // 누수): 가구 내 <b>주 지주</b>(최대 소유 타일)의 다음 밭 몫을 예비에 가산하되, 자신이
-            // 주 지주면 가산 없음 — 상호 가산으로 부부 지주가 서로를 차단하던 부메랑(2차 실측:
-            // 리엄 문턱 66) 제거. 가구 자금은 주 왕조 몫 먼저, 부속 개간은 그 뒤(우선순위 산술).
-            double reserve = com.evosim.core.FarmEconomy.INVEST_RESERVE;
-            {
-                long headId = 0L;
-                int headTiles = -1;
-                for (MimicEntity h : adults) {
-                    if (h.getHomePos() != null && h.getHomePos().equals(m.getHomePos())) {
-                        int t = store.ownedTiles(h.getIndividual().id());
-                        if (t > headTiles) {
-                            headTiles = t;
-                            headId = h.getIndividual().id();
-                        }
+            // 가구 회계 존중: 예비 = max(12, 2×가구 소모)(foundReserve — 만족의 덫 보편화, P1)
+            // + 가구 내 <b>주 지주</b>(최대 소유 타일)의 다음 밭 몫 가산(자신이 주 지주면 가산 없음
+            // — 부부 상호 차단 부메랑 방지). 가구 자금은 주 왕조 몫 먼저, 부속 개간은 그 뒤.
+            double famNeed = com.evosim.core.FoodEconomy.consumptionPerDay(
+                    m.getStage(), com.evosim.core.Activity.MOVE, m.getIndividual(), false);
+            long headId = 0L;
+            int headTiles = -1;
+            for (MimicEntity h : adults) {
+                if (h.getHomePos() != null && h.getHomePos().equals(m.getHomePos())) {
+                    int t = store.ownedTiles(h.getIndividual().id());
+                    if (t > headTiles) {
+                        headTiles = t;
+                        headId = h.getIndividual().id();
+                    }
+                    if (h != m) {
+                        famNeed += com.evosim.core.FoodEconomy.consumptionPerDay(
+                                h.getStage(), com.evosim.core.Activity.MOVE,
+                                h.getIndividual(), false);
                     }
                 }
-                if (headTiles > 0 && headId != m.getIndividual().id()) {
-                    reserve += com.evosim.core.FarmEconomy.newFarmCost(
-                            store.ownedCount(headId));
-                }
+            }
+            for (MimicEntity c : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null
+                            && m.getHomePos().equals(e.getHomePos())
+                            && (e.getStage() == com.evosim.core.LifeStage.INFANT
+                                    || e.getStage() == com.evosim.core.LifeStage.BOY))) {
+                famNeed += com.evosim.core.FoodEconomy.consumptionPerDay(
+                        c.getStage(), com.evosim.core.Activity.MOVE, c.getIndividual(), false);
+            }
+            double reserve = com.evosim.core.FarmEconomy.foundReserve(famNeed);
+            if (headTiles > 0 && headId != m.getIndividual().id()) {
+                reserve += com.evosim.core.FarmEconomy.newFarmCost(store.ownedCount(headId));
             }
             if (funds < cost + reserve) {
                 continue; // 자금(주 지주·단독 가구면 저장고≥30/39…)

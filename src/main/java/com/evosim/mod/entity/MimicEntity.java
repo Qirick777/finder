@@ -3074,6 +3074,12 @@ public class MimicEntity extends PathfinderMob {
                 && wealth <= neighborMax;
     }
 
+    /** 밤 스킵 소급 성장(P2) — 점프한 틱만큼 성장 시계를 전진(수면 중에도 자라는 것으로,
+     *  유인 월드 등가). GardenTicker.catchUp과 같은 철학. */
+    public void addGrowthTicks(int d) {
+        growthTicks += Math.max(0, d);
+    }
+
     public boolean isSatisfiedToday() {
         return satisfiedToday;
     }
@@ -3542,9 +3548,9 @@ public class MimicEntity extends PathfinderMob {
     private void growthTick() {
         LifeStage stage = getStage();
         growthTicks++;
-        // 단계별 임계(2배속 압축판): 유아 0.75일·소년 1.25일 · 청년 7일 · 노년 3일±특성.
-        // fast 무대 40틱. 대기 상수만 반감(소득·소모율 불변 — 계층 산술 보존): 세대주기 ~3.6일,
-        // 증손 출생 ~10.8일 vs 수명 12일 — "증손 직전 노환사" 세대 시계의 비율 유지.
+        // 단계별 임계(2배속 압축판): 유아 0.75일·소년 1.25일 · 청년 11일 · 노년 3일±특성.
+        // 성장 시계는 밤 스킵 delta를 가산(addGrowthTicks — SimTime 정합, P2)해 설계 일수가
+        // 시뮬 일수와 일치한다(종전엔 실틱 기준이라 실효 ~1.7배 지연 — 런6 실측 노년 d15).
         int threshold;
         switch (stage) {
             case INFANT -> threshold = fastGrowth ? 40

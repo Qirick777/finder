@@ -21,7 +21,7 @@ MILESTONES = [
      lambda r, d: r[d]["grass"] < 30
      and r[d]["garden"] > 0.6 * max(1e-9, r[d]["grass"] + r[d]["garden"] + r[d]["hunt"])
      if d in r else None),
-    (4, 6,  "첫 소작(고용 성립 & 평민 한계 전: landless 저장고>4)",  # 확장 6/일(자금 캡)·성인화 2일 → d5~6
+    (4, 6,  "첫 소작(고용 성립 & 평민 한계 전: landless 저장고>4)",  # 20쌍 스케일·N2 문턱 10타일
      lambda r, d: (r[d]["tenants_today"] >= 1 or r[d]["tenants_perm"] >= 1)
      and r[d].get("larder_landless", 99) > 4 if d in r else None),
     (3, 6,  "완만한 굶주림(평민 저장고 -0.3~-3/일 & critical<10%)",
@@ -41,7 +41,7 @@ MILESTONES = [
     (7, 10, "왕조 집중(top_tiles>=전체 60% & tenants>=8)",
      lambda r, d: r[d]["tiles"] > 0 and r[d]["top_tiles"] >= 0.6 * r[d]["tiles"]
      and (r[d]["tenants_perm"] + r[d]["tenants_today"]) >= 8 if d in r else None),
-    (8, 11, "100명 의존(dyn_deps>=100)",  # 최종 관문 — 목표 d10 중심(±1 창)
+    (8, 11, "100명 의존(dyn_deps>=100)",  # 최종 관문 — 20쌍·성장 정합으로 d10 인구 ~300 전제
      lambda r, d: r[d]["dyn_deps"] >= 100 if d in r else None),
 ]
 

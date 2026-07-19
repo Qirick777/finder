@@ -282,19 +282,29 @@ public final class FarmTicker {
             double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
             double funds = larders.get(m.getHomePos());
             // 가구 회계 존중(런6 실측: 배우자가 같은 저장고로 자기 명의 개간 → 왕조 다음 밭 자금
-            // 18 누수·2호 2~3일 지연): 같은 거처에 기존 지주가 있으면 그의 다음 밭 몫(신규 비용)을
-            // 예비에 가산 — 가구 자금이 왕조 몫을 먼저 채워야 배우자 별도 개간(우선순위 산술, 금지 아님).
+            // 누수): 가구 내 <b>주 지주</b>(최대 소유 타일)의 다음 밭 몫을 예비에 가산하되, 자신이
+            // 주 지주면 가산 없음 — 상호 가산으로 부부 지주가 서로를 차단하던 부메랑(2차 실측:
+            // 리엄 문턱 66) 제거. 가구 자금은 주 왕조 몫 먼저, 부속 개간은 그 뒤(우선순위 산술).
             double reserve = com.evosim.core.FarmEconomy.INVEST_RESERVE;
-            for (MimicEntity h : adults) {
-                if (h != m && h.getHomePos() != null && h.getHomePos().equals(m.getHomePos())) {
-                    int hOwned = store.ownedCount(h.getIndividual().id());
-                    if (hOwned > 0) {
-                        reserve += com.evosim.core.FarmEconomy.newFarmCost(hOwned);
+            {
+                long headId = 0L;
+                int headTiles = -1;
+                for (MimicEntity h : adults) {
+                    if (h.getHomePos() != null && h.getHomePos().equals(m.getHomePos())) {
+                        int t = store.ownedTiles(h.getIndividual().id());
+                        if (t > headTiles) {
+                            headTiles = t;
+                            headId = h.getIndividual().id();
+                        }
                     }
+                }
+                if (headTiles > 0 && headId != m.getIndividual().id()) {
+                    reserve += com.evosim.core.FarmEconomy.newFarmCost(
+                            store.ownedCount(headId));
                 }
             }
             if (funds < cost + reserve) {
-                continue; // 자금(owned==0·단독 가구면 저장고≥30)
+                continue; // 자금(주 지주·단독 가구면 저장고≥30/39…)
             }
             if (owned > 0 && !nextFarmEligible(store, adults, m.getIndividual().id())) {
                 continue; // 성숙 트리거(P6) — nextFarmEligible 참조(확장 예비 산정과 단일 출처)

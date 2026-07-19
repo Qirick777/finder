@@ -3022,7 +3022,7 @@ public class MimicEntity extends PathfinderMob {
      * {@code addFreshEntity} <b>전에</b> 호출해야 첫 틱 원장 등록을 피한다(등록 취소는 없음).
      */
     /**
-     * 새벽 동기 갱신(M7) — 잉여(거처 저장고+소유 밭 계정) vs 만족 기준(개인 하루소모 근사 ×
+     * 새벽 동기 갱신(M7) — 잉여(거처 저장고+소유 밭 계정) vs 만족 기준(가구 명목소모 ×
      * comfortDays × σ)을 캐시. 경쟁은 인지 48블록 내 타 가구 저장고 최대와 비교.
      */
     public void updateMotivation(ServerLevel sl) {
@@ -3037,9 +3037,18 @@ public class MimicEntity extends PathfinderMob {
                 tiles += p.tiles.length;
             }
         }
+        // 만족 bar의 need = <b>가구 명목소모</b>(설계 문서 산술: 빈둥지 24 = 6.0×2×σ2 ·
+        // 1자녀 27.6 · 개간 임계 30 — 만족의 덫 부등식 복원). 종전 개인 소모(bar 12)는 소작이
+        // 임금 며칠에 만족 진입 → 노동 정지 → 지대 고갈(런3·5·6 3회 실측)·저능력 개간 러시의
+        // 뿌리였다. 가구 합산은 인지 반경(48) 내 동거 구성원 근사 — 원거리 이탈자는 오차 수용.
         double need = FoodEconomy.consumptionPerDay(getStage(), Activity.MOVE, individual, false);
         double neighborMax = 0.0;
         for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0))) {
+            if (m != this && homePos != null && homePos.equals(m.getHomePos())
+                    && m.getIndividual() != null && m.isAlive()) {
+                need += FoodEconomy.consumptionPerDay(
+                        m.getStage(), Activity.MOVE, m.getIndividual(), false);
+            }
             if (m != this && m.getHomePos() != null && !m.getHomePos().equals(homePos)) {
                 // 이웃 부도 자기 부와 같은 정의(저장고+소유 밭 계정) — 비대칭 비교 교정(R5).
                 double nw = LarderStore.get(sl).get(m.getHomePos());

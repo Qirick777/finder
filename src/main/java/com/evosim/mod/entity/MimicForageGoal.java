@@ -222,6 +222,16 @@ public class MimicForageGoal extends Goal {
                     mob.swing(InteractionHand.MAIN_HAND);
                     SimEvents.event(mob, "수확", String.format("옆 정원 베리 → 식량 +%.2f", food));
                     gatherCooldown = GATHER_COOLDOWN;
+                    // 정원 연쇄 수확(런10 실측 회차 12): 트립당 1수확 구조의 이동 오버헤드가
+                    // 행동량을 ~21회/일로 묶어 정원 공급 25회/일의 절반만 실현(엘리트 저축 정체
+                    // → 착공 영구 미달). 자기 정원에 또 익은 그루가 있으면 트립을 끝내지 않고
+                    // 연속 수확 — "익으면 즉각 수확"의 결정론화(전원 공통, 쿨타임은 유지).
+                    BlockPos next = ripeHomeBerry();
+                    if (next != null) {
+                        gatherTarget = next;
+                        stuckTicks = 0;
+                        return;
+                    }
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
                     double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind) * stageMult();
                     mob.addHarvest(food);

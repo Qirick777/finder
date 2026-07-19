@@ -1855,11 +1855,11 @@ public final class EvoTest {
         report.add("traitfx/책임감", r1, "무책임 입금문턱 3.0 — 2.5 들고 다님·3.2면 1개만 저장",
                 r1 ? "정상" : "어긋남");
 
-        // 아이선호(선호/불호) — 출산 상한 ±1
-        boolean c1 = Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.CHILD_LOVING)), plain) == 6
-                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.CHILD_AVERSE)), plain) == 4
-                && Reproduction.birthLimit(one(Sex.FEMALE), plain) == 5;
-        report.add("traitfx/아이선호", c1, "출산 상한 선호+1(6)·기본5·불호−1(4)", c1 ? "정상" : "어긋남");
+        // 아이선호(선호/불호) — 출산 상한 ±1 (기본 10 — 사실상 무제한, 경제 게이트가 실질 상한)
+        boolean c1 = Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.CHILD_LOVING)), plain) == 11
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.CHILD_AVERSE)), plain) == 9
+                && Reproduction.birthLimit(one(Sex.FEMALE), plain) == 10;
+        report.add("traitfx/아이선호", c1, "출산 상한 선호+1(11)·기본10·불호−1(9)", c1 ? "정상" : "어긋남");
 
         // 경쟁·교육 — 배율 한 줄들
         boolean m1 = close(Multipliers.hunt(one(Sex.MALE, TraitInstance.of(Trait.COMPETITIVE))), 1.2)

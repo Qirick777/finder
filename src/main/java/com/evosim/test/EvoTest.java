@@ -1040,16 +1040,16 @@ public final class EvoTest {
                                 one(Sex.FEMALE, TraitInstance.of(Trait.PRUDENT))));
 
         // 2) 출산 상한: 기본 5, 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3
-        boolean lim = Reproduction.birthLimit(f, m) == 5
-                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)), m) == 7
-                && Reproduction.birthLimit(f, one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))) == 6
+        boolean lim = Reproduction.birthLimit(f, m) == 10
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)), m) == 12
+                && Reproduction.birthLimit(f, one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))) == 11
                 && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)),
-                        one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))) == 8
-                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.INFERTILE)), m) == 4
-                && Reproduction.birthLimit(f, one(Sex.MALE, TraitInstance.of(Trait.INFERTILE))) == 3
+                        one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))) == 13
+                && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.INFERTILE)), m) == 9
+                && Reproduction.birthLimit(f, one(Sex.MALE, TraitInstance.of(Trait.INFERTILE))) == 8
                 && Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.INFERTILE)),
-                        one(Sex.MALE, TraitInstance.of(Trait.INFERTILE))) == 2;
-        report.add("reproduction/출산상한", lim, "기본5·다산+·난임−",
+                        one(Sex.MALE, TraitInstance.of(Trait.INFERTILE))) == 7;
+        report.add("reproduction/출산상한", lim, "기본10(사실상 무제한 — 경제 게이트가 실질 상한)·다산+·난임−",
                 "기본 " + Reproduction.birthLimit(f, m) + " · 다산둘 "
                         + Reproduction.birthLimit(one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC)),
                                 one(Sex.MALE, TraitInstance.of(Trait.PROLIFIC))));

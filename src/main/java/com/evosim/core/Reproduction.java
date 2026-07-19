@@ -9,8 +9,10 @@ public final class Reproduction {
 
     /** 기준 임계치(잉여) = 아이 하나 유아+소년기 부양 비용 (설계서 §6, 밸런싱). */
     public static final double BASE_THRESHOLD = 2.5;
-    /** 출산 상한 기본 (설계서 §6). */
-    public static final int BASE_BIRTH_LIMIT = 5;
+    /** 출산 상한 기본. 5→10(사실상 무제한 — 물리 상한은 쿨다운 1일×성년 창 ~7): 실질 제한을
+     *  출산 게이트(저장고 잉여)의 경제력으로 이관. 6명+는 지속 잉여 20~30/일이 필요해
+     *  엘리트 지주 전용 영역 — 규칙이 아닌 능력 계단(무능력 소작 2~3·약초Ⅰ~Ⅱ 3~4)이 가른다. */
+    public static final int BASE_BIRTH_LIMIT = 10;
     /** 여성 출산 쿨다운 (설계서 §6). */
     public static final int FEMALE_COOLDOWN_DAYS = 1; // 2→1(2배속 압축): 5명이 성년기 7일 안에 물리적으로 가능해지는 조건
 

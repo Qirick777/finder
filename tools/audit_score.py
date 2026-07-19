@@ -17,7 +17,7 @@ MILESTONES = [
     (1, 3,  "첫 출산 물결(births 누적>=가구 0.6)",
      lambda r, d: sum(r[x]["births"] for x in r if x <= d) >= 0.6 * r[d]["homes"]
      if d in r and r[d]["homes"] > 0 else None),
-    (3, 6,  "풀 붕괴(grass<30 & garden 비중>60%)",  # 결정론 풀밭(950그루)은 소진이 1일 느림(런3 실측)
+    (3, 7,  "풀 붕괴(grass<30 & garden 비중>60%)",  # 결정론 풀밭 950그루 표준: 붕괴 실측 d6~7(런3)
      lambda r, d: r[d]["grass"] < 30
      and r[d]["garden"] > 0.6 * max(1e-9, r[d]["grass"] + r[d]["garden"] + r[d]["hunt"])
      if d in r else None),

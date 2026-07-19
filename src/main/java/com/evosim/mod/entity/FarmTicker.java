@@ -633,8 +633,16 @@ public final class FarmTicker {
                 }
                 cands.add(m);
             }
+            // 연속성 선호(회차 17): 어제 이 밭에서 일한 사람이 같은 밭에 다시 줄 선다 — 전원 공통
+            // 습관 규칙. 종전 (빈곤, 새벽 거리) 정렬은 거리가 전날 배회 종료 위치 추첨이고 어제
+            // 노동자는 임금으로 빈곤 키에서도 밀려나 3일 연속 전원 교체(런12 실측: 스트릭 전부
+            // 연속 1일) → PROMOTE_DAYS 도달 불가·상시 승격 구조적 봉쇄. 재고용 우선이 운 의존을
+            // 제거하고 스트릭을 결정론화한다(만족·이주·지주 전환은 기존 필터로 자연 이탈).
+            final long pid = plot.id;
             cands.sort(java.util.Comparator
-                    .comparingInt((MimicEntity m) -> m.larderComfortable() ? 1 : 0) // 빈곤 우선
+                    .comparingInt((MimicEntity m) ->
+                            LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == pid ? 0 : 1) // 재고용 우선
+                    .thenComparingInt(m -> m.larderComfortable() ? 1 : 0) // 빈곤 우선
                     .thenComparingDouble(m -> m.blockPosition().distSqr(plot.anchor))
                     .thenComparingInt(MimicEntity::getId)); // 동률 결정론
             for (MimicEntity m : cands) {

@@ -122,17 +122,25 @@ public final class FoodEconomy {
         return larder;
     }
 
+    /** 번식 게이트의 소모 비축 일수. 1→2(회차 13 — 압축 재캘리브레이션): 쿨다운 1일 체제에서
+     *  계수 1은 지참금 14로 d0부터 열려 초반 출산이 가구당 ~1/일(목표 '초반 1'의 4배)로 폭주 —
+     *  전 가구 소모 조기 폭증이 엘리트 착공 저축 경주를 붕괴시켰다(런9~11 3회 실측).
+     *  검산: 부부 문턱 18(>지참금 14 — 첫 출산 d2, 설계 주석 정합) · 자녀1 20.8(무밭 정체
+     *  저장고로 둘째 억제 = 초반 1) · 소작 임금 가구는 저장고 상승으로 2~3명(2.3 재개). */
+    public static final double REPRO_NEED_DAYS = 2.0;
+
     /**
-     * 번식 판정(R5) — 출산 비용을 <b>선차감한 뒤에도</b> (가족 하루소모 + 성년수+1 ± 특성)의
-     * 여유가 남을 때만 참. 비용 없는 스냅샷 판정의 연쇄 출산을 {@link #BIRTH_COST}가 제동한다.
-     * 굶주림 판정은 {@link #anyStarvingHome}(집에 있는 구성원 한정)을 쓸 것.
+     * 번식 판정(R5) — 출산 비용을 <b>선차감한 뒤에도</b> (가족 하루소모×{@link #REPRO_NEED_DAYS}
+     * + 성년수+1 ± 특성)의 여유가 남을 때만 참. 비용 없는 스냅샷 판정의 연쇄 출산을
+     * {@link #BIRTH_COST}가 제동한다. 굶주림 판정은 {@link #anyStarvingHome}을 쓸 것.
      */
     public static boolean canReproduce(double larder, double familyDailyNeed,
                                        int adultCount, double reproTraitAdj, boolean anyStarving) {
         if (anyStarving) {
             return false;
         }
-        return (larder - BIRTH_COST - familyDailyNeed) >= (adultCount + 1) + reproTraitAdj;
+        return (larder - BIRTH_COST - familyDailyNeed * REPRO_NEED_DAYS)
+                >= (adultCount + 1) + reproTraitAdj;
     }
 
     /**

@@ -1735,10 +1735,10 @@ public final class EvoTest {
 
         // [food/번식] 출산비용 선차감 경계값 + 굶주림(집 한정) 게이트
         {
-            double need = 6.9; // 성인2+유아1
-            boolean b = FoodEconomy.canReproduce(13.0, need, 2, 0, false)      // 13−3−6.9=3.1 ≥ 3
-                    && !FoodEconomy.canReproduce(12.0, need, 2, 0, false)      // 2.1 < 3
-                    && !FoodEconomy.canReproduce(13.0, need, 2, 0, true)       // 굶주림 차단
+            double need = 6.9; // 성인2+유아1 — 소모 항 ×2(REPRO_NEED_DAYS, 회차 13)
+            boolean b = FoodEconomy.canReproduce(19.8, need, 2, 0, false)      // 19.8−3−13.8=3.0 ≥ 3
+                    && !FoodEconomy.canReproduce(19.7, need, 2, 0, false)      // 2.9 < 3
+                    && !FoodEconomy.canReproduce(19.8, need, 2, 0, true)       // 굶주림 차단
                     && FoodEconomy.anyStarvingHome(java.util.List.of(
                             new FoodEconomy.Eater(man, LifeStage.ADULT, 0.2, true)))
                     && !FoodEconomy.anyStarvingHome(java.util.List.of(
@@ -1749,7 +1749,7 @@ public final class EvoTest {
 
         // [food/출산비용] 연쇄 출산 제동: 출산 직후 L−3 → 즉시 재출산 불가
         {
-            double l = 13.0;
+            double l = 20.0;
             boolean first = FoodEconomy.canReproduce(l, 6.9, 2, 0, false);
             l -= FoodEconomy.BIRTH_COST;
             boolean second = FoodEconomy.canReproduce(l, 6.9, 2, 0, false);

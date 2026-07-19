@@ -2288,7 +2288,7 @@ public final class EvoTest {
                         one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 266), 0.25)
                 && java.util.Arrays.deepEquals(FarmLayout.mirrors(2, 1),
                         new int[][] {{2, 1}, {-2, 1}, {2, -1}, {-2, -1}})
-                && FarmEconomy.EXPAND_PER_DAY == 6 // 3→6(2배속 압축 — 하루당 진행률 2배)
+                && FarmEconomy.EXPAND_PER_DAY == 12 // 6→12(2배속 정합 — 설계율 6×2, 자금 병목 불변)
                 // 소작 비례 확장 6×(1+상시소작)의 구획 캡 30→60(2배속 비례 유지)
                 && FarmEconomy.EXPAND_DAY_MAX == 60
                 && FarmEconomy.MIN_JOB == 2

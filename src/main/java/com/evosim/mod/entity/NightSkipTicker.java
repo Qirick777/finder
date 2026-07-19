@@ -22,6 +22,10 @@ public final class NightSkipTicker {
     private static final int CHECK_INTERVAL = 100;
     private static final long SLEEP_ALL = 14000L; // 최대 취침 경계(전 특성 취침 보장)
     private static final long WAKE_FIRST = 0L;    // 최조 기상(부지런 −1000 → 경계 1000-1000)
+    /** 위급자 유예 경계 — 위급 개체가 있으면 스킵을 여기까지 미룬다(밤 채집 ~3900틱 보장 후
+     *  잔여 밤만 점프). 종전 "위급 시 스킵 전면 금지"는 굶주림 국면부터 관측이 ~5배 느려지는
+     *  부작용(런6 실측: d5 밤부터 스킵 0회) — 생존 경로 보존과 관측 속도의 절충. */
+    private static final long CRITICAL_GRACE_TOD = 18000L;
     private static boolean loaded = false;        // SavedData 오프셋 복원(재기동 1회)
 
     private NightSkipTicker() {
@@ -48,10 +52,11 @@ public final class NightSkipTicker {
         if (tod < SLEEP_ALL + 100) { // +100 여유 — 취침 경계 직후 정산 스캔이 끝난 뒤
             return;
         }
-        // 위급 개체(밤 채집 강행)가 있으면 그들의 생존 시간을 지우지 않는다.
+        // 위급 개체(밤 채집 강행)가 있으면 즉시 스킵하지 않고 CRITICAL_GRACE_TOD까지 유예 —
+        // 밤 채집 창을 보장한 뒤 잔여 밤만 점프(전면 금지 → 유예로 완화, 관측 하니스 절충).
         boolean anyCritical = !level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null && e.isCritical()).isEmpty();
-        if (anyCritical) {
+        if (anyCritical && tod < CRITICAL_GRACE_TOD) {
             return;
         }
         long delta = 24000L - tod + WAKE_FIRST;

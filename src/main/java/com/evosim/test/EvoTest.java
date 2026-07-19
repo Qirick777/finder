@@ -1914,8 +1914,8 @@ public final class EvoTest {
         Individual greedyMan = one(Sex.MALE, TraitInstance.of(Trait.GREEDY));
         Individual ambitiousMan = one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS));
         double need = 6.9; // 성인2+유아1 — 부양 기준 = ×6일 = 41.4 (5→6: 경계 동률 제거 — 런13 실측)
-
-        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 41.4, need, plainMan)   // 전부 통과 → 수락
+        // 통과 케이스는 41.5(부동소수점: 6.9×6 = 41.400000000000006 > 리터럴 41.4)로 경계 위를 확실히.
+        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 41.5, need, plainMan)   // 전부 통과 → 수락
                 && !Polygyny.canAccept(java.util.List.of(stingy), 45.0, need, plainMan)      // 인색 아내 → 거절
                 && !Polygyny.canAccept(java.util.List.of(competitive), 45.0, need, plainMan) // 경쟁 아내 → 거절
                 && !Polygyny.canAccept(java.util.List.of(tolerant), 41.0, need, plainMan)    // 부양 미달 → 거절

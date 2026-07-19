@@ -313,6 +313,13 @@ public final class FarmTicker {
             if (site == null) {
                 continue;
             }
+            if (m.getTenantFarm() != 0L) {
+                // 유령 상시 해소(런6 실측): 상시 소작이 독립 개간 후에도 명부에 남아 슬롯을
+                // 점유(covered 포화) → 신규 고용 게시가 봉쇄되고 지대가 말랐다(d10~13 farm 소득 0).
+                // 자기 밭 주인은 남의 밭 상시일 수 없다 — 상속 경로와 같은 회계 정리.
+                m.setTenant(0L, 0);
+                com.evosim.mod.log.SimEvents.event(m, "소작해제", "독립 개간 — 소작 관계 정리");
+            }
             FarmStore.Plot plot = store.create(site, m.getIndividual().id());
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
@@ -566,6 +573,12 @@ public final class FarmTicker {
                 if (m.blockPosition().distSqr(plot.anchor) > DISSOLVE_DIST * DISSOLVE_DIST) {
                     m.setTenant(0L, 0);
                     com.evosim.mod.log.SimEvents.event(m, "소작해제", "원거리 이주(>128) — 관계 소멸");
+                    continue;
+                }
+                if (store.ownedCount(m.getIndividual().id()) > 0) {
+                    // 유령 상시 방어 정리 — 밭 주인이 된 상시는 명부에서 해제(기존 월드 소급 포함)
+                    m.setTenant(0L, 0);
+                    com.evosim.mod.log.SimEvents.event(m, "소작해제", "지주 전환 — 상시 명부 정리");
                     continue;
                 }
                 ASSIGNED.put(m.getId(), plot.id);

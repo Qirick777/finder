@@ -281,8 +281,20 @@ public final class FarmTicker {
             int owned = store.ownedCount(m.getIndividual().id());
             double cost = com.evosim.core.FarmEconomy.newFarmCost(owned);
             double funds = larders.get(m.getHomePos());
-            if (funds < cost + com.evosim.core.FarmEconomy.INVEST_RESERVE) {
-                continue; // 자금(owned==0이면 저장고≥24)
+            // 가구 회계 존중(런6 실측: 배우자가 같은 저장고로 자기 명의 개간 → 왕조 다음 밭 자금
+            // 18 누수·2호 2~3일 지연): 같은 거처에 기존 지주가 있으면 그의 다음 밭 몫(신규 비용)을
+            // 예비에 가산 — 가구 자금이 왕조 몫을 먼저 채워야 배우자 별도 개간(우선순위 산술, 금지 아님).
+            double reserve = com.evosim.core.FarmEconomy.INVEST_RESERVE;
+            for (MimicEntity h : adults) {
+                if (h != m && h.getHomePos() != null && h.getHomePos().equals(m.getHomePos())) {
+                    int hOwned = store.ownedCount(h.getIndividual().id());
+                    if (hOwned > 0) {
+                        reserve += com.evosim.core.FarmEconomy.newFarmCost(hOwned);
+                    }
+                }
+            }
+            if (funds < cost + reserve) {
+                continue; // 자금(owned==0·단독 가구면 저장고≥30)
             }
             if (owned > 0 && !nextFarmEligible(store, adults, m.getIndividual().id())) {
                 continue; // 성숙 트리거(P6) — nextFarmEligible 참조(확장 예비 산정과 단일 출처)

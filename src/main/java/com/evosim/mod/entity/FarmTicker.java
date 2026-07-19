@@ -267,8 +267,14 @@ public final class FarmTicker {
                 break;
             }
         }
-        // ② 신규 개간 — 주인 단위(첫 자격자 1건/일: 폭주 제동)
-        for (MimicEntity m : adults) {
+        // ② 신규 개간 — 주인 단위(첫 자격자 1건/일: 폭주 제동). 판정 순회는 수확 능력(G)
+        // 내림차순 — "개간은 능력 있는 자가 이끈다"의 결정론화(런7 실측: 무정렬 순회에서 가구
+        // 자금 30을 저능력 아내가 먼저 소진해 엘리트 왕조가 아내 명의로 꼬임 — 순서 운 제거).
+        java.util.List<MimicEntity> founders = new java.util.ArrayList<>(adults);
+        founders.sort(java.util.Comparator.comparingDouble(
+                (MimicEntity e) -> -com.evosim.core.FarmEconomy.tileYield(e.getIndividual()))
+                .thenComparingInt(MimicEntity::getId));
+        for (MimicEntity m : founders) {
             if (m.getHomePos() == null) {
                 continue;
             }

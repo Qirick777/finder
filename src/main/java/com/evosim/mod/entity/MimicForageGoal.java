@@ -359,7 +359,8 @@ public class MimicForageGoal extends Goal {
             for (int dz = -half; dz <= half; dz++) {
                 for (int dy = -2; dy <= 2; dy++) {
                     BlockPos p = base.offset(dx, dy, dz);
-                    if (isRipeBerry(mob.level().getBlockState(p)) && !farmTile(p)) {
+                    if (isRipeBerry(mob.level().getBlockState(p)) && !farmTile(p)
+                            && !foreignGarden(p)) {
                         double d = base.distSqr(p);
                         if (d < bestDist) {
                             bestDist = d;
@@ -370,6 +371,24 @@ public class MimicForageGoal extends Goal {
             }
         }
         return best;
+    }
+
+    /**
+     * 타인 거처의 정원인가 — "남의 텃밭은 안 딴다"(밭 무단 수확 금지와 동일한 소유권 규칙의
+     * 정원 확장). 런9 실측: 정원이 선착순 공유라 마을 중심 엘리트 정원을 행인이 소진(가구 픽업
+     * 8/25회·행인 단가 0.20 소산) → 엘리트 정원 설계 소득 13/일이 구조적으로 실현 불가였다.
+     * 판정: 베리 ±6의 미믹 중 자기 가구가 아닌 거처가 5블록(정원 반경) 내면 타인 정원.
+     */
+    private boolean foreignGarden(BlockPos p) {
+        BlockPos myHome = mob.getHomePos();
+        for (MimicEntity m : mob.level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(p).inflate(6.0))) {
+            BlockPos h = m.getHomePos();
+            if (h != null && !h.equals(myHome) && h.distSqr(p) <= 25.0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 등록된 밭 타일인가 — 일반 채집은 남의 밭을 건드리지 않는다(무단 수확 금지, 배정은 MimicFarmGoal). */

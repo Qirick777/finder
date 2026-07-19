@@ -2260,7 +2260,7 @@ public final class EvoTest {
                 && close(FarmEconomy.expandReserve(true, 2), 52.5)
                 // 성숙 재투자 배분: 계정 절반만 확장(잔여는 정산 이체 = 다음 밭 종잣돈)
                 && close(FarmEconomy.MATURE_REINVEST_SHARE, 0.5)
-                && FarmEconomy.reinvestTiles(10.0 * FarmEconomy.MATURE_REINVEST_SHARE) == 2
+                && FarmEconomy.reinvestTiles(10.0 * FarmEconomy.MATURE_REINVEST_SHARE) == 5
                 // 개간 예비 가구 비례(P1 — 만족의 덫 보편화): 빈둥지 12 · 1자녀 13.8 · 2자녀 16.8
                 // → 임계 30/31.8/34.8 > 만족선 24/27.6/33.6 (모든 규모에서 부등식 성립)
                 && close(FarmEconomy.foundReserve(6.0), 12.0)
@@ -2350,10 +2350,10 @@ public final class EvoTest {
 
         // 5) 지대 재투자(R1) — 소작 구획 확장 자금 = 밭 계정: floor(계정/타일당 2.0), 음수 0.
         //    소작 1인 지대 ≈2.7/일 → 매일 1타일(2.7→1) — 소작 루프 v2 성장률의 근거.
-        boolean reinvest = FarmEconomy.reinvestTiles(2.7) == 1
-                && FarmEconomy.reinvestTiles(3.0) == 1
-                && FarmEconomy.reinvestTiles(7.0) == 3
-                && FarmEconomy.reinvestTiles(12.5) == 6
+        boolean reinvest = FarmEconomy.reinvestTiles(2.7) == 2  // 확장 단가 1.0(회차 20)
+                && FarmEconomy.reinvestTiles(3.0) == 3
+                && FarmEconomy.reinvestTiles(7.0) == 7
+                && FarmEconomy.reinvestTiles(12.5) == 12
                 && FarmEconomy.reinvestTiles(-1.0) == 0;
         report.add("farm/재투자", reinvest, "계정 2.7→1 · 3→1 · 7→3 · 12.5→6 · 음수→0",
                 reinvest ? "정상" : "어긋남");

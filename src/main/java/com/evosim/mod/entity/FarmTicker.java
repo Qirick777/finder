@@ -426,11 +426,13 @@ public final class FarmTicker {
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,
                                          java.util.List<MimicEntity> adults) {
-        // 부지 확산(B2) — 반경 20→40→60으로 넓혀가며 8방향 탐색. 근거리가 다 차면 바깥에
-        // 새 밭을 펼쳐 "수많은 밭"을 지도에 분산(통근 해제 B1이 원거리 소작을 뒷받침).
-        for (int radius = 20; radius <= 60; radius += 20) {
-            for (int d = 0; d < 8; d++) {
-                double ang = d * Math.PI / 4.0;
+        // 부지 확산(B2) — 근거리부터 바깥으로 촘촘히 탐색해 "수많은 밭"을 지도에 분산.
+        // 8방향×3반경(24후보) → 16방향×반경 15~70(176후보): 20쌍(21거처) 밀집에서 성긴
+        // 격자가 전부 거처 12블록 내에 걸려 부지 실패 → 자금 충족에도 착공 불가이던 결함
+        // (런12 실측: 에드먼드 39 ≥ 임계 34.8, 미착공). 간격 조건은 유지 — 해상도만 보정.
+        for (int radius = 15; radius <= 70; radius += 5) {
+            for (int d = 0; d < 16; d++) {
+                double ang = d * Math.PI / 8.0;
                 BlockPos c = home.offset((int) Math.round(Math.cos(ang) * radius), 0,
                         (int) Math.round(Math.sin(ang) * radius));
                 BlockPos site = level.getHeightmapPos(

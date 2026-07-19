@@ -2254,7 +2254,10 @@ public final class EvoTest {
                 // 확장 예비(다음 밭 저축 유도): 미성숙 12 · 성숙 1밭 27+12=39 · 성숙 2밭 40.5+12=52.5
                 && close(FarmEconomy.expandReserve(false, 1), 12.0)
                 && close(FarmEconomy.expandReserve(true, 1), 39.0)
-                && close(FarmEconomy.expandReserve(true, 2), 52.5);
+                && close(FarmEconomy.expandReserve(true, 2), 52.5)
+                // 성숙 재투자 배분: 계정 절반만 확장(잔여는 정산 이체 = 다음 밭 종잣돈)
+                && close(FarmEconomy.MATURE_REINVEST_SHARE, 0.5)
+                && FarmEconomy.reinvestTiles(10.0 * FarmEconomy.MATURE_REINVEST_SHARE) == 2;
         // 4) 관리 효율(총량 기준 — 수치 유도): 용량 8+g³(무능력 8·Ⅱ16·Ⅲ35·Ⅳ72·Ⅴ133),
         //    E=min(1,C/총소유타일)² — 준엘리트는 다밭 가능하되 총량 묶임(소지주 35), 엘리트만
         //    총 133(다밭 대지주·100명 의존권). 미러 순서 = 공간 적응(막힌 칸 방향 전환).

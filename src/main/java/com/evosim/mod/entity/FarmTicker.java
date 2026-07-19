@@ -149,10 +149,14 @@ public final class FarmTicker {
             // 도달한 지주의 저장고 예비는 다음 신규 밭 자금까지 올라간다(expandReserve — 저축 유도).
             double ownerFunds = ownerEnt.getHomePos() != null
                     ? larders.get(ownerEnt.getHomePos()) : 0.0;
-            int affordAccount = com.evosim.core.FarmEconomy.reinvestTiles(plot.account);
+            boolean eligible = nextFarmEligible(store, adults, plot.ownerId);
+            // 성숙 구획은 계정의 절반만 재투자(MATURE_REINVEST_SHARE) — 잔여는 밤 정산 이체로
+            // 다음 밭 종잣돈. 성숙 전엔 전액(초기 성장 경로 유지).
+            int affordAccount = com.evosim.core.FarmEconomy.reinvestTiles(
+                    plot.account * (eligible
+                            ? com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE : 1.0));
             double reserve = com.evosim.core.FarmEconomy.expandReserve(
-                    nextFarmEligible(store, adults, plot.ownerId),
-                    store.ownedCount(plot.ownerId));
+                    eligible, store.ownedCount(plot.ownerId));
             int affordLarder = (int) Math.floor(
                     Math.max(0.0, ownerFunds - reserve)
                             / com.evosim.core.FarmEconomy.EXPAND_COST);

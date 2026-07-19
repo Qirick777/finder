@@ -1913,23 +1913,25 @@ public final class EvoTest {
         Individual plainMan = one(Sex.MALE);
         Individual greedyMan = one(Sex.MALE, TraitInstance.of(Trait.GREEDY));
         Individual ambitiousMan = one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS));
-        double need = 6.9; // 성인2+유아1 — 부양 기준 = ×3일 = 20.7
+        double need = 6.9; // 성인2+유아1 — 부양 기준 = ×5일 = 34.5 (3→5: 중혼 문턱 > 개간 임계)
 
-        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 21.0, need, plainMan)   // 전부 통과 → 수락
-                && !Polygyny.canAccept(java.util.List.of(stingy), 30.0, need, plainMan)      // 인색 아내 → 거절
-                && !Polygyny.canAccept(java.util.List.of(competitive), 30.0, need, plainMan) // 경쟁 아내 → 거절
-                && !Polygyny.canAccept(java.util.List.of(tolerant), 20.0, need, plainMan)    // 부양 미달 → 거절
+        boolean g1 = Polygyny.canAccept(java.util.List.of(tolerant), 34.5, need, plainMan)   // 전부 통과 → 수락
+                && !Polygyny.canAccept(java.util.List.of(stingy), 40.0, need, plainMan)      // 인색 아내 → 거절
+                && !Polygyny.canAccept(java.util.List.of(competitive), 40.0, need, plainMan) // 경쟁 아내 → 거절
+                && !Polygyny.canAccept(java.util.List.of(tolerant), 34.0, need, plainMan)    // 부양 미달 → 거절
                 && Polygyny.canAccept(java.util.List.of(tolerant, tolerant), 99.0, need, plainMan); // 상한 없음 — 셋째도 부양만 되면
-        boolean g2 = Polygyny.canAccept(java.util.List.of(stingy), 30.0, need, greedyMan)    // 욕심: 질투 무시
+        boolean g2 = Polygyny.canAccept(java.util.List.of(stingy), 40.0, need, greedyMan)    // 욕심: 질투 무시
                 && Polygyny.canAccept(java.util.List.of(stingy, competitive, stingy), 99.0, need, ambitiousMan) // 야망: 4처째도
-                && !Polygyny.canAccept(java.util.List.of(stingy), 20.0, need, greedyMan)     // 부유층도 부양은 필수
+                && !Polygyny.canAccept(java.util.List.of(stingy), 34.0, need, greedyMan)     // 부유층도 부양은 필수
+                // 중혼 문턱(×5) > 개간 임계(18+2×소모) — 동기 보유자는 밭이 먼저(런8b 역산)
+                && need * Polygyny.SUPPORT_DAYS > 18.0 + 2.0 * need
                 && Polygyny.eliteSuitor(greedyMan) && Polygyny.eliteSuitor(ambitiousMan)
                 && !Polygyny.eliteSuitor(plainMan);
         boolean g3 = Polygyny.wifeObjects(stingy) && Polygyny.wifeObjects(competitive)
                 && !Polygyny.wifeObjects(tolerant)
                 && Polygyny.MARRIED_CHARM_PENALTY == 2;
         report.add("polygyny/게이트", g1 && g2 && g3,
-                "질투(부유층 면제)·저장고 3일치만 게이트 — 상한 없음(부양이 상한) · 기혼 감점 2",
+                "질투(부유층 면제)·저장고 5일치 게이트(개간 임계보다 위) — 상한 없음 · 기혼 감점 2",
                 (g1 && g2 && g3) ? "정상" : "어긋남");
 
         // 부유·생산력 선호 — 잉여/벌이의 매력 환산(로그 문턱 3/9/27일 · 벌이 1.5/1.95/2.25)

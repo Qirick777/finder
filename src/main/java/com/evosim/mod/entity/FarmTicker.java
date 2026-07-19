@@ -500,8 +500,12 @@ public final class FarmTicker {
                     // 남편 소유 밭은 첩들(각자 spouseId==남편·수확 가능) 누락 → 과다 게시, 아내 소유 밭은
                     // 수확 못 하는 남편(spouseId=본처) 계상 → 과소 게시·방치. 이 형태가 양쪽을 바로잡는다.
                     for (MimicEntity m : adults) {
+                        // 유령 노동예산 제거(N2): 돌봄 구속 배우자는 실제 밭 수확 0(런1·런3 실측:
+                        // farm_self = 주인 단독 8타일×G 정확 일치)인데 예산 8을 계상해 게시 문턱을
+                        // 18타일로 부풀렸다. 장부를 실노동과 대칭화 — 문턱 10타일(첫 소작 1일 조기화).
                         if (m.getIndividual().id() != oid && m.getSpouseId() == oid
-                                && home.equals(m.getHomePos()) && !m.isSatisfiedToday()) {
+                                && home.equals(m.getHomePos()) && !m.isSatisfiedToday()
+                                && !m.isCaregiverBound()) {
                             budget += com.evosim.core.FarmEconomy.capacity(
                                     m.getIndividual(), m.getStage());
                         }

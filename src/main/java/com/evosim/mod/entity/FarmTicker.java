@@ -301,7 +301,12 @@ public final class FarmTicker {
                         headTiles = t;
                         headId = h.getIndividual().id();
                     }
-                    if (h != m) {
+                    // 부양 예비의 성인 계상은 <b>배우자만</b>(회차 21): 동거 성인 자녀는 자급
+                    // 노동자라 부양 대상이 아닌데 계상하면 성인 1인당 임계 +6 vs 순기여 +1~2/일
+                    // — 착공 임계가 저축을 앞서 도주하는 러닝머신(런15 실측: 성인 딸 2로 임계
+                    // 48 > 저축 37, 착공 창 붕괴. 런13의 중혼 변종과 동류). 유아·소년은 유지.
+                    if (h != m && (h.getSpouseId() == m.getIndividual().id()
+                            || m.getSpouseId() == h.getIndividual().id())) {
                         famNeed += com.evosim.core.FoodEconomy.consumptionPerDay(
                                 h.getStage(), com.evosim.core.Activity.MOVE,
                                 h.getIndividual(), false);

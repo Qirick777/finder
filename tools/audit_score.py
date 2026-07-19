@@ -15,7 +15,8 @@ MILESTONES = [
      lambda r, d: r[d]["grass"] > r[d]["garden"] if d in r else None),
     (3, 5,  "1호 밭 착공(plots>=1)",   # 흐름 지배: 임계 30~39 ÷ 엘리트 순저축 7~8/일 (런12 실측 d5)
      lambda r, d: r[d]["plots"] >= 1 if d in r else None),
-    (1, 3,  "첫 출산 물결(births 누적>=가구 0.6)",
+    (3, 5,  "첫 출산 물결(births 누적>=가구 0.6)",  # REPRO 게이트: 부부 문턱 18 = 초기 8.3+2.8/일 → d3.5±0.5
+
      lambda r, d: sum(r[x]["births"] for x in r if x <= d) >= 0.6 * r[d]["homes"]
      if d in r and r[d]["homes"] > 0 else None),
     (3, 7,  "풀 붕괴(grass<30 & garden 비중>60%)",  # 결정론 풀밭 950그루 표준: 붕괴 실측 d6~7(런3)

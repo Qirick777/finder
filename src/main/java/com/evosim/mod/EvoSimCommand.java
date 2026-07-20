@@ -146,6 +146,20 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "밤 스킵 OFF");
                             return 1;
                         })))
+                .then(Commands.literal("tickrate")
+                        .executes(ctx -> {
+                            tell(ctx.getSource(), "틱 가속: " + com.evosim.mod.entity.TickAccel
+                                    .status(ctx.getSource().getServer()));
+                            return 1;
+                        })
+                        .then(Commands.argument("factor", IntegerArgumentType.integer(1, 4))
+                                .executes(ctx -> {
+                                    int f = IntegerArgumentType.getInteger(ctx, "factor");
+                                    com.evosim.mod.entity.TickAccel.setFactor(f);
+                                    tell(ctx.getSource(), "틱 가속 설정: " + com.evosim.mod.entity
+                                            .TickAccel.status(ctx.getSource().getServer()));
+                                    return 1;
+                                })))
                 .then(Commands.literal("obs")
                         .executes(ctx -> obsStart(ctx, 6))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))

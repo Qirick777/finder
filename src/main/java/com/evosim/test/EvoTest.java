@@ -574,11 +574,11 @@ public final class EvoTest {
                 && Multipliers.manageAbilityGrade(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))) == 0;
         report.add("multiplier/명석경영", brainMg,
                 "명석 = 관리 실효 +1등급(상한 Ⅴ·능력 0이면 무효)", brainMg ? "정상" : "어긋남");
-        boolean brainRange = close(Multipliers.huntRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.25)
+        boolean brainRange = close(Multipliers.huntRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.0)
                 && close(Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.25)
                 && close(Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.DULL))), 0.85);
         report.add("multiplier/명석인지", brainRange,
-                "명석 인지거리 ×1.25(식물·동물)·멍청 ×0.85", brainRange ? "정상" : "어긋남");
+                "명석 인지 식물 한정 ×1.25(동물 제외 — 사냥 잠식 방지)·멍청 ×0.85", brainRange ? "정상" : "어긋남");
         boolean quick = close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.NIMBLE, 5))), 0.8)
                 && close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.SLUGGISH, 5))), 1.2)
                 && close(Physique.actionCooldown(one(Sex.MALE)), 1.0);

@@ -130,14 +130,11 @@ public final class Multipliers {
     }
 
     /** 동물 탐지거리 배율 — 식물혼동은 식물 대신 동물에 눈이 감(+50%, 채집 ×0.5의 반대급부).
-     *  명석 = 인지거리 +25%(멍청 −15%) — 재설계: "더 멀리 내다보고 계획한다"(식물·동물 공통). */
+     *  명석 인지는 <b>식물 한정</b>(forageRange) — 회차 23: 동물 탐지에도 걸면 전원 명석 체계에서
+     *  사냥(저효율 추격)이 풀 러시를 잠식해 d1 총소득이 1/3로 붕괴(런17 실측: hunt 10.7 첫 등장,
+     *  grass 130→24). "계획적 채집 동선"은 채집 표적에만. */
     public static double huntRange(Individual ind) {
-        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
-        double m = 1.0;
-        if (t.contains(Trait.PLANT_CONFUSED)) m += 0.5;
-        if (t.contains(Trait.BRIGHT)) m += 0.25;
-        if (t.contains(Trait.DULL)) m -= 0.15;
-        return m;
+        return ExpressionResolver.isExpressed(ind, Trait.PLANT_CONFUSED) ? 1.5 : 1.0;
     }
 
     /**

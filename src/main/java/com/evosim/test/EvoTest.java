@@ -2299,11 +2299,13 @@ public final class EvoTest {
         double y = 0.75;
         boolean acct = close(FarmEconomy.tenantShare(y), 0.4125) && close(FarmEconomy.ownerShare(y), 0.3375)
                 && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
-                // 규모 누진 지대: 소농 0.45 → 50타일 0.50 → 100+타일 0.55(상한), 항등식 유지
-                && close(FarmEconomy.fee(0), 0.45) && close(FarmEconomy.fee(50), 0.50)
-                && close(FarmEconomy.fee(100), 0.55) && close(FarmEconomy.fee(250), 0.55)
+                // 규모 반비례 분배(쌍곡선): fee(T)=0.70−0.25×45/(45+T) — 소농 0.45 불변,
+                // 45타일 0.575, 100타일 ~0.622, 무한대 0.70(소작 하한 0.30). 항등식 유지.
+                && close(FarmEconomy.fee(0), 0.45) && close(FarmEconomy.fee(45), 0.575)
+                && close(FarmEconomy.fee(100), 0.70 - 0.25 * 45.0 / 145.0)
+                && FarmEconomy.fee(1000) < 0.70 && FarmEconomy.fee(1000) > 0.68
                 && close(FarmEconomy.tenantShare(y, 100) + FarmEconomy.ownerShare(y, 100), y)
-                && close(FarmEconomy.tenantShare(y, 100), 0.3375)
+                && close(FarmEconomy.tenantShare(y, 45), 0.75 * 0.425)
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)

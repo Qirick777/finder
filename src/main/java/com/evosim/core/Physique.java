@@ -61,6 +61,20 @@ public final class Physique {
         return factor(ind, Trait.STRONG, APPETITE_PER, Trait.WEAK, APPETITE_PER);
     }
 
+    /** 행동 쿨다운 배수(채집 간격·타격 간격) — 재빠름 −4%/등급·굼뜸 +4%/등급(부수 효과:
+     *  이동 속도에 더해 손놀림도 빠르다). Ⅴ = 쿨다운 ×0.8(행동량 +25%). 성장 가속 패키지. */
+    public static double actionCooldown(Individual ind) {
+        int g = ExpressionResolver.expressedGrade(ind, Trait.NIMBLE);
+        if (g > 0) {
+            return Math.max(0.5, 1.0 - 0.04 * g);
+        }
+        g = ExpressionResolver.expressedGrade(ind, Trait.SLUGGISH);
+        if (g > 0) {
+            return 1.0 + 0.04 * g;
+        }
+        return 1.0;
+    }
+
     /**
      * 양수 특성이 발동하면 {@code 1 + upPer·등급}, 음수 특성이면 {@code 1 − downPer·등급}(하한 0.1), 둘 다
      * 없으면 1.0. 축이 반발이라 동시 발동은 없다.

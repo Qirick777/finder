@@ -16,46 +16,66 @@ public final class Multipliers {
     private Multipliers() {
     }
 
-    /** 채집 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤). */
+    /** 채집 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤).
+     *  명석 재설계(성장 가속 패키지): 명석 = <b>능력 증폭기</b> — 양(+)의 능력 축 보너스에
+     *  ×1.25(멍청 ×0.8), 기본 가산은 ±0.2→±0.1 하향. "같은 재능도 명석한 자가 더 크게 쓴다" —
+     *  단독 명석은 미미, 능력자와 결합 시 발화(4종 콤보 아키타입). 음의 능력·성향 항은 비증폭. */
     public static double gather(Individual ind) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        double amp = abilityAmp(t);
         double m = 1.0;
-        m += scaled(ind, t, Trait.HERBALIST, 0.5);        // 약초학자 Ⅴ=×1.5
+        m += amp * scaled(ind, t, Trait.HERBALIST, 0.5);  // 약초학자 Ⅴ=×1.5(증폭 전)
         m += scaled(ind, t, Trait.PLANT_CONFUSED, -0.5);  // 식물혼동 Ⅴ=×0.5
-        m += scaled(ind, t, Trait.DEXTEROUS, 0.2);        // 손재주(전체)
+        m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
-        m += scaled(ind, t, Trait.HERBIVORE, 0.2);        // 채식 채집↑
+        m += amp * scaled(ind, t, Trait.HERBIVORE, 0.2);  // 채식 채집↑
         m += scaled(ind, t, Trait.CARNIVORE, -0.3);       // 육식 채집↓
-        m += scaled(ind, t, Trait.BRIGHT, 0.2);           // 명석 자원↑ (무등급 축 — 그대로)
-        m += scaled(ind, t, Trait.DULL, -0.2);            // 멍청 자원↓
+        m += scaled(ind, t, Trait.BRIGHT, 0.1);           // 명석 기본(증폭기 겸)
+        m += scaled(ind, t, Trait.DULL, -0.1);            // 멍청 기본(감폭기 겸)
         m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
-        m += scaled(ind, t, Trait.GATHERER, 0.3);         // 채집꾼 채집사거리↑
+        m += amp * scaled(ind, t, Trait.GATHERER, 0.4);   // 채집꾼 0.3→0.4 — tileYield G 직결(성장 가속)
         m += scaled(ind, t, Trait.HUNTER, -0.1);          // 사냥꾼 채집딜레이
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
-        m += scaled(ind, t, Trait.INARTICULATE, 0.1);     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        if (t.contains(Trait.GATHERER) && t.contains(Trait.DEXTEROUS)) {
+            m += 0.1; // 시너지: 숙련 채집조(채집꾼×손재주 동시 발현)
+        }
         return Math.max(0.0, m);
     }
 
-    /** 사냥 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤). */
+    /** 명석 = 능력 증폭 ×1.25 / 멍청 = ×0.8 — 양(+)의 능력 축 항에만 곱해진다(재설계 A안). */
+    private static double abilityAmp(Set<Trait> t) {
+        if (t.contains(Trait.BRIGHT)) {
+            return 1.25;
+        }
+        if (t.contains(Trait.DULL)) {
+            return 0.8;
+        }
+        return 1.0;
+    }
+
+    /** 사냥 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤).
+     *  명석 증폭기는 채집과 동일 규칙(양의 능력 축만 ×1.25/×0.8, 기본 ±0.1). */
     public static double hunt(Individual ind) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        double amp = abilityAmp(t);
         double m = 1.0;
-        m += scaled(ind, t, Trait.BUTCHER, 0.5);          // 도축업자 Ⅴ=×1.5
+        m += amp * scaled(ind, t, Trait.BUTCHER, 0.5);    // 도축업자 Ⅴ=×1.5(증폭 전)
         m += scaled(ind, t, Trait.BLOOD_FEARFUL, -0.5);   // 피공포 Ⅴ=×0.5
-        m += scaled(ind, t, Trait.DEXTEROUS, 0.2);        // 손재주(전체)
+        m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
-        m += scaled(ind, t, Trait.CARNIVORE, 0.2);        // 육식 사냥↑
+        m += amp * scaled(ind, t, Trait.CARNIVORE, 0.2);  // 육식 사냥↑
         m += scaled(ind, t, Trait.HERBIVORE, -0.3);       // 채식 사냥↓
-        m += scaled(ind, t, Trait.BRIGHT, 0.2);           // 명석 자원↑ (무등급 축 — 그대로)
-        m += scaled(ind, t, Trait.DULL, -0.2);            // 멍청 자원↓
+        m += scaled(ind, t, Trait.BRIGHT, 0.1);           // 명석 기본(증폭기 겸)
+        m += scaled(ind, t, Trait.DULL, -0.1);            // 멍청 기본(감폭기 겸)
         m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
-        m += scaled(ind, t, Trait.HUNTER, 0.3);           // 사냥꾼 동물데미지↑
+        m += amp * scaled(ind, t, Trait.HUNTER, 0.3);     // 사냥꾼 동물데미지↑
         m += scaled(ind, t, Trait.GATHERER, -0.3);        // 채집꾼 데미지↓
         m += scaled(ind, t, Trait.COMPETITIVE, 0.2);      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
-        m += scaled(ind, t, Trait.INARTICULATE, 0.1);     // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
         return Math.max(0.0, m);
     }
 
@@ -76,13 +96,19 @@ public final class Multipliers {
         return g;
     }
 
-    /** 관리 능력 4종(약초학자·채집꾼·손재주·요리사 — canManageLarge 와 동일 집합)의 최고 실효 등급. */
+    /** 관리 능력 4종(약초학자·채집꾼·손재주·요리사 — canManageLarge 와 동일 집합)의 최고 실효 등급.
+     *  명석 재설계 B안(경영 지능): 능력이 하나라도 있으면(best>0) 실효 +1등급(상한 Ⅴ) — 무능
+     *  상속인 정체(런15 미리엄 실측)를 명석한 상속인이 완충하는 세대 리스크 축. 능력 0이면 그대로
+     *  0(지능만으로는 경영 불가 — 능력 경사 유지). */
     public static int manageAbilityGrade(Individual ind) {
         int best = 0;
         best = Math.max(best, abilityGrade(ind, Trait.HERBALIST));
         best = Math.max(best, abilityGrade(ind, Trait.GATHERER));
         best = Math.max(best, abilityGrade(ind, Trait.DEXTEROUS));
         best = Math.max(best, abilityGrade(ind, Trait.COOK));
+        if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.BRIGHT)) {
+            best = Math.min(5, best + 1);
+        }
         return best;
     }
 
@@ -99,9 +125,15 @@ public final class Multipliers {
         return 1.0 + 1.6 * r * r * r;
     }
 
-    /** 동물 탐지거리 배율 — 식물혼동은 식물 대신 동물에 눈이 감(+50%, 채집 ×0.5의 반대급부). */
+    /** 동물 탐지거리 배율 — 식물혼동은 식물 대신 동물에 눈이 감(+50%, 채집 ×0.5의 반대급부).
+     *  명석 = 인지거리 +25%(멍청 −15%) — 재설계: "더 멀리 내다보고 계획한다"(식물·동물 공통). */
     public static double huntRange(Individual ind) {
-        return ExpressionResolver.isExpressed(ind, Trait.PLANT_CONFUSED) ? 1.5 : 1.0;
+        Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        double m = 1.0;
+        if (t.contains(Trait.PLANT_CONFUSED)) m += 0.5;
+        if (t.contains(Trait.BRIGHT)) m += 0.25;
+        if (t.contains(Trait.DULL)) m -= 0.15;
+        return m;
     }
 
     /**
@@ -116,6 +148,8 @@ public final class Multipliers {
         if (t.contains(Trait.GOOD_SPATIAL)) {
             m += t.contains(Trait.PLANT_CONFUSED) ? 0.5 : 0.25;
         }
+        if (t.contains(Trait.BRIGHT)) m += 0.25;  // 명석 인지거리(재설계 — huntRange 와 대칭)
+        if (t.contains(Trait.DULL)) m -= 0.15;    // 멍청 인지거리 감소
         return m;
     }
 
@@ -129,6 +163,9 @@ public final class Multipliers {
         if (t.contains(Trait.COOK)) m += 0.2;             // 요리사 ×1.2
         if (t.contains(Trait.RAW_EATER)) m -= 0.2;        // 날로먹기 ×0.8 — 가공 없이 보관하면 상함
         if (t.contains(Trait.SPECIALIST_EDUCATION)) m += 0.15; // 전문교육 — 전문 기술(가공·저장)
+        if (t.contains(Trait.GATHERER) && t.contains(Trait.COOK)) {
+            m += 0.1; // 시너지: 수확→가공 파이프라인(채집꾼×요리사 동시 발현)
+        }
         return Math.max(0.0, m);
     }
 

@@ -3090,6 +3090,12 @@ public class MimicEntity extends PathfinderMob {
         return competitiveDriven;
     }
 
+    /** 명석 발현 — 여가 컷 D(배회 시간에도 할 일이 있으면 노동, ForageGoal WANDER 확장). */
+    public boolean isBrightDriven() {
+        return individual != null
+                && com.evosim.core.ExpressionResolver.isExpressed(individual, com.evosim.core.Trait.BRIGHT);
+    }
+
     /** 배우자 Individual.id (0=미혼) — 가족 노동(배우자 밭 수확)·케어 예산 합산용. */
     public long getSpouseId() {
         return spouseId;

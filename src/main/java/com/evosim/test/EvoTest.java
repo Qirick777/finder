@@ -546,6 +546,44 @@ public final class EvoTest {
         int charm3 = Multipliers.charmScore(abilityEval, multiTgt);
         report.add("multiplier/매력포괄", charm3 == 3,
                 "능력선호 → 개념군 특성 개수마다 +1 (채집·사냥·명석 = 3)", charm3 + "점");
+
+        // 9) 성장 가속 패키지 — 명석 증폭기·채집꾼 0.4·시너지 콤보·인지거리·행동 쿨다운
+        checkNum(report, "multiplier/명석증폭", 1.725,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT),
+                        TraitInstance.graded(Trait.HERBALIST, 5))),
+                "명석×약초Ⅴ = 1.0 + 1.25×0.5 + 0.1");
+        checkNum(report, "multiplier/멍청감폭", 1.3,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.DULL),
+                        TraitInstance.graded(Trait.HERBALIST, 5))),
+                "멍청×약초Ⅴ = 1.0 + 0.8×0.5 − 0.1");
+        checkNum(report, "multiplier/채집꾼상향", 1.4,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5))),
+                "채집꾼Ⅴ 0.3→0.4 = 1.4");
+        checkNum(report, "multiplier/숙련채집조", 1.7,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5),
+                        TraitInstance.graded(Trait.DEXTEROUS, 5))),
+                "채집꾼Ⅴ+손재주Ⅴ+콤보 = 1.0+0.4+0.2+0.1");
+        checkNum(report, "multiplier/수확가공콤보", 1.3,
+                Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.GATHERER),
+                        TraitInstance.of(Trait.COOK))),
+                "채집꾼×요리사 저장 = 1.0+0.2+0.1");
+        boolean brainMg = Multipliers.manageAbilityGrade(one(Sex.MALE,
+                        TraitInstance.of(Trait.BRIGHT), TraitInstance.graded(Trait.HERBALIST, 4))) == 5
+                && Multipliers.manageAbilityGrade(one(Sex.MALE,
+                        TraitInstance.of(Trait.BRIGHT), TraitInstance.graded(Trait.HERBALIST, 5))) == 5
+                && Multipliers.manageAbilityGrade(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))) == 0;
+        report.add("multiplier/명석경영", brainMg,
+                "명석 = 관리 실효 +1등급(상한 Ⅴ·능력 0이면 무효)", brainMg ? "정상" : "어긋남");
+        boolean brainRange = close(Multipliers.huntRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.25)
+                && close(Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.25)
+                && close(Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.DULL))), 0.85);
+        report.add("multiplier/명석인지", brainRange,
+                "명석 인지거리 ×1.25(식물·동물)·멍청 ×0.85", brainRange ? "정상" : "어긋남");
+        boolean quick = close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.NIMBLE, 5))), 0.8)
+                && close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.SLUGGISH, 5))), 1.2)
+                && close(Physique.actionCooldown(one(Sex.MALE)), 1.0);
+        report.add("multiplier/재빠름행동", quick,
+                "재빠름 쿨다운 −4%/등급(Ⅴ ×0.8)·굼뜸 +4%/등급", quick ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -1943,7 +1981,7 @@ public final class EvoTest {
         int base = Multipliers.charmScore(one(Sex.FEMALE), plainMan);
         boolean py = Multipliers.charmScore(prefY, plainMan) == base + 1                    // 남 1.5
                 && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5)))
-                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5))) + 2 // 1.5×1.3=1.95
+                        == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5))) + 2 // 1.5×1.4=2.1(문턱 1.95~2.25)
                 && Multipliers.charmScore(prefY, one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)))
                         == Multipliers.charmScore(one(Sex.FEMALE), one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5))) + 3 // 1.5×1.5=2.25
                 && Multipliers.charmScore(prefY, tolerant) == Multipliers.charmScore(one(Sex.FEMALE), tolerant); // 여 0.5 → 0

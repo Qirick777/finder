@@ -126,7 +126,9 @@ public class MimicForageGoal extends Goal {
         }
         if (phase == Schedule.Phase.WANDER) {
             // R4 확장: 저장고 궁하면 배회시간에도 채집 + 경쟁(M7): 이웃 우위까지 쉼 없이 노동(밤잠만 잠)
-            return !mob.larderComfortable() || mob.isCompetitiveDriven();
+            // 명석 D(여가 컷): 명석 발현자는 배회 시간에도 할 일이 있으면 일한다 — 배회 낭비의
+            // 결정론적 회수(전원 공통 조건부 규칙, 경쟁 특성과 같은 경로. 구애·급식은 별도 goal이라 불침해).
+            return !mob.larderComfortable() || mob.isCompetitiveDriven() || mob.isBrightDriven();
         }
         return false;
     }
@@ -176,7 +178,7 @@ public class MimicForageGoal extends Goal {
             } else if (attackCooldown == 0) {
                 mob.swing(InteractionHand.MAIN_HAND);
                 mob.doHurtTarget(huntTarget);
-                attackCooldown = ATTACK_COOLDOWN;
+                attackCooldown = (int) Math.round(ATTACK_COOLDOWN * com.evosim.core.Physique.actionCooldown(ind)); // 재빠름 부수(타격 간격)
                 if (!huntTarget.isAlive()) {
                     double sexM = ind.sex() == Sex.MALE
                             ? FoodEconomy.MALE_FORAGE : FoodEconomy.FEMALE_FORAGE;
@@ -221,7 +223,7 @@ public class MimicForageGoal extends Goal {
                     mob.level().setBlockAndUpdate(gatherTarget, ts.setValue(SweetBerryBushBlock.AGE, 1));
                     mob.swing(InteractionHand.MAIN_HAND);
                     SimEvents.event(mob, "수확", String.format("옆 정원 베리 → 식량 +%.2f", food));
-                    gatherCooldown = GATHER_COOLDOWN;
+                    gatherCooldown = (int) Math.round(GATHER_COOLDOWN * com.evosim.core.Physique.actionCooldown(ind)); // 재빠름 부수(행동 쿨다운)
                     // 정원 연쇄 수확(런10 실측 회차 12): 트립당 1수확 구조의 이동 오버헤드가
                     // 행동량을 ~21회/일로 묶어 정원 공급 25회/일의 절반만 실현(엘리트 저축 정체
                     // → 착공 영구 미달). 자기 정원에 또 익은 그루가 있으면 트립을 끝내지 않고
@@ -237,7 +239,7 @@ public class MimicForageGoal extends Goal {
                     mob.addHarvest(food);
                     com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.GRASS, food);
                     SimEvents.event(mob, "채집", String.format("+%.2f", food));
-                    gatherCooldown = GATHER_COOLDOWN;
+                    gatherCooldown = (int) Math.round(GATHER_COOLDOWN * com.evosim.core.Physique.actionCooldown(ind)); // 재빠름 부수(행동 쿨다운)
                 }
                 gatherTarget = null;
                 stuckTicks = 0;

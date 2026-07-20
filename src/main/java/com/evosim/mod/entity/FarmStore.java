@@ -310,6 +310,37 @@ public class FarmStore extends SavedData {
         });
     }
 
+    private MimicEntity findEntity(ServerLevel level, long id) {
+        if (id == 0L) {
+            return null;
+        }
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == id)) {
+            return m;
+        }
+        return null;
+    }
+
+    /**
+     * 마름 위임이 이 구획의 관리 효율을 개선하는가 — 후보의 <b>구획 단독</b> E ≥ 지주가 이 구획을
+     * (재)흡수했을 때의 per-plot E. 유능한 지주의 밭을 무능한 상시에게 넘겨 오히려 죽이는 역효과를
+     * 차단한다(관리 잘하는 자에게만 위임 — 리처드/킴벌리 실측 결함). 지주가 관리캡(133)을 초과해
+     * per-plot E가 떨어질 때라야 전담 마름이 이득이 되어 임명 = 정확히 "캡 돌파" 시점.
+     */
+    public boolean stewardImproves(ServerLevel level, Plot plot, MimicEntity cand) {
+        MimicEntity ownerEnt = findEntity(level, plot.ownerId);
+        if (ownerEnt == null) {
+            return true; // 지주 미로드 — 비교 불가, 보수적 허용(무마름 방치보다 나음)
+        }
+        int reabsorbed = unstewardedTiles(plot.ownerId)
+                + (plot.stewardId != 0L ? plot.tiles.length : 0); // 현재 위임 중이면 흡수 시 복귀분
+        double ownerE = com.evosim.core.FarmEconomy.manageEfficiency(
+                ownerEnt.getIndividual(), reabsorbed);
+        double candE = com.evosim.core.FarmEconomy.manageEfficiency(
+                cand.getIndividual(), plot.tiles.length);
+        return candE >= ownerE;
+    }
+
     private MimicEntity bestCandidate(ServerLevel level,
             java.util.function.Predicate<MimicEntity> pool) {
         MimicEntity best = null;
@@ -352,11 +383,12 @@ public class FarmStore extends SavedData {
             p.stewardSince = -1L;
             setDirty();
             MimicEntity next = successorFor(level, p);
-            if (next != null) {
+            if (next != null && stewardImproves(level, p, next)) {
                 appointSteward(level, p, next, "마름승계");
             } else {
+                // 후계 없음 또는 무능(위임이 밭을 오히려 죽임) → 공석: 지주가 재흡수해 직접 관리.
                 com.evosim.mod.log.SimEvents.note(level, "마름공석", String.format(
-                        "구획 %d — %s, 후계 상시 없음(차기 채용자 즉시 임명 대기)", p.id, reason));
+                        "구획 %d — %s, 유능 후계 없음(지주 직영 복귀)", p.id, reason));
             }
         }
     }

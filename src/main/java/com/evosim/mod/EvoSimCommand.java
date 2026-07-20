@@ -817,6 +817,28 @@ public final class EvoSimCommand {
                     FarmTicker.clearAssignments();
                 }));
 
+        // ⑤ 위임 개선 게이트(회차 S1) — 유능 지주(약초Ⅴ g5) + 무능 상시(g0 2명) → 임명 안 함
+        //    (E 0.06 붕괴 차단). 리처드/킴벌리 실측 결함의 회귀 방지.
+        MimicEntity[] e = new MimicEntity[3];
+        FarmStore.Plot[] pe = new FarmStore.Plot[1];
+        steps.add(new VerifySuite.Step("steward_improve_gate",
+                "capable owner (g5) + g0 tenants -> NOT appointed (delegation would tank E)", 200, false, () -> {
+            e[0] = spawnAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 0), Sex.MALE, Trait.HERBALIST); // g5 지주
+            e[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 4), Sex.MALE, 0);
+            e[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 6), Sex.MALE, 0);
+            pe[0] = buildDemoPlot(level, base, e[0].getIndividual().id(), 35);
+            e[1].setTenant(pe[0].id, 3);
+            e[2].setTenant(pe[0].id, 3);
+            level.setDayTime(1200L);
+            FarmTicker.debugAssign(level);
+        }, () -> String.format("steward %d (expect 0 — g0 cand would drop E to 0.06)", pe[0].stewardId),
+                () -> pe[0].stewardId == 0L,
+                () -> {
+                    discard(e);
+                    farmClearPlot(level, pe[0]);
+                    FarmTicker.clearAssignments();
+                }));
+
         VerifySuite.start(ctx.getSource(), steps);
         return 1;
     }

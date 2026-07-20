@@ -150,8 +150,8 @@ public final class FarmTicker {
             double ownerFunds = ownerEnt.getHomePos() != null
                     ? larders.get(ownerEnt.getHomePos()) : 0.0;
             boolean eligible = nextFarmEligible(store, adults, plot.ownerId);
-            // 성숙 구획은 계정의 절반만 재투자(MATURE_REINVEST_SHARE) — 잔여는 밤 정산 이체로
-            // 다음 밭 종잣돈. 성숙 전엔 전액(초기 성장 경로 유지).
+            // 성숙 구획은 계정의 30%만 재투자(MATURE_REINVEST_SHARE) — 잔여 70%는 밤 정산 이체로
+            // 지주 저장고 축적(부익부 가시화)·다음 밭 종잣돈. 성숙 전엔 전액(초기 성장 경로 유지).
             int affordAccount = com.evosim.core.FarmEconomy.reinvestTiles(
                     plot.account * (eligible
                             ? com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE : 1.0));

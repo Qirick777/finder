@@ -2313,8 +2313,8 @@ public final class EvoTest {
                 && close(FarmEconomy.expandReserve(true, 1), 39.0)
                 && close(FarmEconomy.expandReserve(true, 2), 52.5)
                 // 성숙 재투자 배분: 계정 절반만 확장(잔여는 정산 이체 = 다음 밭 종잣돈)
-                && close(FarmEconomy.MATURE_REINVEST_SHARE, 0.5)
-                && FarmEconomy.reinvestTiles(10.0 * FarmEconomy.MATURE_REINVEST_SHARE) == 5
+                && close(FarmEconomy.MATURE_REINVEST_SHARE, 0.3)
+                && FarmEconomy.reinvestTiles(10.0 * FarmEconomy.MATURE_REINVEST_SHARE) == 3
                 // 개간 예비 가구 비례(P1 — 만족의 덫 보편화): 빈둥지 12 · 1자녀 13.8 · 2자녀 16.8
                 // → 임계 30/31.8/34.8 > 만족선 24/27.6/33.6 (모든 규모에서 부등식 성립)
                 && close(FarmEconomy.foundReserve(6.0), 12.0)

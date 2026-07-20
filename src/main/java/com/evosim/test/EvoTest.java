@@ -2306,6 +2306,17 @@ public final class EvoTest {
                 && FarmEconomy.fee(1000) < 0.70 && FarmEconomy.fee(1000) > 0.68
                 && close(FarmEconomy.tenantShare(y, 100) + FarmEconomy.ownerShare(y, 100), y)
                 && close(FarmEconomy.tenantShare(y, 45), 0.75 * 0.425)
+                // fee 분할(E11): 지주 몫 = 기본분(0.45, 계정) + 초과분(fee−0.45, 저장고 직행·잠금).
+                // 초과분은 T=0에서 정확히 0(소농 무영향), T=45에서 0.125×y. 3분할 항등식 = yield.
+                && close(FarmEconomy.baseOwnerShare(y), y * 0.45)
+                && close(FarmEconomy.excessOwnerShare(y, 0), 0.0)
+                && close(FarmEconomy.excessOwnerShare(y, 45), y * 0.125)
+                && close(FarmEconomy.baseOwnerShare(y) + FarmEconomy.excessOwnerShare(y, 45),
+                        FarmEconomy.ownerShare(y, 45)) // 기본+초과 == 종전 지주 몫(무손실 분해)
+                && close(FarmEconomy.tenantShare(y, 45) + FarmEconomy.baseOwnerShare(y)
+                        + FarmEconomy.excessOwnerShare(y, 45), y) // 3분할 항등식
+                && close(FarmEconomy.tenantShare(y, 200) + FarmEconomy.baseOwnerShare(y)
+                        + FarmEconomy.excessOwnerShare(y, 200), y) // 대영지에서도 항등
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)

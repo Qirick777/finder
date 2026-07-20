@@ -128,12 +128,22 @@ public final class FarmTicker {
                     }
                 }
             }
+            if (home == null) {
+                continue; // 주인 무주택·부재 — 계정·축장 모두 이월(다음 밤 재시도)
+            }
+            // fee 분할(E11) — 초과분 축장 정산: 잠금 축장의 정수 유닛을 지주 저장고로(확장 무관, 소수
+            // 이월). 소득 감사(RENT)는 수확 시점에 이미 계상됐으므로 여기선 재계상하지 않음(중복 방지).
+            int hoardUnits = (int) Math.floor(plot.excessHoard);
+            if (hoardUnits > 0) {
+                larder.set(home, larder.get(home) + hoardUnits);
+                plot.excessHoard -= hoardUnits;
+                store.setDirty();
+                com.evosim.mod.log.SimEvents.event(ownerEnt, "축장", String.format(
+                        "구획 %d: +%d 저장고(잠금 축장 — 이월 %.2f)", plot.id, hoardUnits, plot.excessHoard));
+            }
             int units = (int) Math.floor(plot.account);
             if (units <= 0) {
                 continue;
-            }
-            if (home == null) {
-                continue; // 이월 — 다음 밤 재시도
             }
             larder.set(home, larder.get(home) + units);
             plot.account -= units;
@@ -219,24 +229,12 @@ public final class FarmTicker {
             if (room <= 0) {
                 continue;
             }
-            // 자금: 밭 계정(지대 재투자 — R1) 우선, 부족분은 주인 저장고(생계 예비 유지) —
-            // 지대가 아직 얇은 초기에도 확장이 멈추지 않게(소작 루프 v2). 단 다음 밭 자격(성숙)에
-            // 도달한 지주의 저장고 예비는 다음 신규 밭 자금까지 올라간다(expandReserve — 저축 유도).
-            double ownerFunds = ownerEnt.getHomePos() != null
-                    ? larders.get(ownerEnt.getHomePos()) : 0.0;
-            boolean eligible = nextFarmEligible(store, adults, plot.ownerId);
-            // 성숙 구획은 계정의 30%만 재투자(MATURE_REINVEST_SHARE) — 잔여 70%는 밤 정산 이체로
-            // 지주 저장고 축적(부익부 가시화)·다음 밭 종잣돈. 성숙 전엔 전액(초기 성장 경로 유지).
-            int affordAccount = com.evosim.core.FarmEconomy.reinvestTiles(
-                    plot.account * (eligible
-                            ? com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE : 1.0));
-            double reserve = com.evosim.core.FarmEconomy.expandReserve(
-                    eligible, store.ownedCount(plot.ownerId),
-                    familyDailyNeed(level, ownerEnt, adults));
-            int affordLarder = (int) Math.floor(
-                    Math.max(0.0, ownerFunds - reserve)
-                            / com.evosim.core.FarmEconomy.EXPAND_COST);
-            int afford = affordAccount + affordLarder;
+            // 자금(fee 분할 E11 ②③): 기존 구획 타일 확장은 <b>밭 계정만</b>으로 — 지주 저장고는
+            // 확장 재원에서 격리(순수 축장 보호, 누수 B 차단). 재투자 캡(MATURE_REINVEST_SHARE) 폐지:
+            // "확장 가능하면 계정으로 확장, 나머지는 밤 정산으로 지주에게"(사용자 확정). 격차는 초과분
+            // 잠금 채널이 담당하므로 계정 캡으로 지주 몫을 만들 필요가 없어졌고, 문턱(계정 저축 하한)도
+            // 소멸한다. 폭주는 노동 상한(구획당 최대 60/일)이 막으며, 저장고 연료가 사라져 오히려 둔화.
+            int afford = com.evosim.core.FarmEconomy.reinvestTiles(plot.account);
             int k = Math.min(room, afford);
             if (k <= 0) {
                 continue;
@@ -267,23 +265,18 @@ public final class FarmTicker {
                 store.setDirty();
             }
             if (placed > 0) {
-                // 지불: 밭 계정 먼저 소진, 잔여는 주인 저장고 — 회계 합 = placed × EXPAND_COST.
+                // 지불: 밭 계정만 소진(저장고 격리 E11 ②). afford=내림(계정)이라 bill ≤ 계정 보장 —
+                // 저장고 인출 없음. 회계 합 = placed × EXPAND_COST.
                 double bill = placed * com.evosim.core.FarmEconomy.EXPAND_COST;
-                double fromAccount = Math.min(plot.account, bill);
-                plot.account -= fromAccount;
+                plot.account -= bill;
                 store.setDirty();
-                double fromLarder = bill - fromAccount;
-                if (fromLarder > 0 && ownerEnt.getHomePos() != null) {
-                    larders.set(ownerEnt.getHomePos(), Math.max(0.0,
-                            larders.get(ownerEnt.getHomePos()) - fromLarder));
-                }
                 grownToday.merge(grower.getId(), placed, Integer::sum);
                 store.recordExpand(plot, grower.getIndividual().id(), placed,
                         com.evosim.mod.entity.SimTime.tick(level) / 24000L, hasTenant); // 밭 원장(P3): 자영/소작 귀속
                 com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
-                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f(계정 %.0f) 소작 %d",
+                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f(계정 소진) 소작 %d",
                         hasTenant ? "재투자" : "자영",
-                        plot.id, placed, plot.tiles.length, bill, fromAccount, nTen));
+                        plot.id, placed, plot.tiles.length, bill, nTen));
             }
         }
         // ①c 죽은 타일 정비(A-3) — 블록이 사라진 타일은 무상 재식수, 구조물(천막 등)에 깔려

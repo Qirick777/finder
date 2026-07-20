@@ -51,6 +51,10 @@ public class FarmStore extends SavedData {
         public boolean stewarded;       // 마름 운영 이력 — 공석 재임명 문턱 1(즉시 충원, 칭호 무붕괴)
         public double stewardDebt;      // 가문 편입 착공비 미상환분 — 밤 정산 때 영주→마름 이체(이월)
 
+        // ── fee 분할(E11) — 지주 몫 초과분(누진분)의 잠금 축장. 밭 계정과 별도라 확장(growFarms)이
+        //    건드리지 않는다. 밤 정산 때 정수 유닛만 지주 저장고로(L 정수성, 소수 이월). ──
+        public double excessHoard = 0.0;
+
         Plot(long id, BlockPos anchor, long ownerId) {
             this.id = id;
             this.anchor = anchor;
@@ -96,6 +100,43 @@ public class FarmStore extends SavedData {
         p.totalToTenant += toTenant;
         p.harvestCount++;
         setDirty();
+    }
+
+    /**
+     * 위기 인출(E11 안전장치 ④) — 굶주리는 지주가 자기 밭 계정 식량을 <b>소지 식량으로 직접</b> 먹는
+     * 비상 경로. 저장고를 우회하므로 귀가 지연(A-4)과 무관하게 현장에서 발동한다. 밭 계정(확장 재원)을
+     * 우선 소진하고, 그래도 부족하면 초과분 축장(잠금)까지 헐어 생존을 잠금보다 앞세운다. 최대 want
+     * 만큼 뽑아 실제 인출량을 반환(확장·정산보다 앞서 실행되어 확장이 생존 식량을 가로채지 못한다).
+     */
+    public double drainForOwner(long ownerId, double want) {
+        if (want <= 0.0 || ownerId == 0L) {
+            return 0.0;
+        }
+        double pulled = 0.0;
+        for (Plot p : plots.values()) { // 1차: 밭 계정(확장 재원) 우선 소진
+            if (p.ownerId != ownerId || pulled >= want) {
+                continue;
+            }
+            double take = Math.min(p.account, want - pulled);
+            if (take > 0.0) {
+                p.account -= take;
+                pulled += take;
+            }
+        }
+        for (Plot p : plots.values()) { // 2차: 초과분 축장(잠금) — 생존이 잠금보다 우선
+            if (p.ownerId != ownerId || pulled >= want) {
+                continue;
+            }
+            double take = Math.min(p.excessHoard, want - pulled);
+            if (take > 0.0) {
+                p.excessHoard -= take;
+                pulled += take;
+            }
+        }
+        if (pulled > 0.0) {
+            setDirty();
+        }
+        return pulled;
     }
 
     private final Map<Long, Plot> plots = new HashMap<>();
@@ -541,6 +582,7 @@ public class FarmStore extends SavedData {
             p.stewardSince = c.contains("StwSince") ? c.getLong("StwSince") : -1L;
             p.stewarded = c.getBoolean("StwEver");
             p.stewardDebt = c.getDouble("StwDebt");
+            p.excessHoard = c.getDouble("ExHrd"); // fee 분할(E11) — 구세계 로드는 0
             s.plots.put(p.id, p);
             for (long l : p.tiles) {
                 s.tileIndex.add(l);
@@ -582,6 +624,7 @@ public class FarmStore extends SavedData {
             c.putLong("StwSince", p.stewardSince);
             c.putBoolean("StwEver", p.stewarded);
             c.putDouble("StwDebt", p.stewardDebt);
+            c.putDouble("ExHrd", p.excessHoard);
             list.add(c);
         }
         tag.put("Plots", list);

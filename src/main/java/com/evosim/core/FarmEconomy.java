@@ -223,4 +223,19 @@ public final class FarmEconomy {
     public static double ownerShare(double yield, int ownerTiles) {
         return yield * fee(ownerTiles);
     }
+
+    // ── fee 분할(E11 저장고 격차) — 지주 몫을 두 갈래로 쪼갠다. 소작 몫은 손대지 않아 회계 항등식
+    //    tenantShare + baseOwnerShare + excessOwnerShare == yield 유지. 목적: 확장 재원(계정)과
+    //    잠금 축장(저장고 직행)을 분리해 부익부가 확장에 갉아먹히지 않게 — 격차의 생전 지속. ──
+
+    /** 지주 몫의 <b>기본분</b>(고정 0.45) — 밭 계정으로: 평상시 확장 재원 + 잔여 정산. fee(0)과 동일. */
+    public static double baseOwnerShare(double yield) {
+        return yield * FEE;
+    }
+
+    /** 지주 몫의 <b>초과분</b>(누진분 fee(T)−0.45 = 0.25×T/(45+T)) — 지주 저장고 직행·잠금(확장
+     *  재원 아님). T가 클수록(대영지) 커져 격차를 누진적으로 벌린다. T=0에서 정확히 0(소농 무영향). */
+    public static double excessOwnerShare(double yield, int ownerTiles) {
+        return yield * Math.max(0.0, fee(ownerTiles) - FEE);
+    }
 }

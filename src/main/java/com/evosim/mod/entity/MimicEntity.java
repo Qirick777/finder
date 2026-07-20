@@ -2079,6 +2079,19 @@ public class MimicEntity extends PathfinderMob {
                 getHealth() < getMaxHealth())
                 * FoodEconomy.maternalHungerMult(getStage(), cachedMaternal); // 모성애 축(자식 허기 효율)
         holding = Math.max(0.0, holding - perDay * interval * scale / 24000.0);
+        // 위기 계정 인출(E11 안전장치 ④) — 소지 식량 고갈 시, 지주는 자기 밭 계정 식량을 소지로
+        // <b>직접</b> 인출(저장고 우회 → 귀가 지연 A-4와 무관하게 현장 발동). 연속 hungerTick이라
+        // 밤 확장·정산보다 앞서 실행되어 확장이 생존 식량을 가로채지 못한다. 비지주는 소유 밭이 없어
+        // drainForOwner=0 → 무영향(지주 한정 안전망). 확장 가능하면 확장 후 잉여 정산 흐름은 불변.
+        if (holding <= 0.0 && individual != null
+                && level() instanceof net.minecraft.server.level.ServerLevel sl) {
+            double pulled = FarmStore.get(sl).drainForOwner(individual.id(), perDay);
+            if (pulled > 0.0) {
+                holding += pulled;
+                SimEvents.event(this, "비상식량", String.format(
+                        "위기 — 밭 계정에서 소지 식량 %.2f 직접 인출(저장고 우회)", pulled));
+            }
+        }
         // 위급 전이 로그(1회) — 진입 시 대응 방향(귀가/강행)까지 남겨 밸런싱 근거로.
         boolean crit = isCritical();
         if (crit != wasCritical) {

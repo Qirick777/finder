@@ -171,6 +171,29 @@ public final class FarmEconomy {
         return (int) Math.floor(Math.max(0.0, account) / EXPAND_COST);
     }
 
+    // ── 마름(클래스 시스템 v1.3) — 임명·수당 산식 ──
+
+    /** 마름 최초 임명 문턱 — 무마름 밭의 상시 소작 수. 이력 구획(stewarded)은 1(즉시 충원 — 칭호 무붕괴). */
+    public static final int STEWARD_APPOINT_TENANTS = 2;
+
+    /** 수당 기본 계수 — 구획 소작 1인 평균 일수취의 배수(겸업 전제: 본업 소득 위에 얹는 수당). */
+    public static final double STEWARD_WAGE_BASE = 0.5;
+    /** 수당 관리등급 가산(등급당). */
+    public static final double STEWARD_WAGE_PER_GRADE = 0.05;
+    /** 수당 근속 가산(재직일당) — 황금 수갑: 이탈(사임) 시 소멸하는 누진분. */
+    public static final double STEWARD_WAGE_PER_DAY = 0.02;
+    /** 수당 계수 상한 — 소작 평균의 1.0배: 마름 총소득(본업+수당)이 소작을 넘되 영주는 못 넘는 결박. */
+    public static final double STEWARD_WAGE_CAP = 1.0;
+    /** 재직 마름의 착공 예비 배율(이탈 방지 ④ — 마찰이지 금지 아님). */
+    public static final double STEWARD_FOUND_RESERVE_MULT = 3.0;
+
+    /** 수당 계수 = min(상한, 0.5 + 0.05×관리등급 + 0.02×근속일). 임금 = 소작 1인 평균 일수취 × 계수. */
+    public static double stewardWageMult(int grade, long tenureDays) {
+        return Math.min(STEWARD_WAGE_CAP, STEWARD_WAGE_BASE
+                + STEWARD_WAGE_PER_GRADE * Math.max(0, grade)
+                + STEWARD_WAGE_PER_DAY * Math.max(0L, tenureDays));
+    }
+
     /** 소작 몫 = 수확 × (1−FEE). 나머지는 밭 계정(밤 정산 때 정수 유닛만 주인 저장고 — L 정수성). */
     public static double tenantShare(double yield) {
         return yield * (1.0 - FEE);

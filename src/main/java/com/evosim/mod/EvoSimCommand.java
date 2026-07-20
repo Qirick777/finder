@@ -200,6 +200,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmable").executes(EvoSimCommand::farmAbleDemo))
                 .then(Commands.literal("farmfamily").executes(EvoSimCommand::farmFamilyDemo))
                 .then(Commands.literal("farmcare").executes(EvoSimCommand::farmCareDemo))
+                .then(Commands.literal("stewardx").executes(EvoSimCommand::stageStewardX))
+                .then(Commands.literal("lordx").executes(EvoSimCommand::stageLordX))
+                .then(Commands.literal("dynastyx").executes(EvoSimCommand::stageDynastyX))
                 .then(Commands.literal("navprobe").executes(EvoSimCommand::navProbe))
                 .then(Commands.literal("forageprobe").executes(EvoSimCommand::forageProbe))
                 .then(Commands.literal("farmclear")
@@ -704,6 +707,303 @@ public final class EvoSimCommand {
     }
 
     /**
+     * S1 관문 마름(클래스 v1.3) — 임명 선발·야망가 제외·즉시 승계·수당 회계. 4단계 블라인드
+     * (조성 → 강제 → 수치 판정). 전부 결과값 대조(칭호·id·저장고 증분).
+     */
+    private static int stageStewardX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "검증 진행 중 — 끝난 뒤 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos base = groundAt(level, ctx.getSource().getPosition(), 6, 6);
+        List<VerifySuite.Step> steps = new ArrayList<>();
+
+        // ① 임명·선발 — 상시 2명(g5·g0) → 관리 g 최고자(g5) 마름 임명, 소유주 클래스 지주.
+        MimicEntity[] a = new MimicEntity[3];
+        FarmStore.Plot[] pa = new FarmStore.Plot[1];
+        steps.add(new VerifySuite.Step("steward_appoint",
+                "2 perm tenants (g5,g0) -> g5 appointed steward, owner class=지주", 200, false, () -> {
+            a[0] = spawnAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 0), Sex.MALE);
+            a[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 4), Sex.MALE, 5);
+            a[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 6), Sex.MALE, 0);
+            pa[0] = buildDemoPlot(level, base, a[0].getIndividual().id(), 35);
+            a[1].setTenant(pa[0].id, 3);
+            a[2].setTenant(pa[0].id, 3);
+            level.setDayTime(1200L);
+            FarmTicker.debugAssign(level);
+        }, () -> String.format("steward %d (expect g5 %d) ownerClass %s",
+                pa[0].stewardId, a[1].getIndividual().id(),
+                FarmStore.get(level).classOf(level, a[0].getIndividual().id())),
+                () -> pa[0].stewardId == a[1].getIndividual().id()
+                        && FarmStore.get(level).classOf(level, a[0].getIndividual().id()).equals("지주"),
+                () -> {
+                    discard(a);
+                    farmClearPlot(level, pa[0]);
+                    FarmTicker.clearAssignments();
+                }));
+
+        // ② 야망가 제외 — g5 야망가 vs g3 비야망가 → 비야망가(g3) 선발(이탈 방지 ①).
+        MimicEntity[] b = new MimicEntity[3];
+        FarmStore.Plot[] pb = new FarmStore.Plot[1];
+        steps.add(new VerifySuite.Step("steward_skip_ambitious",
+                "g5-ambitious skipped, g3 non-ambitious appointed", 200, false, () -> {
+            b[0] = spawnAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 0), Sex.MALE);
+            b[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 4), Sex.MALE, 5,
+                    Trait.AMBITIOUS);
+            b[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 6), Sex.MALE, 3);
+            pb[0] = buildDemoPlot(level, base, b[0].getIndividual().id(), 35);
+            b[1].setTenant(pb[0].id, 3);
+            b[2].setTenant(pb[0].id, 3);
+            level.setDayTime(1200L);
+            FarmTicker.debugAssign(level);
+        }, () -> String.format("steward %d (expect g3 %d, not amb %d)",
+                pb[0].stewardId, b[2].getIndividual().id(), b[1].getIndividual().id()),
+                () -> pb[0].stewardId == b[2].getIndividual().id(),
+                () -> {
+                    discard(b);
+                    farmClearPlot(level, pb[0]);
+                    FarmTicker.clearAssignments();
+                }));
+
+        // ③ 즉시 승계 — 마름 사망 시 같은 틱에 잔여 상시가 승계(칭호 무붕괴 v1.1).
+        MimicEntity[] c = new MimicEntity[3];
+        FarmStore.Plot[] pc = new FarmStore.Plot[1];
+        long[] survId = new long[1];
+        steps.add(new VerifySuite.Step("steward_succession",
+                "steward death -> same-tick succession by remaining perm tenant", 200, false, () -> {
+            c[0] = spawnAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 0), Sex.MALE);
+            c[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 4), Sex.MALE, 5);
+            c[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 6), Sex.MALE, 3);
+            pc[0] = buildDemoPlot(level, base, c[0].getIndividual().id(), 35);
+            FarmStore.get(level).appointSteward(level, pc[0], c[1], "마름임명");
+            c[2].setTenant(pc[0].id, 3);
+            survId[0] = c[2].getIndividual().id();
+            c[1].discard(); // 마름 사망 — remove 훅이 stewardGone → 즉시 승계
+        }, () -> String.format("steward %d (expect survivor g3 %d)", pc[0].stewardId, survId[0]),
+                () -> pc[0].stewardId == survId[0],
+                () -> {
+                    discard(c[0], c[2]);
+                    farmClearPlot(level, pc[0]);
+                    FarmTicker.clearAssignments();
+                }));
+
+        // ④ 수당 회계 — 소작 평균 4.0 × 계수(g5,근속0 → 0.75) = 3.0 → 마름 저장고 +3, 계정 −3.
+        MimicEntity[] d = new MimicEntity[2];
+        FarmStore.Plot[] pd = new FarmStore.Plot[1];
+        BlockPos stwHome = groundAt(level, ctx.getSource().getPosition(), -6, 6);
+        steps.add(new VerifySuite.Step("steward_wage",
+                "tenant avg 4.0 x mult 0.75 = 3 -> steward larder +3, account -3", 200, false, () -> {
+            d[0] = spawnAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 0), Sex.MALE);
+            d[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(stwHome), Sex.MALE, 5);
+            d[1].debugSettleWithTent(stwHome, Direction.NORTH);
+            LarderStore.get(level).set(stwHome, 0.0);
+            pd[0] = buildDemoPlot(level, base, d[0].getIndividual().id(), 35);
+            FarmStore.get(level).appointSteward(level, pd[0], d[1], "마름임명");
+            pd[0].account = 10.0;
+            FarmTicker.debugSeedTenantPay(pd[0].id, 4.0, 99991); // 소작 1인 4.0 (평균 4.0)
+            level.setDayTime(13500L);
+            FarmTicker.debugSettle(level);
+        }, () -> String.format("stewardLarder %.1f (expect 3) account %.1f (expect 7)",
+                LarderStore.get(level).get(stwHome), pd[0].account),
+                () -> Math.abs(LarderStore.get(level).get(stwHome) - 3.0) < 1.0E-6
+                        && Math.abs(pd[0].account - 7.0) < 1.0E-6,
+                () -> {
+                    discard(d);
+                    farmClearPlot(level, pd[0]);
+                    LarderStore.get(level).remove(stwHome);
+                    FarmTicker.clearAssignments();
+                }));
+
+        VerifySuite.start(ctx.getSource(), steps);
+        return 1;
+    }
+
+    /**
+     * S2 관문 하청 개간·영주 전환(케이스 2) — 마름 1 지주가 신규 밭을 열 때 영지 상시 중 신임
+     * 마름을 세워 즉시 운영(영주 승격). 후보 없으면 본인 직영 폴백(교착 방지 P2).
+     */
+    private static int stageLordX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "검증 진행 중 — 끝난 뒤 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos p1 = groundAt(level, ctx.getSource().getPosition(), 10, 10);
+        BlockPos home = groundAt(level, ctx.getSource().getPosition(), -10, -10);
+        List<VerifySuite.Step> steps = new ArrayList<>();
+
+        // ① 하청 개간 — 지주(마름1)의 신규 밭에 영지 상시(비야망가) 신임 마름 임명 → 영주(구획2·마름2).
+        MimicEntity[] a = new MimicEntity[3];
+        FarmStore.Plot[] first = new FarmStore.Plot[1];
+        int[] plotsBefore = new int[1];
+        steps.add(new VerifySuite.Step("lord_subcontract",
+                "landlord founds 2nd farm -> estate tenant appointed steward, class=영주", 300, false, () -> {
+            a[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.HERBALIST);
+            a[0].debugSettleWithTent(home, Direction.NORTH);
+            a[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 4), Sex.MALE, 5); // 마름1
+            a[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 6), Sex.MALE, 4); // 영지 상시(신임 후보)
+            first[0] = buildDemoPlot(level, p1, a[0].getIndividual().id(), 35);
+            FarmStore.get(level).appointSteward(level, first[0], a[1], "마름임명");
+            a[2].setTenant(first[0].id, 3); // 영지 상시 소작(estateCandidate)
+            LarderStore.get(level).set(home, 200.0); // 2호 자금 충분
+            plotsBefore[0] = FarmStore.get(level).ownedCount(a[0].getIndividual().id());
+            level.setDayTime(13500L);
+            FarmTicker.debugGrow(level);
+        }, () -> String.format("owned %d(was %d) class %s",
+                FarmStore.get(level).ownedCount(a[0].getIndividual().id()), plotsBefore[0],
+                FarmStore.get(level).classOf(level, a[0].getIndividual().id())),
+                () -> FarmStore.get(level).ownedCount(a[0].getIndividual().id()) == plotsBefore[0] + 1
+                        && FarmStore.get(level).classOf(level, a[0].getIndividual().id()).equals("영주")
+                        && FarmStore.get(level).stewardCount(a[0].getIndividual().id()) == 2,
+                () -> {
+                    discard(a);
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    FarmTicker.clearAssignments();
+                }));
+
+        // ② 폴백 — 신임 마름 후보 없음 → 신규 밭은 지주 직영(stewardId 0). 교착 없음.
+        MimicEntity[] b = new MimicEntity[2];
+        FarmStore.Plot[] fb = new FarmStore.Plot[1];
+        long[] newPlot = new long[1];
+        steps.add(new VerifySuite.Step("lord_fallback_self",
+                "no estate candidate -> 2nd farm self-managed (steward 0), no deadlock", 300, false, () -> {
+            b[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.HERBALIST);
+            b[0].debugSettleWithTent(home, Direction.NORTH);
+            b[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 4), Sex.MALE, 5); // 마름1(유일 상시)
+            fb[0] = buildDemoPlot(level, p1, b[0].getIndividual().id(), 35);
+            FarmStore.get(level).appointSteward(level, fb[0], b[1], "마름임명");
+            LarderStore.get(level).set(home, 200.0);
+            level.setDayTime(13500L);
+            FarmTicker.debugGrow(level);
+            long np = 0;
+            for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+                if (p.ownerId == b[0].getIndividual().id() && p.id != fb[0].id) {
+                    np = p.id;
+                }
+            }
+            newPlot[0] = np;
+        }, () -> String.format("newPlot %d steward %s", newPlot[0],
+                newPlot[0] == 0 ? "none-founded" : String.valueOf(
+                        FarmStore.get(level).get(newPlot[0]).stewardId)),
+                () -> newPlot[0] != 0 && FarmStore.get(level).get(newPlot[0]).stewardId == 0L,
+                () -> {
+                    discard(b);
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    FarmTicker.clearAssignments();
+                }));
+
+        VerifySuite.start(ctx.getSource(), steps);
+        return 1;
+    }
+
+    /**
+     * S3 관문 가문 편입(케이스 3) — 영주 가문 자식의 착공은 소유권 영주 귀속·착공자 마름·착공비
+     * 익일 상환. 야망가 포함 예외 없음(발사대 봉쇄). 2단계: 편입 귀속·채무 상환.
+     */
+    private static int stageDynastyX(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        if (VerifySuite.isRunning()) {
+            tell(ctx.getSource(), "검증 진행 중 — 끝난 뒤 실행.");
+            return 0;
+        }
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos lordHome = groundAt(level, ctx.getSource().getPosition(), -12, -12);
+        BlockPos childHome = groundAt(level, ctx.getSource().getPosition(), 12, -12);
+        BlockPos p1 = groundAt(level, ctx.getSource().getPosition(), 12, 12);
+        List<VerifySuite.Step> steps = new ArrayList<>();
+
+        // ① 편입 — 영주 부모의 자식이 착공 → 소유권 영주, 착공자 마름, 채무=비용.
+        MimicEntity[] a = new MimicEntity[3];
+        FarmStore.Plot[] lordPlots = new FarmStore.Plot[2];
+        long[] childId = new long[1];
+        long[] lordId = new long[1];
+        long[] newPlot = new long[1];
+        steps.add(new VerifySuite.Step("dynasty_incorporate",
+                "lord's child founds -> owner=lord, child=steward, debt=cost", 300, false, () -> {
+            a[0] = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE, Trait.HERBALIST); // 영주 부모
+            a[0].debugSettleWithTent(lordHome, Direction.NORTH);
+            a[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 4), Sex.MALE, 5); // 마름
+            lordId[0] = a[0].getIndividual().id();
+            lordPlots[0] = buildDemoPlot(level, p1, lordId[0], 35);
+            lordPlots[1] = buildDemoPlot(level,
+                    groundAt(level, ctx.getSource().getPosition(), 20, 12), lordId[0], 20);
+            FarmStore.get(level).appointSteward(level, lordPlots[0], a[1], "마름임명"); // 영주(구획2·마름1)
+            a[2] = spawnChildOf(level, Vec3.atBottomCenterOf(childHome), a[0], Sex.MALE); // 자식(무산)
+            a[2].debugSettleWithTent(childHome, Direction.NORTH);
+            childId[0] = a[2].getIndividual().id();
+            LarderStore.get(level).set(lordHome, 5.0);   // 부모는 착공 불가(자금 부족) — 자식만 착공
+            LarderStore.get(level).set(childHome, 60.0); // 자식 착공 자금
+            level.setDayTime(13500L);
+            FarmTicker.debugGrow(level);
+            long np = 0;
+            for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+                if (p.stewardId == childId[0]) {
+                    np = p.id;
+                }
+            }
+            newPlot[0] = np;
+        }, () -> String.format("newPlot %d owner %s(expect lord %d) steward %s debt %s",
+                newPlot[0], newPlot[0] == 0 ? "-" : String.valueOf(FarmStore.get(level).get(newPlot[0]).ownerId),
+                lordId[0], newPlot[0] == 0 ? "-" : String.valueOf(FarmStore.get(level).get(newPlot[0]).stewardId),
+                newPlot[0] == 0 ? "-" : String.format("%.0f", FarmStore.get(level).get(newPlot[0]).stewardDebt)),
+                () -> newPlot[0] != 0 && FarmStore.get(level).get(newPlot[0]).ownerId == lordId[0]
+                        && FarmStore.get(level).get(newPlot[0]).stewardId == childId[0]
+                        && FarmStore.get(level).get(newPlot[0]).stewardDebt > 0,
+                () -> {
+                    discard(a);
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    LarderStore.get(level).remove(lordHome);
+                    LarderStore.get(level).remove(childHome);
+                    FarmTicker.clearAssignments();
+                }));
+
+        // ② 채무 상환 — 영주 저장고(예비 12 초과분) → 마름. 부모 50, 채무 18 → 마름 +18, 채무 0.
+        MimicEntity[] b = new MimicEntity[2];
+        FarmStore.Plot[] pb = new FarmStore.Plot[1];
+        steps.add(new VerifySuite.Step("dynasty_debt_repay",
+                "lord larder 50, debt 18 -> steward +18, debt 0", 200, false, () -> {
+            b[0] = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE);
+            b[0].debugSettleWithTent(lordHome, Direction.NORTH);
+            b[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(childHome), Sex.MALE, 5);
+            b[1].debugSettleWithTent(childHome, Direction.NORTH);
+            pb[0] = buildDemoPlot(level, p1, b[0].getIndividual().id(), 20);
+            FarmStore.get(level).appointSteward(level, pb[0], b[1], "마름편입");
+            pb[0].stewardDebt = 18.0;
+            LarderStore.get(level).set(lordHome, 50.0);
+            LarderStore.get(level).set(childHome, 0.0);
+            level.setDayTime(13500L);
+            FarmTicker.debugSettle(level);
+        }, () -> String.format("stewardLarder %.0f(expect 18) debt %.0f(expect 0)",
+                LarderStore.get(level).get(childHome), pb[0].stewardDebt),
+                () -> Math.abs(LarderStore.get(level).get(childHome) - 18.0) < 1.0E-6
+                        && pb[0].stewardDebt < 1.0E-6,
+                () -> {
+                    discard(b);
+                    for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {
+                        farmClearPlot(level, p);
+                    }
+                    LarderStore.get(level).remove(lordHome);
+                    LarderStore.get(level).remove(childHome);
+                    FarmTicker.clearAssignments();
+                }));
+
+        VerifySuite.start(ctx.getSource(), steps);
+        return 1;
+    }
+
+    /**
      * M6 관문 ② 무주지·선점 — 무후 지주 파괴 → 무주(ownerId 0) → 밤에 통근 내 유주택 이웃이
      * 선점(ownerId == 이웃). 만료 소거(2.5일)는 시간상 게이트 불가 — 이연 관찰 항목.
      */
@@ -1192,10 +1492,13 @@ public final class EvoSimCommand {
                 break;
             }
             FamilyLedger.Rec r = FamilyLedger.get(level).get(e.getKey());
-            tell(ctx.getSource(), String.format("  %d위 %s — 구획 %d·타일 %d·미정산 %.2f·상시소작 %d명",
+            String cls = store.classOf(level, e.getKey());
+            tell(ctx.getSource(), String.format(
+                    "  %d위 %s ⟨%s⟩ — 구획 %d·타일 %d·미정산 %.2f·상시소작 %d명·마름 %d명",
                     i++, r != null ? "N" + r.serial : "id" + e.getKey(),
+                    cls.isEmpty() ? "농부" : cls,
                     e.getValue()[0], e.getValue()[1], e.getValue()[2] / 100.0,
-                    tenants.getOrDefault(e.getKey(), 0)));
+                    tenants.getOrDefault(e.getKey(), 0), store.stewardCount(e.getKey())));
         }
         if (rank.isEmpty()) {
             tell(ctx.getSource(), "  아직 밭 소유자가 없습니다.");
@@ -1224,10 +1527,12 @@ public final class EvoSimCommand {
             FarmStore.Plot p = plots.get(i);
             long grown = Math.max(1, p.tilesByFounder + p.tilesByOwner + p.tilesByTenant);
             int tenPct = (int) Math.round(100.0 * p.tilesByTenant / grown);
+            String stw = p.stewardId == 0L ? "직영"
+                    : "마름 " + nameLabel(level, p.stewardId) + "(g" + stewardGrade(level, p.stewardId) + ")";
             tell(ctx.getSource(), String.format(
-                    "  #%d %d타일 · 소유 %s · 창설 %s(d%d) · 소작%d명 · 부익부 %d%% · 수확 %.0f(지대 %.0f)",
-                    p.id, p.tiles.length, ownerLabel(level, p.ownerId), nameLabel(level, p.founderId),
-                    p.foundedDay, tenants.getOrDefault(p.id, 0), tenPct, p.totalYield, p.totalToOwner));
+                    "  #%d %d타일 · 소유 %s · %s · 소작%d명 · 부익부 %d%% · 수확 %.0f(지대 %.0f)",
+                    p.id, p.tiles.length, ownerLabel(level, p.ownerId), stw,
+                    tenants.getOrDefault(p.id, 0), tenPct, p.totalYield, p.totalToOwner));
         }
         // 창설 가문 집계 — founderId별 구획·타일 합(부익부 집중도). 상속·선점 무관, 최초 개간자 기준.
         java.util.Map<Long, long[]> byFounder = new java.util.HashMap<>();
@@ -1252,6 +1557,15 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  아직 밭이 없습니다.");
         }
         return shown;
+    }
+
+    /** 마름 관리 등급(라이브 개체 조회) — 미로드/사망이면 -1. estates 표기용. */
+    private static int stewardGrade(ServerLevel level, long id) {
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == id)) {
+            return com.evosim.core.Multipliers.manageAbilityGrade(m.getIndividual());
+        }
+        return -1;
     }
 
     /** 개체 id → 표시명(원장 우선, 사후 포함). 이름 없으면 N{serial}, 원장 없으면 id. */
@@ -5501,6 +5815,29 @@ public final class EvoSimCommand {
     }
 
     /** 스테이징용 — 부모 링크가 걸린 성년 자식 소환(노인 방문 대상 성립 검증용). */
+    /** 관리 등급 지정 성년 소환(마름 선발 검증용) — 약초학자 grade + 기본 셋. grade 0이면 특성 없음. */
+    private static MimicEntity spawnGradedAdult(ServerLevel level, Vec3 pos, Sex sex, int grade,
+                                                Trait... extra) {
+        MimicEntity e = ModEntities.MIMIC.get().create(level);
+        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        Individual ind = new Individual(id, sex, 0, 0, 1);
+        ind.addTrait(TraitInstance.of(Trait.PREF_STRENGTH));
+        if (grade > 0) {
+            ind.addTrait(TraitInstance.graded(Trait.HERBALIST, grade));
+        }
+        for (Trait t : extra) {
+            ind.addTrait(t.isGraded() ? TraitInstance.graded(t, 5) : TraitInstance.of(t));
+        }
+        e.setIndividual(ind);
+        e.setStage(LifeStage.ADULT);
+        e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
+        e.markStageActor();
+        e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
+                MobSpawnType.COMMAND, null, null);
+        level.addFreshEntity(e);
+        return e;
+    }
+
     private static MimicEntity spawnChildOf(ServerLevel level, Vec3 pos, MimicEntity parent, Sex sex) {
         MimicEntity e = ModEntities.MIMIC.get().create(level);
         if (e == null) {

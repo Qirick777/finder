@@ -26,8 +26,8 @@ import java.util.Set;
  */
 public final class SimAudit {
 
-    /** 소득 소스 — 이정표의 "무엇으로 먹고사는가" 분해축. */
-    public enum Src { GRASS, GARDEN, HUNT, FARM_SELF, FARM_TENANT, RENT, AID }
+    /** 소득 소스 — 이정표의 "무엇으로 먹고사는가" 분해축. WAGE = 마름 수당(v1.3). */
+    public enum Src { GRASS, GARDEN, HUNT, FARM_SELF, FARM_TENANT, RENT, AID, WAGE }
 
     private static final EnumMap<Src, Double> INCOME = new EnumMap<>(Src.class);
     private static int births = 0;
@@ -154,6 +154,52 @@ public final class SimAudit {
                 topPlots = e.getValue()[0];
             }
         }
+        // ── 클래스 집계(v1.3) — 파생 판정: 마름 / 영주(마름1+·구획2+) / 지주(마름1) /
+        // 농장주(상시 1+) / 농부. 마름-구획 지도는 왕조 의존 계상에도 쓴다.
+        Set<Long> stewardIds = new HashSet<>();
+        Map<Long, Integer> stewardCnt = new HashMap<>();     // ownerId → 마름 수
+        Map<Long, Set<Long>> stewardPlots = new HashMap<>(); // stewardId → plot ids
+        for (FarmStore.Plot p : farms.all().values()) {
+            if (p.stewardId != 0L) {
+                stewardIds.add(p.stewardId);
+                stewardPlots.computeIfAbsent(p.stewardId, k -> new HashSet<>()).add(p.id);
+                if (p.ownerId != 0L) {
+                    stewardCnt.merge(p.ownerId, 1, Integer::sum);
+                }
+            }
+        }
+        Set<Long> ownersWithPerm = new HashSet<>();
+        for (MimicEntity m : mimics) {
+            if (m.getTenantFarm() != 0L) {
+                FarmStore.Plot tp = farms.get(m.getTenantFarm());
+                if (tp != null && tp.ownerId != 0L) {
+                    ownersWithPerm.add(tp.ownerId);
+                }
+            }
+        }
+        int clsFarmer = 0;
+        int clsOwner = 0;
+        int clsLandlord = 0;
+        int clsLord = 0;
+        int clsSteward = 0;
+        for (MimicEntity m : mimics) {
+            long mid = m.getIndividual().id();
+            if (stewardIds.contains(mid)) {
+                clsSteward++;
+            } else if (byOwner.containsKey(mid)) {
+                long plotsN = byOwner.get(mid)[0];
+                int stw = stewardCnt.getOrDefault(mid, 0);
+                if (stw >= 1 && plotsN >= 2) {
+                    clsLord++;
+                } else if (stw >= 1) {
+                    clsLandlord++;
+                } else if (ownersWithPerm.contains(mid)) {
+                    clsOwner++;
+                } else {
+                    clsFarmer++;
+                }
+            }
+        }
         // 왕조 의존 인구 — 최대 지주의 밭에서 일하는 소작(상시+오늘 일용) + 그 가구원 + 지주 가구.
         int dynDeps = 0;
         if (topOwner != 0L) {
@@ -166,8 +212,15 @@ public final class SimAudit {
             }
             Set<Long> depHomes = new HashSet<>();
             for (MimicEntity m : mimics) {
+                boolean stewardWorks = false; // 마름·그 가구도 왕조 의존 인구(v1.3 P5)
+                for (long sp : stewardPlots.getOrDefault(m.getIndividual().id(), Set.of())) {
+                    if (topPlotIds.contains(sp)) {
+                        stewardWorks = true;
+                    }
+                }
                 boolean works = topPlotIds.contains(m.getTenantFarm())
-                        || topPlotIds.contains(FarmTicker.assignedPlot(m.getId()));
+                        || topPlotIds.contains(FarmTicker.assignedPlot(m.getId()))
+                        || stewardWorks;
                 if (works && m.getHomePos() != null) {
                     depHomes.add(m.getHomePos().asLong());
                 }
@@ -198,7 +251,9 @@ public final class SimAudit {
                         + " top_owner=%s top_tiles=%d top_plots=%d dyn_deps=%d"
                         + " critical=%d satisfied=%d larder_sum=%.0f larder_avg=%.1f"
                         + " homes_owner=%d homes_tenant=%d homes_landless=%d"
-                        + " larder_owner=%.1f larder_tenant=%.1f larder_landless=%.1f",
+                        + " larder_owner=%.1f larder_tenant=%.1f larder_landless=%.1f"
+                        + " wage=%.1f cls_farmer=%d cls_owner=%d cls_landlord=%d cls_lord=%d"
+                        + " cls_steward=%d",
                 day, mimics.size(), adult, adultF, boy, infant, elder, homes.size(), births,
                 INCOME.getOrDefault(Src.GRASS, 0.0), INCOME.getOrDefault(Src.GARDEN, 0.0),
                 INCOME.getOrDefault(Src.HUNT, 0.0), INCOME.getOrDefault(Src.FARM_SELF, 0.0),
@@ -210,7 +265,9 @@ public final class SimAudit {
                 ownerHomes.size(), tenantHomes.size(), landlessHomes,
                 ownerHomes.isEmpty() ? 0.0 : ownerLarder / ownerHomes.size(),
                 tenantHomes.isEmpty() ? 0.0 : tenantLarder / tenantHomes.size(),
-                landlessHomes == 0 ? 0.0 : landlessLarder / landlessHomes);
+                landlessHomes == 0 ? 0.0 : landlessLarder / landlessHomes,
+                INCOME.getOrDefault(Src.WAGE, 0.0),
+                clsFarmer, clsOwner, clsLandlord, clsLord, clsSteward);
         SimEvents.note(level, "AUDIT", line);
         if (reset) {
             INCOME.clear();

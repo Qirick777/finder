@@ -2427,6 +2427,19 @@ public final class EvoTest {
                 && FarmEconomy.shortfall(30, 3) == 27; // 원거리 30타일 구획: 27 게시(3인 고용 규모)
         report.add("farm/케어배분", care, "{9,30}·12→{9,3} · {35}·12→{12} · {9,30}·24→{9,15} · 부족 30−3=27",
                 care ? "정상" : "어긋남");
+
+        // 8) 마름(클래스 v1.3) — 수당 계수(겸업+수당·상한 결박)·문턱·착공 마찰·정원 유보.
+        //    수당 = min(1.0, 0.5+0.05g+0.02×근속): g0/0 → 0.5 · g5/0 → 0.75 · g5/10 → 0.95 · g5/30 → 1.0(캡).
+        boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)
+                && close(FarmEconomy.stewardWageMult(5, 0), 0.75)
+                && close(FarmEconomy.stewardWageMult(5, 10), 0.95)
+                && close(FarmEconomy.stewardWageMult(5, 30), 1.0)   // 상한 1.0 — 소작 평균 초과 불가(서열 보존)
+                && close(FarmEconomy.stewardWageMult(3, 20), 1.0)   // 0.5+0.15+0.4=1.05 → 캡 1.0
+                && FarmEconomy.STEWARD_APPOINT_TENANTS == 2
+                && close(FarmEconomy.STEWARD_FOUND_RESERVE_MULT, 3.0);
+        report.add("farm/마름수당", steward,
+                "수당 계수 0.5/0.75/0.95/1.0(캡) · 문턱 2 · 재직 착공 예비 ×3",
+                steward ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

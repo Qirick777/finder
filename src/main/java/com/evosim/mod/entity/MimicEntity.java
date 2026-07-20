@@ -1305,13 +1305,23 @@ public class MimicEntity extends PathfinderMob {
             return; // 상속 자식 없음 — 저장고는 폐가 유산으로 남김
         }
         FamilyLedger ledger = FamilyLedger.get(sl);
+        FarmStore fs = FarmStore.get(sl);
+        MimicEntity ambSteward = null; // v1.3 순위 1 — 밭 상속(selectHeir)과 동일 규칙 유지
         MimicEntity heir = null;
         MimicEntity daughter = null;
+        long ambBorn = Long.MAX_VALUE;
         long sonBorn = Long.MAX_VALUE;
         long dauBorn = Long.MAX_VALUE;
         for (MimicEntity m : kids) {
             FamilyLedger.Rec r = ledger.get(m.getIndividual().id());
             long born = r == null ? Long.MAX_VALUE : r.bornDay;
+            if (com.evosim.core.ExpressionResolver.isExpressed(
+                        m.getIndividual(), com.evosim.core.Trait.AMBITIOUS)
+                    && fs.stewardOf(m.getIndividual().id()) != 0L
+                    && (ambSteward == null || born < ambBorn)) {
+                ambBorn = born;
+                ambSteward = m;
+            }
             if (!m.isFemale()) {
                 if (heir == null || born < sonBorn) { // 최초 아들 무조건(bornDay MAX 동률 방어)
                     sonBorn = born;
@@ -1324,6 +1334,9 @@ public class MimicEntity extends PathfinderMob {
         }
         if (heir == null) {
             heir = daughter; // 아들 없음 → 장녀
+        }
+        if (ambSteward != null) {
+            heir = ambSteward; // 야망가 마름 자식 최우선(v1.3 — 야망을 왕좌 경쟁으로)
         }
         int otherCount = kids.size() - 1;
         Inheritance.Split split = Inheritance.split(larder, otherCount);
@@ -1874,8 +1887,10 @@ public class MimicEntity extends PathfinderMob {
             // 혈통 원장 사망 마킹 — 전투사·아사·노년 소멸 전부 이 경로(청크 언로드는 destroy 아님).
             // 무대 개체는 등록이 없어 markDead 가 무시한다.
             FamilyLedger.get(sld).markDead(individual.id(), com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
-            // 밭 상속(M6·P3) — 사전 포착 상속인(장남→장녀→배우자)에게. 소유 없으면 즉시 반환.
+            // 밭 상속(M6·P3) — 사전 포착 상속인(야망가 마름 자식→장남→장녀→배우자)에게. 소유 없으면 즉시 반환.
             FarmStore.get(sld).inheritTo(sld, preHeir, individual.id());
+            // 마름 사망(v1.1) — 맡던 구획은 같은 틱 승계(후계 없으면 공석 — 차기 채용자 즉시 임명).
+            FarmStore.get(sld).stewardGone(sld, individual.id(), "마름 사망");
         }
         if (destroy && home != null && level() instanceof ServerLevel sl && !anyResidentAt(sl, home)) {
             // 식량 상속(P4) — 가구 해체(거주자 0): 저장고를 사전 포착 분가 자식에게 분배.

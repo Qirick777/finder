@@ -29,6 +29,11 @@ public final class FarmTicker {
     private static long growDay = -1;
     /** 어제 배정 스냅샷(연속일 판정용, 휘발 — 재접속 시 연속일은 NBT 값에서 이어감). */
     private static final java.util.Map<Integer, Long> LAST_ASSIGNED = new java.util.HashMap<>();
+    /** 오늘 소작 임금 원장(휘발, v1.3) — plotId → 지급 합. 마름 수당(1인 평균×계수)의 입력. */
+    private static final java.util.Map<Long, Double> TENANT_PAY_TODAY = new java.util.HashMap<>();
+    /** 오늘 이 구획에서 수확한 소작(개체 id 집합, 휘발) — 평균의 분모. */
+    private static final java.util.Map<Long, java.util.Set<Integer>> TENANT_WORKERS_TODAY =
+            new java.util.HashMap<>();
 
     private FarmTicker() {
     }
@@ -36,6 +41,23 @@ public final class FarmTicker {
     /** 이 개체가 오늘 배정된 밭(없으면 0) — MimicFarmGoal 의 소작 경로 입력. */
     public static long assignedPlot(int entityId) {
         return ASSIGNED.getOrDefault(entityId, 0L);
+    }
+
+    /** 소작 임금 적립 기록(수확 시점) — 마름 수당 산정 입력(마름 본인 노동분은 호출부에서 제외). */
+    public static void recordTenantPay(long plotId, double share, int workerId) {
+        TENANT_PAY_TODAY.merge(plotId, share, Double::sum);
+        TENANT_WORKERS_TODAY.computeIfAbsent(plotId, k -> new java.util.HashSet<>()).add(workerId);
+    }
+
+    /** 오늘 이 구획에 배정된 인원(상시+일용) — 마름 노동/관리 모드 판정(0 = 노동 모드). */
+    public static int assignedToPlot(long plotId) {
+        int n = 0;
+        for (long v : ASSIGNED.values()) {
+            if (v == plotId) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /**
@@ -51,11 +73,8 @@ public final class FarmTicker {
         }
         rentDay = day;
         FarmStore store = FarmStore.get(level);
+        LarderStore larder = LarderStore.get(level);
         for (FarmStore.Plot plot : store.all().values()) {
-            int units = (int) Math.floor(plot.account);
-            if (units <= 0) {
-                continue;
-            }
             BlockPos home = null;
             MimicEntity ownerEnt = null;
             for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
@@ -64,10 +83,58 @@ public final class FarmTicker {
                 home = m.getHomePos();
                 ownerEnt = m;
             }
+            // ── 마름 수당(v1.3) — 지대 이체 전에 구획 계정에서: 소작 1인 평균 일수취 ×
+            // (0.5+0.05g+0.02×근속, 상한 1.0), 정수 유닛만(L 정수성). 소작 0(노동 모드)이면 무수당.
+            MimicEntity stwEnt = null;
+            if (plot.stewardId != 0L) {
+                for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null
+                                && e.getIndividual().id() == plot.stewardId)) {
+                    stwEnt = m;
+                }
+                double paid = TENANT_PAY_TODAY.getOrDefault(plot.id, 0.0);
+                int workers = TENANT_WORKERS_TODAY.getOrDefault(plot.id, java.util.Set.of()).size();
+                if (stwEnt != null && stwEnt.getHomePos() != null && paid > 0.0 && workers > 0) {
+                    int g = com.evosim.core.Multipliers.manageAbilityGrade(stwEnt.getIndividual());
+                    long tenure = plot.stewardSince >= 0 ? day - plot.stewardSince : 0L;
+                    double wage = Math.min(plot.account,
+                            paid / workers * com.evosim.core.FarmEconomy.stewardWageMult(g, tenure));
+                    int wUnits = (int) Math.floor(wage);
+                    if (wUnits >= 1) {
+                        larder.set(stwEnt.getHomePos(), larder.get(stwEnt.getHomePos()) + wUnits);
+                        plot.account -= wUnits;
+                        store.setDirty();
+                        com.evosim.mod.log.SimAudit.record(
+                                com.evosim.mod.log.SimAudit.Src.WAGE, wUnits);
+                        com.evosim.mod.log.SimEvents.event(stwEnt, "수당", String.format(
+                                "구획 %d 마름 수당 +%d (평균 %.2f × 계수 %.2f · 근속 %d일)",
+                                plot.id, wUnits, paid / workers,
+                                com.evosim.core.FarmEconomy.stewardWageMult(g, tenure), tenure));
+                    }
+                }
+                // ── 편입 착공비 상환 — 영주 저장고 → 마름(예비 12 보호, 부족분 이월)
+                if (plot.stewardDebt >= 1.0 && stwEnt != null && stwEnt.getHomePos() != null
+                        && home != null) {
+                    int pay = (int) Math.floor(Math.min(plot.stewardDebt, Math.max(0.0,
+                            larder.get(home) - com.evosim.core.FarmEconomy.INVEST_RESERVE)));
+                    if (pay >= 1) {
+                        larder.set(home, larder.get(home) - pay);
+                        larder.set(stwEnt.getHomePos(), larder.get(stwEnt.getHomePos()) + pay);
+                        plot.stewardDebt -= pay;
+                        store.setDirty();
+                        com.evosim.mod.log.SimEvents.event(stwEnt, "상환", String.format(
+                                "구획 %d 착공비 +%d (잔여 %.0f — 가문 편입 정산)",
+                                plot.id, pay, plot.stewardDebt));
+                    }
+                }
+            }
+            int units = (int) Math.floor(plot.account);
+            if (units <= 0) {
+                continue;
+            }
             if (home == null) {
                 continue; // 이월 — 다음 밤 재시도
             }
-            LarderStore larder = LarderStore.get(level);
             larder.set(home, larder.get(home) + units);
             plot.account -= units;
             store.setDirty();
@@ -75,6 +142,8 @@ public final class FarmTicker {
             com.evosim.mod.log.SimEvents.event(ownerEnt, "지대", String.format(
                     "구획 %d: +%d 저장고(이월 %.2f)", plot.id, units, plot.account));
         }
+        TENANT_PAY_TODAY.clear(); // 일일 원장 마감(수당 산정 후)
+        TENANT_WORKERS_TODAY.clear();
     }
 
     /**
@@ -332,6 +401,11 @@ public final class FarmTicker {
             if (headTiles > 0 && headId != m.getIndividual().id()) {
                 reserve += com.evosim.core.FarmEconomy.newFarmCost(store.ownedCount(headId));
             }
+            if (store.stewardOf(m.getIndividual().id()) != 0L) {
+                // 재직 마름의 착공 마찰(이탈 방지 ④, v1.3) — 금지가 아닌 예비 ×3(수치 문턱).
+                // 비야망가 선발(①)+만족의 덫(②)+근속 수당(③)을 뚫는 예외(유산 유입 등)를 봉쇄.
+                reserve *= com.evosim.core.FarmEconomy.STEWARD_FOUND_RESERVE_MULT;
+            }
             if (funds < cost + reserve) {
                 continue; // 자금(주 지주·단독 가구면 저장고≥30/39…)
             }
@@ -349,7 +423,14 @@ public final class FarmTicker {
                 m.setTenant(0L, 0);
                 com.evosim.mod.log.SimEvents.event(m, "소작해제", "독립 개간 — 소작 관계 정리");
             }
-            FarmStore.Plot plot = store.create(site, m.getIndividual().id());
+            // ── 가문 편입(케이스 3, v1.3): 무산 착공자의 부모·형제 중 영주가 있으면 소유권은
+            // 영주에게 귀속되고 착공자는 그 구획의 마름이 된다(착공비는 밤 정산 때 영주가 상환).
+            // 야망가 포함 예외 없음 — 착공 시도가 곧 영지 확장 노동이 되는 순환(발사대 봉쇄).
+            MimicEntity familyLord = owned == 0 ? findFamilyLord(store, adults, m) : null;
+            long newOwnerId = familyLord != null
+                    ? familyLord.getIndividual().id() : m.getIndividual().id();
+            FarmStore.Plot plot = store.create(site, newOwnerId);
+            plot.founderId = m.getIndividual().id(); // 원장: 창설자 = 착공 실행자(귀속과 무관)
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
             for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
@@ -365,12 +446,70 @@ public final class FarmTicker {
                 store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
             }
             larders.set(m.getHomePos(), funds - cost);
-            // 수율 G 병기 — "능력자만 독립" 검수: 개간자의 G가 낮은 사례가 잦으면 잠금 누수 신호.
-            com.evosim.mod.log.SimEvents.event(m, "밭개간", String.format(
-                    "신규 구획 %d(%d번째) 착공 — 비용 %.0f G%.2f", plot.id, owned + 1, cost,
-                    com.evosim.core.FarmEconomy.tileYield(m.getIndividual())));
+            if (familyLord != null) {
+                plot.stewardDebt = cost; // 착공비 상환 채무(영주→마름, 밤 정산 이월)
+                store.stewardGone(level, m.getIndividual().id(), "가문 편입 재배치"); // 기존 직 사임
+                store.appointSteward(level, plot, m, "마름편입");
+                com.evosim.mod.log.SimEvents.event(m, "밭개간", String.format(
+                        "신규 구획 %d 착공 — 가문 귀속(영주 %s) 비용 %.0f G%.2f", plot.id,
+                        familyLord.getIndividual().shortName(), cost,
+                        com.evosim.core.FarmEconomy.tileYield(m.getIndividual())));
+            } else {
+                // 수율 G 병기 — "능력자만 독립" 검수: 개간자의 G가 낮은 사례가 잦으면 잠금 누수 신호.
+                com.evosim.mod.log.SimEvents.event(m, "밭개간", String.format(
+                        "신규 구획 %d(%d번째) 착공 — 비용 %.0f G%.2f", plot.id, owned + 1, cost,
+                        com.evosim.core.FarmEconomy.tileYield(m.getIndividual())));
+                // ── 하청 개간(케이스 2, v1.3): 지주(마름 1+)의 신규 밭은 신임 마름이 즉시 운영
+                // (완전 하청 — 영주 사다리 가속). 후보(영지 상시·비야망가) 없으면 본인 직영 폴백
+                // (교착 방지 P2) — 케이스 1이 추후 임명한다.
+                if (store.stewardCount(m.getIndividual().id()) >= 1) {
+                    MimicEntity stw = store.estateCandidate(level, m.getIndividual().id());
+                    if (stw != null) {
+                        store.appointSteward(level, plot, stw, "마름임명");
+                    }
+                }
+            }
             break; // 하루 1건
         }
+    }
+
+    /**
+     * 가문 영주 탐색(케이스 3, v1.3) — 착공자의 부모(우선) 또는 형제(부모 공유) 중 영주
+     * (마름 1+ · 구획 2+). 동급이면 최대 타일 보유자. 무산 착공자(owned 0)에게만 적용 —
+     * 이미 자기 영지를 가진 친족은 독립 가문으로 존중(경쟁 가문 경로).
+     */
+    private static MimicEntity findFamilyLord(FarmStore store,
+            java.util.List<MimicEntity> adults, MimicEntity m) {
+        long pa = m.getIndividual().parentAId();
+        long pb = m.getIndividual().parentBId();
+        MimicEntity best = null;
+        boolean bestParent = false;
+        int bestTiles = -1;
+        for (MimicEntity h : adults) {
+            if (h == m || h.getIndividual() == null) {
+                continue;
+            }
+            long hid = h.getIndividual().id();
+            if (store.stewardCount(hid) < 1 || store.ownedCount(hid) < 2) {
+                continue; // 영주 클래스만(마름1+·구획2+)
+            }
+            boolean parent = hid == pa || hid == pb;
+            long hpa = h.getIndividual().parentAId();
+            long hpb = h.getIndividual().parentBId();
+            boolean sibling = (pa != 0L && (pa == hpa || pa == hpb))
+                    || (pb != 0L && (pb == hpa || pb == hpb));
+            if (!parent && !sibling) {
+                continue;
+            }
+            int tiles = store.ownedTiles(hid);
+            if (best == null || (parent && !bestParent)
+                    || (parent == bestParent && tiles > bestTiles)) {
+                best = h;
+                bestParent = parent;
+                bestTiles = tiles;
+            }
+        }
+        return best;
     }
 
     /** 무주지 만료 — VACANT_EXPIRE_TICKS 경과 시 등록 소거(베리는 야생으로 남음 — 일반 채집 재개방). */
@@ -482,9 +621,22 @@ public final class FarmTicker {
     public static void clearAssignments() {
         ASSIGNED.clear();
         LAST_ASSIGNED.clear();
+        TENANT_PAY_TODAY.clear();
+        TENANT_WORKERS_TODAY.clear();
         assignDay = -1;
         rentDay = -1;
         growDay = -1;
+    }
+
+    /** 검증 전용 — 소작 임금 원장 주입(수당 회계 고립 검증: 수확 유동성 배제). */
+    public static void debugSeedTenantPay(long plotId, double share, int workerId) {
+        recordTenantPay(plotId, share, workerId);
+    }
+
+    /** 검증 전용 — 밤 정산(수당·상환·지대 이체)을 즉시 1회 강제(rentDay 리셋). */
+    public static void debugSettle(ServerLevel level) {
+        rentDay = -1;
+        settleRent(level);
     }
 
     /** 검증 전용 — 밤 성장(개간·확장)을 즉시 1회 강제(growDay 리셋). 다중스텝의 growDay 충돌·
@@ -681,6 +833,34 @@ public final class FarmTicker {
                     } else {
                         m.setTenant(0L, streak);
                     }
+                }
+            }
+        }
+        // ── 마름 유지·임명(케이스 1, v1.3) — 배정과 독립 순회(부족분 0 구획도 임명 대상). ──
+        for (FarmStore.Plot plot : market) {
+            if (plot.ownerId == 0L) {
+                continue;
+            }
+            // 겸직 정리(안전망): 마름이 밭 소유자가 되면 사임 → 같은 틱 승계(P1 확장)
+            if (plot.stewardId != 0L && store.ownedCount(plot.stewardId) > 0) {
+                store.stewardGone(level, plot.stewardId, "지주 전환");
+            }
+            if (plot.stewardId != 0L) {
+                continue;
+            }
+            int perm = 0;
+            for (MimicEntity m : adults) {
+                if (m.getTenantFarm() == plot.id) {
+                    perm++;
+                }
+            }
+            // 최초 문턱 상시 2명, 마름 운영 이력 구획은 1명(공석 즉시 충원 — 칭호 무붕괴 v1.1)
+            if (perm >= (plot.stewarded ? 1
+                    : com.evosim.core.FarmEconomy.STEWARD_APPOINT_TENANTS)) {
+                MimicEntity cand = store.successorFor(level, plot);
+                if (cand != null) {
+                    store.appointSteward(level, plot, cand, "마름임명");
+                    ASSIGNED.remove(cand.getId()); // 소작 배정 해방 — 노동/관리 모드 판정 정합
                 }
             }
         }

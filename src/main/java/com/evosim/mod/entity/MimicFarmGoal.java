@@ -104,20 +104,23 @@ public class MimicFarmGoal extends Goal {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
             double yield = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
             FarmStore.Plot p = plotOf(target);
-            // 관리 효율(하드캡 폐지 대체) — 주인의 관리용량(8+g³) 대비 <b>총소유타일</b> 초과분은
-            // 수확이 제곱 감쇠. 지대가 말라 확장·신밭이 스스로 멈춘다: 무능력 소농·Ⅲ 총35(소지주)·
-            // Ⅴ 총133(다밭 대지주 — 100명 의존권).
+            // 관리 효율(하드캡 폐지 대체, v1.3 이원화) — ① 마름 구획: E = 마름 능력 vs <b>구획</b>
+            // 타일(위임으로 지주 관리캡 병목이 구획 단위로 분산 — 영지 무제한 확장의 기반).
+            // ② 무마름 구획: E = 지주 능력 vs <b>무마름 타일 합</b>(위임분은 지주 부담에서 제외 —
+            // 이중 페널티 방지). 소농(마름 없음)은 종전과 완전 동일.
             if (p != null) {
-                MimicEntity ownerEnt = null;
+                long mgrId = p.stewardId != 0L ? p.stewardId : p.ownerId;
+                MimicEntity mgrEnt = null;
                 for (MimicEntity o : serverLevel().getEntities(
                         com.evosim.mod.reg.ModEntities.MIMIC.get(),
                         e -> e.isAlive() && e.getIndividual() != null
-                                && e.getIndividual().id() == p.ownerId)) {
-                    ownerEnt = o;
+                                && e.getIndividual().id() == mgrId)) {
+                    mgrEnt = o;
                 }
-                if (ownerEnt != null) {
-                    yield *= FarmEconomy.manageEfficiency(
-                            ownerEnt.getIndividual(), farmStore().ownedTiles(p.ownerId));
+                if (mgrEnt != null) {
+                    yield *= FarmEconomy.manageEfficiency(mgrEnt.getIndividual(),
+                            p.stewardId != 0L ? p.tiles.length
+                                    : farmStore().unstewardedTiles(p.ownerId));
                 }
             }
             boolean household = p != null && (p.ownerId == mob.getIndividual().id()
@@ -130,6 +133,10 @@ public class MimicFarmGoal extends Goal {
                 double oShare = FarmEconomy.ownerShare(yield, ownerTiles);
                 mob.addHarvest(tShare);
                 p.account += oShare;
+                if (mob.getIndividual().id() != p.stewardId) {
+                    // 마름 수당의 입력(소작 1인 평균 일수취) — 마름 본인의 노동 모드 수확은 제외
+                    FarmTicker.recordTenantPay(p.id, tShare, mob.getId());
+                }
                 farmStore().recordHarvest(p, yield, oShare, tShare); // 밭 원장(P3) — setDirty 포함
                 com.evosim.mod.log.SimAudit.record(
                         com.evosim.mod.log.SimAudit.Src.FARM_TENANT, tShare);
@@ -185,13 +192,18 @@ public class MimicFarmGoal extends Goal {
         FarmStore fs = FarmStore.get(sl);
         long newestMine = fs.newestOwnedPlot(id);
         long newestSpouse = sid == 0L ? 0L : fs.newestOwnedPlot(sid);
+        long stewardPlot = fs.stewardOf(id);
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         for (FarmStore.Plot p : fs.all().values()) {
             boolean mine = p.ownerId == id;
             boolean spouses = sid != 0L && p.ownerId == sid;
-            if (!mine && !spouses && p.id != assigned) {
-                continue; // 무단 수확 금지 — 소유·배우자 소유(가족 노동) 또는 오늘 배정만
+            // 마름 노동 모드(v1.3) — 소작 0인 자기 위임 구획은 직접 일군다(분배는 소작식).
+            // 소작이 1명이라도 배정되면 관리 모드(수당) — 밭일 대신 본업(채집)으로 복귀.
+            boolean stewardLabor = p.id == stewardPlot && p.id != assigned
+                    && FarmTicker.assignedToPlot(p.id) == 0;
+            if (!mine && !spouses && p.id != assigned && !stewardLabor) {
+                continue; // 무단 수확 금지 — 소유·배우자 소유(가족 노동)·오늘 배정·마름 노동만
             }
             // 직영지 원칙(소작 루프 v2): 다구획 주인 가족의 자가 노동은 최신 구획만 —
             // 구 구획은 100% 소작 몫(신규 개간과 동시에 인계). 배정 소작 출근은 그대로.

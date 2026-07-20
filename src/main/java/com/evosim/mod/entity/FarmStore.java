@@ -45,6 +45,12 @@ public class FarmStore extends SavedData {
         public long[] expandBy = new long[0];    // 확장 이력: 기여자 개체 id
         public int[] expandTiles = new int[0];   // 확장 이력: 그 확장에서 더한 타일 수
 
+        // ── 마름(클래스 시스템 v1.3) ──
+        public long stewardId;          // 이 구획의 마름 개체 id(0=없음). 구획 E는 마름 능력 기준.
+        public long stewardSince = -1L; // 임명 게임일(-1=없음) — 근속 수당 입력
+        public boolean stewarded;       // 마름 운영 이력 — 공석 재임명 문턱 1(즉시 충원, 칭호 무붕괴)
+        public double stewardDebt;      // 가문 편입 착공비 미상환분 — 밤 정산 때 영주→마름 이체(이월)
+
         Plot(long id, BlockPos anchor, long ownerId) {
             this.id = id;
             this.anchor = anchor;
@@ -209,6 +215,152 @@ public class FarmStore extends SavedData {
         return n;
     }
 
+    /** 이 개체가 마름으로 있는 구획 id(첫 건) — 1구획 1마름·1인 1직 원칙. 없으면 0. */
+    public long stewardOf(long id) {
+        if (id == 0L) {
+            return 0L;
+        }
+        for (Plot p : plots.values()) {
+            if (p.stewardId == id) {
+                return p.id;
+            }
+        }
+        return 0L;
+    }
+
+    /** 이 소유자의 마름 수(위임 구획 수) — 클래스 판정 입력(지주=1·영주=1+구획2). */
+    public int stewardCount(long ownerId) {
+        int n = 0;
+        for (Plot p : plots.values()) {
+            if (p.ownerId == ownerId && p.stewardId != 0L) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 무마름 구획 타일 합 — 지주 본인 관리 부담(E 분모). 위임분 제외(이중 페널티 방지, v1.3 P3). */
+    public int unstewardedTiles(long ownerId) {
+        int n = 0;
+        for (Plot p : plots.values()) {
+            if (p.ownerId == ownerId && p.stewardId == 0L) {
+                n += p.tiles.length;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 클래스 판정(v1.3) — 파생값(저장 없음): 마름 / 영주(마름1+·구획2+) / 지주(마름1·구획1) /
+     * 농장주(상시 소작 1+) / 농부(소작 0) / ""(무산). 칭호는 로그·감사·명령 표기에 쓴다.
+     */
+    public String classOf(ServerLevel level, long id) {
+        if (stewardOf(id) != 0L) {
+            return "마름";
+        }
+        int owned = ownedCount(id);
+        if (owned == 0) {
+            return "";
+        }
+        int stw = stewardCount(id);
+        if (stw >= 1) {
+            return owned >= 2 ? "영주" : "지주";
+        }
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() != 0L)) {
+            Plot p = plots.get(m.getTenantFarm());
+            if (p != null && p.ownerId == id) {
+                return "농장주";
+            }
+        }
+        return "농부";
+    }
+
+    /**
+     * 마름 임명 — stewardId·임명일·이력 플래그 기록, 소작석에서 해방(마름은 소작 수에 계상 안 함).
+     * how = "마름임명"(케이스 1·2) / "마름승계"(사망·사임 충원) / "마름편입"(케이스 3 가문 귀속).
+     */
+    public void appointSteward(ServerLevel level, Plot p, MimicEntity cand, String how) {
+        p.stewardId = cand.getIndividual().id();
+        p.stewardSince = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        p.stewarded = true;
+        if (cand.getTenantFarm() != 0L) {
+            cand.setTenant(0L, 0);
+        }
+        setDirty();
+        com.evosim.mod.log.SimEvents.event(cand, how, String.format(
+                "구획 %d 마름 ⟨마름⟩ — 관리 g%d·소유주 클래스 %s", p.id,
+                com.evosim.core.Multipliers.manageAbilityGrade(cand.getIndividual()),
+                classOf(level, p.ownerId)));
+    }
+
+    /**
+     * 마름 후보 선발(이 구획의 상시 소작 중) — 관리 g 최고, <b>비야망가만</b>(이탈 방지 ①: 고용
+     * 마름 한정 필터. 가문 편입은 이 경로를 타지 않는다). 동률은 근속(streak) 큰 순 → id 낮은 순.
+     */
+    public MimicEntity successorFor(ServerLevel level, Plot p) {
+        return bestCandidate(level, m -> m.getTenantFarm() == p.id);
+    }
+
+    /** 영지 전체 상시 소작 중 후보(케이스 2 하청 개간의 신임 마름 선발). */
+    public MimicEntity estateCandidate(ServerLevel level, long ownerId) {
+        return bestCandidate(level, m -> {
+            Plot t = plots.get(m.getTenantFarm());
+            return t != null && t.ownerId == ownerId;
+        });
+    }
+
+    private MimicEntity bestCandidate(ServerLevel level,
+            java.util.function.Predicate<MimicEntity> pool) {
+        MimicEntity best = null;
+        int bg = -1;
+        int bs = -1;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() != 0L)) {
+            if (!pool.test(m) || ownedCount(m.getIndividual().id()) > 0
+                    || com.evosim.core.ExpressionResolver.isExpressed(
+                            m.getIndividual(), com.evosim.core.Trait.AMBITIOUS)) {
+                continue; // 소유자·야망가 제외(겸직 금지 + 이탈 방지 ①)
+            }
+            int g = com.evosim.core.Multipliers.manageAbilityGrade(m.getIndividual());
+            int s = m.getTenantStreak();
+            boolean better = best == null || g > bg || (g == bg && (s > bs
+                    || (s == bs && m.getIndividual().id() < best.getIndividual().id())));
+            if (better) {
+                best = m;
+                bg = g;
+                bs = s;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 마름직 소거(사망·사임·소유 전환) — <b>같은 틱 승계</b>(v1.1): 그 구획 상시 중 최적 후보를
+     * 즉시 임명해 칭호(지주·영주)가 무너지지 않는다. 후보가 없으면 공석(stewarded 이력 유지 —
+     * 다음 상시 채용자가 문턱 없이 임명된다, assignDawn의 재임명 문턱 1).
+     */
+    public void stewardGone(ServerLevel level, long id, String reason) {
+        if (id == 0L) {
+            return;
+        }
+        for (Plot p : plots.values()) {
+            if (p.stewardId != id) {
+                continue;
+            }
+            p.stewardId = 0L;
+            p.stewardSince = -1L;
+            setDirty();
+            MimicEntity next = successorFor(level, p);
+            if (next != null) {
+                appointSteward(level, p, next, "마름승계");
+            } else {
+                com.evosim.mod.log.SimEvents.note(level, "마름공석", String.format(
+                        "구획 %d — %s, 후계 상시 없음(차기 채용자 즉시 임명 대기)", p.id, reason));
+            }
+        }
+    }
+
     /** 소유 구획 수(신규 밭 체증 비용 입력). */
     public int ownedCount(long ownerId) {
         int n = 0;
@@ -231,8 +383,11 @@ public class FarmStore extends SavedData {
      */
     public static MimicEntity selectHeir(ServerLevel level, long deadId, long spouseId) {
         FamilyLedger ledger = FamilyLedger.get(level);
+        FarmStore fs = get(level);
+        MimicEntity ambSteward = null; // v1.3 상속 순위 1: 야망가 마름 자식 — 야망을 왕좌 경쟁으로
         MimicEntity son = null;
         MimicEntity daughter = null;
+        long ambBorn = Long.MAX_VALUE;
         long sonBorn = Long.MAX_VALUE;
         long dauBorn = Long.MAX_VALUE;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
@@ -243,6 +398,12 @@ public class FarmStore extends SavedData {
             }
             FamilyLedger.Rec r = ledger.get(ind.id());
             long born = r == null ? Long.MAX_VALUE : r.bornDay;
+            if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.AMBITIOUS)
+                    && fs.stewardOf(ind.id()) != 0L
+                    && (ambSteward == null || born < ambBorn)) {
+                ambBorn = born;
+                ambSteward = m;
+            }
             if (!m.isFemale()) {
                 if (son == null || born < sonBorn) { // 최초 후보는 무조건(bornDay MAX 동률 방어)
                     sonBorn = born;
@@ -253,7 +414,9 @@ public class FarmStore extends SavedData {
                 daughter = m;
             }
         }
-        MimicEntity heir = son != null ? son : daughter; // 장남 우선, 없으면 장녀
+        // 순위(v1.3): 야망가 마름 자식 > 장남 > 장녀 > 배우자 — 가문 편입으로 독립이 막힌 야망가의
+        // 야망을 "영지 전체 승계"로 흡수(무능 상속인 리스크 완화 겸용 — 마름 경력 = 관리 검증).
+        MimicEntity heir = ambSteward != null ? ambSteward : (son != null ? son : daughter);
         if (heir == null && spouseId != 0L) {
             for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                     e -> e.isAlive() && e.getIndividual() != null
@@ -296,6 +459,11 @@ public class FarmStore extends SavedData {
                 p.vacantSince = com.evosim.mod.entity.SimTime.tick(level); // 무주지 — 선점 대기, 만료 시 소거
             }
         }
+        // 겸직 금지(v1.3 P1): 상속인은 이제 소유자 — 본인이 맡고 있던 마름직(승계 구획 포함)은
+        // 사임하고 같은 틱 승계를 발동한다(소유자는 마름 불가 — "자기 밭 소작 불가"의 확장).
+        if (heir != null) {
+            stewardGone(level, heir.getIndividual().id(), "상속 소유 전환 — 마름 사임");
+        }
         setDirty();
     }
 
@@ -335,6 +503,11 @@ public class FarmStore extends SavedData {
             p.expandDay = c.getLongArray("ExD");
             p.expandBy = c.getLongArray("ExB");
             p.expandTiles = c.getIntArray("ExT");
+            // 마름(v1.3) — 구세계 로드는 기본값(무마름)
+            p.stewardId = c.getLong("Stw");
+            p.stewardSince = c.contains("StwSince") ? c.getLong("StwSince") : -1L;
+            p.stewarded = c.getBoolean("StwEver");
+            p.stewardDebt = c.getDouble("StwDebt");
             s.plots.put(p.id, p);
             for (long l : p.tiles) {
                 s.tileIndex.add(l);
@@ -372,6 +545,10 @@ public class FarmStore extends SavedData {
             c.putLongArray("ExD", p.expandDay);
             c.putLongArray("ExB", p.expandBy);
             c.putIntArray("ExT", p.expandTiles);
+            c.putLong("Stw", p.stewardId);
+            c.putLong("StwSince", p.stewardSince);
+            c.putBoolean("StwEver", p.stewarded);
+            c.putDouble("StwDebt", p.stewardDebt);
             list.add(c);
         }
         tag.put("Plots", list);

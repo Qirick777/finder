@@ -156,7 +156,8 @@ public final class FarmTicker {
                     plot.account * (eligible
                             ? com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE : 1.0));
             double reserve = com.evosim.core.FarmEconomy.expandReserve(
-                    eligible, store.ownedCount(plot.ownerId));
+                    eligible, store.ownedCount(plot.ownerId),
+                    familyDailyNeed(level, ownerEnt, adults));
             int affordLarder = (int) Math.floor(
                     Math.max(0.0, ownerFunds - reserve)
                             / com.evosim.core.FarmEconomy.EXPAND_COST);
@@ -677,6 +678,34 @@ public final class FarmTicker {
                 }
             }
         }
+    }
+
+    /** 지주 가구 하루소모 — 본인 + 배우자(회차 21: 동거 성인 자녀 제외) + 동거 유아·소년.
+     *  착공 famNeed 스캔과 동일 규칙(회차 25: 확장 예비를 착공 임계와 단일 산식으로 묶는 입력). */
+    private static double familyDailyNeed(ServerLevel level, MimicEntity owner,
+                                          java.util.List<MimicEntity> adults) {
+        if (owner == null || owner.getIndividual() == null || owner.getHomePos() == null) {
+            return 6.0; // 방어 기본값(부부 소모)
+        }
+        double need = com.evosim.core.FoodEconomy.consumptionPerDay(
+                owner.getStage(), com.evosim.core.Activity.MOVE, owner.getIndividual(), false);
+        for (MimicEntity h : adults) {
+            if (h != owner && h.getHomePos() != null && h.getHomePos().equals(owner.getHomePos())
+                    && (h.getSpouseId() == owner.getIndividual().id()
+                            || owner.getSpouseId() == h.getIndividual().id())) {
+                need += com.evosim.core.FoodEconomy.consumptionPerDay(
+                        h.getStage(), com.evosim.core.Activity.MOVE, h.getIndividual(), false);
+            }
+        }
+        for (MimicEntity c : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && owner.getHomePos().equals(e.getHomePos())
+                        && (e.getStage() == com.evosim.core.LifeStage.INFANT
+                                || e.getStage() == com.evosim.core.LifeStage.BOY))) {
+            need += com.evosim.core.FoodEconomy.consumptionPerDay(
+                    c.getStage(), com.evosim.core.Activity.MOVE, c.getIndividual(), false);
+        }
+        return need;
     }
 
     /**

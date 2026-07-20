@@ -2311,9 +2311,12 @@ public final class EvoTest {
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)
                 && FarmEconomy.EXPAND_COST <= FarmEconomy.NEW_FARM_BASE / FarmLayout.TIERS[0]
                 // 확장 예비(다음 밭 저축 유도): 미성숙 12 · 성숙 1밭 27+12=39 · 성숙 2밭 40.5+12=52.5
-                && close(FarmEconomy.expandReserve(false, 1), 12.0)
-                && close(FarmEconomy.expandReserve(true, 1), 39.0)
-                && close(FarmEconomy.expandReserve(true, 2), 52.5)
+                // 확장 예비 = 착공 임계와 단일 산식(회차 25): 비용+foundReserve(가구소모) —
+                // 빈둥지 27+12=39 · 2밭 40.5+12=52.5 · 2밭+자녀(소모 8.4) 40.5+16.8=57.3
+                && close(FarmEconomy.expandReserve(false, 1, 6.0), 12.0)
+                && close(FarmEconomy.expandReserve(true, 1, 6.0), 39.0)
+                && close(FarmEconomy.expandReserve(true, 2, 6.0), 52.5)
+                && close(FarmEconomy.expandReserve(true, 2, 8.4), 57.3)
                 // 성숙 재투자 배분: 계정 절반만 확장(잔여는 정산 이체 = 다음 밭 종잣돈)
                 && close(FarmEconomy.MATURE_REINVEST_SHARE, 0.3)
                 && FarmEconomy.reinvestTiles(10.0 * FarmEconomy.MATURE_REINVEST_SHARE) == 3

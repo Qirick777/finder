@@ -115,8 +115,14 @@ public final class FarmEconomy {
      * 수치 해소(런3 실측: 지주 저장고 3일째 15 정체 vs 필요 39). 성숙 전엔 기존 예비 12 —
      * 초기 성장(9→24)은 지대가 얇아 저장고 보충이 필수라 종전 그대로.
      */
-    public static double expandReserve(boolean nextFarmEligible, int ownedPlots) {
-        return nextFarmEligible ? newFarmCost(ownedPlots) + INVEST_RESERVE : INVEST_RESERVE;
+    public static double expandReserve(boolean nextFarmEligible, int ownedPlots,
+                                       double familyDailyNeed) {
+        // 회차 25: 예비를 착공 임계와 동일 산식(비용+foundReserve)으로 — 종전 고정 +12는
+        // 자녀 있는 지주의 착공 임계(비용+2×가구소모)보다 낮아, 확장이 그 위를 전부 흡수해
+        // 3호 자금에 영원히 못 닿는 교착(런15 니컬러스·런18 티모시 실측). 예비 = 임계이면
+        // 저축이 임계 도달하는 밤 착공이 정확히 발화한다.
+        return nextFarmEligible
+                ? newFarmCost(ownedPlots) + foundReserve(familyDailyNeed) : INVEST_RESERVE;
     }
 
     /** 개인 수확 용량 — 부지런 ×1.2 / 게으름 ×0.8 / 노년 ×0.5 (내림). */

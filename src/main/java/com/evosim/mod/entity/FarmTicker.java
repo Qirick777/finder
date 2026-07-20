@@ -858,9 +858,9 @@ public final class FarmTicker {
             if (perm >= (plot.stewarded ? 1
                     : com.evosim.core.FarmEconomy.STEWARD_APPOINT_TENANTS)) {
                 MimicEntity cand = store.successorFor(level, plot);
-                // 위임 개선 게이트(회차 S1 결함) — 후보가 지주보다 이 밭을 잘 관리할 때만 임명.
-                // 유능한 지주의 밭을 무능한 상시(g0)에게 넘겨 E를 0.06으로 죽이던 역효과 차단.
-                if (cand != null && store.stewardImproves(level, plot, cand)) {
+                // 조기 임명(회차 S2) — 상시 2명이면 즉시 임명(영주 사다리 조기화). 무능 마름의 밭
+                // 붕괴는 게이트가 아니라 plotEfficiency 바닥값(지주 오버사이트)이 막는다.
+                if (cand != null) {
                     store.appointSteward(level, plot, cand, "마름임명");
                     ASSIGNED.remove(cand.getId()); // 소작 배정 해방 — 노동/관리 모드 판정 정합
                 }

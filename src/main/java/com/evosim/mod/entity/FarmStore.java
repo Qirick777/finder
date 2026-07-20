@@ -322,23 +322,25 @@ public class FarmStore extends SavedData {
     }
 
     /**
-     * 마름 위임이 이 구획의 관리 효율을 개선하는가 — 후보의 <b>구획 단독</b> E ≥ 지주가 이 구획을
-     * (재)흡수했을 때의 per-plot E. 유능한 지주의 밭을 무능한 상시에게 넘겨 오히려 죽이는 역효과를
-     * 차단한다(관리 잘하는 자에게만 위임 — 리처드/킴벌리 실측 결함). 지주가 관리캡(133)을 초과해
-     * per-plot E가 떨어질 때라야 전담 마름이 이득이 되어 임명 = 정확히 "캡 돌파" 시점.
+     * 구획 관리 효율 E (회차 S2 — 관리 바닥값). 마름 밭은 <b>max(마름 E, 지주 재흡수 E)</b>:
+     * 지주의 오버사이트가 바닥이라 무능한 마름을 조기 임명해도 밭이 붕괴하지 않는다(리처드/킴벌리
+     * 결함 근본 해소 — 게이트 대신 바닥값). 지주가 여러 밭으로 관리캡(133)을 초과해 재흡수 E가
+     * 떨어지면 전담 마름의 E가 바닥을 넘어 <b>캡 돌파</b> — 조기 지위 부여와 후반 캡 돌파를 동시
+     * 만족. 무마름 밭은 지주의 무마름 타일 합 기준(위임분 제외 — 이중 페널티 방지).
      */
-    public boolean stewardImproves(ServerLevel level, Plot plot, MimicEntity cand) {
-        MimicEntity ownerEnt = findEntity(level, plot.ownerId);
-        if (ownerEnt == null) {
-            return true; // 지주 미로드 — 비교 불가, 보수적 허용(무마름 방치보다 나음)
+    public double plotEfficiency(ServerLevel level, Plot p) {
+        MimicEntity ownerEnt = findEntity(level, p.ownerId);
+        if (p.stewardId != 0L) {
+            MimicEntity stw = findEntity(level, p.stewardId);
+            double stewardE = stw != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+                    stw.getIndividual(), p.tiles.length) : 0.0;
+            double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+                    ownerEnt.getIndividual(), unstewardedTiles(p.ownerId) + p.tiles.length) : 0.0;
+            double e = Math.max(stewardE, ownerFloor);
+            return e > 0.0 ? e : 1.0; // 양쪽 미로드 — 무penalty 폴백
         }
-        int reabsorbed = unstewardedTiles(plot.ownerId)
-                + (plot.stewardId != 0L ? plot.tiles.length : 0); // 현재 위임 중이면 흡수 시 복귀분
-        double ownerE = com.evosim.core.FarmEconomy.manageEfficiency(
-                ownerEnt.getIndividual(), reabsorbed);
-        double candE = com.evosim.core.FarmEconomy.manageEfficiency(
-                cand.getIndividual(), plot.tiles.length);
-        return candE >= ownerE;
+        return ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+                ownerEnt.getIndividual(), unstewardedTiles(p.ownerId)) : 1.0;
     }
 
     private MimicEntity bestCandidate(ServerLevel level,
@@ -383,12 +385,11 @@ public class FarmStore extends SavedData {
             p.stewardSince = -1L;
             setDirty();
             MimicEntity next = successorFor(level, p);
-            if (next != null && stewardImproves(level, p, next)) {
-                appointSteward(level, p, next, "마름승계");
+            if (next != null) {
+                appointSteward(level, p, next, "마름승계"); // 즉시 승계(붕괴는 plotEfficiency 바닥값이 방지)
             } else {
-                // 후계 없음 또는 무능(위임이 밭을 오히려 죽임) → 공석: 지주가 재흡수해 직접 관리.
                 com.evosim.mod.log.SimEvents.note(level, "마름공석", String.format(
-                        "구획 %d — %s, 유능 후계 없음(지주 직영 복귀)", p.id, reason));
+                        "구획 %d — %s, 후계 상시 없음(지주 직영 복귀)", p.id, reason));
             }
         }
     }

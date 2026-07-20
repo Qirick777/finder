@@ -817,12 +817,12 @@ public final class EvoSimCommand {
                     FarmTicker.clearAssignments();
                 }));
 
-        // ⑤ 위임 개선 게이트(회차 S1) — 유능 지주(약초Ⅴ g5) + 무능 상시(g0 2명) → 임명 안 함
-        //    (E 0.06 붕괴 차단). 리처드/킴벌리 실측 결함의 회귀 방지.
+        // ⑤ 관리 바닥값(회차 S2) — 유능 지주(약초Ⅴ g5) + g0 상시 → 조기 임명(영주 사다리)되되
+        //    plotEfficiency는 지주 오버사이트로 바닥(~1.0) 유지: 붕괴(0.06) 없음. 리처드/킴벌리 결함 근본 해소.
         MimicEntity[] e = new MimicEntity[3];
         FarmStore.Plot[] pe = new FarmStore.Plot[1];
-        steps.add(new VerifySuite.Step("steward_improve_gate",
-                "capable owner (g5) + g0 tenants -> NOT appointed (delegation would tank E)", 200, false, () -> {
+        steps.add(new VerifySuite.Step("steward_floor",
+                "capable owner (g5) + g0 steward -> appointed BUT plot E floored ~1.0 (no collapse)", 200, false, () -> {
             e[0] = spawnAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 0), Sex.MALE, Trait.HERBALIST); // g5 지주
             e[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 4), Sex.MALE, 0);
             e[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(base).add(-3, 0, 6), Sex.MALE, 0);
@@ -831,8 +831,10 @@ public final class EvoSimCommand {
             e[2].setTenant(pe[0].id, 3);
             level.setDayTime(1200L);
             FarmTicker.debugAssign(level);
-        }, () -> String.format("steward %d (expect 0 — g0 cand would drop E to 0.06)", pe[0].stewardId),
-                () -> pe[0].stewardId == 0L,
+        }, () -> String.format("steward %d (appointed) E %.2f (expect ~1.0, NOT 0.06)",
+                pe[0].stewardId, FarmStore.get(level).plotEfficiency(level, pe[0])),
+                () -> pe[0].stewardId != 0L
+                        && FarmStore.get(level).plotEfficiency(level, pe[0]) >= 0.9,
                 () -> {
                     discard(e);
                     farmClearPlot(level, pe[0]);

@@ -104,24 +104,11 @@ public class MimicFarmGoal extends Goal {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
             double yield = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
             FarmStore.Plot p = plotOf(target);
-            // 관리 효율(하드캡 폐지 대체, v1.3 이원화) — ① 마름 구획: E = 마름 능력 vs <b>구획</b>
-            // 타일(위임으로 지주 관리캡 병목이 구획 단위로 분산 — 영지 무제한 확장의 기반).
-            // ② 무마름 구획: E = 지주 능력 vs <b>무마름 타일 합</b>(위임분은 지주 부담에서 제외 —
-            // 이중 페널티 방지). 소농(마름 없음)은 종전과 완전 동일.
+            // 관리 효율(회차 S2 — 관리 바닥값): 마름 밭 E = max(마름 E, 지주 재흡수 E) — 지주
+            // 오버사이트가 바닥이라 무능 마름 조기 임명해도 붕괴 없음, 지주가 캡 초과로 얇아지면
+            // 마름 전담 E가 바닥 넘어 캡 돌파. 무마름 밭은 지주의 무마름 타일 합 기준. (plotEfficiency)
             if (p != null) {
-                long mgrId = p.stewardId != 0L ? p.stewardId : p.ownerId;
-                MimicEntity mgrEnt = null;
-                for (MimicEntity o : serverLevel().getEntities(
-                        com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                        e -> e.isAlive() && e.getIndividual() != null
-                                && e.getIndividual().id() == mgrId)) {
-                    mgrEnt = o;
-                }
-                if (mgrEnt != null) {
-                    yield *= FarmEconomy.manageEfficiency(mgrEnt.getIndividual(),
-                            p.stewardId != 0L ? p.tiles.length
-                                    : farmStore().unstewardedTiles(p.ownerId));
-                }
+                yield *= farmStore().plotEfficiency(serverLevel(), p);
             }
             boolean household = p != null && (p.ownerId == mob.getIndividual().id()
                     || (mob.getSpouseId() != 0L && p.ownerId == mob.getSpouseId()));

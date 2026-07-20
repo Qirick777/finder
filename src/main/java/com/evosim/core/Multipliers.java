@@ -41,6 +41,10 @@ public final class Multipliers {
         if (t.contains(Trait.GATHERER) && t.contains(Trait.DEXTEROUS)) {
             m += 0.1; // 시너지: 숙련 채집조(채집꾼×손재주 동시 발현)
         }
+        if (t.contains(Trait.AMBITIOUS) && (t.contains(Trait.HERBALIST)
+                || t.contains(Trait.GATHERER) || t.contains(Trait.DEXTEROUS))) {
+            m += 0.15; // 야망 몰입 — 야망이 재능을 몰아붙인다(채집 계열 능력 보유 시만, 무능력 야망은 무효)
+        }
         return Math.max(0.0, m);
     }
 

@@ -584,6 +584,17 @@ public final class EvoTest {
                 && close(Physique.actionCooldown(one(Sex.MALE)), 1.0);
         report.add("multiplier/재빠름행동", quick,
                 "재빠름 쿨다운 −4%/등급(Ⅴ ×0.8)·굼뜸 +4%/등급", quick ? "정상" : "어긋남");
+        checkNum(report, "multiplier/야망몰입", 1.65,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS),
+                        TraitInstance.graded(Trait.HERBALIST, 5))),
+                "야망×약초Ⅴ = 1.0+0.5+0.15 (무능력 야망은 무효)");
+        checkNum(report, "multiplier/야망단독무효", 1.0,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS))),
+                "야망 단독 = 채집 보너스 없음");
+        checkNum(report, "multiplier/콤보만액", 1.875,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS),
+                        TraitInstance.of(Trait.BRIGHT), TraitInstance.graded(Trait.HERBALIST, 5))),
+                "야망+명석+약초Ⅴ = 1.0 + 1.25×0.5 + 0.1 + 0.15 (4종 콤보 채집축)");
     }
 
     // ──────────────────────────────────────────────────────────────

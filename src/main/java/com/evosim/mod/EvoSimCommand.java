@@ -241,13 +241,13 @@ public final class EvoSimCommand {
             spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
         }
         MimicEntity elite = spawnMatingReady(level, scatter(level, base), Sex.MALE,
-                Trait.AMBITIOUS, Trait.HERBALIST);
+                Trait.AMBITIOUS, Trait.HERBALIST, Trait.NIMBLE); // 4종 콤보: 야망+약초Ⅴ+명석(기본)+재빠름Ⅴ
         spawnMatingReady(level, scatter(level, base), Sex.FEMALE); // 엘리트 몫 여성 1 보충
         if (elite != null) {
-            SimEvents.event(elite, "엘리트투입", "관측 런 시드(야망가+약초학자Ⅴ)");
+            SimEvents.event(elite, "엘리트투입", "관측 런 시드(야망가+약초Ⅴ+명석+재빠름Ⅴ — 4종 콤보)");
         }
         tell(ctx.getSource(), String.format(
-                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(야망+약초Ⅴ) 소환, 이벤트 로그 ON. "
+                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(야망+약초Ⅴ+명석+재빠름Ⅴ) 소환, 이벤트 로그 ON. "
                         + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.", pairs));
         return pairs * 2 + 2;
     }
@@ -5704,12 +5704,21 @@ public final class EvoSimCommand {
         // 서로 매력 3점(선호↔특성 일치) → 신중(여) 기준선도 통과해 짝 잘 형성.
         long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
         Individual ind = new Individual(id, sex, 0, 0, 1);
+        // extra 로 오는 특성은 기본 부여를 건너뛴다(같은 특성 중복 인스턴스 방지 — 예: 엘리트
+        // 재빠름Ⅴ가 기본 무등급 재빠름과 겹치면 등급 해석이 흔들림).
+        java.util.Set<Trait> ex = java.util.Set.of(extra);
         ind.addTrait(TraitInstance.of(Trait.PREF_STRENGTH));
         ind.addTrait(TraitInstance.of(Trait.PREF_ABILITY));
         ind.addTrait(TraitInstance.of(Trait.PREF_VITALITY));
-        ind.addTrait(TraitInstance.of(Trait.STRONG));
-        ind.addTrait(TraitInstance.of(Trait.BRIGHT));
-        ind.addTrait(TraitInstance.of(Trait.NIMBLE));
+        if (!ex.contains(Trait.STRONG)) {
+            ind.addTrait(TraitInstance.of(Trait.STRONG));
+        }
+        if (!ex.contains(Trait.BRIGHT)) {
+            ind.addTrait(TraitInstance.of(Trait.BRIGHT));
+        }
+        if (!ex.contains(Trait.NIMBLE)) {
+            ind.addTrait(TraitInstance.of(Trait.NIMBLE));
+        }
         for (Trait t : extra) {
             ind.addTrait(t.isGraded() ? TraitInstance.graded(t, 5) : TraitInstance.of(t));
         }

@@ -123,17 +123,20 @@ public class MimicFarmGoal extends Goal {
             boolean household = p != null && (p.ownerId == mob.getIndividual().id()
                     || (mob.getSpouseId() != 0L && p.ownerId == mob.getSpouseId()));
             if (p != null && !household) {
-                // 소작: 70% 본인 H, 30% 밭 계정(밤 정산에서 정수 유닛만 주인 저장고 — M3)
-                mob.addHarvest(FarmEconomy.tenantShare(yield));
-                p.account += FarmEconomy.ownerShare(yield);
-                farmStore().recordHarvest(p, yield, FarmEconomy.ownerShare(yield),
-                        FarmEconomy.tenantShare(yield)); // 밭 원장(P3) — setDirty 포함
+                // 소작: 규모 누진 분할 — 지주 총소유 타일 기준 지대율 0.45→0.55(100+) —
+                // 대지주일수록 지대 몫이 커진다(소지금 격차 5~10배 목표, 회계 항등식 유지).
+                int ownerTiles = farmStore().ownedTiles(p.ownerId);
+                double tShare = FarmEconomy.tenantShare(yield, ownerTiles);
+                double oShare = FarmEconomy.ownerShare(yield, ownerTiles);
+                mob.addHarvest(tShare);
+                p.account += oShare;
+                farmStore().recordHarvest(p, yield, oShare, tShare); // 밭 원장(P3) — setDirty 포함
                 com.evosim.mod.log.SimAudit.record(
-                        com.evosim.mod.log.SimAudit.Src.FARM_TENANT, FarmEconomy.tenantShare(yield));
+                        com.evosim.mod.log.SimAudit.Src.FARM_TENANT, tShare);
                 com.evosim.mod.log.SimAudit.record(
-                        com.evosim.mod.log.SimAudit.Src.RENT, FarmEconomy.ownerShare(yield));
+                        com.evosim.mod.log.SimAudit.Src.RENT, oShare);
                 SimEvents.event(mob, "소작수확", String.format("+%.2f (지대 %.2f 적립, 오늘 %d타일)",
-                        FarmEconomy.tenantShare(yield), FarmEconomy.ownerShare(yield), harvestedToday + 1));
+                        tShare, oShare, harvestedToday + 1));
             } else {
                 mob.addHarvest(yield); // 자기 밭 = 100% 본인 몫
                 if (p != null) {

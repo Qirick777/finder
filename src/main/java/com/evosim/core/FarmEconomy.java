@@ -173,4 +173,22 @@ public final class FarmEconomy {
     public static double ownerShare(double yield) {
         return yield * FEE;
     }
+
+    /** 규모 누진 지대율 — 지주 총소유 타일이 클수록 지주 몫 증가: FEE + 0.10×min(1, 타일/100).
+     *  소농 0.45 그대로 → 100+타일 대지주 0.55. 규모의 경제의 수치화(강제 규칙 아님) —
+     *  대형 밭 소작 임금 8×0.75×0.45 = 2.7/일로 소비(3.0) 근접하나 배우자 정원 합산 가구
+     *  흑자·구휼이 유지(출산 2.3 캘리브레이션 보존). 지주-소작 소지금 격차 5~10배 목표. */
+    public static double fee(int ownerTiles) {
+        return FEE + 0.10 * Math.min(1.0, Math.max(0, ownerTiles) / 100.0);
+    }
+
+    /** 소작 몫(규모 누진 반영) — ownerShare(y,t) 와 합이 정확히 yield(회계 항등식). */
+    public static double tenantShare(double yield, int ownerTiles) {
+        return yield * (1.0 - fee(ownerTiles));
+    }
+
+    /** 밭 계정 몫(규모 누진 반영). */
+    public static double ownerShare(double yield, int ownerTiles) {
+        return yield * fee(ownerTiles);
+    }
 }

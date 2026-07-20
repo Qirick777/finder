@@ -2299,6 +2299,11 @@ public final class EvoTest {
         double y = 0.75;
         boolean acct = close(FarmEconomy.tenantShare(y), 0.4125) && close(FarmEconomy.ownerShare(y), 0.3375)
                 && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
+                // 규모 누진 지대: 소농 0.45 → 50타일 0.50 → 100+타일 0.55(상한), 항등식 유지
+                && close(FarmEconomy.fee(0), 0.45) && close(FarmEconomy.fee(50), 0.50)
+                && close(FarmEconomy.fee(100), 0.55) && close(FarmEconomy.fee(250), 0.55)
+                && close(FarmEconomy.tenantShare(y, 100) + FarmEconomy.ownerShare(y, 100), y)
+                && close(FarmEconomy.tenantShare(y, 100), 0.3375)
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)

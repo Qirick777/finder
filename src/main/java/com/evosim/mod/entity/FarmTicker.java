@@ -423,9 +423,10 @@ public final class FarmTicker {
                 m.setTenant(0L, 0);
                 com.evosim.mod.log.SimEvents.event(m, "소작해제", "독립 개간 — 소작 관계 정리");
             }
-            // ── 가문 편입(케이스 3, v1.3): 무산 착공자의 부모·형제 중 영주가 있으면 소유권은
-            // 영주에게 귀속되고 착공자는 그 구획의 마름이 된다(착공비는 밤 정산 때 영주가 상환).
-            // 야망가 포함 예외 없음 — 착공 시도가 곧 영지 확장 노동이 되는 순환(발사대 봉쇄).
+            // ── 가문 편입(케이스 3, v1.3·S3): 무산 착공자의 부모·형제 중 <b>지주+</b>(마름 1 보유)가
+            // 있으면 소유권은 그 머리에게 귀속되고 착공자는 그 구획의 마름이 된다(착공비는 밤 정산 때
+            // 상환). 야망가 포함 예외 없음 — 착공 시도가 곧 영지 확장 노동이 되는 순환(발사대 봉쇄).
+            // 편입된 첫 밭이 머리를 2호 보유로 만들어 영주로 부트스트랩(자력 2호 대기 불요).
             MimicEntity familyLord = owned == 0 ? findFamilyLord(store, adults, m) : null;
             long newOwnerId = familyLord != null
                     ? familyLord.getIndividual().id() : m.getIndividual().id();
@@ -490,8 +491,10 @@ public final class FarmTicker {
                 continue;
             }
             long hid = h.getIndividual().id();
-            if (store.stewardCount(hid) < 1 || store.ownedCount(hid) < 2) {
-                continue; // 영주 클래스만(마름1+·구획2+)
+            if (store.stewardCount(hid) < 1) {
+                continue; // 지주+ (마름 1 보유 = 편입 자격). 회차 S3: 영주(2호 필요)에서 지주로
+                // 낮춤 — 자식 성년(출생+2일)·독립(~d5~6)이 영주 등장(자력 2호, ~d7~8)보다 빨라
+                // 조기 자식이 빠져나가던 경합 해소. 편입된 첫 밭이 머리를 2호 보유 → 영주로 부트스트랩.
             }
             boolean parent = hid == pa || hid == pb;
             long hpa = h.getIndividual().parentAId();

@@ -957,15 +957,13 @@ public final class EvoSimCommand {
         long[] lordId = new long[1];
         long[] newPlot = new long[1];
         steps.add(new VerifySuite.Step("dynasty_incorporate",
-                "lord's child founds -> owner=lord, child=steward, debt=cost", 300, false, () -> {
-            a[0] = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE, Trait.HERBALIST); // 영주 부모
+                "지주(1plot+steward) parent's child founds -> owner=head, child=steward, head->영주 (S3)", 300, false, () -> {
+            a[0] = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE, Trait.HERBALIST); // 지주 부모(1밭+마름)
             a[0].debugSettleWithTent(lordHome, Direction.NORTH);
             a[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 4), Sex.MALE, 5); // 마름
             lordId[0] = a[0].getIndividual().id();
-            lordPlots[0] = buildDemoPlot(level, p1, lordId[0], 35);
-            lordPlots[1] = buildDemoPlot(level,
-                    groundAt(level, ctx.getSource().getPosition(), 20, 12), lordId[0], 20);
-            FarmStore.get(level).appointSteward(level, lordPlots[0], a[1], "마름임명"); // 영주(구획2·마름1)
+            lordPlots[0] = buildDemoPlot(level, p1, lordId[0], 35); // 단일 밭 — 지주(구획1·마름1), 영주 아님
+            FarmStore.get(level).appointSteward(level, lordPlots[0], a[1], "마름임명");
             a[2] = spawnChildOf(level, Vec3.atBottomCenterOf(childHome), a[0], Sex.MALE); // 자식(무산)
             a[2].debugSettleWithTent(childHome, Direction.NORTH);
             childId[0] = a[2].getIndividual().id();
@@ -980,13 +978,15 @@ public final class EvoSimCommand {
                 }
             }
             newPlot[0] = np;
-        }, () -> String.format("newPlot %d owner %s(expect lord %d) steward %s debt %s",
+        }, () -> String.format("newPlot %d owner %s(expect head %d) headClass %s debt %s",
                 newPlot[0], newPlot[0] == 0 ? "-" : String.valueOf(FarmStore.get(level).get(newPlot[0]).ownerId),
                 lordId[0], newPlot[0] == 0 ? "-" : String.valueOf(FarmStore.get(level).get(newPlot[0]).stewardId),
-                newPlot[0] == 0 ? "-" : String.format("%.0f", FarmStore.get(level).get(newPlot[0]).stewardDebt)),
+                newPlot[0] == 0 ? "-" : FarmStore.get(level).classOf(level, lordId[0])),
+                // S3: 지주 부모가 자식 밭 편입 → 자식 마름·채무 발생 + 부모가 2호 보유로 영주 부트스트랩.
                 () -> newPlot[0] != 0 && FarmStore.get(level).get(newPlot[0]).ownerId == lordId[0]
                         && FarmStore.get(level).get(newPlot[0]).stewardId == childId[0]
-                        && FarmStore.get(level).get(newPlot[0]).stewardDebt > 0,
+                        && FarmStore.get(level).get(newPlot[0]).stewardDebt > 0
+                        && FarmStore.get(level).classOf(level, lordId[0]).equals("영주"),
                 () -> {
                     discard(a);
                     for (FarmStore.Plot p : new ArrayList<>(FarmStore.get(level).all().values())) {

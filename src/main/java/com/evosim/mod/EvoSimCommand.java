@@ -868,17 +868,21 @@ public final class EvoSimCommand {
                     FarmTicker.clearAssignments();
                 }));
 
-        // ② 폴백 — 신임 마름 후보 없음 → 신규 밭은 지주 직영(stewardId 0). 교착 없음.
-        MimicEntity[] b = new MimicEntity[2];
+        // ② 폴백 — 신임 마름 후보 없음(잔여 상시가 야망가뿐) → 신규 밭은 지주 직영(steward 0).
+        //    잔여 야망가 상시는 성숙 자격(perm≥1)은 채우되 마름 후보에선 제외 → 폴백 경로 발동.
+        MimicEntity[] b = new MimicEntity[3];
         FarmStore.Plot[] fb = new FarmStore.Plot[1];
         long[] newPlot = new long[1];
         steps.add(new VerifySuite.Step("lord_fallback_self",
-                "no estate candidate -> 2nd farm self-managed (steward 0), no deadlock", 300, false, () -> {
+                "no non-ambitious candidate -> 2nd farm self-managed (steward 0), no deadlock", 300, false, () -> {
             b[0] = spawnAdult(level, Vec3.atBottomCenterOf(home), Sex.MALE, Trait.HERBALIST);
             b[0].debugSettleWithTent(home, Direction.NORTH);
-            b[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 4), Sex.MALE, 5); // 마름1(유일 상시)
+            b[1] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 4), Sex.MALE, 5); // 마름1
+            b[2] = spawnGradedAdult(level, Vec3.atBottomCenterOf(p1).add(0, 0, 6), Sex.MALE, 4,
+                    Trait.AMBITIOUS); // 잔여 상시(야망가 — 성숙 자격 O, 마름 후보 X)
             fb[0] = buildDemoPlot(level, p1, b[0].getIndividual().id(), 35);
             FarmStore.get(level).appointSteward(level, fb[0], b[1], "마름임명");
+            b[2].setTenant(fb[0].id, 3);
             LarderStore.get(level).set(home, 200.0);
             level.setDayTime(13500L);
             FarmTicker.debugGrow(level);

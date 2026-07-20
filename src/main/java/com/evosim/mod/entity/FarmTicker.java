@@ -100,8 +100,14 @@ public final class FarmTicker {
                                 || m.getStage() == com.evosim.core.LifeStage.ELDER)));
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
-        // ① 확장
-        for (FarmStore.Plot plot : new java.util.ArrayList<>(store.all().values())) {
+        // ① 확장 — 최신(직영) 구획 우선 순회(회차 26): 구 구획이 저장고 여유를 먼저 흡수하면
+        // 최신 구획이 9타일에서 영구 동결 → 성숙(24) 불가 → 다음 밭 자격·예비가 12로 주저앉아
+        // 3호가 원천 봉쇄되는 교착 v2(런18 티모시 실측: 구획2 지대 +2/일 고정). 케어 배분의
+        // "주인 노동은 최신 구획부터"와 같은 원리를 자금 순회에도 적용.
+        java.util.List<FarmStore.Plot> expandOrder =
+                new java.util.ArrayList<>(store.all().values());
+        expandOrder.sort(java.util.Comparator.comparingLong((FarmStore.Plot p) -> -p.id));
+        for (FarmStore.Plot plot : expandOrder) {
             MimicEntity ownerEnt = null;
             MimicEntity tenantEnt = null;
             for (MimicEntity m : adults) {

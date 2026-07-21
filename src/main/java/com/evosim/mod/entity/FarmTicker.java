@@ -365,6 +365,12 @@ public final class FarmTicker {
             if (m.getHomePos() == null) {
                 continue;
             }
+            // 착공 = 독립가구 자격(설계 지시): 미혼 성년(spouseId==0)은 아직 부모 가구 동거인이라
+            // 착공 불가 — 부모집 공유 저장고로 자식이 부모보다 먼저 착공하던 경로(ⓕ 위반)를 봉쇄한다.
+            // 사별자는 spouseId를 유지(widowed)하므로 여기 걸리지 않는다(기성 가장 보호).
+            if (m.getSpouseId() == 0L) {
+                continue;
+            }
             if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
                 continue; // 만족·무욕 — 신규 개간 안 함
             }

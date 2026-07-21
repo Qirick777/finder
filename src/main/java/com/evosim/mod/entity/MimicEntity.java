@@ -1131,10 +1131,13 @@ public class MimicEntity extends PathfinderMob {
         int baseY = terrainBaseY(sl, site, facing);
         BlockPos home = new BlockPos(pos[0], baseY, pos[1]);
 
+        BlockPos preHomeSelf = homePos;        // 결혼 전 거처(부모 집) — 지참금 출처(성장 자녀는 부모 homePos 유지)
+        BlockPos preHomeOther = other.homePos;
         setHomePos(home);
         other.setHomePos(home);
         homeFacing = (byte) facing.get2DDataValue();
         other.homeFacing = homeFacing;
+        endowNewHome(sl, preHomeSelf, other, preHomeOther, home); // 양가 지참금 이전(공짜 신규 폐지·레버①)
         flattenSite(sl, home, facing); // 하단 평탄화 — 낮은 칸 흙 메움 + 흙 효과음(하단 전부 접지)
         // 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지). 실제 분담·리더는 buildTick 이 매 틱 결정.
         this.building = true;
@@ -1149,13 +1152,53 @@ public class MimicEntity extends PathfinderMob {
     private void occupyAbandoned(ServerLevel sl, MimicEntity other, int[] reuse) {
         BlockPos home = new BlockPos(reuse[0], reuse[1], reuse[2]);
         Direction facing = Direction.from2DDataValue(reuse[3]);
+        BlockPos preHomeSelf = homePos;        // 결혼 전 거처(부모 집) — 지참금 출처
+        BlockPos preHomeOther = other.homePos;
         setHomePos(home);
         other.setHomePos(home);
         homeFacing = (byte) reuse[3];
         other.homeFacing = homeFacing;
+        endowNewHome(sl, preHomeSelf, other, preHomeOther, home); // 양가 지참금 이전(재사용 폐가 잔량 위에 가산)
         relightHearth(sl, home, facing);
         SimEvents.event(this, "입주", "빈 거처 재사용 @" + home.getX() + "," + home.getZ()
                 + " (상대 #" + other.getId() + ")");
+    }
+
+    /** 지참금 1가(家) 최소자부담 X — 양가합산 지참금 = 2X = 14 = initialLarder(부부 need). 부모 저장고 실차감. */
+    private static final double DOWRY_PER_SIDE = 7.0;
+    /** 1세대(무부모 창설자) 지참금 면제 — 조건부. 초기 미적용(false): 창설자는 0에서 시작.
+     *  초기 세대 결혼·출산 붕괴(ⓘ) 관측 시에만 true 전환(설계 지시 — 자동 적용 금지). */
+    private static final boolean GEN1_DOWRY_EXEMPT = false;
+
+    /**
+     * 결혼 신설 가구 지참금 부여(레버①·양가합산) — 양가(각 배우자의 결혼 전 거처=부모 집)에서
+     * 최소자부담 X씩 <b>실차감·이전</b>한다. 공짜 신규(getOrInit 14 무상 지급)를 폐지하고 신혼 저장고를
+     * "실제로 이전받은 합"으로 확정: 부모의 잉여가 곧 자녀 밑천이 되어 부-출산 사다리가 창발한다
+     * (부유가는 매 자녀에 14 차감 → 다산의 자연 상한, 무밭가는 밑천이 얇아 자녀가 0에서 출발).
+     */
+    private void endowNewHome(ServerLevel sl, BlockPos homeSelf, MimicEntity other,
+                              BlockPos homeOther, BlockPos newHome) {
+        LarderStore ls = LarderStore.get(sl);
+        double dowry = pullDowry(ls, homeSelf, this) + pullDowry(ls, homeOther, other);
+        ls.set(newHome, ls.get(newHome) + dowry); // 재사용 폐가 잔량(계승) 위에 이전분 가산
+        SimEvents.event(this, "지참금", String.format(
+                "양가 이전 %.0f → 신혼 저장고 %.0f (자가 %s·상대가 %s)", dowry, ls.get(newHome),
+                homeSelf != null ? "有" : "無", homeOther != null ? "有" : "無"));
+    }
+
+    /** 한 배우자 몫 지참금 인출 — 부모 거처 저장고에서 min(X, 잔량) 실차감. 부모 집 없으면(창설자)
+     *  면제 플래그에 따라 X(1세대 면제 ON) 또는 0. 부모가 X 미만이면 부분 지참(가난한 밑천의 창발). */
+    private double pullDowry(LarderStore ls, BlockPos parentHome, MimicEntity who) {
+        if (parentHome == null) {
+            boolean gen1 = who != null && who.getIndividual() != null
+                    && who.getIndividual().parentAId() == 0L && who.getIndividual().parentBId() == 0L;
+            return (GEN1_DOWRY_EXEMPT && gen1) ? DOWRY_PER_SIDE : 0.0;
+        }
+        double take = Math.min(DOWRY_PER_SIDE, ls.get(parentHome));
+        if (take > 0.0) {
+            ls.set(parentHome, ls.get(parentHome) - take);
+        }
+        return take;
     }
 
     /** 신축 위치 기준점 {x,y,z} — 조합별 앵커(짝 성사 자리 / 애향 보유자 고향 / 두 거처 중간). */

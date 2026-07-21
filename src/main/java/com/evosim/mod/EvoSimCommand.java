@@ -206,6 +206,11 @@ public final class EvoSimCommand {
                 .then(Commands.literal("navprobe").executes(EvoSimCommand::navProbe))
                 .then(Commands.literal("forageprobe").executes(EvoSimCommand::forageProbe))
                 .then(Commands.literal("graze").executes(EvoSimCommand::graze))
+                .then(Commands.literal("fixedpairs")
+                        .executes(ctx -> fixedPairs(ctx, 15))
+                        .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 30))
+                                .executes(ctx -> fixedPairs(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "pairs")))))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -6138,6 +6143,28 @@ public final class EvoSimCommand {
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
         return e;
+    }
+
+    /**
+     * 고정특성 표준 부부 소환(계측 통제용) — wildpairs(완전 랜덤 특성)를 대체해 <b>맵 시드만</b>
+     * 변동시키고 개체 능력을 고정한다. 모든 개체가 spawnMatingReady 기본 특성(선호 3 + STRONG +
+     * BRIGHT + NIMBLE)으로 동일 → 능력 변동 제거로 U1·U2 편차를 맵 요인만 남긴다. 정상 개체
+     * (통계·번식·상속 정상 편입 — 무대 아님)라 출산 baseline이 그대로 관측된다. 측정 도구 전용:
+     * 게임플레이 로직 무변경.
+     */
+    private static int fixedPairs(CommandContext<CommandSourceStack> ctx, int pairs) {
+        CommandSourceStack src = ctx.getSource();
+        ServerLevel level = src.getLevel();
+        Vec3 base = src.getPosition();
+        for (int i = 0; i < pairs; i++) {
+            spawnMatingReady(level, scatter(level, base), Sex.MALE);
+            spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
+        }
+        src.sendSuccess(() -> Component.literal(
+                        "고정특성 표준 부부 소환: 남 " + pairs + " · 여 " + pairs
+                                + " (동일 특성 — 맵만 변동 통제 계측용)")
+                .withStyle(ChatFormatting.GREEN), false);
+        return pairs * 2;
     }
 
     private static void spawnWild(ServerLevel level, Vec3 pos, Sex sex) {

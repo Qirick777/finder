@@ -205,6 +205,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("dynastyx").executes(EvoSimCommand::stageDynastyX))
                 .then(Commands.literal("navprobe").executes(EvoSimCommand::navProbe))
                 .then(Commands.literal("forageprobe").executes(EvoSimCommand::forageProbe))
+                .then(Commands.literal("graze").executes(EvoSimCommand::graze))
                 .then(Commands.literal("farmclear")
                         .then(Commands.argument("plot", IntegerArgumentType.integer(1))
                                 .executes(ctx -> farmClear(ctx,
@@ -1585,6 +1586,102 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  아직 밭이 없습니다.");
         }
         return shown;
+    }
+
+    /**
+     * 인지범위 식량 계측(graze) — 출산율 사다리 U1c 측정 도구. 각 성년/노년 미믹의 활동반경
+     * (Roaming.BASE_RADIUS=32) 안에서 도달 가능한 야생 풀(GRASS/TALL_GRASS/FERN/LARGE_FERN)과
+     * 익은 정원 베리(SWEET_BERRY_BUSH age≥3)를 하이트맵 컬럼 스캔으로 세어, 개체별 채집·정원
+     * 식량을 계층(지주/소작/무밭)별로 집계한다. 풀 소진 전후로 여러 번 호출해 U1(채집)·U2(정원)·
+     * U1b(풀 고갈)·U1c(잔여 식량)을 실측한다. 읽기 전용(월드 무변경). 수확 상수는 코드 인용:
+     * GATHER_FOOD=0.08(MimicForageGoal:46) · BERRY_FOOD=0.20(MimicForageGoal:49).
+     */
+    private static int graze(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int R = (int) Math.ceil(com.evosim.core.Roaming.BASE_RADIUS); // 32
+        FarmStore store = FarmStore.get(level);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        java.util.List<MimicEntity> all = new java.util.ArrayList<>(level.getEntities(
+                ModEntities.MIMIC.get(), e -> e.isAlive() && e.getIndividual() != null
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER)));
+        // 계층 분류: 지주(밭 소유)/소작(상시)/무밭
+        java.util.List<double[]> landless = new java.util.ArrayList<>();
+        java.util.List<double[]> tenant = new java.util.ArrayList<>();
+        java.util.List<double[]> owner = new java.util.ArrayList<>();
+        double sumGrassBlocks = 0;
+        for (MimicEntity m : all) {
+            long id = m.getIndividual().id();
+            BlockPos c = m.blockPosition();
+            int grass = 0;
+            int berry = 0;
+            for (int dx = -R; dx <= R; dx++) {
+                for (int dz = -R; dz <= R; dz++) {
+                    if (dx * dx + dz * dz > R * R) {
+                        continue; // 원형 반경
+                    }
+                    BlockPos p = level.getHeightmapPos(
+                            net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                            c.offset(dx, 0, dz));
+                    if (!level.isLoaded(p)) {
+                        continue;
+                    }
+                    var s = level.getBlockState(p);
+                    if (s.is(Blocks.GRASS) || s.is(Blocks.TALL_GRASS)
+                            || s.is(Blocks.FERN) || s.is(Blocks.LARGE_FERN)) {
+                        grass++;
+                    } else if (s.is(Blocks.SWEET_BERRY_BUSH)
+                            && s.getValue(SweetBerryBushBlock.AGE) >= 3) {
+                        berry++;
+                    }
+                }
+            }
+            double grassFood = grass * 0.08 * com.evosim.core.FoodEconomy.forageYieldMult(m.getIndividual());
+            double berryFood = berry * 0.20 * m.gardenMult();
+            double[] row = {grassFood, berryFood, grassFood + berryFood, grass, berry};
+            sumGrassBlocks += grass;
+            if (store.ownedCount(id) > 0) {
+                owner.add(row);
+            } else if (m.getTenantFarm() != 0L) {
+                tenant.add(row);
+            } else {
+                landless.add(row);
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "═ graze d%d — 인지반경 %d 내 도달식량 (미믹 %d · 총 풀블록 %.0f) ═",
+                day, R, all.size(), sumGrassBlocks));
+        grazeClass(ctx, "무밭평민", landless);
+        grazeClass(ctx, "소작농  ", tenant);
+        grazeClass(ctx, "지주    ", owner);
+        return all.size();
+    }
+
+    /** graze 계층 집계 — 채집식량/정원식량/합의 중앙값·평균. row=[grassFood,berryFood,total,grassN,berryN]. */
+    private static void grazeClass(CommandContext<CommandSourceStack> ctx, String label,
+                                   java.util.List<double[]> rows) {
+        if (rows.isEmpty()) {
+            tell(ctx.getSource(), "  " + label + " : 0명");
+            return;
+        }
+        int n = rows.size();
+        double[] tot = new double[n];
+        double sg = 0;
+        double sb = 0;
+        double sgn = 0;
+        double sbn = 0;
+        for (int i = 0; i < n; i++) {
+            tot[i] = rows.get(i)[2];
+            sg += rows.get(i)[0];
+            sb += rows.get(i)[1];
+            sgn += rows.get(i)[3];
+            sbn += rows.get(i)[4];
+        }
+        java.util.Arrays.sort(tot);
+        double medTot = tot[n / 2];
+        tell(ctx.getSource(), String.format(
+                "  %s : %d명 · 도달식량 중앙 %.2f · 채집평균 %.2f(풀 %.0f칸) · 정원평균 %.2f(익음 %.0f)",
+                label, n, medTot, sg / n, sgn / n, sb / n, sbn / n));
     }
 
     /** 마름 관리 등급(라이브 개체 조회) — 미로드/사망이면 -1. estates 표기용. */

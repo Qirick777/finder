@@ -1166,33 +1166,57 @@ public class MimicEntity extends PathfinderMob {
 
     /** 지참금 1가(家) 최소자부담 X — 양가합산 지참금 = 2X = 14 = initialLarder(부부 need). 부모 저장고 실차감. */
     private static final double DOWRY_PER_SIDE = 7.0;
-    /** 1세대(무부모 창설자) 지참금 면제 — 조건부. 초기 미적용(false): 창설자는 0에서 시작.
-     *  초기 세대 결혼·출산 붕괴(ⓘ) 관측 시에만 true 전환(설계 지시 — 자동 적용 금지). */
-    private static final boolean GEN1_DOWRY_EXEMPT = false;
+    /** 씨앗 세대 부트스트랩 정원 그루 수(만점) — 초기조건: 생산자산(수율 0.20×M(g), 자연 상한). */
+    private static final int SEED_GARDEN_BUSHES = 8;
 
     /**
-     * 결혼 신설 가구 지참금 부여(레버①·양가합산) — 양가(각 배우자의 결혼 전 거처=부모 집)에서
-     * 최소자부담 X씩 <b>실차감·이전</b>한다. 공짜 신규(getOrInit 14 무상 지급)를 폐지하고 신혼 저장고를
-     * "실제로 이전받은 합"으로 확정: 부모의 잉여가 곧 자녀 밑천이 되어 부-출산 사다리가 창발한다
-     * (부유가는 매 자녀에 14 차감 → 다산의 자연 상한, 무밭가는 밑천이 얇아 자녀가 0에서 출발).
+     * 결혼 신설 가구 밑천 부여 — 두 경로로 갈린다.
+     *
+     * <p><b>씨앗 세대(양쪽 다 무부모 창설자)</b>: 상속할 부모가 구조적으로 없으므로 <b>초기조건
+     * 부트스트랩(C2 수정형)</b>을 깐다 — 정원 8그루(생산자산: 즉시 산출·자연 상한, 부의 주조 아님)
+     * + 표준 시작 저장고 S(경계조건, = initialLarder). 모든 시뮬은 초기 자원이 있어야 시작하므로
+     * 규칙5(창발) 저촉 아님. 사다리 분화는 S가 아니라 <b>정원 순잉여(g)</b>가 만든다(g0은 S에서
+     * 순-0.13/일로 하락→18 미달→소작 전락 / 고능력은 S에서 18 돌파→D1-2 출산).
+     *
+     * <p><b>출산으로 생긴 가구(gen-2+)</b>: 양가(각 배우자의 결혼 전 부모 거처)에서 최소자부담 X씩
+     * <b>실차감·이전</b>(레버①·양가합산). 공짜 신규(getOrInit 14 무상)를 폐지 — 부모 잉여가 곧
+     * 자녀 밑천이 되어 부-출산 사다리가 창발하고, 무상 복리(지수폭발) 엔진이 끊긴다.
      */
     private void endowNewHome(ServerLevel sl, BlockPos homeSelf, MimicEntity other,
                               BlockPos homeOther, BlockPos newHome) {
         LarderStore ls = LarderStore.get(sl);
-        double dowry = pullDowry(ls, homeSelf, this) + pullDowry(ls, homeOther, other);
+        boolean seed = homeSelf == null && homeOther == null
+                && isFounder(this) && isFounder(other);
+        if (seed) { // 씨앗 세대 초기조건 부트스트랩(C2 수정형)
+            double need = FoodEconomy.nominalDailyNeed(java.util.List.of(
+                    new FoodEconomy.Eater(individual, getStage(), holding, true),
+                    new FoodEconomy.Eater(other.getIndividual(), other.getStage(),
+                            other.holding, true)));
+            double s = FoodEconomy.initialLarder(need); // 표준 시작 저장고(부부 = 14)
+            ls.set(newHome, s);
+            int planted = plantBerries(sl, SEED_GARDEN_BUSHES); // this.homePos == newHome(직전 setHomePos)
+            SimEvents.event(this, "씨앗정착", String.format(
+                    "초기조건 부트스트랩 — 정원 %d그루 + 저장고 %.0f(경계조건)", planted, s));
+            return;
+        }
+        double dowry = pullDowry(ls, homeSelf) + pullDowry(ls, homeOther);
         ls.set(newHome, ls.get(newHome) + dowry); // 재사용 폐가 잔량(계승) 위에 이전분 가산
         SimEvents.event(this, "지참금", String.format(
                 "양가 이전 %.0f → 신혼 저장고 %.0f (자가 %s·상대가 %s)", dowry, ls.get(newHome),
                 homeSelf != null ? "有" : "無", homeOther != null ? "有" : "無"));
     }
 
-    /** 한 배우자 몫 지참금 인출 — 부모 거처 저장고에서 min(X, 잔량) 실차감. 부모 집 없으면(창설자)
-     *  면제 플래그에 따라 X(1세대 면제 ON) 또는 0. 부모가 X 미만이면 부분 지참(가난한 밑천의 창발). */
-    private double pullDowry(LarderStore ls, BlockPos parentHome, MimicEntity who) {
+    /** 부모가 없는(부모 미상) 창설자 = 씨앗 세대 판정. */
+    private static boolean isFounder(MimicEntity m) {
+        return m != null && m.getIndividual() != null
+                && m.getIndividual().parentAId() == 0L && m.getIndividual().parentBId() == 0L;
+    }
+
+    /** 한 배우자 몫 지참금 인출 — 부모 거처 저장고에서 min(X, 잔량) 실차감. 부모 집 없으면 0.
+     *  부모가 X 미만이면 부분 지참(가난한 밑천의 창발 — 무밭가 자녀는 0 가까이 출발). */
+    private double pullDowry(LarderStore ls, BlockPos parentHome) {
         if (parentHome == null) {
-            boolean gen1 = who != null && who.getIndividual() != null
-                    && who.getIndividual().parentAId() == 0L && who.getIndividual().parentBId() == 0L;
-            return (GEN1_DOWRY_EXEMPT && gen1) ? DOWRY_PER_SIDE : 0.0;
+            return 0.0;
         }
         double take = Math.min(DOWRY_PER_SIDE, ls.get(parentHome));
         if (take > 0.0) {

@@ -229,12 +229,24 @@ public final class FarmTicker {
             if (room <= 0) {
                 continue;
             }
-            // 자금(fee 분할 E11 ②③): 기존 구획 타일 확장은 <b>밭 계정만</b>으로 — 지주 저장고는
-            // 확장 재원에서 격리(순수 축장 보호, 누수 B 차단). 재투자 캡(MATURE_REINVEST_SHARE) 폐지:
-            // "확장 가능하면 계정으로 확장, 나머지는 밤 정산으로 지주에게"(사용자 확정). 격차는 초과분
-            // 잠금 채널이 담당하므로 계정 캡으로 지주 몫을 만들 필요가 없어졌고, 문턱(계정 저축 하한)도
-            // 소멸한다. 폭주는 노동 상한(구획당 최대 60/일)이 막으며, 저장고 연료가 사라져 오히려 둔화.
+            // 자금(fee 분할 E11 ②③ + 부트스트랩 예외): 소작 밭(nTen>0, 계정 소득 있음)은 <b>계정만</b>
+            // 으로 — 성숙 지주의 저장고 축장을 확장이 못 갉게 격리(누수 B 차단, 격차 생전 지속).
+            // 자영 밭(nTen==0)은 계정이 0이라(주인 수확은 본인 몫) 저장고가 유일 연료 — 9→24 성숙
+            // 부트스트랩을 저장고로 굴린다(격리하면 신생 밭이 영구 동결). 자영 밭은 초과분 축장이
+            // 없으므로 저장고를 써도 격차에 무관. 재투자 캡(MATURE_REINVEST_SHARE)은 폐지 유지:
+            // "확장 가능하면 확장, 나머지 정산." 폭주는 노동 상한이 막는다.
             int afford = com.evosim.core.FarmEconomy.reinvestTiles(plot.account);
+            double ownerFunds = 0.0;
+            if (nTen == 0) { // 부트스트랩(자영) — 저장고 예비 위 잉여를 폴백 재원으로
+                ownerFunds = ownerEnt.getHomePos() != null
+                        ? larders.get(ownerEnt.getHomePos()) : 0.0;
+                boolean eligible = nextFarmEligible(store, adults, plot.ownerId);
+                double reserve = com.evosim.core.FarmEconomy.expandReserve(
+                        eligible, store.ownedCount(plot.ownerId),
+                        familyDailyNeed(level, ownerEnt, adults));
+                afford += (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
+                        / com.evosim.core.FarmEconomy.EXPAND_COST);
+            }
             int k = Math.min(room, afford);
             if (k <= 0) {
                 continue;
@@ -265,10 +277,16 @@ public final class FarmTicker {
                 store.setDirty();
             }
             if (placed > 0) {
-                // 지불: 밭 계정만 소진(저장고 격리 E11 ②). afford=내림(계정)이라 bill ≤ 계정 보장 —
-                // 저장고 인출 없음. 회계 합 = placed × EXPAND_COST.
+                // 지불: 밭 계정 먼저 소진, 잔여는 자영 밭 한정 주인 저장고(부트스트랩). 소작 밭은
+                // afford=내림(계정)이라 fromLarder=0(저장고 무손실 — 축장 보호). 회계 합 = placed×cost.
                 double bill = placed * com.evosim.core.FarmEconomy.EXPAND_COST;
-                plot.account -= bill;
+                double fromAccount = Math.min(plot.account, bill);
+                plot.account -= fromAccount;
+                double fromLarder = bill - fromAccount;
+                if (fromLarder > 0 && nTen == 0 && ownerEnt.getHomePos() != null) {
+                    larders.set(ownerEnt.getHomePos(), Math.max(0.0,
+                            larders.get(ownerEnt.getHomePos()) - fromLarder));
+                }
                 store.setDirty();
                 grownToday.merge(grower.getId(), placed, Integer::sum);
                 store.recordExpand(plot, grower.getIndividual().id(), placed,

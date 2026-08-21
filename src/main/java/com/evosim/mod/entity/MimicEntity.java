@@ -2322,17 +2322,25 @@ public class MimicEntity extends PathfinderMob {
             FarmStore fs = FarmStore.get(sl);
             m.cachedOwnsFarm = m.getIndividual() != null && (fs.owns(m.getIndividual().id())
                     || (m.spouseId != 0L && fs.owns(m.spouseId)));
-            // 정원 배율 = <b>수확자 개인</b>의 관리등급 M(g) (A안 — 희소성 복원). 종전 "가구 최고
-            // 등급"은 돌봄자(무능력 아내)가 정원을 전담해도 관리자 배율이 실현되게 한 보정이었으나,
-            // 부작용이 설계 근간을 무너뜨렸다: 배율이 <b>부부 두 draw의 max</b>라 분포가 위로 쏠려
-            // 평범한 가구까지 M≈1.65로 부풀었고(정원 4.75 = 실측), 무밭 가구가 순잉여 +2.4/일의
-            // 흑자가 되었다(seed1 역산). 그 결과 ① 아무도 땅이 필요없어 봉건 루프가 발생하지 않고
-            // ② 잉여가 전량 출산으로 가 인구가 지수 증가했다. 개인 기준으로 되돌리면 보통 가구는
-            // M≈1 → 정원 ≈2.9 로, BERRY_FOOD 주석이 명시한 원 설계("정원은 부부 소모의 83% —
-            // 버틸 수 있지만 굶어가는 하한, 외부 소득=소작뿐")에 복귀한다. 능력자 본인이 딸 때만
-            // 배율이 실현되는 것은 "능력은 그 사람의 것"이라는 원칙과도 일치한다.
-            m.cachedGardenMult = m.getIndividual() != null
-                    ? Multipliers.gardenAbility(m.getIndividual()) : 1.0;
+            // 정원 배율 = <b>가구 최고</b> 관리등급 M(g) — "누가 따느냐가 아니라 얼마나 잘
+            // 관리하느냐"(gardenAbility 설계 주석). 정원을 실제로 따는 건 대개 육아 중인 무능력
+            // 배우자라, 수확자 개인 기준이면 g5 가장이 있어도 M=1.0이 적용돼 엘리트 정원이 실효
+            // 43%로 죽는다(원 보정 사유). 한때 이 규칙을 정원 과잉의 원인으로 보고 개인 기준으로
+            // 되돌렸으나(A1), 실측이 오진을 밝혔다: 과잉의 진범은 BERRY_FOOD 0.20이었고(A3로
+            // 0.08 교정) 이 규칙은 무죄였다. 개인 기준에서는 엘리트조차 최고 저장고 24에 그쳐
+            // 착공 임계 30에 닿지 못했다(런 실측).
+            // 확률 검산: 부부 둘 다 무능력일 확률이 ~72%라 <b>평민 가구 대다수는 M=1.0 그대로</b>
+            // (정원 1.2 < 소모 2.40 → 적자 유지). 규칙이 실제로 작동하는 곳은 능력자가 있는
+            // 가구뿐 — 배율이 실현돼야 할 대상과 정확히 일치한다.
+            int bestG = 0;
+            for (MimicEntity a : fam) {
+                if (a.getIndividual() != null && (a.getStage() == LifeStage.ADULT
+                        || a.getStage() == LifeStage.ELDER)) {
+                    bestG = Math.max(bestG, Multipliers.manageAbilityGrade(a.getIndividual()));
+                }
+            }
+            double rG = bestG / 5.0;
+            m.cachedGardenMult = 1.0 + 3.3 * rG * rG * rG; // Multipliers.gardenAbility 와 동일 식
             // 모성애 축은 각 자식의 <b>친어미</b>(부모 링크 PA/PB)로 판정 — 명단 첫 성년 여성 추측은
             // 성년 딸·(일부다처의) 다른 부인 특성이 남의 자식에게 적용되는 오류였다.
             m.cachedMaternal = (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)

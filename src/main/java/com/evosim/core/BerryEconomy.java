@@ -10,7 +10,11 @@ package com.evosim.core;
 public final class BerryEconomy {
 
     /** 베리 한 그루를 심는 데 쓰는 잉여(넉넉할수록 여러 그루 → 이 값으로 조절). */
-    public static final double BUSH_COST = 1.0;
+    public static final double BUSH_COST = 0.5; // 1.0→0.5(A안 후속 — 2세대 정원 착수):
+    // 지참금 14로 출발하는 2세대 가구가 8그루(=8)를 감당하면 6만 남아, 풀 러쉬(약 4일) 안에
+    // 정원 완성 + 첫 출산(게이트 18)에 필요한 순 12를 못 모은다(평민 순잉여 1.8/일 → 6.7일 필요).
+    // 4로 낮추면 필요분이 8로 줄어 러쉬 안(4.4일)에 들어온다. 씨앗 세대는 부트스트랩으로 그루를
+    // 무상 지급받으므로 이 값의 영향을 받지 않는다 — 2세대 이후의 착수 장벽만 낮춘다.
 
     private BerryEconomy() {
     }

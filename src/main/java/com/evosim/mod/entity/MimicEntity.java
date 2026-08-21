@@ -2322,19 +2322,17 @@ public class MimicEntity extends PathfinderMob {
             FarmStore fs = FarmStore.get(sl);
             m.cachedOwnsFarm = m.getIndividual() != null && (fs.owns(m.getIndividual().id())
                     || (m.spouseId != 0L && fs.owns(m.spouseId)));
-            // 정원 배율 = 가구 최고 관리등급(M(g)) — "누가 따느냐가 아니라 얼마나 잘 관리하느냐"
-            // (gardenAbility 설계 주석)의 구현 정합화. 종전엔 수확자 개인 기준이라 돌봄자(대개
-            // 무능력 아내)가 정원을 전담하는 출산 후 국면에서 관리자의 배율이 실현되지 않았다
-            // (관측 실측: 엘리트 정원 실효 43%). 가구 성인의 최고 등급으로 가구 전원에 캐시.
-            int bestG = 0;
-            for (MimicEntity a : fam) {
-                if (a.getIndividual() != null && (a.getStage() == LifeStage.ADULT
-                        || a.getStage() == LifeStage.ELDER)) {
-                    bestG = Math.max(bestG, Multipliers.manageAbilityGrade(a.getIndividual()));
-                }
-            }
-            double rG = bestG / 5.0;
-            m.cachedGardenMult = 1.0 + 1.6 * rG * rG * rG;
+            // 정원 배율 = <b>수확자 개인</b>의 관리등급 M(g) (A안 — 희소성 복원). 종전 "가구 최고
+            // 등급"은 돌봄자(무능력 아내)가 정원을 전담해도 관리자 배율이 실현되게 한 보정이었으나,
+            // 부작용이 설계 근간을 무너뜨렸다: 배율이 <b>부부 두 draw의 max</b>라 분포가 위로 쏠려
+            // 평범한 가구까지 M≈1.65로 부풀었고(정원 4.75 = 실측), 무밭 가구가 순잉여 +2.4/일의
+            // 흑자가 되었다(seed1 역산). 그 결과 ① 아무도 땅이 필요없어 봉건 루프가 발생하지 않고
+            // ② 잉여가 전량 출산으로 가 인구가 지수 증가했다. 개인 기준으로 되돌리면 보통 가구는
+            // M≈1 → 정원 ≈2.9 로, BERRY_FOOD 주석이 명시한 원 설계("정원은 부부 소모의 83% —
+            // 버틸 수 있지만 굶어가는 하한, 외부 소득=소작뿐")에 복귀한다. 능력자 본인이 딸 때만
+            // 배율이 실현되는 것은 "능력은 그 사람의 것"이라는 원칙과도 일치한다.
+            m.cachedGardenMult = m.getIndividual() != null
+                    ? Multipliers.gardenAbility(m.getIndividual()) : 1.0;
             // 모성애 축은 각 자식의 <b>친어미</b>(부모 링크 PA/PB)로 판정 — 명단 첫 성년 여성 추측은
             // 성년 딸·(일부다처의) 다른 부인 특성이 남의 자식에게 적용되는 오류였다.
             m.cachedMaternal = (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)

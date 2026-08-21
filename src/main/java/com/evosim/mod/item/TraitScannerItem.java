@@ -435,6 +435,7 @@ public class TraitScannerItem extends Item {
             case DISPOSITION -> "성향";
             case PHYSICAL -> "신체";
             case PREFERENCE -> "선호";
+            case AUXILIARY -> "보조";
         };
     }
 }

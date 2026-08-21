@@ -12,6 +12,14 @@ public final class Satisfaction {
     public static final double SIGMA_BASE = 2.0;
     /** 안분지족·무욕의 계수 — 일찍 만족. */
     public static final double SIGMA_CONTENT = 1.0;
+    /** 자수성가(보조)의 계수 — 부유해져도 늦게 만족. 2.0→3.5: 무동기 부부의 만족선을
+     *  12~17에서 21~30으로 올려 착공 임계(30) 위로 보낸다. 런 실측에서 저장고 39를 쌓고도
+     *  만족 상태라 착공이 봉쇄된 가구가 관측됐고(야생 착공률 0/3), 그 병목을 푸는 값이다.
+     *  <b>가난한 가구는 만족선 근처에 못 가므로 이 값의 영향을 전혀 받지 않는다</b> — 보조
+     *  특성의 요건(단독 효과 ≈ 0, 조합 시에만 발동)을 만족한다. */
+    public static final double SIGMA_SELF_MADE = 3.5;
+    /** 안분(보조)의 계수 — 기본보다 이르게 만족(축적이 착공 임계에 못 닿는다). */
+    public static final double SIGMA_MODEST = 1.4;
     /** 재개 히스테리시스 — 만족 중엔 기준 × 이 값 미만으로 떨어져야 재개. */
     public static final double RESUME_FACTOR = 0.8;
     /** 야망가의 만족 기준 — 소유 밭 타일 합이 이 값 이상이어야(대지주 규모 T5). */
@@ -37,8 +45,19 @@ public final class Satisfaction {
         if (t.contains(Trait.AMBITIOUS) && farmTiles < AMBITION_TILE_GOAL) {
             return false; // 야망가: 부가 아니라 자산(밭)이 기준
         }
-        double sigma = t.contains(Trait.CONTENT) || t.contains(Trait.ASCETIC)
-                ? SIGMA_CONTENT : SIGMA_BASE;
+        // σ 우선순위: 안분지족·무욕(기존 성향) > 보조 축(자수성가/안분) > 기본.
+        // 기존 성향을 앞세우는 것은 보조가 <b>주(主)를 뒤집지 않는다</b>는 원칙 — 보조는
+        // 아무 성향도 없을 때의 기본값만 좌우한다.
+        double sigma;
+        if (t.contains(Trait.CONTENT) || t.contains(Trait.ASCETIC)) {
+            sigma = SIGMA_CONTENT;
+        } else if (t.contains(Trait.SELF_MADE)) {
+            sigma = SIGMA_SELF_MADE;
+        } else if (t.contains(Trait.MODEST)) {
+            sigma = SIGMA_MODEST;
+        } else {
+            sigma = SIGMA_BASE;
+        }
         double bar = dailyNeed * FoodEconomy.comfortDays(ind) * sigma;
         return wealth > (wasSatisfied ? bar * RESUME_FACTOR : bar);
     }

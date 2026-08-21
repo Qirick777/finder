@@ -72,7 +72,13 @@ public enum Axis {
     TOUGHNESS_PREF(Category.PREFERENCE, false),       // 튼튼선호 (등급)
     AGILITY_PREF(Category.PREFERENCE, false),         // 재빠름선호 (등급)
     VISION_PREF(Category.PREFERENCE, false),          // 천리안선호 (등급)
-    RECOVERY_PREF(Category.PREFERENCE, false);        // 강건선호 (등급)
+    RECOVERY_PREF(Category.PREFERENCE, false),        // 강건선호 (등급)
+
+    // ── 보조 (AUXILIARY) — 전부 반발. 단독 효과 ≈ 0, 조건이 갖춰질 때만 발동 ──
+    /** 만족선: 자수성가 / 안분 — 만족 계수 σ 를 올리거나 내린다. 가난한 가구는 애초에
+     *  만족선 근처에 못 가므로 <b>단독 효과가 0</b>이고, 능력으로 자금을 모은 가구에서만
+     *  "만족의 덫"을 풀거나 조인다(착공 병목의 실제 지점 — 런 실측으로 특정). */
+    ASPIRATION(Category.AUXILIARY, true);
 
     private final Category category;
     private final boolean exclusive;

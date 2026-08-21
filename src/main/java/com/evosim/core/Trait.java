@@ -119,7 +119,14 @@ public enum Trait {
     PREF_TOUGHNESS(Axis.TOUGHNESS_PREF, "튼튼선호"),
     PREF_AGILITY(Axis.AGILITY_PREF, "재빠름선호"),
     PREF_VISION(Axis.VISION_PREF, "천리안선호"),
-    PREF_RECOVERY(Axis.RECOVERY_PREF, "강건선호");
+    PREF_RECOVERY(Axis.RECOVERY_PREF, "강건선호"),
+
+    // ── 보조 (AUXILIARY) ──
+    /** 자수성가 — 만족선 σ 상향(2.0 → 3.5). 부유해져도 쉽게 멈추지 않는다. 가난하면 만족선
+     *  근처도 못 가므로 <b>단독 효과 0</b>. 능력과 맞물릴 때만 "만족의 덫"을 풀어 착공을 연다. */
+    SELF_MADE(Axis.ASPIRATION, "자수성가"),
+    /** 안분 — 만족선 σ 하향(2.0 → 1.4). 일찍 멈춰 축적이 착공 임계에 닿지 않는다. */
+    MODEST(Axis.ASPIRATION, "안분");
 
     private final Axis axis;
     private final String koreanName;

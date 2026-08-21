@@ -97,9 +97,10 @@ public final class TraitEditorScreen extends Screen {
         px = (width - PANEL_W) / 2;
         py = (height - PANEL_H) / 2;
         int tabsY = py + 16;
-        int tabW = 52;
-        Category[] tabs = {Category.PHYSICAL, Category.DISPOSITION, Category.PREFERENCE};
-        String[] names = {"신체", "성향·능력", "선호"};
+        int tabW = 40; // 52→40: 탭 4개(보조 신설)가 같은 폭에 들어가도록
+        Category[] tabs = {Category.PHYSICAL, Category.DISPOSITION, Category.PREFERENCE,
+                Category.AUXILIARY};
+        String[] names = {"신체", "성향·능력", "선호", "보조"};
         for (int i = 0; i < tabs.length; i++) {
             final Category c = tabs[i];
             addRenderableWidget(Button.builder(Component.literal(names[i]), b -> {

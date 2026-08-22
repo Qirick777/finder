@@ -47,7 +47,7 @@ public final class FarmEconomy {
      *  자금≥30 ⟹ 이미 만족 ⟹ 개간 동기 없음"의 모순에 잠긴다(규칙 아닌 수치 잠금 — G 하드게이트
      *  대체). 탈출구 = 동기특성(야망·욕심·부지런·경쟁: 만족 무시) × 능력 소득. 예비는 소모되지
      *  않으므로(착공 후 저장고에 12 잔존) 엘리트 초기 밭 경영의 안전판을 겸한다. */
-    public static final double INVEST_RESERVE = 12.0;
+    public static final double INVEST_RESERVE = 6.0; // 12→6(실측 재캘리브레이션): 아래 참조.
 
     private FarmEconomy() {
     }
@@ -98,7 +98,14 @@ public final class FarmEconomy {
      * 무동기 가구는 어떤 규모든 만족이 먼저 와 봉인, 동기특성×능력 소득만 돌파(원안 그대로).
      */
     public static double foundReserve(double familyDailyNeed) {
-        return Math.max(INVEST_RESERVE, 2.0 * familyDailyNeed);
+        // 계수 2.0→1.0(실측 재캘리브레이션): familyDailyNeed 는 MOVE 명목치(부부 6.0)인데
+        // 실제 소모는 부부 1.64/일이다. 따라서 종전 "2일치 예비"(=12)는 실제로 <b>7일치</b>였고,
+        // 정원을 명목 6.0과 비교해 적자로 착각했던 것과 <b>동일한 착오</b>가 착공 예비에 박혀
+        // 있었다. 그 결과 착공 임계가 30으로 부풀어 g5만 통과하고 g4는 d14에 25에서 멈췄다
+        // (실측: 야생 최고 저장고 k1 24·k2 20·aux1 21 — 계산과 일치, 야생 착공률 0/4).
+        // 1.0×명목 = 실측 기준 약 3.7일치로, 여전히 보수적이면서 임계를 24로 되돌린다.
+        // 가족 규모 비례(자녀 늘면 예비 증가)는 그대로 유지 — 만족의 덫 보편화 취지 불변.
+        return Math.max(INVEST_RESERVE, 1.0 * familyDailyNeed);
     }
 
     /** 성숙 구획의 재투자 확장에 쓸 수 있는 계정 비율. 0.5→0.3(부익부 가시화 — 사용자 의도):

@@ -126,7 +126,12 @@ public enum Trait {
      *  근처도 못 가므로 <b>단독 효과 0</b>. 능력과 맞물릴 때만 "만족의 덫"을 풀어 착공을 연다. */
     SELF_MADE(Axis.ASPIRATION, "자수성가"),
     /** 안분 — 만족선 σ 하향(2.0 → 1.4). 일찍 멈춰 축적이 착공 임계에 닿지 않는다. */
-    MODEST(Axis.ASPIRATION, "안분");
+    MODEST(Axis.ASPIRATION, "안분"),
+    /** 눈썰미 — 관리 능력이 <b>하나라도 있을 때만</b> 실효 등급 +1(상한 Ⅴ). 무능력자에겐
+     *  정확히 0(명석과 같은 best>0 가드). 촉매형 보조의 표준형. */
+    KEEN_EYE(Axis.PERCEPTION, "눈썰미"),
+    /** 무딤 — 같은 조건에서 실효 등급 −1(하한 0). 능력자만 손해, 무능력자 무영향. */
+    DULL_EYE(Axis.PERCEPTION, "무딤");
 
     private final Axis axis;
     private final String koreanName;

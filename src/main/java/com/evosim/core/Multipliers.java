@@ -113,6 +113,18 @@ public final class Multipliers {
         if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.BRIGHT)) {
             best = Math.min(5, best + 1);
         }
+        // 보조 축(안목) — 명석과 같은 best>0 가드. 능력이 없으면 눈썰미가 있어도 정확히 0이라
+        // 평민 경제(정원 M=1.0 · 적자)는 전혀 건드리지 않는다. 능력자에게만 등급이 ±1 되어
+        // 정원(M(g))·관리용량(8+g³)·착공 시기가 동시에 움직인다 — 촉매형 보조의 표준형.
+        // 도입 근거: 야생 착공이 d5~d18로 늦어 소작 전환이 제때 열리지 않으면, 무밭 출산(≈1)이
+        // 인구 유지선(2.1) 아래라 1세대가 노령으로 빠질 때 개체군이 붕괴한다(t2 실측: d18
+        // 착공 → 소작 0 → 인구 42→11). 착공 시기는 곧 개체군 존속 조건이다.
+        if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.KEEN_EYE)) {
+            best = Math.min(5, best + 1);
+        }
+        if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.DULL_EYE)) {
+            best = Math.max(0, best - 1);
+        }
         return best;
     }
 

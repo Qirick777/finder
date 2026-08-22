@@ -2300,24 +2300,19 @@ public final class EvoTest {
         double y = 0.75;
         boolean acct = close(FarmEconomy.tenantShare(y), 0.4125) && close(FarmEconomy.ownerShare(y), 0.3375)
                 && close(FarmEconomy.tenantShare(y) + FarmEconomy.ownerShare(y), y)
-                // 규모 반비례 분배(쌍곡선): fee(T)=0.70−0.25×45/(45+T) — 소농 0.45 불변,
-                // 45타일 0.575, 100타일 ~0.622, 무한대 0.70(소작 하한 0.30). 항등식 유지.
-                && close(FarmEconomy.fee(0), 0.45) && close(FarmEconomy.fee(45), 0.575)
-                && close(FarmEconomy.fee(100), 0.70 - 0.25 * 45.0 / 145.0)
-                && FarmEconomy.fee(1000) < 0.70 && FarmEconomy.fee(1000) > 0.68
+                // 규모 누진 폐지 → fee 는 밭 크기와 무관하게 FEE(0.45) 고정. 5규칙 정합:
+                // 밭이 무한히 커져도(규칙4·5) 소작 몫이 0.55로 불변이어야 규칙3(소작 출산 2~3)이
+                // 유지된다. 격차는 요율이 아니라 규모(소작 수)가 만든다.
+                && close(FarmEconomy.fee(0), 0.45) && close(FarmEconomy.fee(45), 0.45)
+                && close(FarmEconomy.fee(1000), 0.45)
+                && close(FarmEconomy.tenantShare(y, 1000), y * 0.55) // 대영지에서도 소작 몫 불변
                 && close(FarmEconomy.tenantShare(y, 100) + FarmEconomy.ownerShare(y, 100), y)
-                && close(FarmEconomy.tenantShare(y, 45), 0.75 * 0.425)
-                // fee 분할(E11): 지주 몫 = 기본분(0.45, 계정) + 초과분(fee−0.45, 저장고 직행·잠금).
-                // 초과분은 T=0에서 정확히 0(소농 무영향), T=45에서 0.125×y. 3분할 항등식 = yield.
+                // fee 분할(E11) 구조는 유지하되 누진분이 0이라 초과 축장은 자연 휴면.
                 && close(FarmEconomy.baseOwnerShare(y), y * 0.45)
                 && close(FarmEconomy.excessOwnerShare(y, 0), 0.0)
-                && close(FarmEconomy.excessOwnerShare(y, 45), y * 0.125)
-                && close(FarmEconomy.baseOwnerShare(y) + FarmEconomy.excessOwnerShare(y, 45),
-                        FarmEconomy.ownerShare(y, 45)) // 기본+초과 == 종전 지주 몫(무손실 분해)
-                && close(FarmEconomy.tenantShare(y, 45) + FarmEconomy.baseOwnerShare(y)
-                        + FarmEconomy.excessOwnerShare(y, 45), y) // 3분할 항등식
+                && close(FarmEconomy.excessOwnerShare(y, 1000), 0.0)
                 && close(FarmEconomy.tenantShare(y, 200) + FarmEconomy.baseOwnerShare(y)
-                        + FarmEconomy.excessOwnerShare(y, 200), y) // 대영지에서도 항등
+                        + FarmEconomy.excessOwnerShare(y, 200), y) // 3분할 항등식(E 미적용 기준)
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)

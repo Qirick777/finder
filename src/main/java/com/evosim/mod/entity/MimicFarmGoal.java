@@ -102,24 +102,28 @@ public class MimicFarmGoal extends Goal {
         var st = mob.level().getBlockState(target);
         if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
-            double yield = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
+            // 기본 수확 = <b>실제로 일한 개체</b>의 채집 능력. 관리 효율 E 는 여기 곱하지 않는다.
+            double base = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
             FarmStore.Plot p = plotOf(target);
             // 관리 효율(회차 S2 — 관리 바닥값): 마름 밭 E = max(마름 E, 지주 재흡수 E) — 지주
             // 오버사이트가 바닥이라 무능 마름 조기 임명해도 붕괴 없음, 지주가 캡 초과로 얇아지면
             // 마름 전담 E가 바닥 넘어 캡 돌파. 무마름 밭은 지주의 무마름 타일 합 기준. (plotEfficiency)
-            if (p != null) {
-                yield *= farmStore().plotEfficiency(serverLevel(), p);
-            }
+            double e = p != null ? farmStore().plotEfficiency(serverLevel(), p) : 1.0;
             boolean household = p != null && (p.ownerId == mob.getIndividual().id()
                     || (mob.getSpouseId() != 0L && p.ownerId == mob.getSpouseId()));
             if (p != null && !household) {
-                // 소작: 규모 누진 분할(fee 분할 E11) — 소작 몫 = 1−fee(불변). 지주 몫은 두 갈래:
-                // 기본분 0.45는 밭 계정(확장 재원+정산), 초과분(fee−0.45, 누진)은 저장고 직행·잠금
-                // (확장이 못 갉음 → 격차 생전 지속). 회계 항등식 tShare+base+excess == yield 유지.
+                // 소작 분할 — <b>E 는 지주 몫에만</b> 곱한다(5규칙 정합):
+                //   규칙4·5(밭 무한 성장·자산 무한 누적) + 규칙3(소작 출산 2~3)이 동시에 서려면
+                //   소작 수취가 밭 크기에 반비례해서는 안 된다. 그런데 종전에는 E(=(용량/타일)²)와
+                //   누진 fee 가 <b>둘 다</b> 소작 몫을 규모에 반비례로 깎아, 193타일 실측에서 소작이
+                //   자기 노동의 16.5%만 받았다(E 0.475 × 소작몫 0.347). 규칙4가 성공할수록 규칙3이
+                //   깨지는 구조였다. 소작은 자기가 딴 만큼 받고, 관리 실패의 손실은 지주가 진다.
+                //   (fee 누진은 FarmEconomy.fee 에서 함께 평탄화 — 그쪽 주석 참조.)
+                //   새 회계 항등식: tShare + ownerCut + waste == base, waste = base×fee×(1−E).
                 int ownerTiles = farmStore().ownedTiles(p.ownerId);
-                double tShare = FarmEconomy.tenantShare(yield, ownerTiles);
-                double baseShare = FarmEconomy.baseOwnerShare(yield);
-                double excessShare = FarmEconomy.excessOwnerShare(yield, ownerTiles);
+                double tShare = FarmEconomy.tenantShare(base, ownerTiles);   // E 미적용
+                double baseShare = FarmEconomy.baseOwnerShare(base) * e;     // E 적용
+                double excessShare = FarmEconomy.excessOwnerShare(base, ownerTiles) * e;
                 mob.addHarvest(tShare);
                 p.account += baseShare;
                 p.excessHoard += excessShare; // 잠금 축장(밤 정산 때 지주 저장고로, 확장 무관)
@@ -127,23 +131,27 @@ public class MimicFarmGoal extends Goal {
                     // 마름 수당의 입력(소작 1인 평균 일수취) — 마름 본인의 노동 모드 수확은 제외
                     FarmTicker.recordTenantPay(p.id, tShare, mob.getId());
                 }
-                farmStore().recordHarvest(p, yield, baseShare + excessShare, tShare); // 원장: 주인 총몫
+                // 원장: totalYield 는 <b>실분배 합</b>(낭비 제외) — totalToOwner+totalToTenant 와 항등.
+                farmStore().recordHarvest(p, tShare + baseShare + excessShare,
+                        baseShare + excessShare, tShare);
                 com.evosim.mod.log.SimAudit.record(
                         com.evosim.mod.log.SimAudit.Src.FARM_TENANT, tShare);
                 com.evosim.mod.log.SimAudit.record(
                         com.evosim.mod.log.SimAudit.Src.RENT, baseShare + excessShare);
                 SimEvents.event(mob, "소작수확", String.format(
-                        "+%.2f (지대 계정 %.2f + 축장 %.2f, 오늘 %d타일)",
-                        tShare, baseShare, excessShare, harvestedToday + 1));
+                        "+%.2f (지대 계정 %.2f + 축장 %.2f, E%.2f, 오늘 %d타일)",
+                        tShare, baseShare, excessShare, e, harvestedToday + 1));
             } else {
-                mob.addHarvest(yield); // 자기 밭 = 100% 본인 몫
+                // 자영 = 전액 지주 몫이므로 E 적용(확장 제동 유지 — 자영 지주만 예외가 되지 않게).
+                double own = base * e;
+                mob.addHarvest(own); // 자기 밭 = 100% 본인 몫
                 if (p != null) {
-                    farmStore().recordHarvest(p, yield, yield, 0.0); // 자영 수확도 원장에(주인 몫)
+                    farmStore().recordHarvest(p, own, own, 0.0); // 자영 수확도 원장에(주인 몫)
                 }
                 com.evosim.mod.log.SimAudit.record(
-                        com.evosim.mod.log.SimAudit.Src.FARM_SELF, yield);
-                SimEvents.event(mob, "밭수확", String.format("자영 +%.2f (오늘 %d타일)",
-                        yield, harvestedToday + 1));
+                        com.evosim.mod.log.SimAudit.Src.FARM_SELF, own);
+                SimEvents.event(mob, "밭수확", String.format("자영 +%.2f (E%.2f, 오늘 %d타일)",
+                        own, e, harvestedToday + 1));
             }
             resetTimer(target);
             harvestedToday++;

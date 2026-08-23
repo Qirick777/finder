@@ -203,10 +203,21 @@ public final class FarmTicker {
             if (grower == null || grower.getHomePos() == null || ownerEnt == null) {
                 continue; // 게이트 판단(주인 능력)·지불 원천이 없으면 보수적으로 건너뜀
             }
-            // 재투자·확장 여부는 주인의 동기가 결정(R1) — 만족·무욕 주인은 지대를 착복/정지.
-            // 소작농의 만족은 무관(노동은 소작 계약의 일부, 자금은 밭 계정이라 유인 문제 없음).
-            if (ownerEnt.isSatisfiedToday()
-                    || com.evosim.core.Satisfaction.neverExpands(ownerEnt.getIndividual())) {
+            // 확장 동기 게이트는 <b>자영 밭에만</b> 건다(소작 밭은 소작농이 알아서 넓힌다).
+            //
+            // 이 파일의 다른 세 곳이 이미 "확장은 소작농의 일"이라고 말하고 있었다: 확장 주체는
+            // grower = 소작 우선(위 "확장권 이전"), 하루 확장량은 EXPAND_PER_DAY×(1+소작수)로
+            // 소작 수에 비례, 자금은 소작 밭이면 plot.account 만 쓴다(아래 nTen==0 분기 — 지주
+            // 저장고를 건드리지 않는다). 바로 위 주석조차 "소작농의 만족은 무관"이라고 적는다.
+            // 그런데 종전에는 <b>지주</b>의 만족이 그 전부를 멈췄다 — 지주가 배부르면 소작농이
+            // 지대 계정으로 하는 개간까지 정지했다.
+            //
+            // 재투자 캡 복원으로 지주 저장고가 실제로 쌓이기 시작하면(+33/일) 지주는 곧 만족선을
+            // 넘고, 야망가 예외도 밭 49타일에서 이미 소진된다(AMBITION_TILE_GOAL). 그 시점부터
+            // 규칙4(밭의 지속 성장)가 통째로 멈추는 구조였다. 자영 밭은 종전대로 주인 동기에
+            // 달려 있으므로 평민에 대한 "만족의 덫"(규칙2)은 그대로 유지된다.
+            if (!hasTenant && (ownerEnt.isSatisfiedToday()
+                    || com.evosim.core.Satisfaction.neverExpands(ownerEnt.getIndividual()))) {
                 continue;
             }
             // 규모 상한 없음(하드캡 폐지) — 관리 효율 감쇠(FarmEconomy.manageEfficiency)가

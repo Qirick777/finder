@@ -3092,12 +3092,50 @@ public class MimicEntity extends PathfinderMob {
         return fam;
     }
 
+    /**
+     * 성비 보정(설계서 §2) — 인지 반경 48 안의 <b>미혼</b> 성비를 보고 적은 쪽으로 기운 동전.
+     *
+     * <p>설계서는 성비 보정을 규정하고 {@link Genetics#breed(long, Individual, Individual,
+     * DeterministicRng, int, Genetics.BreedStats, Sex)} 오버로드가 그것을 위해 존재하는데,
+     * 실제 게임의 출산 경로는 보정 없는 오버로드(공정 동전)를 불러 왔다 — 즉 <b>보정이 게임에
+     * 연결된 적이 없다</b>. 마을이 작을 때 이건 단순 분산 문제가 아니다: 2세대 가구 수는
+     * min(남, 여)라서, 자식 4명이 남3여1로 나오면(공정 동전에서 확률 62.5%가 불균형) 2세대
+     * 가구가 1개만 서고 남은 둘은 영구 미혼이 된다. 소작 공급(규칙3)과 영지 확장(규칙4)의
+     * 입력이 성비 한 번에 반토막 나는 구조였다(실측: 남6여3, 사용자 관측: 남3여1).
+     *
+     * <p>산식은 라플라스 평활 비율 하나뿐 — 분기·문턱 없음.
+     * {@code p(여) = (남+1) / (남+여+2)}. 균형이면 정확히 0.5, 주변에 아무도 없어도 0.5,
+     * 쏠릴수록 반대쪽으로 완만히 기운다(복원력). 세기를 올려야 하면 조정할 값은 지수 하나다.
+     * 짝을 다투지 않는 노년과 이미 맺어진 개체는 모수에서 뺀다.
+     */
+    private Sex villageBalancedSex(ServerLevel sl, DeterministicRng rng) {
+        int males = 0;
+        int females = 0;
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class,
+                getBoundingBox().inflate(PERCEPTION_RANGE))) {
+            if (!m.isAlive() || m.getIndividual() == null || m.getSpouseId() != 0L
+                    || m.getStage() == LifeStage.ELDER) {
+                continue;
+            }
+            if (m.getIndividual().sex() == Sex.FEMALE) {
+                females++;
+            } else {
+                males++;
+            }
+        }
+        return rng.chance((males + 1.0) / (males + females + 2.0)) ? Sex.FEMALE : Sex.MALE;
+    }
+
+    /** 인지 반경 — 만족 판정(이웃 부 비교)이 쓰던 값과 동일. 새 개념을 만들지 않는다. */
+    private static final double PERCEPTION_RANGE = 48.0;
+
     /** 자식 하나를 낳아 거처에 배치 (저장고 잉여 확보 후). 어미 기준 기록. 실제 성사 여부 반환. */
     private boolean spawnChild(ServerLevel sl, MimicEntity father) {
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         int gen = Math.max(individual.generation(), father.getIndividual().generation()) + 1;
         long childId = Math.abs(getRandom().nextLong() | 1L);
-        Individual childInd = Genetics.breed(childId, individual, father.getIndividual(), rng, gen, null);
+        Individual childInd = Genetics.breed(childId, individual, father.getIndividual(), rng, gen,
+                null, villageBalancedSex(sl, rng));
         // 동명 형제 회피 — 같은 가구 생존 구성원과 first 가 겹치면 다른 시드로 최대 3회 재추첨.
         for (int salt = 5; salt <= 7; salt++) {
             boolean clash = false;

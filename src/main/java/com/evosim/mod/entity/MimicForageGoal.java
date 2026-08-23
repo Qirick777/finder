@@ -197,10 +197,17 @@ public class MimicForageGoal extends Goal {
             return;
         }
 
-        // 2) 채집 — 풀(약초학자는 꽃·버섯도)을 부숴 식량. 쿨타임 중이면 그냥 배회.
+        // 2) 채집 — 풀(약초학자는 꽃·버섯도)을 부숴 식량. 쿨타임 중엔 배회하되, <b>표적을 쥐고
+        // 있으면 자리를 지킨다</b>: 연쇄 수확(아래 "정원 연쇄 수확")이 다음 익은 그루를 표적으로
+        // 잡아두는데, 종전엔 바로 다음 틱의 이 배회가 그 표적에서 최대 8블록 걸어나가게 만들고
+        // 쿨타임이 끝나면 다시 걸어오게 했다 — 연쇄가 없애려던 "트립당 이동 오버헤드"가 쿨타임
+        // 경로로 되살아나 있었다(실측: 정원 처리량 22/25회·일, 육안으로는 "정원 앞에서 안 따고
+        // 배회"). 표적이 없을 때만 탐색 배회한다.
         boolean herbalist = ExpressionResolver.isExpressed(ind, Trait.HERBALIST);
         if (gatherCooldown > 0) {
-            idleWander();
+            if (gatherTarget == null) {
+                idleWander();
+            }
             return;
         }
         if (gatherTarget != null && !forageable(mob.level().getBlockState(gatherTarget), herbalist)) {

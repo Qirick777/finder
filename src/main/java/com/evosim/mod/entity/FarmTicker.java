@@ -233,9 +233,18 @@ public final class FarmTicker {
             // 으로 — 성숙 지주의 저장고 축장을 확장이 못 갉게 격리(누수 B 차단, 격차 생전 지속).
             // 자영 밭(nTen==0)은 계정이 0이라(주인 수확은 본인 몫) 저장고가 유일 연료 — 9→24 성숙
             // 부트스트랩을 저장고로 굴린다(격리하면 신생 밭이 영구 동결). 자영 밭은 초과분 축장이
-            // 없으므로 저장고를 써도 격차에 무관. 재투자 캡(MATURE_REINVEST_SHARE)은 폐지 유지:
-            // "확장 가능하면 확장, 나머지 정산." 폭주는 노동 상한이 막는다.
-            int afford = com.evosim.core.FarmEconomy.reinvestTiles(plot.account);
+            // 없으므로 저장고를 써도 격차에 무관.
+            //
+            // 재투자 캡(MATURE_REINVEST_SHARE) 복원 — "폐지 유지"가 규칙5를 구조적으로 불가능하게
+            // 하고 있었다. 계정 <b>전액</b>을 타일로 바꾸면 지대가 저장고에 닿기 전에 확장이
+            // 먹어치운다(v2 D16 실측: 지대 47.6/일 · 확장 지출 50/일 · 지주 저장고 9.7 — 소작
+            // 17.4보다 가난한 지주). 상수는 이미 있었고 그 주석이 의도까지 적어 두었다("잔여
+            // 70%는 밤 정산 때 지주 저장고로 이체 — '이름만 지주'가 아니라 현금이 쌓이는 지주"):
+            // 라이브 코드에서만 꺼져 있었다. 복원 시 확장 14.3/일 · 저장고 +33.3/일.
+            // 부수 효과로 확장 속도가 3.5배 느려져, 노동(소작 1인당 +8타일/일)이 확장을 따라잡는
+            // 범위로 들어온다 — 익은 채 방치되던 타일(실측 79/303)이 함께 줄어든다.
+            int afford = com.evosim.core.FarmEconomy.reinvestTiles(
+                    plot.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE);
             double ownerFunds = 0.0;
             if (nTen == 0) { // 부트스트랩(자영) — 저장고 예비 위 잉여를 폴백 재원으로
                 ownerFunds = ownerEnt.getHomePos() != null

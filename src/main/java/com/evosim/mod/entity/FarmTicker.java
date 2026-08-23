@@ -275,7 +275,7 @@ public final class FarmTicker {
             int placed = 0;
             for (int i = plot.tiles.length; i < seq.size(); i++) {
                 BlockPos gp = adaptiveSpot(level, store, plot.anchor,
-                        seq.get(i)[0], seq.get(i)[1]);
+                        seq.get(i)[0], seq.get(i)[1], adults);
                 if (gp == null) {
                     continue; // 4방 전부 막힘 — 이 칸 스킵(비용 미지불)
                 }
@@ -324,6 +324,22 @@ public final class FarmTicker {
             for (int i = plot.tiles.length - 1; i >= 0; i--) {
                 BlockPos pos = BlockPos.of(plot.tiles[i]);
                 if (!level.isLoaded(pos)) {
+                    continue;
+                }
+                // 거처 위에 깔린 타일 소급 정비 — 회피 가드(onSomeHome)는 <b>앞으로</b> 깔리는 것만
+                // 막는다. 이미 남의 천막·입구·모닥불·정원에 박힌 타일은 원장에 남아 계속 재식재되어
+                // 덤불이 되살아나고(귀가·급식 경로 훼손), 부족분 게시만 부풀린다. 블록을 치우고
+                // 원장에서도 소거한다 — 가드 도입 이전에 생성된 월드의 자가 치유 경로.
+                if (onSomeHome(adults, pos)) {
+                    if (level.getBlockState(pos)
+                            .is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)) {
+                        level.setBlockAndUpdate(pos,
+                                net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+                    }
+                    store.removeTile(plot, i);
+                    com.evosim.mod.log.SimEvents.note(level, "밭정비", String.format(
+                            "@%d,%d 구획 %d 타일 소거(거처 위 — 잔여 %d타일)",
+                            pos.getX(), pos.getZ(), plot.id, plot.tiles.length));
                     continue;
                 }
                 var st = level.getBlockState(pos);
@@ -472,7 +488,7 @@ public final class FarmTicker {
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
             for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
-                BlockPos gp = adaptiveSpot(level, store, site, t[0], t[1]);
+                BlockPos gp = adaptiveSpot(level, store, site, t[0], t[1], adults);
                 if (gp == null) {
                     continue; // 막힌 칸 스킵 — 착공 부지는 findFarmSite가 회피해 대개 전부 성립
                 }
@@ -593,12 +609,12 @@ public final class FarmTicker {
     }
 
     private static BlockPos adaptiveSpot(ServerLevel level, FarmStore store, BlockPos anchor,
-                                         int c, int r) {
+                                         int c, int r, java.util.List<MimicEntity> adults) {
         for (int[] m : com.evosim.core.FarmLayout.mirrors(c, r)) {
             BlockPos gp = level.getHeightmapPos(
                     net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                     anchor.offset(m[0], 0, m[1] * 2));
-            if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(level, gp)) {
+            if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(adults, gp)) {
                 continue; // 거처(천막·입구·모닥불·정원) 위에는 밭을 깔지 않는다
             }
             var at = level.getBlockState(gp);
@@ -615,36 +631,37 @@ public final class FarmTicker {
     }
 
     /**
-     * 이 좌표가 어떤 거처의 발자국·정원 칸인가 — 밭 타일이 남의 집을 덮는 것을 막는다.
-     * 착공 부지({@link #findFarmSite})는 거처 12블록을 피하지만 <b>그 뒤 확장은 제약이 없어</b>,
-     * 영지가 수백 타일로 커지면 반경 12를 넘어 이웃 거처를 삼킨다(실측: 모닥불 앞·입구에 베리
-     * 덤불이 깔림). 스위트베리는 지나는 개체에 피해를 주고 이동을 늦추므로 단순한 미관 문제가
-     * 아니라 귀가·급식 경로를 망가뜨린다. y 는 지형마다 달라 <b>x·z 열</b>로만 비교한다.
+     * 이 좌표가 어느 거처의 몸통·입구·모닥불·정원 반경 안인가 — 밭 타일이 집을 덮는 것을 막는다.
+     * 착공 부지({@link #findFarmSite})는 거처 12블록을 피하지만 그 뒤 확장은 제약이 없어, 영지가
+     * 커지면 반경 12를 넘어 이웃 거처를 삼켰다. 스위트베리는 지나는 개체에 피해를 주고 이동을
+     * 늦추므로 미관이 아니라 귀가·급식 경로의 문제다.
+     *
+     * <p>종전 판정은 <b>gp 주변 12블록의 미믹 엔티티를 훑어</b> 그들의 거처 칸과 비교했다. 그래서
+     * 그 순간 집을 비운 가구(밭 출근·통근 소작·원거리 배회)는 <b>보이지 않아</b> 그 위에 타일이
+     * 깔렸다 — 실측 스크린샷에서 모닥불 양옆·입구에 덤불이 계속 생기던 원인. 엔티티 위치에
+     * 의존하지 않도록, {@link #findFarmSite}와 같은 <b>성년 명단</b>의 거처 좌표를 직접 본다.
+     *
+     * <p>거처 칸 목록 대신 반경으로 보는 것은 <b>방향 무관</b>하게 만들기 위해서다. 발자국은
+     * dx ±3·dz −2..+3, 정원 폴백은 dx ±4·dz −4..+1이므로 앵커에서 최대 √32 ≈ 5.66이고,
+     * 6.5면 어느 facing 이든 전부 덮는다. y 는 지형마다 달라 x·z 평면 거리로만 판정한다.
      */
-    private static boolean onSomeHome(ServerLevel level, BlockPos gp) {
-        var box = new net.minecraft.world.phys.AABB(gp).inflate(SCAN_HOME_RADIUS);
-        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class, box)) {
+    private static boolean onSomeHome(java.util.List<MimicEntity> adults, BlockPos gp) {
+        for (MimicEntity m : adults) {
             BlockPos h = m.getHomePos();
             if (h == null) {
                 continue;
             }
-            net.minecraft.core.Direction f = m.getHomeFacingDir();
-            for (BlockPos cell : HomeStructure.footprint(h, f)) {
-                if (cell.getX() == gp.getX() && cell.getZ() == gp.getZ()) {
-                    return true;
-                }
-            }
-            for (BlockPos cell : HomeStructure.gardenCells(h, f)) {
-                if (cell.getX() == gp.getX() && cell.getZ() == gp.getZ()) {
-                    return true;
-                }
+            double dx = h.getX() - gp.getX();
+            double dz = h.getZ() - gp.getZ();
+            if (dx * dx + dz * dz < HOME_CLEAR * HOME_CLEAR) {
+                return true;
             }
         }
         return false;
     }
 
-    /** 거처 회피 검사 반경 — 발자국(±3·±4 정원 포함)이 닿는 최대 거리 여유분. */
-    private static final double SCAN_HOME_RADIUS = 12.0;
+    /** 거처 회피 반경 — 발자국·정원 폴백이 앵커에서 닿는 최대 거리(√32 ≈ 5.66)의 여유분. */
+    private static final double HOME_CLEAR = 6.5;
 
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,

@@ -500,7 +500,7 @@ public final class FarmTicker {
             // 있으면 소유권은 그 머리에게 귀속되고 착공자는 그 구획의 마름이 된다(착공비는 밤 정산 때
             // 상환). 야망가 포함 예외 없음 — 착공 시도가 곧 영지 확장 노동이 되는 순환(발사대 봉쇄).
             // 편입된 첫 밭이 머리를 2호 보유로 만들어 영주로 부트스트랩(자력 2호 대기 불요).
-            MimicEntity familyLord = owned == 0 ? findFamilyLord(store, adults, m) : null;
+            MimicEntity familyLord = owned == 0 ? findFamilyLord(level, store, adults, m) : null;
             long newOwnerId = familyLord != null
                     ? familyLord.getIndividual().id() : m.getIndividual().id();
             FarmStore.Plot plot = store.create(site, newOwnerId);
@@ -548,16 +548,45 @@ public final class FarmTicker {
     }
 
     /**
-     * 가문 영주 탐색(케이스 3, v1.3) — 착공자의 부모(우선) 또는 형제(부모 공유) 중 영주
-     * (마름 1+ · 구획 2+). 동급이면 최대 타일 보유자. 무산 착공자(owned 0)에게만 적용 —
+     * 가문 영주 탐색(케이스 3, v1.3) — 착공자의 <b>부모 → 조부모 → 형제</b> 순으로 지주
+     * (마름 1+)를 찾는다. 동급이면 최대 타일 보유자. 무산 착공자(owned 0)에게만 적용 —
      * 이미 자기 영지를 가진 친족은 독립 가문으로 존중(경쟁 가문 경로).
+     *
+     * <p><b>조부모 확대</b>(실측 사례): 휴고 스톰윈드가 전 영지를 쥔 d17에, 그의 손자 세드릭이
+     * 33타일을 <b>자기 명의로</b> 착공했다. 종전 판정이 부모·형제까지만 봐서 조부가 후보에
+     * 아예 없었고, 그 시점 부모(리바이)는 아직 무산이라 가문 머리가 없다고 판정된 것이다.
+     * 성년까지 2일(유아 0.75 + 소년 1.25)이라 3세대가 상시 공존하는데 편입 판정만 2세대를
+     * 보고 있었다 — 손자 세대가 통째로 새는 구멍이었다. 상속이 단독(장남 몰아주기)이라 한
+     * 세대 안에 재통합되긴 하나, 그 과도기 동안 쪼개진 작은 밭은 구인 문턱(shortfall)에 못
+     * 미쳐 마름·소작이 붙지 않고 지대도 생기지 않는다(실측 문서: 마름 —, 계정 0.00).
+     *
+     * <p>조부모는 {@link FamilyLedger}에서 부모의 부모를 읽는다 — 원장은 사망자 기록을
+     * 유지하므로(diedDay) 조부가 이미 죽었어도 조회된다. 해시맵 조회 4회라 비용은 없다.
      */
-    private static MimicEntity findFamilyLord(FarmStore store,
+    private static MimicEntity findFamilyLord(ServerLevel level, FarmStore store,
             java.util.List<MimicEntity> adults, MimicEntity m) {
         long pa = m.getIndividual().parentAId();
         long pb = m.getIndividual().parentBId();
+        // 조상 계층: 부모(0) > 조부모(1) — 가까운 쪽이 먼저 가문 머리가 된다.
+        java.util.Map<Long, Integer> ancestorRank = new java.util.HashMap<>();
+        FamilyLedger led = FamilyLedger.get(level);
+        for (long p : new long[] {pa, pb}) {
+            if (p == 0L) {
+                continue;
+            }
+            ancestorRank.put(p, 0);
+            FamilyLedger.Rec r = led.get(p);
+            if (r == null) {
+                continue;
+            }
+            for (long g : new long[] {r.pa, r.pb}) {
+                if (g != 0L) {
+                    ancestorRank.putIfAbsent(g, 1);
+                }
+            }
+        }
         MimicEntity best = null;
-        boolean bestParent = false;
+        int bestRank = Integer.MAX_VALUE; // 0 부모 · 1 조부모 · 2 형제
         int bestTiles = -1;
         for (MimicEntity h : adults) {
             if (h == m || h.getIndividual() == null) {
@@ -569,19 +598,24 @@ public final class FarmTicker {
                 // 낮춤 — 자식 성년(출생+2일)·독립(~d5~6)이 영주 등장(자력 2호, ~d7~8)보다 빨라
                 // 조기 자식이 빠져나가던 경합 해소. 편입된 첫 밭이 머리를 2호 보유 → 영주로 부트스트랩.
             }
-            boolean parent = hid == pa || hid == pb;
-            long hpa = h.getIndividual().parentAId();
-            long hpb = h.getIndividual().parentBId();
-            boolean sibling = (pa != 0L && (pa == hpa || pa == hpb))
-                    || (pb != 0L && (pb == hpa || pb == hpb));
-            if (!parent && !sibling) {
-                continue;
+            Integer ar = ancestorRank.get(hid);
+            int rank;
+            if (ar != null) {
+                rank = ar;
+            } else {
+                long hpa = h.getIndividual().parentAId();
+                long hpb = h.getIndividual().parentBId();
+                boolean sibling = (pa != 0L && (pa == hpa || pa == hpb))
+                        || (pb != 0L && (pb == hpa || pb == hpb));
+                if (!sibling) {
+                    continue;
+                }
+                rank = 2;
             }
             int tiles = store.ownedTiles(hid);
-            if (best == null || (parent && !bestParent)
-                    || (parent == bestParent && tiles > bestTiles)) {
+            if (best == null || rank < bestRank || (rank == bestRank && tiles > bestTiles)) {
                 best = h;
-                bestParent = parent;
+                bestRank = rank;
                 bestTiles = tiles;
             }
         }

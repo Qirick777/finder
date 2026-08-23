@@ -1098,13 +1098,40 @@ public final class FarmTicker {
      * 이어지면 {@code PROMOTE_DAYS} 를 거쳐 상시 소작으로 승격된다 — 응급 처치가 그대로 신분
      * 상승 경로에 접속한다.
      */
+    /**
+     * 지금 이 구획에서 딸 수 있는(AGE 3) 타일 수 — 긴급 배정은 <b>실제로 먹을 것이 있는</b> 밭에만
+     * 붙인다. 익은 타일이 0인 밭에 보내면 도착해도 표적이 없어 goal 이 꺼지고, 리시가 거처로
+     * 되끌고, 한 칸 익으면 다시 출발하는 왕복만 반복하다 굶는다.
+     */
+    private static int ripeTiles(ServerLevel level, FarmStore.Plot p) {
+        int n = 0;
+        for (long l : p.tiles) {
+            BlockPos pos = BlockPos.of(l);
+            if (!level.isLoaded(pos)) {
+                continue;
+            }
+            var st = level.getBlockState(pos);
+            if (st.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)
+                    && st.getValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE) >= 3) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     private static void emergencyHire(ServerLevel level) {
         FarmStore store = FarmStore.get(level);
         if (store.all().isEmpty()) {
             return;
         }
+        // 발동 조건은 위급(H 고갈)뿐 아니라 <b>채집 시계가 마른 것</b>도 포함한다. 위급은 이미 늦은
+        // 신호다 — 들풀이 사라진 자리에서 H가 바닥날 때까지 기다리면 걸어갈 기력도 남지 않는다.
+        // forageDry()는 기근 판정이 "주변에 먹을 게 없다"의 증거로 쓰는 그 시계(Famine.STARVE_WINDOW,
+        // 1게임일)를 그대로 본다 — 새 문턱을 만들지 않는다. 밭이 멀어 못 찾고 방치되던 개체가
+        // 굶기 <b>전에</b> 일자리로 붙는다.
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getIndividual() != null && e.isCritical()
+                e -> e.isAlive() && e.getIndividual() != null
+                        && (e.isCritical() || e.forageDry())
                         && e.getTenantFarm() == 0L
                         && (e.getStage() == com.evosim.core.LifeStage.ADULT
                                 || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
@@ -1130,6 +1157,9 @@ public final class FarmTicker {
                 }
                 if (UNREACHABLE.getOrDefault(m.getId(), java.util.Set.of()).contains(p.id)) {
                     continue; // 오늘 도달 실패한 밭 — 다시 붙이면 같은 자리에 또 선다
+                }
+                if (ripeTiles(level, p) <= 0) {
+                    continue; // 지금 딸 게 없는 밭 — 보내 봐야 헛걸음이다(아래 주석)
                 }
                 double d = m.blockPosition().distSqr(p.anchor);
                 if (d < ad) {

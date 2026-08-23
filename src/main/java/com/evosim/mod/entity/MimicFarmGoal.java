@@ -71,7 +71,19 @@ public class MimicFarmGoal extends Goal {
             return idle(); // 만족(M7) — 자기 밭 노동 정지. 소작 출근(배정)은 계약 의무라 유지
         }
         target = nearestWorkRipe();
-        return target != null || idle();
+        if (target != null) {
+            return true;
+        }
+        // 표적이 <b>지금</b> 없을 뿐 아직 배정된 노동일이 남았다면 출근 앵커를 유지한 채 비활성만
+        // 된다. 여기서 idle()로 앵커를 지우면 우선순위 2인 리시(MimicLeashGoal)가 즉시 거처로
+        // 되끌고, 다음 틱에 타일 하나가 익으면 이 goal 이 다시 켜져 밭으로 보낸다 —
+        // 출근→밭일→배회(리시 복귀)→출근 의 무한 왕복이 되고, 그 사이 아무것도 못 먹는다
+        // (실측: 위기 상태로 이 순환을 반복하다 사망). 앵커를 남기면 밭 근처에 머물며
+        // 채집(우선순위 7)으로 시간을 쓰고, 타일이 익는 즉시 그 자리에서 수확한다.
+        if (FarmTicker.assignedPlot(mob.getId()) != 0L) {
+            return false; // 앵커 유지 — 하루 노동이 끝난 게 아니라 잠시 딸 게 없을 뿐
+        }
+        return idle();
     }
 
     @Override

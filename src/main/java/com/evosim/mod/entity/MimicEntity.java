@@ -3456,6 +3456,17 @@ public class MimicEntity extends PathfinderMob {
         return holding < FoodEconomy.CRITICAL;
     }
 
+    /**
+     * 채집 시계가 말랐는가 — 마지막 채집·사냥·정원 성공 후 {@link Famine#STARVE_WINDOW}(1게임일)이
+     * 지났다. 기근 판정({@link Famine#shouldMigrate})이 "주변에 먹을 게 없다"의 증거로 쓰는 바로
+     * 그 시계다. 위급(H 고갈)은 <b>이미 늦은</b> 신호라, 밭 일자리를 찾을 때는 이쪽을 먼저 본다.
+     */
+    public boolean forageDry() {
+        return lastForageSuccessTick > 0L
+                && com.evosim.mod.entity.SimTime.tick(level()) - lastForageSuccessTick
+                        >= Famine.STARVE_WINDOW;
+    }
+
     /** 거처 반경 안인가(정산의 home 판정 — 길찾기 아님, 거리 체크 한 줄). */
     public boolean isHome() {
         return homePos != null && blockPosition().distSqr(homePos) <= 36.0;

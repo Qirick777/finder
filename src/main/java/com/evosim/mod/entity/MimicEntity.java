@@ -2859,8 +2859,17 @@ public class MimicEntity extends PathfinderMob {
             if (father != null && mother != null) {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
                         - Reproduction.BASE_THRESHOLD;
-                s.reproNeed = (float) (FoodEconomy.BIRTH_COST + need + (s.adults + 1) + adj);
+                // 소모 항은 <b>REPRO_NEED_DAYS 일치</b> — canReproduce 는 need×2 를 유보하는데
+                // 표시는 need×1 이라, 실제 문턱 18을 12로 보여 "충족인데 출산 안 함"이 났다
+                // (실측: 성인2·자녀0 표본 2590건 중 1124건이 12~17 구간에 정체 — 전부 오표시).
+                s.reproNeed = (float) (FoodEconomy.BIRTH_COST
+                        + need * FoodEconomy.REPRO_NEED_DAYS + (s.adults + 1) + adj);
                 s.reproLack = (float) Math.max(0.0, s.reproNeed - larder);
+                // 시간 게이트(쿨다운) 잔여일 — 식량이 충족이어도 이 값이 남아 있으면 출산하지 않는다.
+                long since = com.evosim.mod.entity.SimTime.tick(sl) - mother.lastBirthTick;
+                long cdTicks = (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
+                s.reproCooldown = mother.childrenBorn == 0 ? 0.0F
+                        : (float) Math.max(0.0, (cdTicks - since) / 24000.0);
             } else {
                 s.reproNeed = -2; // 부부 아님 — 번식 판정 자체가 없음
                 s.reproLack = -2;
@@ -2880,8 +2889,10 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         int owned = individual == null ? 0 : FarmStore.get(sl).ownedCount(individual.id());
+        // 예비는 FarmTicker 의 실제 착공 판정과 같은 산식(foundReserve — 가족 규모 비례)을 쓴다.
+        // 종전의 INVEST_RESERVE 고정은 자녀 있는 가구에서 실제 문턱보다 낮게 표시됐다.
         double farmNeed = com.evosim.core.FarmEconomy.newFarmCost(owned)
-                + com.evosim.core.FarmEconomy.INVEST_RESERVE;
+                + com.evosim.core.FarmEconomy.foundReserve(need);
         s.farmNeed = (float) farmNeed;
         s.farmLack = homePos == null ? -2
                 : (float) Math.max(0.0, farmNeed - Math.max(0.0, larder));

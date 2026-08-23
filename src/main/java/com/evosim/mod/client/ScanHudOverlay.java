@@ -254,7 +254,8 @@ public final class ScanHudOverlay implements IGuiOverlay {
                 addLines(out, g, font, tx, new String[] {l1}, new int[] {0xEFF5F8});
             }
             int gy = LINE * (tenant ? 2 : 1) + 2;
-            gy = gauge(out, g, font, tx, gy, innerW, "번식", s.reproNeed, s.reproLack, s.larder, true);
+            gy = gauge(out, g, font, tx, gy, innerW, "번식", s.reproNeed, s.reproLack, s.larder,
+                    true, s.reproCooldown);
             gy = gauge(out, g, font, tx, gy, innerW, "베리", s.berryNeed, s.berryLack, s.larder, true);
             final int fy = gy;
             out.add(() -> {
@@ -293,6 +294,16 @@ public final class ScanHudOverlay implements IGuiOverlay {
     /** 문턱 게이지 한 줄 — 진행 fill(저장고/필요) + "현재/필요" 라벨. 센티널 -1=완료, -2=해당없음. */
     private int gauge(List<Runnable> out, GuiGraphics g, Font font, int tx, int y, int innerW,
                       String label, float need, float lack, float larder, boolean half) {
+        return gauge(out, g, font, tx, y, innerW, label, need, lack, larder, half, 0.0F);
+    }
+
+    /**
+     * @param cooldown 시간 게이트 잔여일(0=없음) — 식량이 충족이어도 남아 있으면 출산하지 않으므로
+     *                 "충족" 대신 대기 일수를 보여준다("충족인데 왜 안 낳지" 혼선 제거).
+     */
+    private int gauge(List<Runnable> out, GuiGraphics g, Font font, int tx, int y, int innerW,
+                      String label, float need, float lack, float larder, boolean half,
+                      float cooldown) {
         final int yy = y;
         out.add(() -> {
             int by = bodyYBase + yy;
@@ -309,9 +320,13 @@ public final class ScanHudOverlay implements IGuiOverlay {
             }
             float frac = need <= 0 ? 1 : Mth.clamp(Math.max(0, larder) / need, 0.0F, 1.0F);
             boolean met = lack <= 0.0F;
-            bar(g, bx, by + 1, bw, 6, frac, met ? 0x53C46A : 0xD8A84A, bodyAlpha);
-            String t = met ? "충족" : String.format("%.1f/%.1f", Math.max(0, larder), need);
-            g.drawString(font, t, tx + 26 + bw + 4, by, color(bodyAlpha, met ? 0x9FE7A8 : 0xD8C89A), true);
+            boolean waiting = met && cooldown > 0.01F; // 식량은 됐으나 시간 게이트가 남음
+            bar(g, bx, by + 1, bw, 6, frac,
+                    waiting ? 0x6FA8DC : (met ? 0x53C46A : 0xD8A84A), bodyAlpha);
+            String t = waiting ? String.format("대기 %.1f일", cooldown)
+                    : (met ? "충족" : String.format("%.1f/%.1f", Math.max(0, larder), need));
+            int col = waiting ? 0xAECBF0 : (met ? 0x9FE7A8 : 0xD8C89A);
+            g.drawString(font, t, tx + 26 + bw + 4, by, color(bodyAlpha, col), true);
         });
         return y + LINE + 2;
     }

@@ -63,6 +63,8 @@ public final class ScanSnapshot {
     // ── 다음 문턱(부족량: 0 = 지금 충족, 음수 센티널: -1 완료/해당없음, -2 부부 아님) ──
     public float reproNeed;
     public float reproLack;
+    /** 출산 쿨다운 잔여일(0 = 대기 없음) — 식량이 충족이어도 이 값이 남으면 출산하지 않는다. */
+    public float reproCooldown;
     public float berryNeed;
     public float berryLack;
     public float farmNeed;
@@ -103,6 +105,7 @@ public final class ScanSnapshot {
         buf.writeLong(spouseId);
         buf.writeFloat(reproNeed);
         buf.writeFloat(reproLack);
+        buf.writeFloat(reproCooldown);
         buf.writeFloat(berryNeed);
         buf.writeFloat(berryLack);
         buf.writeFloat(farmNeed);
@@ -148,6 +151,7 @@ public final class ScanSnapshot {
         s.spouseId = buf.readLong();
         s.reproNeed = buf.readFloat();
         s.reproLack = buf.readFloat();
+        s.reproCooldown = buf.readFloat();
         s.berryNeed = buf.readFloat();
         s.berryLack = buf.readFloat();
         s.farmNeed = buf.readFloat();

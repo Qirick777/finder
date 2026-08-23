@@ -3184,13 +3184,15 @@ public final class EvoSimCommand {
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         LiveCheck.cancelAll();
         List<VerifySuite.Step> steps = new ArrayList<>();
-        // [1] 문턱 역산 정확성 — 부부·정원2·저장고5: 번식부족 7.0(=3+6+3−5) ·
+        // [1] 문턱 역산 정확성 — 부부·정원2·저장고5: 번식부족 13.0(=3+6×2+3−5 — 소모 항이
+        //     canReproduce 의 REPRO_NEED_DAYS(2)와 일치해야 한다. 종전 7.0은 need×1로 계산해
+        //     실제 문턱을 6 낮게 표시하던 값) ·
         //     베리부족 2.0(부트스트랩 8 게이트: 생계6+비용1−5) · 개간부족 19.0(18+6−5) · 동기 ✓
         {
             BlockPos home = groundAt(level, b, -16, 24);
             MimicEntity[] c = new MimicEntity[2];
             steps.add(new VerifySuite.Step("scanx_thresholds",
-                    "snapshot lacks: repro 7.0, berry 2.0, farm 19.0, motive on, garden 2/8", 100, false, () -> {
+                    "snapshot lacks: repro 13.0, berry 2.0, farm 19.0, motive on, garden 2/8", 100, false, () -> {
                 discardFamily(level, home);
                 MimicEntity[] cc = coupleAt(level, home);
                 c[0] = cc[0];
@@ -3200,13 +3202,13 @@ public final class EvoSimCommand {
                 LarderStore.get(level).set(home, 5.0);
             }, () -> {
                 var s = c[0].buildScanSnapshot(level);
-                return String.format("repro %.1f(exp 7.0) berry %.1f(exp 2.0) farm %.1f(exp 19.0) "
+                return String.format("repro %.1f(exp 13.0) berry %.1f(exp 2.0) farm %.1f(exp 19.0) "
                                 + "motive %s garden %d/%d adults %d",
                         s.reproLack, s.berryLack, s.farmLack, s.farmMotive ? "Y" : "N",
                         s.garden, s.gardenCap, s.adults);
             }, () -> {
                 var s = c[0].buildScanSnapshot(level);
-                return Math.abs(s.reproLack - 7.0F) < 1.0E-3
+                return Math.abs(s.reproLack - 13.0F) < 1.0E-3
                         && Math.abs(s.berryLack - 2.0F) < 1.0E-3
                         && Math.abs(s.farmLack - 19.0F) < 1.0E-3
                         && s.farmMotive && s.garden == 2 && s.gardenCap == 8 && s.adults == 2

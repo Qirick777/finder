@@ -27,6 +27,11 @@ public class MimicFarmGoal extends Goal {
     private int harvestedToday;
     private long day = -1;
     private BlockPos target;
+    private BlockPos stuckPos;  // 무진전 감지 — 표적 추적 중 마지막 위치(ForageGoal R-5 와 동형)
+    private int stuckTicks;
+
+    /** 표적 무진전이 이 틱 지속되면 도달 불가로 보고 배정을 반납한다. */
+    private static final int STUCK_DROP_TICKS = 60;
 
     public MimicFarmGoal(MimicEntity mob) {
         this.mob = mob;
@@ -103,8 +108,25 @@ public class MimicFarmGoal extends Goal {
         mob.setWorkAnchor(target);
         if (!mob.blockPosition().closerThan(target, 1.9)) {
             mob.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, 1.0);
+            // 무진전 탈출(ForageGoal 의 R-5 스냅과 같은 장치) — 긴급 고용은 거리 무제한이라
+            // 길이 끊긴 밭에 배정될 수 있다. 그러면 이 goal 이 우선순위 6으로 채집(7)을 선점한 채
+            // 제자리에 서서 굶어 죽는다(구제하려던 개체를 더 빨리 죽이는 역효과). 일정 틱 제자리면
+            // 배정을 반납해 그날은 다른 밭·채집으로 돌아가게 한다.
+            if (mob.blockPosition().equals(stuckPos)) {
+                if (++stuckTicks >= STUCK_DROP_TICKS) {
+                    FarmStore.Plot p = plotOf(target);
+                    FarmTicker.reportUnreachable(mob.getId(), p != null ? p.id : 0L);
+                    target = null;
+                    stuckTicks = 0;
+                    mob.setWorkAnchor(null);
+                }
+            } else {
+                stuckPos = mob.blockPosition();
+                stuckTicks = 0;
+            }
             return;
         }
+        stuckTicks = 0;
         var st = mob.level().getBlockState(target);
         if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));

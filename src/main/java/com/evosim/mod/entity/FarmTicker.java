@@ -29,6 +29,26 @@ public final class FarmTicker {
     private static long growDay = -1;
     /** 어제 배정 스냅샷(연속일 판정용, 휘발 — 재접속 시 연속일은 NBT 값에서 이어감). */
     private static final java.util.Map<Integer, Long> LAST_ASSIGNED = new java.util.HashMap<>();
+
+    /**
+     * 도달 실패 기록(개체 → 포기한 구획들, 새벽마다 비움) — 긴급 고용이 거리 무제한이라, 길이
+     * 끊겨 갈 수 없는 밭에 계속 배정되면 밭일 goal(우선순위 6)이 채집(7)을 선점한 채 제자리에
+     * 서 있게 되어 <b>오히려 더 빨리 죽는다</b>. MimicFarmGoal 이 무진전을 감지해 여기 적으면
+     * 그날은 그 구획을 후보에서 뺀다.
+     */
+    private static final java.util.Map<Integer, java.util.Set<Long>> UNREACHABLE =
+            new java.util.HashMap<>();
+
+    /** 밭일 goal 이 표적에 도달하지 못했음을 보고 — 배정을 풀어 채집으로 돌려보낸다. */
+    public static void reportUnreachable(int entityId, long plotId) {
+        if (plotId == 0L) {
+            return;
+        }
+        UNREACHABLE.computeIfAbsent(entityId, k -> new java.util.HashSet<>()).add(plotId);
+        if (ASSIGNED.getOrDefault(entityId, 0L) == plotId) {
+            ASSIGNED.remove(entityId);
+        }
+    }
     /** 오늘 소작 임금 원장(휘발, v1.3) — plotId → 지급 합. 마름 수당(1인 평균×계수)의 입력. */
     private static final java.util.Map<Long, Double> TENANT_PAY_TODAY = new java.util.HashMap<>();
     /** 오늘 이 구획에서 수확한 소작(개체 id 집합, 휘발) — 평균의 분모. */
@@ -744,6 +764,7 @@ public final class FarmTicker {
     public static void clearAssignments() {
         ASSIGNED.clear();
         LAST_ASSIGNED.clear();
+        UNREACHABLE.clear();
         TENANT_PAY_TODAY.clear();
         TENANT_WORKERS_TODAY.clear();
         assignDay = -1;
@@ -798,6 +819,7 @@ public final class FarmTicker {
         LAST_ASSIGNED.clear();
         LAST_ASSIGNED.putAll(ASSIGNED);
         ASSIGNED.clear();
+        UNREACHABLE.clear(); // 하루 지나면 다시 시도(지형·군집은 변한다)
         FarmStore store = FarmStore.get(level);
         java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
                 com.evosim.mod.reg.ModEntities.MIMIC.get(),
@@ -1090,27 +1112,43 @@ public final class FarmTicker {
                     || store.ownedCount(m.getIndividual().id()) > 0) {
                 continue; // 이미 오늘 일감이 있거나, 제 밭을 가진 지주
             }
-            FarmStore.Plot best = null;
-            double bd = COMMUTE * COMMUTE;
+            // 탐색은 <b>거리 무제한</b>(가까운 순) — 통근 한계 COMMUTE(48)는 평시 시장의 효율
+            // 기준이지 생사의 기준이 아니다. 반경을 걸면 근처에 밭이 없다는 이유만으로 죽는데,
+            // 미믹은 하루 안에 수백 블록을 걷고 출근 앵커(MimicFarmGoal 의 setWorkAnchor)가 리시를
+            // 눌러 원거리 출근을 실현한다. 멀어도 배정하는 편이 확실한 아사보다 낫다.
+            //
+            // 일감 조건도 2단계로 완화한다: ① 남는 일감이 있는 밭을 우선하고, ② 전부 인원이 찼으면
+            // 가장 가까운 밭에라도 붙인다. 초과 배정은 회계를 깨지 않는다 — 소작 수취는 자기가
+            // 딴 타일만큼이고(tenantShare), 관리 효율의 실경작 타일은 min(타일, 노동)으로 캡된다.
+            FarmStore.Plot open = null;
+            FarmStore.Plot any = null;
+            double od = Double.MAX_VALUE;
+            double ad = Double.MAX_VALUE;
             for (FarmStore.Plot p : store.all().values()) {
                 if (p.ownerId == 0L) {
                     continue; // 무주지 — 지대 관계가 성립하지 않는다
                 }
-                if (p.tiles.length <= com.evosim.core.FarmEconomy.C_BASE
-                        * (1 + assignedToPlot(p.id))) {
-                    continue; // 오늘 인원으로 다 걷는 밭 — 남는 일감 없음
+                if (UNREACHABLE.getOrDefault(m.getId(), java.util.Set.of()).contains(p.id)) {
+                    continue; // 오늘 도달 실패한 밭 — 다시 붙이면 같은 자리에 또 선다
                 }
                 double d = m.blockPosition().distSqr(p.anchor);
-                if (d < bd) {
-                    bd = d;
-                    best = p;
+                if (d < ad) {
+                    ad = d;
+                    any = p;
+                }
+                if (p.tiles.length > com.evosim.core.FarmEconomy.C_BASE
+                        * (1 + assignedToPlot(p.id)) && d < od) {
+                    od = d;
+                    open = p;
                 }
             }
+            FarmStore.Plot best = open != null ? open : any;
             if (best != null) {
                 ASSIGNED.put(m.getId(), best.id);
                 com.evosim.mod.log.SimEvents.event(m, "긴급고용", String.format(
-                        "위급(H %.2f) — 구획 %d 즉시 배정(%d타일 · 오늘 %d명)",
-                        m.getHolding(), best.id, best.tiles.length, assignedToPlot(best.id)));
+                        "위급(H %.2f) — 구획 %d 즉시 배정(%d타일 · 오늘 %d명 · %.0f블록%s)",
+                        m.getHolding(), best.id, best.tiles.length, assignedToPlot(best.id),
+                        Math.sqrt(open != null ? od : ad), open != null ? "" : " · 정원초과"));
             }
         }
     }

@@ -18,7 +18,7 @@ import net.minecraft.util.Mth;
 public final class LandDeedScreen extends Screen {
 
     private static final int PANEL_W = 300;
-    private static final int PANEL_H = 224;
+    private static final int PANEL_H = 236; // 224→236: 마름 줄 추가분
     private static final int HIST_ROWS = 6;
     private static final int ROW_H = 11;
 
@@ -66,6 +66,14 @@ public final class LandDeedScreen extends Screen {
         y += ROW_H;
         String fday = d.foundedDay < 0 ? "일자 미상" : "d" + d.foundedDay;
         line(g, x, y, "창설", d.founderName + " · " + fday, 0xFFEFE3C0);
+        y += ROW_H;
+        // 마름(위임 관리자) — 소작 명단과 별개의 직위라 따로 적는다. 종전 땅 문서에는 이 줄이
+        // 아예 없어서, 누가 이 밭을 관리하는지(관리 효율 E 의 주체)를 확인할 방법이 없었다.
+        String stw = d.stewardName == null || d.stewardName.isEmpty() ? "—" : d.stewardName;
+        if (d.stewardDebt > 0.01) {
+            stw = stw + String.format(" · 착공비 채무 %.0f", d.stewardDebt);
+        }
+        line(g, x, y, "마름", stw, "—".equals(stw) ? 0xFF8A7F63 : 0xFFEFE3C0);
         y += ROW_H + 2;
 
         // ── 규모 막대(부익부): 착공 | 자영 | 소작 ──

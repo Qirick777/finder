@@ -34,6 +34,10 @@ public final class OpenLandDeedPacket {
     public final double totalToOwner;
     public final double totalToTenant;
     public final int harvestCount;
+    /** 현재 마름(위임 관리자) 성명 — 없으면 "—". 소작 명단과 별개의 직위라 따로 싣는다. */
+    public final String stewardName;
+    /** 마름이 영주에게 진 착공비 상환 채무(가문 편입 경로) — 0이면 없음. */
+    public final double stewardDebt;
     public final List<String> tenants;   // 현재 상시 소작 성명
     public final List<Expand> history;   // 최근 확장 이력(최신이 뒤)
 
@@ -41,6 +45,7 @@ public final class OpenLandDeedPacket {
                              String founderName, long foundedDay, int tiles, long tilesByFounder,
                              long tilesByOwner, long tilesByTenant, double account, double totalYield,
                              double totalToOwner, double totalToTenant, int harvestCount,
+                             String stewardName, double stewardDebt,
                              List<String> tenants, List<Expand> history) {
         this.plotId = plotId;
         this.anchorX = anchorX;
@@ -57,6 +62,8 @@ public final class OpenLandDeedPacket {
         this.totalToOwner = totalToOwner;
         this.totalToTenant = totalToTenant;
         this.harvestCount = harvestCount;
+        this.stewardName = stewardName;
+        this.stewardDebt = stewardDebt;
         this.tenants = tenants;
         this.history = history;
     }
@@ -77,6 +84,8 @@ public final class OpenLandDeedPacket {
         buf.writeDouble(p.totalToOwner);
         buf.writeDouble(p.totalToTenant);
         buf.writeVarInt(p.harvestCount);
+        buf.writeUtf(p.stewardName);
+        buf.writeDouble(p.stewardDebt);
         buf.writeVarInt(p.tenants.size());
         for (String t : p.tenants) {
             buf.writeUtf(t);
@@ -106,6 +115,8 @@ public final class OpenLandDeedPacket {
         double tto = buf.readDouble();
         double ttt = buf.readDouble();
         int hc = buf.readVarInt();
+        String stw = buf.readUtf();
+        double stwDebt = buf.readDouble();
         int nt = buf.readVarInt();
         List<String> tenants = new ArrayList<>(nt);
         for (int i = 0; i < nt; i++) {
@@ -117,7 +128,7 @@ public final class OpenLandDeedPacket {
             history.add(new Expand(buf.readLong(), buf.readUtf(), buf.readVarInt(), buf.readBoolean()));
         }
         return new OpenLandDeedPacket(plotId, ax, az, owner, founder, fday, tiles, tByF, tByO, tByT,
-                acct, ty, tto, ttt, hc, tenants, history);
+                acct, ty, tto, ttt, hc, stw, stwDebt, tenants, history);
     }
 
     public static void handle(OpenLandDeedPacket p, Supplier<NetworkEvent.Context> ctx) {

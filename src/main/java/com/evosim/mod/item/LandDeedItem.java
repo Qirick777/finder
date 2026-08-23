@@ -75,6 +75,7 @@ public class LandDeedItem extends Item {
                 new OpenLandDeedPacket(p.id, p.anchor.getX(), p.anchor.getZ(), owner, founder,
                         p.foundedDay, p.tiles.length, p.tilesByFounder, p.tilesByOwner, p.tilesByTenant,
                         p.account, p.totalYield, p.totalToOwner, p.totalToTenant, p.harvestCount,
+                        p.stewardId == 0L ? "—" : nameOf(sl, p.stewardId), p.stewardDebt,
                         tenants, hist));
     }
 

@@ -578,8 +578,8 @@ public final class FarmTicker {
             BlockPos gp = level.getHeightmapPos(
                     net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                     anchor.offset(m[0], 0, m[1] * 2));
-            if (!level.isLoaded(gp) || store.isFarmTile(gp)) {
-                continue;
+            if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(level, gp)) {
+                continue; // 거처(천막·입구·모닥불·정원) 위에는 밭을 깔지 않는다
             }
             var at = level.getBlockState(gp);
             var below = level.getBlockState(gp.below());
@@ -593,6 +593,38 @@ public final class FarmTicker {
         }
         return null;
     }
+
+    /**
+     * 이 좌표가 어떤 거처의 발자국·정원 칸인가 — 밭 타일이 남의 집을 덮는 것을 막는다.
+     * 착공 부지({@link #findFarmSite})는 거처 12블록을 피하지만 <b>그 뒤 확장은 제약이 없어</b>,
+     * 영지가 수백 타일로 커지면 반경 12를 넘어 이웃 거처를 삼킨다(실측: 모닥불 앞·입구에 베리
+     * 덤불이 깔림). 스위트베리는 지나는 개체에 피해를 주고 이동을 늦추므로 단순한 미관 문제가
+     * 아니라 귀가·급식 경로를 망가뜨린다. y 는 지형마다 달라 <b>x·z 열</b>로만 비교한다.
+     */
+    private static boolean onSomeHome(ServerLevel level, BlockPos gp) {
+        var box = new net.minecraft.world.phys.AABB(gp).inflate(SCAN_HOME_RADIUS);
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class, box)) {
+            BlockPos h = m.getHomePos();
+            if (h == null) {
+                continue;
+            }
+            net.minecraft.core.Direction f = m.getHomeFacingDir();
+            for (BlockPos cell : HomeStructure.footprint(h, f)) {
+                if (cell.getX() == gp.getX() && cell.getZ() == gp.getZ()) {
+                    return true;
+                }
+            }
+            for (BlockPos cell : HomeStructure.gardenCells(h, f)) {
+                if (cell.getX() == gp.getX() && cell.getZ() == gp.getZ()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 거처 회피 검사 반경 — 발자국(±3·±4 정원 포함)이 닿는 최대 거리 여유분. */
+    private static final double SCAN_HOME_RADIUS = 12.0;
 
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,

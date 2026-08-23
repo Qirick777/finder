@@ -99,14 +99,20 @@ public final class HomeStructure {
     }
 
     /**
-     * 정원 <b>영역</b> 셀(기본 8칸 우선 + 폴백 16칸: x=±3·±4, z=-3..+2) — 고정 8칸이 지형(모래·
+     * 정원 <b>영역</b> 셀(기본 8칸 우선 + 폴백 16칸: x=±3·±4, z=-4..+1) — 고정 8칸이 지형(모래·
      * 경사·수풀)에 막히면 그 가구는 정원 상한이 지형 복권이 되던 문제의 폴백. 심기 순서는
      * 기본 칸 먼저(모양 유지), 집계·수확·청소는 영역 전체를 같은 목록으로 본다(장부 대칭).
+     *
+     * <p>전방 한계는 <b>z=+1</b>(천막 몸체 줄)이다. 종전 폴백은 z=+2까지 뻗었는데 그 줄은
+     * {@link #footprint} 주석이 명시하듯 <b>입구</b>이고 바로 앞(z=+3)이 모닥불이다. 거기 심으면
+     * 베리 덤불이 드나드는 길을 막는데, 스위트베리는 지나는 개체에 피해를 주고 이동을 늦추므로
+     * 가구원이 귀가·급식 때마다 가시밭을 통과하게 된다(실측 스크린샷: 모닥불 양옆 침범).
+     * 줄어든 앞 줄만큼 뒤로(z=-4) 넓혀 폴백 칸 수(16)는 그대로 유지한다.
      */
     public static List<BlockPos> gardenCells(BlockPos home, Direction facing) {
         List<BlockPos> out = new ArrayList<>(berryTiles(home, facing));
         for (int dx : new int[] {3, -3, 4, -4}) {
-            for (int dz = -3; dz <= 2; dz++) {
+            for (int dz = -4; dz <= 1; dz++) {
                 BlockPos p = world(home, dx, 0, dz, facing);
                 if (!out.contains(p)) {
                     out.add(p);

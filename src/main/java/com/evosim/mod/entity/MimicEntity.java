@@ -1503,10 +1503,14 @@ public class MimicEntity extends PathfinderMob {
             return 0;
         }
         int planted = 0;
+        FarmStore farms = FarmStore.get(sl);
         // 기본 8칸 우선 + 폴백 셀(gardenCells 순서) — 고정 칸이 지형에 막혀도 정원이 완성되게.
         for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
             if (planted >= maxCount) {
                 break;
+            }
+            if (farmClaimsCell(farms, tile)) {
+                continue; // 밭 타일이 덮은 칸은 정원이 아니다(장부 분리)
             }
             if (tryPlantBerry(sl, tile, 3)) { // 1→3: "정착 즉시 정원 8/8 완성이 설계 기준선"
                 // (FoodEconomy.INITIAL_LARDER_BONUS 주석)의 복원 — 미숙 식재는 성숙까지 1~2일을
@@ -1559,7 +1563,11 @@ public class MimicEntity extends PathfinderMob {
             return 0;
         }
         int cleared = 0;
+        FarmStore farms = FarmStore.get(sl);
         for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
+            if (farmClaimsCell(farms, tile)) {
+                continue; // 밭 작물은 정원 청소 대상이 아니다(남의 원장 훼손 금지)
+            }
             for (int dy = 3; dy >= -3; dy--) {
                 BlockPos p = tile.offset(0, dy, 0);
                 if (sl.getBlockState(p).is(Blocks.SWEET_BERRY_BUSH)) {
@@ -1577,7 +1585,11 @@ public class MimicEntity extends PathfinderMob {
             return 0;
         }
         int c = 0;
+        FarmStore farms = FarmStore.get(sl);
         for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
+            if (farmClaimsCell(farms, tile)) {
+                continue; // 밭 타일의 작물을 정원으로 세지 않는다(정원 9/8 원인)
+            }
             for (int dy = 3; dy >= -3; dy--) {
                 if (sl.getBlockState(tile.offset(0, dy, 0)).is(Blocks.SWEET_BERRY_BUSH)) {
                     c++;
@@ -1586,6 +1598,22 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         return c;
+    }
+
+    /**
+     * 이 정원 칸의 기둥(dy +3..-3)에 밭 타일이 있는가 — 있으면 그 칸은 정원이 아니다.
+     * {@link GardenTicker}는 성장 계산에서 이미 밭 타일을 제외하는데(이중 성장 금지) 집계·식재·
+     * 청소에는 그 검사가 빠져 있었다. 밭이 정원 칸을 덮으면 <b>정원 9/8</b>처럼 상한을 넘겨 세고,
+     * 카운트가 먼저 상한에 닿아 그 가구는 실제 정원을 끝내 못 채운다(표시가 아니라 회계 결함).
+     * 밭 타일 y는 지형 높이맵, 베리는 지면 위라 1 어긋날 수 있어 <b>기둥 전체</b>로 본다.
+     */
+    private static boolean farmClaimsCell(FarmStore farms, BlockPos tile) {
+        for (int dy = 3; dy >= -3; dy--) {
+            if (farms.isFarmTile(tile.offset(0, dy, 0))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── /evosim berry 실연(實演): 아무것도 미리 깔지 않고, 심기→성장→수확을 실시간으로 보여준다 ──

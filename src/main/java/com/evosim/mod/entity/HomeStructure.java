@@ -122,6 +122,21 @@ public final class HomeStructure {
         return out;
     }
 
+    /**
+     * <b>구(舊) 정원 범위에만 있던 칸</b> — 폴백 z 범위를 −3..+2 에서 −4..+1 로 당기기 전에
+     * 심겼을 수 있는 자리(dx ±3·±4, z=+2 = 입구 줄). 그 커밋 이전에 만들어진 월드에는 이 칸에
+     * 덤불이 남아 있는데, 새 {@link #gardenCells} 가 스캔하지 않으므로 <b>영영 수확되지도
+     * 집계되지도 청소되지도 않는다</b> — 입구를 막은 채 굳어버린 고아 덤불이다. 정비 스윕이
+     * 이 목록만 보고 걷어낸다(밭 타일은 별도 경로가 처리하므로 여기선 제외 판단을 호출부가 한다).
+     */
+    public static List<BlockPos> legacyGardenCells(BlockPos home, Direction facing) {
+        List<BlockPos> out = new ArrayList<>();
+        for (int dx : new int[] {3, -3, 4, -4}) {
+            out.add(world(home, dx, 0, 2, facing));
+        }
+        return out;
+    }
+
     /** 로컬(dx,dy,dz, +z=전방)을 facing 회전해 월드 좌표로. 좌우 대칭이라 right 부호는 무관. */
     private static BlockPos world(BlockPos home, int dx, int dy, int dz, Direction facing) {
         Vec3i front = facing.getNormal();

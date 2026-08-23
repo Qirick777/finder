@@ -1602,6 +1602,32 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
+     * 구 정원 범위(입구 줄 z=+2)에 남은 고아 덤불을 걷어낸다 — <b>기존 월드 자가 치유</b>.
+     *
+     * <p>폴백 z 범위를 −3..+2 에서 −4..+1 로 당긴 뒤로 그 줄은 {@link HomeStructure#gardenCells}
+     * 에 없다. 그래서 이전 빌드로 생성된 월드에 남은 덤불은 수확({@code ripeHomeBerry})·
+     * 집계({@code countBerries})·청소({@code debugClearBerries}) 어디에도 걸리지 않는다 —
+     * 아무도 손대지 않는 채 입구를 막고, 스위트베리라 드나드는 가구원에게 피해를 준다.
+     * 밭 타일은 {@link FarmTicker} 의 정비가 따로 처리하므로 여기서는 건드리지 않는다.
+     */
+    private void sweepLegacyGarden(ServerLevel sl) {
+        FarmStore farms = FarmStore.get(sl);
+        for (BlockPos tile : HomeStructure.legacyGardenCells(homePos, getHomeFacingDir())) {
+            if (farmClaimsCell(farms, tile)) {
+                continue; // 밭 타일 — 남의 원장이다
+            }
+            for (int dy = 3; dy >= -3; dy--) {
+                BlockPos p = tile.offset(0, dy, 0);
+                if (sl.getBlockState(p).is(Blocks.SWEET_BERRY_BUSH)) {
+                    sl.setBlockAndUpdate(p, Blocks.AIR.defaultBlockState());
+                    SimEvents.note(sl, "정원정비", String.format(
+                            "@%d,%d 입구 고아 덤불 제거(구 정원 범위)", p.getX(), p.getZ()));
+                }
+            }
+        }
+    }
+
+    /**
      * 이 정원 칸의 기둥(dy +3..-3)에 밭 타일이 있는가 — 있으면 그 칸은 정원이 아니다.
      * {@link GardenTicker}는 성장 계산에서 이미 밭 타일을 제외하는데(이중 성장 금지) 집계·식재·
      * 청소에는 그 검사가 빠져 있었다. 밭이 정원 칸을 덮으면 <b>정원 9/8</b>처럼 상한을 넘겨 세고,
@@ -2411,6 +2437,7 @@ public class MimicEntity extends PathfinderMob {
         // 생존 기반(정원)부터 완성한다. 부트스트랩 8(=상한)이라 게이트는 생계 유보(need)+비용뿐 —
         // 출산 게이트보다 항상 낮아 순위 역전(베리 13 > 출산 12로 2그루 동결되던 관측)이 사라진다.
         if (homePos != null) {
+            sweepLegacyGarden(sl); // 구 정원 범위(입구 줄)에 굳은 고아 덤불 걷어내기 — 기존 월드 치유
             int bushCount = countBerries(sl);
             double reproReserve = FoodEconomy.BIRTH_COST + adults + 1; // 상한 도달 후 잔여분에만 의미
             double costMult = BerryEconomy.costMult(

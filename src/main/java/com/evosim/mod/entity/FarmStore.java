@@ -371,17 +371,55 @@ public class FarmStore extends SavedData {
      */
     public double plotEfficiency(ServerLevel level, Plot p) {
         MimicEntity ownerEnt = findEntity(level, p.ownerId);
+        int worked = workedTiles(level, p);
         if (p.stewardId != 0L) {
             MimicEntity stw = findEntity(level, p.stewardId);
             double stewardE = stw != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                    stw.getIndividual(), p.tiles.length) : 0.0;
+                    stw.getIndividual(), worked) : 0.0;
             double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                    ownerEnt.getIndividual(), unstewardedTiles(p.ownerId) + p.tiles.length) : 0.0;
+                    ownerEnt.getIndividual(), workedUnstewarded(level, p.ownerId) + worked) : 0.0;
             double e = Math.max(stewardE, ownerFloor);
             return e > 0.0 ? e : 1.0; // 양쪽 미로드 — 무penalty 폴백
         }
         return ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                ownerEnt.getIndividual(), unstewardedTiles(p.ownerId)) : 1.0;
+                ownerEnt.getIndividual(), workedUnstewarded(level, p.ownerId)) : 1.0;
+    }
+
+    /** 이 구획에 배정된 상시 소작 수 — 실경작 타일 산정 입력. */
+    private int tenantsOn(ServerLevel level, long plotId) {
+        int n = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() == plotId)) {
+            n++;
+        }
+        return n;
+    }
+
+    /**
+     * 실제로 <b>경작되는</b> 타일 = min(등록 타일, 하루 수확 용량 합). E 의 분모를 소유 타일에서
+     * 이 값으로 바꾼 이유: 아무도 손대지 않는 땅은 <b>관리 부담이 아니다</b>. 실측(r2)에서 최대
+     * 지주가 447타일을 쥐었는데 실제로 수확되는 건 160타일(지주 8 + 소작 19×8)뿐이었고, 나머지
+     * 287타일까지 분모에 넣은 탓에 E=(133/447)²=0.088로 지주 수입이 소작보다 낮아지는 역전이
+     * 났다. 놀고 있는 땅은 이미 개간비(타일당 1.0)를 헛되이 쓴 것으로 벌을 받으므로, 관리 감쇠까지
+     * 이중으로 물릴 이유가 없다. 실경작 기준이면 E=(133/160)²=0.69로 회복된다.
+     * 규칙5(자산 무한 누적) 정합: 소작이 늘면 실경작 타일도 늘어 E가 내려가지만, 마름을 더 두면
+     * 구획별로 마름 용량이 적용돼(max(마름E, 지주E)) 캡을 넘는다 — <b>조직을 키우면 무한히 커진다</b>는
+     * 봉건 서사가 그대로 엔진이 된다. 죽어 있던 마름 제도가 여기서 실제 기능을 얻는다.
+     */
+    private int workedTiles(ServerLevel level, Plot p) {
+        int labor = com.evosim.core.FarmEconomy.C_BASE * (1 + tenantsOn(level, p.id));
+        return Math.min(p.tiles.length, labor);
+    }
+
+    /** 무마름 구획들의 실경작 타일 합 — 지주가 직접 지는 관리 부담(위임분 제외). */
+    private int workedUnstewarded(ServerLevel level, long ownerId) {
+        int n = 0;
+        for (Plot p : plots.values()) {
+            if (p.ownerId == ownerId && p.stewardId == 0L) {
+                n += workedTiles(level, p);
+            }
+        }
+        return n;
     }
 
     private MimicEntity bestCandidate(ServerLevel level,

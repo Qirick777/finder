@@ -2436,14 +2436,7 @@ public class MimicEntity extends PathfinderMob {
         // 노년 가장은 번식만 제외(청년기=번식기 설계) — 가장 포지션·급식 순서·동원 기준은 유지.
         if (homePos != null && father != null && father.getIndividual() != null
                 && father.getStage() == LifeStage.ADULT) {
-            MimicEntity mother = null;
-            for (MimicEntity w : ordered) {
-                if (w.isFemale() && w.getStage() == LifeStage.ADULT && w.getIndividual() != null
-                        && w.spouseId == father.getIndividual().id()
-                        && (mother == null || w.lastBirthTick < mother.lastBirthTick)) {
-                    mother = w;
-                }
-            }
+            MimicEntity mother = nextMother(ordered, father);
             if (mother != null && mother.getIndividual() != null) {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
                         - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출
@@ -2852,15 +2845,10 @@ public class MimicEntity extends PathfinderMob {
                 father = m; // 가장 기준 — familyTick 의 동원·정원 투자 기준과 동일
             }
         }
-        if (father != null) {
-            long fid = father.getIndividual().id();
-            for (MimicEntity m : fam) {
-                if (m.isFemale() && m.getIndividual() != null && m.spouseId == fid) {
-                    mother = m;
-                    break;
-                }
-            }
-        }
+        // 판정과 같은 함수로 어미를 고른다 — 종전 렌즈는 "명단에서 처음 발견된 아내"를 잡아,
+        // 일부다처에서 실제 출산 차례(상한 미달 · 최고참)와 다른 아내의 쿨다운을 표시했다.
+        mother = nextMother(fam, father);
+        boolean allMothersDone = mother == null && father != null && hasWifeIn(fam, father);
         double larder = homePos == null ? -1.0 : LarderStore.get(sl).get(homePos);
         s.larder = (float) larder;
         int bushes = homePos == null ? 0 : countBerries(sl);
@@ -2899,6 +2887,9 @@ public class MimicEntity extends PathfinderMob {
                 long cdTicks = (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
                 s.reproCooldown = mother.childrenBorn == 0 ? 0.0F
                         : (float) Math.max(0.0, (cdTicks - since) / 24000.0);
+            } else if (allMothersDone) {
+                s.reproNeed = -1; // 아내 전원이 출산 상한 도달 — 이 가구의 번식은 끝
+                s.reproLack = -1;
             } else {
                 s.reproNeed = -2; // 부부 아님 — 번식 판정 자체가 없음
                 s.reproLack = -2;
@@ -3043,6 +3034,42 @@ public class MimicEntity extends PathfinderMob {
      * 아이의 <b>친어미</b> — 가구 명단에서 부모 링크(PA/PB)와 id가 일치하는 성년·노년 여성.
      * 성별·나이·명단 순서로 추측하지 않는다(성년 딸/다른 부인 오인 방지). 없으면 null.
      */
+    /**
+     * 이번 출산 차례의 어미 — 아버지와 실제 혼인했고 <b>아직 출산 상한에 닿지 않은</b> 아내 중
+     * 출산이 가장 오래된 쪽(일부다처 교대 출산). 없으면 null(가구 출산 종료).
+     *
+     * <p>상한 도달자를 <b>후보에서 빼는 것</b>이 핵심이다. 종전에는 자격을 보지 않고 최고참
+     * 아내를 먼저 고른 뒤에 상한을 검사해서, 상한에 닿은 아내가 선택 슬롯을 영구히 차지했다.
+     * 그녀는 다시 출산하지 않으니 lastBirthTick 이 갱신되지 않고, 따라서 영원히 최고참으로 남아
+     * 매 틱 선택되고 매 틱 차단된다 — <b>다른 아내가 낳을 수 있어도 가구 출산이 통째로 멈춘다.</b>
+     * 교대 출산이라 이 상태는 반드시 도달한다(A·B 교대 → A가 상한 → B가 한 번 더 → A 영구 최고참).
+     * 상한은 개체별인데 결과는 공유처럼 보이던 원인이다.
+     *
+     * <p>쿨다운은 여기서 거르지 않아도 된다 — 최고참(가장 오래 안 낳은 아내)이 쿨다운 중이면
+     * 더 최근에 낳은 아내들은 당연히 쿨다운 중이므로, 호출부의 단일 쿨다운 검사로 충분하다.
+     */
+    private static MimicEntity nextMother(List<MimicEntity> fam, MimicEntity father) {
+        if (father == null || father.getIndividual() == null) {
+            return null;
+        }
+        long fid = father.getIndividual().id();
+        MimicEntity best = null;
+        for (MimicEntity w : fam) {
+            if (!w.isFemale() || w.getStage() != LifeStage.ADULT || w.getIndividual() == null
+                    || w.spouseId != fid) {
+                continue;
+            }
+            if (w.childrenBorn >= Reproduction.birthLimit(
+                    w.getIndividual(), father.getIndividual())) {
+                continue; // 상한 도달 — 다른 아내의 차례를 막지 않는다
+            }
+            if (best == null || w.lastBirthTick < best.lastBirthTick) {
+                best = w;
+            }
+        }
+        return best;
+    }
+
     private static MimicEntity motherIn(List<MimicEntity> fam, MimicEntity child) {
         if (child.getIndividual() == null) {
             return null;

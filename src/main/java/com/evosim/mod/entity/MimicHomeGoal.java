@@ -38,8 +38,16 @@ public class MimicHomeGoal extends Goal {
         if (ph == Schedule.Phase.NIGHT) {
             return !mob.isCritical(); // 밤 대기 점유(배회 왕복 방지) — 단 위급이면 R6 채집(6)에 양보
         }
+        // 취침 구간도 <b>같은 예외</b>를 쓴다. 종전에는 NIGHT 에만 위급 양보가 있고 SLEEP 에는
+        // 없었는데, SLEEP 은 tod 14000~기상으로 하루의 40%가 넘는 가장 긴 구간이다. 이 goal 은
+        // 우선순위 4라 밭일(6)·채집(7)보다 먼저 MOVE 를 가져가므로, 위급한 개체가 그 긴 밤 내내
+        // 거처로 끌려가 굶어 죽었다(실측: 위기 상태에서 밤에 밭으로 못 감). 게다가 3블록 경계에서
+        // 왕복이 생긴다 — 3블록 밖이면 이 goal 이 집으로 끌고, 안으로 들어오면 해제되어 밭일 goal 이
+        // 12블록 밖 밭으로 출발시키고, 다시 3블록을 벗어나면 되끌린다. 밤새 제자리 왕복이다.
+        // 저장고에 밥이 있으면 우선순위 3인 MimicReturnGoal 이 먼저 데려가므로 양보해도 안전하다.
         boolean homeTime = ph == null || ph == Schedule.Phase.SLEEP;
-        return homeTime && mob.blockPosition().distSqr(home) > 9.0; // 3블록 밖이면 귀환
+        return homeTime && !mob.isCritical()
+                && mob.blockPosition().distSqr(home) > 9.0; // 3블록 밖이면 귀환
     }
 
     @Override
@@ -56,9 +64,10 @@ public class MimicHomeGoal extends Goal {
             return !mob.isCritical(); // 밤 내내 자리 지킴 — 위급 전이 시 즉시 양보(R6)
         }
         // 취침 구간은 종전대로 2블록 안에서 물러남 — 이 goal(4)이 계속 쥐면 우선순위가 낮은
-        // 취침 goal(5)이 영영 못 켜진다(자리 지킴을 밤에만 한정하는 이유).
+        // 취침 goal(5)이 영영 못 켜진다(자리 지킴을 밤에만 한정하는 이유). 위급 양보는 canUse
+        // 와 동일 — 진행 중에 위급으로 전이해도 즉시 손을 떼야 밭일·채집이 인수할 수 있다.
         boolean homeTime = ph == null || ph == Schedule.Phase.SLEEP;
-        return homeTime && mob.blockPosition().distSqr(home) > 4.0;
+        return homeTime && !mob.isCritical() && mob.blockPosition().distSqr(home) > 4.0;
     }
 
     @Override

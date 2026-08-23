@@ -594,18 +594,52 @@ public final class FarmTicker {
             java.util.List<MimicEntity> adults, long ownerId) {
         long newest = store.newestOwnedPlot(ownerId);
         FarmStore.Plot np = store.get(newest);
-        if (np == null) {
-            return false;
-        }
         int permTenants = 0;
         for (MimicEntity t : adults) {
             if (t.getTenantFarm() == newest) {
                 permTenants++;
             }
         }
-        boolean sizeMature = np.tiles.length >= com.evosim.core.FarmEconomy.MATURE_TILES
-                && permTenants >= 1;
-        return sizeMature || np.blockedDays >= 1; // 막힘 성숙 2→1(2배속 — 대기 반감)
+        return nextFarmBlock(np, permTenants).isEmpty();
+    }
+
+    /**
+     * 다음 밭 자격의 <b>미충족 사유</b>(빈 문자열이면 자격 있음) — 판정({@link #nextFarmEligible})과
+     * 렌즈 표시가 같은 함수를 보게 하는 단일 출처.
+     *
+     * <p>검사봉의 "개간" 게이지는 자금 문턱(착공비 + 예비)만 보여 줬는데, 실제 착공은 그 위에
+     * 이 성숙 트리거를 하나 더 요구한다. 그래서 저장고 40 · 최신 밭 21타일인 지주에게 "개간
+     * 충족 · 동기✓"라고 표시하면서도 착공하지 않는 상태가 나온다(실측 스크린샷) — 번식 게이지가
+     * 쿨다운을 감춰 "충족인데 왜 안 낳지"가 되던 것과 같은 종류의 표시-판정 비대칭이다.
+     */
+    static String nextFarmBlock(FarmStore.Plot newestPlot, int permTenants) {
+        if (newestPlot == null) {
+            return "밭 없음";
+        }
+        if (newestPlot.blockedDays >= 1) {
+            return ""; // 공간 포화 — 막힌 밭도 다음 밭을 연다(교착 방지). 성숙 2→1(2배속)
+        }
+        int tiles = newestPlot.tiles.length;
+        if (tiles < com.evosim.core.FarmEconomy.MATURE_TILES) {
+            return String.format("성숙 %d/%d타일", tiles, com.evosim.core.FarmEconomy.MATURE_TILES);
+        }
+        if (permTenants < 1) {
+            return "상시 소작 필요";
+        }
+        return "";
+    }
+
+    /** 렌즈용 — 이 주인의 다음 밭 자격 미충족 사유(빈 문자열이면 자격 있음). */
+    public static String nextFarmBlock(ServerLevel level, long ownerId) {
+        FarmStore store = FarmStore.get(level);
+        FarmStore.Plot np = store.get(store.newestOwnedPlot(ownerId));
+        if (np == null) {
+            return "밭 없음";
+        }
+        final long pid = np.id;
+        int permTenants = level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getTenantFarm() == pid).size();
+        return nextFarmBlock(np, permTenants);
     }
 
     private static BlockPos adaptiveSpot(ServerLevel level, FarmStore store, BlockPos anchor,

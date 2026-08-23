@@ -263,7 +263,8 @@ public final class ScanHudOverlay implements IGuiOverlay {
                 g.drawString(font, mark, tx + innerW - font.width(mark),
                         bodyYBase + fy - LINE + 1, color(bodyAlpha, s.farmMotive ? 0x9FE7A8 : 0x8FA0AB), true);
             });
-            gy = gauge(out, g, font, tx, gy, innerW, "개간", s.farmNeed, s.farmLack, s.larder, false);
+            gy = gauge(out, g, font, tx, gy, innerW, "개간", s.farmNeed, s.farmLack, s.larder,
+                        false, 0.0F, s.farmGate);
             h[0] = gy;
         } else if (mode == ScannerMode.LAND.ordinal()) {
             if (s.landSummary == null || s.landSummary.isEmpty()) {
@@ -294,7 +295,13 @@ public final class ScanHudOverlay implements IGuiOverlay {
     /** 문턱 게이지 한 줄 — 진행 fill(저장고/필요) + "현재/필요" 라벨. 센티널 -1=완료, -2=해당없음. */
     private int gauge(List<Runnable> out, GuiGraphics g, Font font, int tx, int y, int innerW,
                       String label, float need, float lack, float larder, boolean half) {
-        return gauge(out, g, font, tx, y, innerW, label, need, lack, larder, half, 0.0F);
+        return gauge(out, g, font, tx, y, innerW, label, need, lack, larder, half, 0.0F, "");
+    }
+
+    private int gauge(List<Runnable> out, GuiGraphics g, Font font, int tx, int y, int innerW,
+                      String label, float need, float lack, float larder, boolean half,
+                      float cooldown) {
+        return gauge(out, g, font, tx, y, innerW, label, need, lack, larder, half, cooldown, "");
     }
 
     /**
@@ -303,7 +310,7 @@ public final class ScanHudOverlay implements IGuiOverlay {
      */
     private int gauge(List<Runnable> out, GuiGraphics g, Font font, int tx, int y, int innerW,
                       String label, float need, float lack, float larder, boolean half,
-                      float cooldown) {
+                      float cooldown, String gate) {
         final int yy = y;
         out.add(() -> {
             int by = bodyYBase + yy;
@@ -320,11 +327,15 @@ public final class ScanHudOverlay implements IGuiOverlay {
             }
             float frac = need <= 0 ? 1 : Mth.clamp(Math.max(0, larder) / need, 0.0F, 1.0F);
             boolean met = lack <= 0.0F;
-            boolean waiting = met && cooldown > 0.01F; // 식량은 됐으나 시간 게이트가 남음
+            // 자금이 됐어도 남은 비(非)자금 게이트가 있으면 "충족" 대신 그 사유를 보여준다
+            // ("충족인데 왜 안 하지" 혼선 제거) — 번식은 쿨다운, 개간은 성숙 트리거.
+            boolean blocked = met && gate != null && !gate.isEmpty();
+            boolean waiting = met && (cooldown > 0.01F || blocked);
             bar(g, bx, by + 1, bw, 6, frac,
                     waiting ? 0x6FA8DC : (met ? 0x53C46A : 0xD8A84A), bodyAlpha);
-            String t = waiting ? String.format("대기 %.1f일", cooldown)
-                    : (met ? "충족" : String.format("%.1f/%.1f", Math.max(0, larder), need));
+            String t = blocked ? gate
+                    : (waiting ? String.format("대기 %.1f일", cooldown)
+                    : (met ? "충족" : String.format("%.1f/%.1f", Math.max(0, larder), need)));
             int col = waiting ? 0xAECBF0 : (met ? 0x9FE7A8 : 0xD8C89A);
             g.drawString(font, t, tx + 26 + bw + 4, by, color(bodyAlpha, col), true);
         });

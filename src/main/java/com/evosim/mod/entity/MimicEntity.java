@@ -2926,6 +2926,10 @@ public class MimicEntity extends PathfinderMob {
         s.farmLack = homePos == null ? -2
                 : (float) Math.max(0.0, farmNeed - Math.max(0.0, larder));
         s.farmMotive = individual != null && !satisfiedToday && !Satisfaction.neverExpands(individual);
+        // 자금 문턱 위의 성숙 트리거(P6) — 2호 밭부터는 최신 밭이 24타일 + 상시 소작 ≥1 이어야
+        // 착공한다. 이 줄이 없으면 "개간 충족 · 동기✓"인데 착공하지 않는 상태가 설명되지 않는다.
+        s.farmGate = individual == null || owned == 0 ? ""
+                : FarmTicker.nextFarmBlock(sl, individual.id());
         return s;
     }
 

@@ -70,6 +70,8 @@ public final class ScanSnapshot {
     public float farmNeed;
     public float farmLack;
     public boolean farmMotive;   // 개간 동기(불만족 ∧ 무욕 아님)
+    /** 자금은 됐으나 성숙 트리거(최신 밭 24타일 + 상시 소작 ≥1)가 남았을 때의 사유. 빈 문자열 = 없음. */
+    public String farmGate = "";
 
     public void encode(FriendlyByteBuf buf) {
         buf.writeVarInt(entityId);
@@ -114,6 +116,7 @@ public final class ScanSnapshot {
         buf.writeUtf(name); // 성명 — 신규 필드는 맨 끝(encode/decode 순서 불변식)
         buf.writeUtf(tenantInfo);
         buf.writeUtf(landSummary);
+        buf.writeUtf(farmGate);
     }
 
     public static ScanSnapshot decode(FriendlyByteBuf buf) {
@@ -160,6 +163,7 @@ public final class ScanSnapshot {
         s.name = buf.readUtf();
         s.tenantInfo = buf.readUtf();
         s.landSummary = buf.readUtf();
+        s.farmGate = buf.readUtf();
         return s;
     }
 }

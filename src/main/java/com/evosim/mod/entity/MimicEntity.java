@@ -423,17 +423,18 @@ public class MimicEntity extends PathfinderMob {
      * 이 부지에 천막을 지으면 밭을 깔고 앉는가 — 신축 부지 검증(A-1). 천막 발자국·모닥불·정원
      * 셀의 x/z 열이 등록된 밭 타일과 겹치면 참. 겹친 건축은 타일 블록을 파괴해 영구 수확불능
      * 인데 원장엔 남아 유령 고용 슬롯을 게시하던 이중 결함(실측: 배정받고 수확 0)의 예방.
+     *
+     * <p>종전에는 {@link HomeStructure#plan}(벽·기둥)·모닥불·정원만 봤는데, 그 세 목록 어디에도
+     * <b>입구 칸(0,+2)</b>이 없다 — 벽은 z=-2..+1, 모닥불은 z=+3이다. 그래서 문간에 밭 타일이
+     * 있는 자리도 "깨끗한 부지"로 통과했고, 새 가구는 제 문 앞에 남의 베리 덤불을 두고 살았다.
+     * {@link HomeStructure#footprint}(dx±3, dz -2..+3)는 그 칸을 포함하므로 plan 대신 쓴다.
      */
     public static boolean homeSiteOnFarm(ServerLevel sl, BlockPos home, Direction facing) {
         FarmStore fs = FarmStore.get(sl);
-        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
-            if (fs.isFarmColumn(p.pos().getX(), p.pos().getZ())) {
+        for (BlockPos p : HomeStructure.footprint(home, facing)) { // 벽·입구·모닥불·옆 정원 전부
+            if (fs.isFarmColumn(p.getX(), p.getZ())) {
                 return true;
             }
-        }
-        BlockPos hearth = HomeStructure.hearthPos(home, facing);
-        if (fs.isFarmColumn(hearth.getX(), hearth.getZ())) {
-            return true;
         }
         for (BlockPos cell : HomeStructure.gardenCells(home, facing)) {
             if (fs.isFarmColumn(cell.getX(), cell.getZ())) {

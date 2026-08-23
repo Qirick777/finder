@@ -1058,6 +1058,63 @@ public final class FarmTicker {
         }
     }
 
+    /**
+     * 위기 긴급 고용(봉건 쌍무의 입구 쪽) — 굶어 죽어가는 무밭 성년을 <b>다음 새벽까지 기다리지
+     * 않고</b> 그 자리에서 배정한다.
+     *
+     * <p>종전 안전망은 {@link #protectTenants}(위기 구휼) 하나뿐인데 그것은 <b>이미 상시 소작인</b>
+     * 사람만 본다. 아직 아무 밭에도 속하지 않은 무밭 성년은 배정이 하루 한 번({@link #assignDawn},
+     * tod 1000~9000)뿐이라 낮에 위기에 빠지면 다음 새벽까지 버텨야 했다 — 들풀이 마른 뒤로는
+     * 그 사이에 죽는다(실측: 소작이 못 되고 아사).
+     *
+     * <p>배정 조건은 새벽 시장과 같은 산술이다: 그 구획의 <b>타일 수가 오늘 배정된 노동
+     * 용량(C_BASE×(1+인원))을 넘으면</b> 아직 걷지 못하는 일감이 남아 있다는 뜻이므로 자리를 준다.
+     * 즉 없는 일자리를 만들어 주는 것이 아니라, 이미 게시돼 있으나 새벽에 못 채운 자리를 즉시
+     * 채우는 것이다. 통근 한계(COMMUTE)와 지주·기존 소작 제외도 시장과 동일하다.
+     *
+     * <p>배정은 {@code ASSIGNED} 에 얹히므로 다음 새벽 시장이 정상 재계산하고, 연속 출근으로
+     * 이어지면 {@code PROMOTE_DAYS} 를 거쳐 상시 소작으로 승격된다 — 응급 처치가 그대로 신분
+     * 상승 경로에 접속한다.
+     */
+    private static void emergencyHire(ServerLevel level) {
+        FarmStore store = FarmStore.get(level);
+        if (store.all().isEmpty()) {
+            return;
+        }
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.isCritical()
+                        && e.getTenantFarm() == 0L
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            if (ASSIGNED.containsKey(m.getId())
+                    || store.ownedCount(m.getIndividual().id()) > 0) {
+                continue; // 이미 오늘 일감이 있거나, 제 밭을 가진 지주
+            }
+            FarmStore.Plot best = null;
+            double bd = COMMUTE * COMMUTE;
+            for (FarmStore.Plot p : store.all().values()) {
+                if (p.ownerId == 0L) {
+                    continue; // 무주지 — 지대 관계가 성립하지 않는다
+                }
+                if (p.tiles.length <= com.evosim.core.FarmEconomy.C_BASE
+                        * (1 + assignedToPlot(p.id))) {
+                    continue; // 오늘 인원으로 다 걷는 밭 — 남는 일감 없음
+                }
+                double d = m.blockPosition().distSqr(p.anchor);
+                if (d < bd) {
+                    bd = d;
+                    best = p;
+                }
+            }
+            if (best != null) {
+                ASSIGNED.put(m.getId(), best.id);
+                com.evosim.mod.log.SimEvents.event(m, "긴급고용", String.format(
+                        "위급(H %.2f) — 구획 %d 즉시 배정(%d타일 · 오늘 %d명)",
+                        m.getHolding(), best.id, best.tiles.length, assignedToPlot(best.id)));
+            }
+        }
+    }
+
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || event.getServer() == null) {
@@ -1071,6 +1128,7 @@ public final class FarmTicker {
         growFarms(level); // 재투자(계정 차감)가 지대 이체보다 먼저 — 같은 밤, 남은 정수만 주인에게(R1)
         settleRent(level);
         protectTenants(level);
+        emergencyHire(level); // 구휼(기존 소작) 다음 — 아직 소작이 아닌 위급자의 입구
         expireVacant(level);
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {

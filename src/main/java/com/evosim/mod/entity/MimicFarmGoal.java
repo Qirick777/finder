@@ -39,7 +39,13 @@ public class MimicFarmGoal extends Goal {
                 || mob.getStage() == LifeStage.INFANT || mob.getStage() == LifeStage.BOY) {
             return false;
         }
-        if (Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) != Schedule.Phase.WORK) {
+        // 위급 배정자는 시간표를 무시한다 — MimicForageGoal 이 위급 때 배회·밤을 무시하고 채집을
+        // 강행하는 것과 같은 예외. 낮에 위급해진 무밭 성년은 FarmTicker.emergencyHire 가 그 자리에서
+        // 배정하는데, 노동 시간이 이미 지났으면 그 배정이 다음 날까지 아무 소용이 없다(그 사이 아사).
+        boolean urgent = mob.isCritical() && FarmTicker.assignedPlot(mob.getId()) != 0L;
+        if (!urgent
+                && Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
+                        != Schedule.Phase.WORK) {
             return idle();
         }
         long today = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
@@ -50,7 +56,7 @@ public class MimicFarmGoal extends Goal {
         if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
             return idle(); // 전담창 소진 — 나머지 시간은 기존 채집/배회
         }
-        if (mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
+        if (!urgent && mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
             // 노년 노동의 단일 상한 = 쿼터(노년 확장 산출 ㉵) — 밭 수확도 addHarvest 로 dayGathered 에
             // 누적되므로 여기서 막지 않으면 용량(6타일=4.5/일)까지 뚫려 자식 지원 누수가 재발한다.
             // 잔여 익은 타일은 부족분 게시 → 소작(2세대 일자리)으로 자연 이관.
@@ -247,6 +253,9 @@ public class MimicFarmGoal extends Goal {
 
     /** 돌봄 구속 중이면 반경(careRadius, 최소 {@link MimicParentingGoal#CARE_SLACK}), 아니면 -1(무제한). */
     private double careRadius() {
+        if (mob.isCritical()) {
+            return -1.0; // 생존이 육아 구속보다 우선 — MimicForageGoal 의 위급 분기와 동일
+        }
         if (!mob.isCaregiverBound() || mob.getHomePos() == null || mob.getIndividual() == null) {
             return -1.0;
         }

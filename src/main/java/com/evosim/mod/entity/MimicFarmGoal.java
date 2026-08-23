@@ -180,11 +180,23 @@ public class MimicFarmGoal extends Goal {
         return null;
     }
 
-    /** 일할 밭(소유 구획 전부 + 오늘 배정된 소작 구획)에서 가장 가까운 익은 타일. */
+    /**
+     * 일할 밭(소유 구획 전부 + 오늘 배정된 소작 구획)에서 가장 가까운 익은 타일.
+     *
+     * <p><b>돌봄 반경 밖 타일은 후보에서 제외</b>한다 — {@link MimicForageGoal}의 boundMode 와 대칭.
+     * 종전엔 이 goal 만 육아 구속을 전혀 보지 않아, 구속된 부모가 12블록 밖 밭 타일을 표적으로
+     * 잡고 밖으로 걸어나가면 우선순위 1인 {@link MimicParentingGoal}(반경 r 이탈 시 발동)이
+     * 즉시 되끌었다. 두 판정이 같은 경계 r 을 히스테리시스 없이 공유하므로 r 에서 무한 진동한다:
+     * 6.6 → 육아 발동(안으로) → 6.4 → 육아 해제 → 밭일 발동(밖으로) → 6.6 … 실측 증상은
+     * "밭일/육아가 1초 간격으로 바뀌며 제자리에서 움찔거림", 결과는 <b>노동 시간 전체 수입 0</b>.
+     * 밭 부지는 거처 12블록을 회피하므로(findFarmSite) 실질적으로 구속자는 밭일을 하지 않게 되며,
+     * 이는 채집 쪽에 이미 있던 사양("집에만 있는 쪽이 정원을 맡는다")과 같은 규칙이다.
+     */
     private BlockPos nearestWorkRipe() {
         if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return null;
         }
+        double careR = careRadius();
         long id = mob.getIndividual().id();
         long sid = mob.getSpouseId();
         long assigned = FarmTicker.assignedPlot(mob.getId());
@@ -217,6 +229,9 @@ public class MimicFarmGoal extends Goal {
                 if (!sl.isLoaded(pos)) {
                     continue;
                 }
+                if (careR >= 0.0 && pos.distSqr(mob.getHomePos()) > careR * careR) {
+                    continue; // 돌봄 반경 밖 — 표적으로 잡으면 육아 goal 과 경계 진동(위 주석)
+                }
                 var st = sl.getBlockState(pos);
                 if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
                     double d = mob.blockPosition().distSqr(pos);
@@ -228,6 +243,15 @@ public class MimicFarmGoal extends Goal {
             }
         }
         return best;
+    }
+
+    /** 돌봄 구속 중이면 반경(careRadius, 최소 {@link MimicParentingGoal#CARE_SLACK}), 아니면 -1(무제한). */
+    private double careRadius() {
+        if (!mob.isCaregiverBound() || mob.getHomePos() == null || mob.getIndividual() == null) {
+            return -1.0;
+        }
+        return Math.max(mob.getIndividual().parentingCare().careRadius(),
+                MimicParentingGoal.CARE_SLACK);
     }
 
     /** 수확한 타일의 익음 타이머 리셋(재성장 기점). */

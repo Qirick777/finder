@@ -1935,10 +1935,14 @@ public final class EvoSimCommand {
                     fail++;
                 }
                 sb.append(String.format(
-                        "%s %-8s 계획%4d 정원%d 흙%d 금%d베리%d 회전상이%d 대칭%s→%s 배치상이%d/8 reach%.1f\n",
+                        "%s %-8s 계획%4d 정원%d 흙%d 금%d베리%d 회전상이%d 대칭%s→%s 배치상이%d/8 "
+                                + "실내%d reach%.1f\n",
                         ok ? "§a✓§r" : "§c✗§r", design, base.plan().size(),
                         base.gardenCells().size(), soilOk, gold, bush, centers.size(),
-                        cNormal, cMirror, prints.size(), base.reach()));
+                        cNormal, cMirror, prints.size(),
+                        HomeBlueprint.of(level, BlockPos.ZERO, design, (byte) 0, false)
+                                .interior().size(),
+                        base.reach()));
             }
         }
         tell(ctx.getSource(), String.format("§e[도면 검증] 통과 %d · 실패 %d§r\n%s", pass, fail, sb));

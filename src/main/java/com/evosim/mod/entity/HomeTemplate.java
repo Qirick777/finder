@@ -351,9 +351,11 @@ public final class HomeTemplate {
         }
         pl.sort(java.util.Comparator.comparingInt(p -> p.rel().getY())); // 낮은 층부터
 
-        // 실내 자리 — 바닥재를 딛고(아래가 고체) 머리 위가 트인(위가 공기) y=0 칸.
-        // 앵커 칸도 포함한다(금블록은 배치 시 공기가 되고, 원래 개체가 서는 자리다).
-        List<BlockPos> inside = new ArrayList<>();
+        // 실내 자리 — 바닥재를 딛고(아래가 고체) 머리 위가 트인(위가 공기) y=0 칸 중,
+        // <b>벽으로 둘러싸인</b> 것만. 둘러싸임 판정이 없으면 주춧돌 층 위(현관·처마 밑)에
+        // 서는 칸까지 실내로 세어, 가구원이 밤에 집 밖에 서 있는데도 "제자리"로 잡힌다.
+        // 실측: 그 판정 없이는 소형 19칸 중 11칸(58%)이 실제로는 바깥이었다.
+        List<BlockPos> stand = new ArrayList<>();
         for (var e : byRel.entrySet()) {
             BlockPos rel = e.getKey();
             if (rel.getY() != 0) {
@@ -365,6 +367,13 @@ public final class HomeTemplate {
             BlockState over = byRel.get(rel.above());
             if (standable && floorBelow != null && !floorBelow.isAir()
                     && (over == null || over.isAir()) && !skip.contains(rel)) {
+                stand.add(rel);
+            }
+        }
+        java.util.Set<Long> outdoors = floodOutside(byRel);
+        List<BlockPos> inside = new ArrayList<>();
+        for (BlockPos rel : stand) {
+            if (!outdoors.contains(colKey(rel))) {
                 inside.add(rel);
             }
         }
@@ -396,6 +405,88 @@ public final class HomeTemplate {
         } catch (java.io.IOException e) {
             throw new IllegalStateException(design + ": 도면을 읽을 수 없다 — " + e.getMessage(), e);
         }
+    }
+
+    /** y=0 평면의 열 키(x·z) — 둘러싸임 판정은 평면 문제다. */
+    private static long colKey(BlockPos rel) {
+        return ((long) rel.getX() << 32) ^ (rel.getZ() & 0xFFFFFFFFL);
+    }
+
+    /**
+     * y=0 평면에서 <b>바깥과 이어진</b> 칸들 — 경계 밖에서 물을 부어 새어 드는 곳을 모은다.
+     *
+     * <p>문은 <b>벽으로 본다</b>. 통과 가능으로 두면 현관을 지나 실내까지 물이 들어가 모든 칸이
+     * 바깥으로 판정되어 구분 자체가 사라진다(실측으로 확인: 8개 도면 전부 실내 0칸).
+     * 여기서 알고 싶은 것은 "드나들 수 있는가"가 아니라 "벽 안인가"이다.
+     *
+     * <p>유리판·울타리는 벽이고, 횃불·랜턴·화분처럼 몸이 지나갈 수 있는 장식은 통로로 본다 —
+     * 장식을 벽으로 잘못 세면 바깥 통로가 막혀 <b>바깥 칸이 실내로 오분류</b>된다.
+     */
+    private static java.util.Set<Long> floodOutside(java.util.Map<BlockPos, BlockState> byRel) {
+        int x0 = Integer.MAX_VALUE;
+        int x1 = Integer.MIN_VALUE;
+        int z0 = Integer.MAX_VALUE;
+        int z1 = Integer.MIN_VALUE;
+        for (BlockPos r : byRel.keySet()) {
+            x0 = Math.min(x0, r.getX());
+            x1 = Math.max(x1, r.getX());
+            z0 = Math.min(z0, r.getZ());
+            z1 = Math.max(z1, r.getZ());
+        }
+        x0--;
+        x1++;
+        z0--;
+        z1++;
+        java.util.Set<Long> open = new java.util.HashSet<>();
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                BlockState st = byRel.get(new BlockPos(x, 0, z));
+                if (st == null || passable(st)) {
+                    open.add(colKey(new BlockPos(x, 0, z)));
+                }
+            }
+        }
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        java.util.ArrayDeque<int[]> q = new java.util.ArrayDeque<>();
+        for (int x = x0; x <= x1; x++) {
+            for (int z : new int[] {z0, z1}) {
+                long k = colKey(new BlockPos(x, 0, z));
+                if (open.contains(k) && seen.add(k)) {
+                    q.add(new int[] {x, z});
+                }
+            }
+        }
+        for (int z = z0; z <= z1; z++) {
+            for (int x : new int[] {x0, x1}) {
+                long k = colKey(new BlockPos(x, 0, z));
+                if (open.contains(k) && seen.add(k)) {
+                    q.add(new int[] {x, z});
+                }
+            }
+        }
+        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        while (!q.isEmpty()) {
+            int[] c = q.poll();
+            for (int[] d : dirs) {
+                int nx = c[0] + d[0];
+                int nz = c[1] + d[1];
+                if (nx < x0 || nx > x1 || nz < z0 || nz > z1) {
+                    continue;
+                }
+                long k = colKey(new BlockPos(nx, 0, nz));
+                if (open.contains(k) && seen.add(k)) {
+                    q.add(new int[] {nx, nz});
+                }
+            }
+        }
+        return seen;
+    }
+
+    /** 몸이 지나갈 수 있는 칸인가 — 둘러싸임 판정 전용(문은 제외: 여기선 벽이다). */
+    private static boolean passable(BlockState st) {
+        return st.isAir() || st.is(Blocks.WHITE_CARPET) || st.is(Blocks.GOLD_BLOCK)
+                || st.is(Blocks.WALL_TORCH) || st.is(Blocks.TORCH) || st.is(Blocks.LANTERN)
+                || st.getBlock() instanceof net.minecraft.world.level.block.FlowerPotBlock;
     }
 
     /**

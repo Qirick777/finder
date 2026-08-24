@@ -89,6 +89,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("hometest").executes(EvoSimCommand::homeTest))
                 .then(Commands.literal("homes").executes(EvoSimCommand::homes))
                 .then(Commands.literal("tierx").executes(EvoSimCommand::tierStage))
+                .then(Commands.literal("homenight").executes(EvoSimCommand::homeNight))
                 .then(Commands.literal("homeshow")
                         .then(Commands.argument("design", StringArgumentType.word())
                                 .executes(ctx -> homeShow(ctx,
@@ -173,7 +174,8 @@ public final class EvoSimCommand {
                                     .status(ctx.getSource().getServer()));
                             return 1;
                         })
-                        .then(Commands.argument("factor", IntegerArgumentType.integer(1, 4))
+                        .then(Commands.argument("factor", IntegerArgumentType.integer(
+                                1, com.evosim.mod.entity.TickAccel.MAX_FACTOR))
                                 .executes(ctx -> {
                                     int f = IntegerArgumentType.getInteger(ctx, "factor");
                                     com.evosim.mod.entity.TickAccel.setFactor(f);
@@ -2129,6 +2131,40 @@ public final class EvoSimCommand {
         return 1;
     }
 
+    /**
+     * 밤에 개체가 <b>집 안에 서는가</b> — 거처 보유 개체별로 앵커까지의 거리를 잰다.
+     *
+     * <p>귀가 goal 이 손을 떼는 반경이 문간과 겹치면 개체가 문에 낀 채 밤을 보낸다. 도면의 문은
+     * 앵커에서 2~5칸이므로, <b>거리 ≥ 2</b>인 개체가 있으면 그 자리가 문간일 가능성이 크다.
+     * 평균이 아니라 <b>최대·분포</b>를 보는 이유: 한 명만 문에 껴도 그 가구는 문이 막힌다.
+     */
+    private static int homeNight(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int[] hist = new int[6]; // 0,1,2,3,4,5+ 칸
+        int n = 0;
+        double worst = 0.0;
+        int sleeping = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getHomePos() != null)) {
+            double d = Math.sqrt(m.blockPosition().distSqr(m.getHomePos()));
+            if (d > 12.0) {
+                continue; // 아직 귀가 중 — 판정 대상 아님
+            }
+            n++;
+            hist[Math.min(5, (int) Math.round(d))]++;
+            worst = Math.max(worst, d);
+            if (m.getPose() == net.minecraft.world.entity.Pose.SLEEPING) {
+                sleeping++;
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[밤 위치] 귀가권 %d명 · 취침 %d명 · 앵커까지 최대 %.1f칸\n"
+                        + "거리별 0칸:%d 1칸:%d 2칸:%d 3칸:%d 4칸:%d 5칸+:%d "
+                        + "(2칸 이상이 문간 후보 — 소형 도면의 문이 앵커에서 2칸)",
+                n, sleeping, worst, hist[0], hist[1], hist[2], hist[3], hist[4], hist[5]));
+        return n;
+    }
+
     /** 정원 6칸의 중심(앵커 상대, 정수 반올림) — 회전·대칭이 먹혔는지 판정하는 관측값. */
     private static String gardenCenter(HomeTemplate t) {
         int sx = 0;
@@ -2209,14 +2245,22 @@ public final class EvoSimCommand {
                 carved++;
             }
         }
-        boolean ok = anchorAir && floorSolid && gardenAir == HomeTemplate.GARDEN_CELLS
+        // 해자 검사 — 발자국 열의 바닥층(앵커−1)이 공기로 뚫렸는가. 도면이 바닥재를 놓지 않는
+        // 처마 밑 여백까지 파내면 건물 둘레가 1칸 꺼져 "땅을 파고 지은" 모습이 된다.
+        int moat = 0;
+        for (BlockPos col : h.footprint()) {
+            if (world.getBlockState(new BlockPos(col.getX(), pos.getY() - 1, col.getZ())).isAir()) {
+                moat++;
+            }
+        }
+        boolean ok = moat == 0 && anchorAir && floorSolid && gardenAir == HomeTemplate.GARDEN_CELLS
                 && gardenSoil == HomeTemplate.GARDEN_CELLS && bushes == 0 && doors >= 2
                 && match == h.plan().size() && carved == h.clear().size();
         tell(ctx.getSource(), String.format(
-                "%s %s 회전%d 대칭%s @%s — 계획%d 일치%d · 파냄%d/%d · 앵커공기%s 바닥%s · "
+                "%s %s 회전%d 대칭%s @%s — 계획%d 일치%d · 파냄%d/%d · 해자%d · 앵커공기%s 바닥%s · "
                         + "정원 공기%d/흙%d · 덤불%d 문%d · reach%.1f%s",
                 ok ? "§a✓§r" : "§c✗§r", design, rot, mirror ? "O" : "X", pos.toShortString(),
-                h.plan().size(), match, carved, h.clear().size(),
+                h.plan().size(), match, carved, h.clear().size(), moat,
                 anchorAir ? "O" : "X", floorSolid ? "O" : "X",
                 gardenAir, gardenSoil, bushes, doors, h.reach(),
                 firstBad == null ? "" : " §c불일치첫칸 " + firstBad));

@@ -1591,7 +1591,20 @@ public class MimicEntity extends PathfinderMob {
     private void flattenSite(ServerLevel sl, HomeBlueprint bp) {
         int target = bp.home().getY() - 1; // 하단이 딛어야 할 지면 레벨
         boolean played = false;
+        // 바닥재가 덮는 열만 고른다. 도면의 점유 열에는 <b>처마 밑 여백</b>이 섞여 있어서
+        // (small1: 62개 중 20개) 발자국 전체를 target 까지 깎으면 건물 둘레가 1칸 파여
+        // 해자가 된다. 그 열들은 지형을 그대로 두어야 "지면 위에 선" 모습이 된다.
+        java.util.Set<Long> floored = new java.util.HashSet<>();
+        for (HomeBlueprint.Placement pp : bp.plan()) {
+            if (pp.pos().getY() == target) {
+                floored.add(net.minecraft.core.BlockPos.asLong(pp.pos().getX(), 0,
+                        pp.pos().getZ()));
+            }
+        }
         for (BlockPos col : bp.footprint()) {
+            if (!floored.contains(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()))) {
+                continue; // 처마 밑 여백 — 손대지 않는다
+            }
             int surface = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
             if (surface < target) {
                 for (int y = Math.max(surface + 1, target - MAX_FLATTEN); y <= target; y++) {
@@ -2077,6 +2090,13 @@ public class MimicEntity extends PathfinderMob {
         if (cur == p.state()) {
             return false; // 이미 도면대로
         }
+        // <b>같은 블록인데 상태만 다르면 우리가 놓은 것이 어긋난 것</b>이므로 다시 놓는다.
+        // 계단·울타리의 shape 는 이웃이 바뀔 때 바닐라가 다시 계산하는데(문 여닫기·덤불 심기 등
+        // UPDATE_KNOWN_SHAPE 없이 도는 경로가 남아 있다), 이 조건이 없으면 어긋난 계단이
+        // "남의 구조물"로 분류되어 영영 고쳐지지 않는다 — 지붕 계단 모양이 뒤틀린 채 굳는다.
+        if (cur.getBlock() == p.state().getBlock()) {
+            return true;
+        }
         return cur.isAir() || isDiggable(cur);
     }
 
@@ -2150,6 +2170,22 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         building = false;
+        // 완공 보수 — 짓는 동안 이웃 갱신으로 어긋난 칸(주로 계단 shape)을 도면대로 되돌린다.
+        // 건축 루프는 '놓을 수 있는 칸'을 한 칸씩 처리하느라 이미 지나간 칸을 다시 보지 않는다.
+        int repaired = 0;
+        for (HomeBlueprint.Placement pp : blueprint(sl).plan()) {
+            if (sl.getBlockState(pp.pos()).getBlock() == pp.state().getBlock()
+                    && sl.getBlockState(pp.pos()) != pp.state()) {
+                sl.setBlock(pp.pos(), pp.state(),
+                        net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                                | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+                repaired++;
+            }
+        }
+        if (repaired > 0) {
+            SimEvents.note(sl, "건축보수", String.format("@%d,%d 도면과 어긋난 %d칸 복원",
+                    homePos.getX(), homePos.getZ(), repaired));
+        }
         // 등기는 착공 때 이미 했다 — 여기선 거주 갱신만(도면·방향은 그대로 둔다).
         HomeStore.get(sl).touch(homePos, homeDesign, homeFacing,
                 individual != null ? individual.id() : 0L, today());

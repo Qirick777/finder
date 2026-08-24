@@ -67,8 +67,15 @@ public class MimicHomeGoal extends Goal {
         // 취침 goal(5)이 영영 못 켜진다(자리 지킴을 밤에만 한정하는 이유). 위급 양보는 canUse
         // 와 동일 — 진행 중에 위급으로 전이해도 즉시 손을 떼야 밭일·채집이 인수할 수 있다.
         boolean homeTime = ph == null || ph == Schedule.Phase.SLEEP;
-        return homeTime && !mob.isCritical() && mob.blockPosition().distSqr(home) > 4.0;
+        return homeTime && !mob.isCritical() && mob.blockPosition().distSqr(home) > ARRIVED_SQR;
     }
+
+    /**
+     * 도착 판정 반경². 종전 4.0(=2블록)은 천막 시절 값이다 — 천막은 앵커가 곧 실내였다.
+     * 스키메틱은 <b>문이 앵커에서 정확히 2블록</b>이라, 2블록에서 손을 떼면 개체가 문간에
+     * 그대로 서서 밤을 보낸다(실측 스크린샷). 앵커 칸까지 들어가야 집 안에 선다.
+     */
+    private static final double ARRIVED_SQR = 2.0;
 
     @Override
     public void tick() {
@@ -76,7 +83,7 @@ public class MimicHomeGoal extends Goal {
         if (home == null) {
             return;
         }
-        if (mob.blockPosition().distSqr(home) > 4.0) {
+        if (mob.blockPosition().distSqr(home) > ARRIVED_SQR) {
             mob.getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 0.9);
         } else if (!mob.getNavigation().isDone()) {
             mob.getNavigation().stop(); // 도착 — 밤 대기(왕복 없음)

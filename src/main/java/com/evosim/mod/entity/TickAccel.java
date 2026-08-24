@@ -26,9 +26,23 @@ public final class TickAccel {
     private TickAccel() {
     }
 
-    /** 배율 설정(1~4). 1 = 가속 해제. */
+    /** 배율 상한 — 예산이 50/상한 ms 로 줄어든다. MSPT 가드가 과부하를 자동으로 되돌린다. */
+    public static final int MAX_FACTOR = 20;
+
+    /**
+     * 배율 설정(1~{@link #MAX_FACTOR}). 1 = 가속 해제.
+     *
+     * <p>상한을 4에서 20으로 올렸다. 근거는 추정이 아니라 실측이다 — 마을 규모의 관측 런에서
+     * ×4일 때 <b>예산 12ms 중 평균 1.0ms</b>만 쓰고 있었다(status 출력). 8~12배가 놀고 있는
+     * 셈이라 상한이 유일한 병목이었고, 게임 하루가 실시간 3분씩 걸려 3일 지속 요건 하나를
+     * 확인하는 데 20분이 들었다. ×20 이면 예산 2.5ms 로, 실측 1.0ms 보다 여전히 넉넉하다.
+     *
+     * <p>안전 근거: 시뮬 로직이 전부 <b>틱 번호 기반</b>이라 배율은 벽시계만 압축한다(시맨틱
+     * 불변). 그리고 아래 가드가 평균 틱이 예산의 80%를 넘으면 그 틱의 가속을 건너뛰므로,
+     * 무거운 구간에서는 알아서 정속으로 수렴한다 — 과하게 잡아도 망가지지 않고 느려질 뿐이다.
+     */
     public static void setFactor(int f) {
-        factor = Math.max(1, Math.min(4, f));
+        factor = Math.max(1, Math.min(MAX_FACTOR, f));
     }
 
     public static int factor() {

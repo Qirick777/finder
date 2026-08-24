@@ -314,7 +314,13 @@ public final class HomeTemplate {
                 far = Math.max(far, Math.sqrt(rel.getX() * rel.getX() + rel.getZ() * rel.getZ()));
             }
             if (e.getValue().isAir()) {
-                carve.add(rel); // 도면이 "여기는 비어 있어야 한다"고 말한 칸
+                // 바닥층(y=−1)보다 아래의 공기 칸은 <b>파지 않는다</b>. 도면의 경계 상자는 처마
+                // 바깥까지 뻗어서 벽이 없는 열에도 y=−1 공기가 들어 있는데, 그걸 그대로 파내면
+                // 건물 둘레에 1칸 깊이 해자가 생긴다("지면 위"가 아니라 "땅을 파고 지은" 모습).
+                // 실측: small1 의 점유 열 62개 중 20개가 바닥층에 블록이 없는 처마 밑 여백이었다.
+                if (rel.getY() >= 0) {
+                    carve.add(rel); // 도면이 "여기는 비어 있어야 한다"고 말한 칸
+                }
                 continue;
             }
             if (skip.contains(rel)) {

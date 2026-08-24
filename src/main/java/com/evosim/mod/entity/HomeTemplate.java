@@ -237,8 +237,9 @@ public final class HomeTemplate {
         BlockState[] states = new BlockState[paletteTag.size()];
         var lookup = BuiltInRegistries.BLOCK.asLookup();
         for (int i = 0; i < paletteTag.size(); i++) {
-            states[i] = NbtUtils.readBlockState(lookup, paletteTag.getCompound(i))
-                    .mirror(mirror).rotate(rotation);
+            states[i] = fixStairMirror(
+                    NbtUtils.readBlockState(lookup, paletteTag.getCompound(i)).mirror(mirror),
+                    mirror).rotate(rotation);
         }
 
         // 좌표 → 블록 색인. 좌표에도 <b>같은</b> 변환(대칭 후 회전, 피벗 원점)을 준다.
@@ -359,6 +360,40 @@ public final class HomeTemplate {
     }
 
     /**
+     * 계단 모서리 모양의 <b>반전 보정</b> — 바닐라가 놓치는 절반을 메운다.
+     *
+     * <p>{@code StairBlock.mirror} 는 {@code FRONT_BACK} 일 때 <b>FACING 축이 X 인 계단만</b>
+     * left↔right 를 맞바꾼다. 북·남향(Z축) 계단은 FACING 이 안 바뀌므로 그대로 통과시키는데,
+     * x 를 뒤집으면 그 계단의 <b>모서리가 향하는 좌우도 뒤집혀야</b> 한다. 그래서 반전 배치에서만
+     * 지붕 모서리 계단이 옛 방향의 모양을 유지한 채 어긋난다.
+     *
+     * <p>실측이 이 진단과 정확히 일치했다: 회전만 건 20배치는 보정 0칸, 반전을 건 20배치는
+     * 20/20 전부 보정 발생(small3 4칸·middle2 4·big2 6·mansion 19). 회전 경로는 무결했다.
+     */
+    private static BlockState fixStairMirror(BlockState st, Mirror mirror) {
+        if (mirror != Mirror.FRONT_BACK
+                || !(st.getBlock() instanceof net.minecraft.world.level.block.StairBlock)
+                || st.getValue(net.minecraft.world.level.block.StairBlock.FACING).getAxis()
+                        != net.minecraft.core.Direction.Axis.Z) {
+            return st;
+        }
+        var shape = st.getValue(net.minecraft.world.level.block.StairBlock.SHAPE);
+        var flipped = switch (shape) {
+            case INNER_LEFT -> net.minecraft.world.level.block.state.properties.StairsShape
+                    .INNER_RIGHT;
+            case INNER_RIGHT -> net.minecraft.world.level.block.state.properties.StairsShape
+                    .INNER_LEFT;
+            case OUTER_LEFT -> net.minecraft.world.level.block.state.properties.StairsShape
+                    .OUTER_RIGHT;
+            case OUTER_RIGHT -> net.minecraft.world.level.block.state.properties.StairsShape
+                    .OUTER_LEFT;
+            default -> shape;
+        };
+        return shape == flipped ? st
+                : st.setValue(net.minecraft.world.level.block.StairBlock.SHAPE, flipped);
+    }
+
+    /**
      * 좌표 변환 — 바닐라 {@code StructureTemplate.transform} 과 같은 식(피벗 원점).
      * <b>대칭을 먼저, 회전을 나중에</b> 적용한다(블록 상태 변환 순서와 동일해야 문·계단이 맞는다).
      */
@@ -376,6 +411,67 @@ public final class HomeTemplate {
         };
     }
 
+    /**
+     * <b>모양 정착</b> — 구조물이 다 선 뒤, 계단·울타리처럼 <b>이웃을 보고 모양이 정해지는</b>
+     * 블록을 바닐라 규칙으로 다시 도출한다. 바뀐 칸 수를 돌려준다.
+     *
+     * <h3>왜 필요한가</h3>
+     * 도면의 계단 {@code shape}(straight / inner_left / inner_right / outer_left / outer_right)는
+     * 저자가 손으로 지을 때 <b>바닐라가 이웃을 보고 계산해 준 값</b>이다. 그런데 우리는 회전·반전
+     * 시 그 값을 좌표 변환 규칙으로 <b>직접 돌려서</b> 넣고, {@code UPDATE_KNOWN_SHAPE} 로
+     * 재계산까지 막는다. 변환이 한 군데라도 어긋나면 지붕 모서리에서 계단이 맞물리지 못하고
+     * 돌아간 채 굳는다 — 게다가 건축 루프는 "같은 블록"이면 끝난 칸으로 보므로 영영 고쳐지지
+     * 않는다. 실측: 8개 도면 중 4개(small2 12칸, small3 4, middle2 4, big2 6, mansion 24)가
+     * 모서리 계단을 쓴다.
+     *
+     * <p>원본 모양이 애초에 바닐라 도출값이므로, <b>완성된 구조물 위에서 다시 도출하면 저자가
+     * 의도한 모양이 그대로 나온다</b>. 변환이 옳았다면 아무것도 바뀌지 않고, 틀렸다면 고쳐진다.
+     *
+     * <p>{@code updateShape} 가 공기를 돌려주는 경우(지지물 상실 판정)는 무시한다 — 구조물을
+     * 스스로 헐어 버리는 것보다 모양이 어긋난 채 두는 편이 낫다.
+     */
+    /** 직전 정착에서 <b>무엇이</b> 어떻게 바뀌었는지 — 원인 추적용(블록 이름 + 바뀐 속성). */
+    public static final java.util.Map<String, Integer> lastSettledDetail =
+            new java.util.TreeMap<>();
+
+    /** 두 상태에서 <b>달라진 속성</b>만 문자열로 — 어떤 성질이 어긋났는지 바로 보이게. */
+    private static String diff(BlockState a, BlockState b) {
+        StringBuilder sb = new StringBuilder();
+        for (var prop : a.getProperties()) {
+            Object va = a.getValue(prop);
+            Object vb = b.getValue(prop);
+            if (!va.equals(vb)) {
+                sb.append(prop.getName()).append(':').append(va).append("→").append(vb).append(' ');
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    public static int settleShapes(ServerLevel level, Iterable<BlockPos> cells) {
+        lastSettledDetail.clear();
+        int changed = 0;
+        for (BlockPos p : cells) {
+            BlockState cur = level.getBlockState(p);
+            if (cur.isAir()) {
+                continue;
+            }
+            BlockState fixed = cur;
+            for (net.minecraft.core.Direction d : net.minecraft.core.Direction.values()) {
+                BlockPos n = p.relative(d);
+                fixed = fixed.updateShape(d, level.getBlockState(n), level, p, n);
+            }
+            if (fixed != cur && !fixed.isAir()) {
+                level.setBlock(p, fixed,
+                        net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                                | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+                changed++;
+                lastSettledDetail.merge(cur.getBlock().getName().getString()
+                        + " " + diff(cur, fixed), 1, Integer::sum);
+            }
+        }
+        return changed;
+    }
+
     /** 실제 배치(검증·연출용) — 앵커 월드 좌표에 계획을 그대로 놓는다. 심는 것은 정원 시스템의 몫. */
     public void place(ServerLevel level, BlockPos anchorWorld) {
         for (BlockPos c : clear) {
@@ -391,5 +487,13 @@ public final class HomeTemplate {
                     net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                             | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
         }
+        List<BlockPos> cells = new ArrayList<>(plan.size());
+        for (Placement p : plan) {
+            cells.add(anchorWorld.offset(p.rel()));
+        }
+        lastSettled = settleShapes(level, cells); // 다 선 뒤에 모서리를 맞춘다
     }
+
+    /** 직전 {@link #place} 가 모양을 고친 칸 수 — 관측용(변환이 옳으면 0). */
+    public static int lastSettled;
 }

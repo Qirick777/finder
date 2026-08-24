@@ -160,11 +160,32 @@ public final class HomeBlueprint {
         }
         int hit = 0;
         for (Placement p : plan) {
-            if (sl.getBlockState(p.pos()) == p.state()) {
+            if (sameIgnoringShape(sl.getBlockState(p.pos()), p.state())) {
                 hit++;
             }
         }
         return (double) hit / plan.size();
+    }
+
+    /**
+     * 두 상태가 <b>모서리 모양을 빼면</b> 같은가.
+     *
+     * <p>계단의 {@code shape} 는 바닐라가 이웃을 보고 도출하는 값이라, 완성된 구조물 위에서
+     * 다시 도출하면(=사용자가 손으로 지었을 때의 모양) 도면에 적힌 값과 달라질 수 있다.
+     * 그 차이는 <b>결함이 아니라 정답</b>이므로 무결성 지표가 실패로 세면 안 된다. 반대로 블록
+     * 종류가 다르거나 방향·반쪽이 다르면 그건 진짜 어긋난 것이라 그대로 잡힌다.
+     */
+    public static boolean sameIgnoringShape(BlockState a, BlockState b) {
+        if (a == b) {
+            return true;
+        }
+        if (a.getBlock() != b.getBlock()
+                || !(a.getBlock() instanceof net.minecraft.world.level.block.StairBlock)) {
+            return false;
+        }
+        var f = net.minecraft.world.level.block.StairBlock.FACING;
+        var h = net.minecraft.world.level.block.StairBlock.HALF;
+        return a.getValue(f) == b.getValue(f) && a.getValue(h) == b.getValue(h);
     }
 
     public BlockPos home() {

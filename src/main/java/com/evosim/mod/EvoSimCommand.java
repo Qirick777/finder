@@ -2261,7 +2261,7 @@ public final class EvoSimCommand {
         for (var p : h.plan()) {
             var wp = pos.offset(p.rel());
             var ws = world.getBlockState(wp);
-            if (ws == p.state()) {
+            if (HomeBlueprint.sameIgnoringShape(ws, p.state())) {
                 match++;
             } else if (firstBad == null) {
                 firstBad = p.rel().toShortString() + " 계획="
@@ -2324,12 +2324,16 @@ public final class EvoSimCommand {
                 && match == h.plan().size() && carved == h.clear().size();
         tell(ctx.getSource(), String.format(
                 "%s %s 회전%d 대칭%s @%s — <b>올라섬%+d</b>(기대 +1) · 계획%d 일치%d · "
-                        + "해자%d 정지%d · 앵커공기%s 바닥%s · 정원 공기%d/흙%d · 덤불%d 문%d · reach%.1f%s",
+                        + "해자%d 정지%d · <b>모양보정%d</b> · 앵커공기%s 바닥%s · "
+                        + "정원 공기%d/흙%d · 덤불%d 문%d · reach%.1f%s",
                 ok ? "§a✓§r" : "§c✗§r", design, rot, mirror ? "O" : "X", pos.toShortString(),
-                lift, h.plan().size(), match, moat, sunk,
+                lift, h.plan().size(), match, moat, sunk, HomeTemplate.lastSettled,
                 anchorAir ? "O" : "X", floorSolid ? "O" : "X",
                 gardenAir, gardenSoil, bushes, doors, h.reach(),
                 firstBad == null ? "" : " §c불일치첫칸 " + firstBad));
+        if (!HomeTemplate.lastSettledDetail.isEmpty()) {
+            tell(ctx.getSource(), "  모양보정 내역: " + HomeTemplate.lastSettledDetail);
+        }
         return ok ? 1 : 0;
     }
 

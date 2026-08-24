@@ -2120,7 +2120,9 @@ public class MimicEntity extends PathfinderMob {
         // UPDATE_KNOWN_SHAPE 없이 도는 경로가 남아 있다), 이 조건이 없으면 어긋난 계단이
         // "남의 구조물"로 분류되어 영영 고쳐지지 않는다 — 지붕 계단 모양이 뒤틀린 채 굳는다.
         if (cur.getBlock() == p.state().getBlock()) {
-            return true;
+            // 단, 계단 모서리 모양만 다른 것은 <b>정착 단계가 도출한 정답</b>이다(완공 시 실행).
+            // 여기서 도면 값으로 되돌리면 건축 루프와 정착 단계가 서로를 덮어쓴다.
+            return !HomeBlueprint.sameIgnoringShape(cur, p.state());
         }
         return cur.isAir() || isDiggable(cur);
     }
@@ -2198,18 +2200,22 @@ public class MimicEntity extends PathfinderMob {
         // 완공 보수 — 짓는 동안 이웃 갱신으로 어긋난 칸(주로 계단 shape)을 도면대로 되돌린다.
         // 건축 루프는 '놓을 수 있는 칸'을 한 칸씩 처리하느라 이미 지나간 칸을 다시 보지 않는다.
         int repaired = 0;
+        java.util.List<BlockPos> cells = new java.util.ArrayList<>();
         for (HomeBlueprint.Placement pp : blueprint(sl).plan()) {
+            cells.add(pp.pos());
             if (sl.getBlockState(pp.pos()).getBlock() == pp.state().getBlock()
-                    && sl.getBlockState(pp.pos()) != pp.state()) {
+                    && !HomeBlueprint.sameIgnoringShape(sl.getBlockState(pp.pos()), pp.state())) {
                 sl.setBlock(pp.pos(), pp.state(),
                         net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                                 | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
                 repaired++;
             }
         }
-        if (repaired > 0) {
-            SimEvents.note(sl, "건축보수", String.format("@%d,%d 도면과 어긋난 %d칸 복원",
-                    homePos.getX(), homePos.getZ(), repaired));
+        // 그리고 <b>모서리 맞물림</b>을 바닐라 규칙으로 다시 도출한다(계단 shape).
+        int settled = HomeTemplate.settleShapes(sl, cells);
+        if (repaired > 0 || settled > 0) {
+            SimEvents.note(sl, "건축보수", String.format("@%d,%d 도면복원 %d칸 · 모서리정착 %d칸",
+                    homePos.getX(), homePos.getZ(), repaired, settled));
         }
         // 등기는 착공 때 이미 했다 — 여기선 거주 갱신만(도면·방향은 그대로 둔다).
         HomeStore.get(sl).touch(homePos, homeDesign, homeFacing,

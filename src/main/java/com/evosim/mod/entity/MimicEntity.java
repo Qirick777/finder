@@ -31,7 +31,6 @@ import com.evosim.core.SurvivalRules;
 import com.evosim.core.Trait;
 import com.evosim.mod.block.MimicHearthBlock;
 import com.evosim.mod.log.SimEvents;
-import com.evosim.mod.reg.ModBlocks;
 import com.evosim.mod.reg.ModEntities;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.core.BlockPos;
@@ -82,10 +81,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * 미믹 개체 (설계서 §1). 플레이어 형태 엔티티 — 성별(스티브/알렉스)·생애단계로 외형 구분.

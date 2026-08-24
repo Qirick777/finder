@@ -2011,7 +2011,7 @@ public final class EvoSimCommand {
             byDesign.merge(e.design() + (e.mirrored() ? "m" : "") + "r" + e.rotation(), 1,
                     Integer::sum);
             HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
-            gardenCells += bp.gardenCap(); // 훑는 칸이 아니라 상한(천막은 16칸/상한 8)
+            gardenCells += bp.gardenCap(); // 훑는 칸이 아니라 상한(천막은 24칸/상한 8)
             for (BlockPos g : bp.garden()) {
                 for (int dy = 3; dy >= -3; dy--) {
                     if (level.getBlockState(g.offset(0, dy, 0))

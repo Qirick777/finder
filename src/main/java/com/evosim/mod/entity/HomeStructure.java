@@ -8,15 +8,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 미믹 거처 천막 구조 (양털 계단식 A자 + 앞·뒤 참나무 울타리 기둥, 전면 모닥불). 앵커 H = 눕는 중앙 바닥
- * (공기), +z(front) = 모닥불 방향. 동서남북 회전 지원.
+ * 미믹 거처 <b>천막</b> 구조 (양털 계단식 A자 + 앞·뒤 참나무 울타리 기둥). 앵커 H = 눕는 중앙 바닥
+ * (공기), +z(front) = 앞 방향. 동서남북 회전 지원.
+ *
+ * <p><b>레거시다.</b> 새 거처는 전부 스키메틱({@link HomeTemplate})으로 짓는다. 이 클래스는
+ * 이 변경 <b>이전</b> 월드에 이미 서 있는 천막을 계속 읽기 위해서만 남아 있고, 진입점은
+ * {@link HomeBlueprint} 하나다. 모닥불은 폐기되어 더는 놓지 않는다(옛 월드의 블록은 보존).
  *
  * <pre>
  *  y=0 : 옆벽 x=±2 (z=-2..+1) · 앞뒤기둥(울타리) x0 z=-2,+1
  *  y=1 : 옆벽 x=±2            · 앞뒤기둥
  *  y=2 : 어깨 x=±1            · 앞뒤기둥
  *  y=3 : 용마루 x=0
- *  모닥불 : (0,0,+3)
  * </pre>
  */
 public final class HomeStructure {
@@ -62,15 +65,6 @@ public final class HomeStructure {
             out.add(new Placement(world(home, b[0], b[1], b[2], facing), b[3]));
         }
         return out;
-    }
-
-    public static int blockCount() {
-        return LOCAL.length;
-    }
-
-    /** 모닥불(거처 모닥불 블록) 위치 — H 앞 3칸. */
-    public static BlockPos hearthPos(BlockPos home, Direction facing) {
-        return world(home, 0, 0, 3, facing);
     }
 
     /**

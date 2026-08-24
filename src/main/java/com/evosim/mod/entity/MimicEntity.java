@@ -128,7 +128,12 @@ public class MimicEntity extends PathfinderMob {
     // 혼인·거처(재혼/분가/건축). 배우자는 개체 고유 id로 링크(리로드 안정).
     private long spouseId = 0L;                 // 배우자 Individual.id (0=미혼)
     private boolean widowed = false;            // 배우자 사망 → 재구애 참여
-    private byte homeFacing = 0;                // 천막 방향(Direction.get2DDataValue)
+    // 거처 도면 3종 세트 — 등기부(HomeStore)와 <b>같은 값</b>을 개체도 들고 다닌다. 등기부는
+    // 마을 전체 질의(빈집·겹침)의 출처이고, 이 필드들은 착공 도중처럼 아직 등기가 확정되지 않은
+    // 순간에도 자기 집 기하를 알 수 있게 하는 사본이다. 가족끼리 복사해 다닌다(homeFacing 과 동행).
+    private byte homeFacing = 0;                // 스키메틱 회전 0~3 / 천막은 Direction.get2DDataValue
+    private String homeDesign = HomeStore.TENT; // 도면 이름
+    private boolean homeMirror = false;         // 좌우반전 배치인가(스키메틱 전용)
     private boolean building = false;           // 거처 건축 중(부부 공통) — 분담·리더는 buildTick 이 결정
     @Nullable
     private BlockPos buildTargetPos = null;     // 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
@@ -178,7 +183,6 @@ public class MimicEntity extends PathfinderMob {
     private long courtTravelUntil = 0L;         // 구혼 여행 만료 시각(NBT)
     private long courtTravelTarget = 0L;        // 구혼 여행 목적지(타향 모닥불, BlockPos.asLong, NBT)
     private BlockPos visitAnchor = null;        // 노인 방문 임시 앵커(ElderVisitGoal 설정 — 휘발)
-    private boolean hearthRegistered = false;   // 로드 첫 틱에 켜진 모닥불 전역 목록 재등록(휘발)
     private boolean stageActor = false;         // 검증 무대 개체 — 혈통 원장·인구 통계에서 제외(NBT)
     private long tenantFarm = 0L;               // 상시 소작 중인 밭 구획 id(0=없음, NBT — 봉건 관계)
     // 배회 생활(놀이·마실, NBT) — 조우 관문(Encounter)이 갱신. lastChat/topic 은 미래 평판 입력.
@@ -459,13 +463,27 @@ public class MimicEntity extends PathfinderMob {
      * {@link HomeStructure#footprint}(dx±3, dz -2..+3)는 그 칸을 포함하므로 plan 대신 쓴다.
      */
     public static boolean homeSiteOnFarm(ServerLevel sl, BlockPos home, Direction facing) {
+        HomeStore.Entry e = HomeStore.get(sl).entry(home);
+        return e == null
+                ? onFarm(sl, HomeBlueprint.of(sl, home, HomeStore.TENT,
+                        (byte) facing.get2DDataValue(), false))
+                : onFarm(sl, HomeBlueprint.of(sl, home, e.design(), e.rotation(), e.mirrored()));
+    }
+
+    /** 후보 부지 판정 — 아직 등기 전인 자리를 <b>지을 도면</b>으로 평가한다(신축 재추첨 경로). */
+    public static boolean homeSiteOnFarm(ServerLevel sl, BlockPos home, String design,
+                                         byte rot, boolean mirror) {
+        return onFarm(sl, HomeBlueprint.of(sl, home, design, rot, mirror));
+    }
+
+    private static boolean onFarm(ServerLevel sl, HomeBlueprint bp) {
         FarmStore fs = FarmStore.get(sl);
-        for (BlockPos p : HomeStructure.footprint(home, facing)) { // 벽·입구·모닥불·옆 정원 전부
+        for (BlockPos p : bp.footprint()) { // 벽·문간·정원까지 전부(점유 열 단일 출처)
             if (fs.isFarmColumn(p.getX(), p.getZ())) {
                 return true;
             }
         }
-        for (BlockPos cell : HomeStructure.gardenCells(home, facing)) {
+        for (BlockPos cell : bp.garden()) {
             if (fs.isFarmColumn(cell.getX(), cell.getZ())) {
                 return true;
             }
@@ -473,21 +491,35 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
+    /** 내 거처의 도면 해석 — 건축·평탄화·정원·철거가 전부 이 한 곳을 거친다. 거처 없으면 null. */
+    @Nullable
+    public HomeBlueprint blueprint(ServerLevel sl) {
+        if (homePos == null) {
+            return null;
+        }
+        // 해석 결과 캐시 — 정원 수확 goal 이 매 틱 묻는데, 해석은 계획 190~1000칸을 새로 만든다.
+        // 거처나 도면이 바뀌면 무효화(adoptDesign·setHomePos 경유).
+        if (bpCache == null || !bpCache.home().equals(homePos)) {
+            bpCache = HomeBlueprint.of(sl, homePos, homeDesign, homeFacing, homeMirror);
+        }
+        return bpCache;
+    }
+
+    private transient HomeBlueprint bpCache;
+
     /** 즉시 거처 정착 + 천막·모닥불 완성 배치(홀거처주/가족 사전 세팅용). */
     public void debugSettleWithTent(BlockPos home, Direction facing) {
         setHomePos(home);
-        homeFacing = (byte) facing.get2DDataValue();
+        adoptDesign(HomeStore.TENT, (byte) facing.get2DDataValue(), false);
         building = false;
         if (level() instanceof ServerLevel sl) {
-            for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
-                var state = p.token() == HomeStructure.TOKEN_FENCE
-                        ? Blocks.OAK_FENCE.defaultBlockState()
-                        : Blocks.WHITE_WOOL.defaultBlockState();
-                sl.setBlockAndUpdate(p.pos(), state);
+            for (HomeBlueprint.Placement p : HomeBlueprint.of(sl, home, HomeStore.TENT,
+                    (byte) facing.get2DDataValue(), false).plan()) {
+                sl.setBlockAndUpdate(p.pos(), p.state());
             }
-            placeHearth(sl, home, facing, true);
-            hearthLit(home, true); // 전역 목록 등록 — 자연 건축은 점화 이벤트로 등록되지만
-            // 무대 정착은 블록 직설치라 여기서 직접(마실·구혼여행 목적지 후보가 되도록).
+            // 등기 — 마실·구혼여행 목적지 후보가 되는 경로가 이제 등기부다(종전 모닥불 전역 목록).
+            HomeStore.get(sl).register(home, HomeStore.TENT, (byte) facing.get2DDataValue(),
+                    false, individual != null ? individual.id() : 0L, today());
         }
     }
 
@@ -496,16 +528,14 @@ public class MimicEntity extends PathfinderMob {
      * (거주자 없이 존재하는 꺼진 거처를 하나 만들어 둔다).
      */
     public static void debugPlaceAbandonedHome(ServerLevel sl, BlockPos home, Direction facing) {
-        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
-            var state = p.token() == HomeStructure.TOKEN_FENCE
-                    ? Blocks.OAK_FENCE.defaultBlockState()
-                    : Blocks.WHITE_WOOL.defaultBlockState();
-            sl.setBlockAndUpdate(p.pos(), state);
+        byte rot = (byte) facing.get2DDataValue();
+        for (HomeBlueprint.Placement p : HomeBlueprint.of(sl, home, HomeStore.TENT, rot, false)
+                .plan()) {
+            sl.setBlockAndUpdate(p.pos(), p.state());
         }
-        placeHearth(sl, home, facing, false); // 꺼진 모닥불
         // 등기한 뒤 곧바로 퇴거 — "존재하지만 비어 있는 집"이라는 상태를 등기부로 표현한다.
         HomeStore reg = HomeStore.get(sl);
-        reg.register(home, HomeStore.TENT, (byte) facing.get2DDataValue(), false, 0L,
+        reg.register(home, HomeStore.TENT, rot, false, 0L,
                 (int) (com.evosim.mod.entity.SimTime.tick(sl) / 24000L));
         reg.vacate(home);
     }
@@ -582,7 +612,11 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     public Direction getBedOrientation() {
         if (getPose() == Pose.SLEEPING && homePos != null) {
-            return getHomeFacingDir().getOpposite(); // 입구(모닥불)는 전방, 머리는 후방(안쪽)
+            // 문이 향한 바깥이 전방, 머리는 그 반대(집 안쪽). 스키메틱은 −z 가 바깥이라
+            // 회전만큼 돌아가고, 천막은 종전대로 모닥불 쪽이 전방이다.
+            Direction door = level() instanceof ServerLevel sl && blueprint(sl) != null
+                    ? blueprint(sl).doorDir() : getHomeFacingDir();
+            return door.getOpposite();
         }
         return super.getBedOrientation();
     }
@@ -641,14 +675,6 @@ public class MimicEntity extends PathfinderMob {
                     FamilyLedger.get(sl0).register(individual, com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
                 }
             }
-            if (!hearthRegistered) {
-                hearthRegistered = true;
-                // 리로드 복구: 켜진 모닥불 전역 목록(LIT_HEARTHS)은 휘발이라, 로드 첫 틱에 자기
-                // 거처가 켜져 있으면 재등록 — 구혼 여행 목적지가 리로드 후 전멸하는 문제 방지.
-                if (homePos != null && hearthLitAt(homePos)) {
-                    hearthLit(homePos, true);
-                }
-            }
             growthTick();
             observeTooYoung();
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
@@ -702,7 +728,9 @@ public class MimicEntity extends PathfinderMob {
         // 성년 게이트보다 먼저 — 여행 중 노년 전이돼도 잔재가 남지 않게.
         if (courtTravelTarget != 0L && com.evosim.mod.entity.SimTime.tick(level()) >= courtTravelUntil) {
             endCourtTravel();
-            if (homePos != null && !hearthLitAt(homePos)) {
+            // 고향이 비었나 — 종전엔 모닥불 점화 여부로 봤다. 이제 등기부가 그 사실을 안다.
+            if (homePos != null && level() instanceof ServerLevel sl2
+                    && HomeStore.get(sl2).isVacant(homePos, today())) {
                 BlockPos gone = homePos;
                 setHomePos(null);
                 SimEvents.event(this, "구혼여행", String.format(
@@ -806,37 +834,26 @@ public class MimicEntity extends PathfinderMob {
         lonelySinceTick = -1L;
     }
 
-    // 켜진 모닥불 전역 목록(구혼 여행·마실 목적지) — 휘발성(재점화 이벤트로 복구).
-    private static final List<Long> LIT_HEARTHS = new ArrayList<>();
-
-    /** 마실(MimicVisitGoal) 목적지 후보 — 켜진 모닥불 보유 거처 좌표 뷰(읽기 전용 취급). */
-    public static List<Long> litHearthsView() {
-        return LIT_HEARTHS;
+    /**
+     * 마실·구혼 여행의 목적지 후보 — <b>사람이 사는</b> 거처 좌표.
+     *
+     * <p>종전에는 "켜진 모닥불 전역 목록"이었는데 그 목록은 정적 필드라 리로드에 사라지고,
+     * 64개에서 오래된 것부터 잘려 나갔다(큰 마을에서 목적지가 조용히 증발). 등기부는 영속이고
+     * 상한이 없다 — 같은 질문에 대한 더 나은 출처다.
+     */
+    public static List<Long> occupiedHomes(ServerLevel sl) {
+        return HomeStore.get(sl).occupiedPositions(
+                (int) (com.evosim.mod.entity.SimTime.tick(sl) / 24000L));
     }
 
-    private static void hearthLit(BlockPos home, boolean lit) {
-        Long key = home.asLong();
-        LIT_HEARTHS.remove(key);
-        if (lit) {
-            LIT_HEARTHS.add(key);
-            if (LIT_HEARTHS.size() > 64) {
-                LIT_HEARTHS.remove(0); // 가지치기(오래된 항목부터)
-            }
-        }
-    }
-
-    /** 이 거처의 모닥불이 켜져 있나(블록 실측 — 폐가 판정). */
-    private boolean hearthLitAt(BlockPos home) {
-        BlockPos hp = HomeStructure.hearthPos(home, getHomeFacingDir());
-        var st = level().getBlockState(hp);
-        return st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT);
-    }
-
-    /** 자기 마을(반경 48) 밖에서 가장 가까운 켜진 모닥불. 없으면 0. */
+    /** 자기 마을(반경 48) 밖에서 가장 가까운 남의 거처. 없으면 0. */
     private long nearestForeignHearth() {
+        if (!(level() instanceof ServerLevel sl)) {
+            return 0L;
+        }
         long best = 0L;
         double bestD = Double.MAX_VALUE;
-        for (long h : LIT_HEARTHS) {
+        for (long h : occupiedHomes(sl)) {
             BlockPos p = BlockPos.of(h);
             if (homePos != null && p.distSqr(homePos) < 48.0 * 48.0) {
                 continue; // 자기 마을권 — 이미 인지 범위에서 찾아봤음
@@ -1104,7 +1121,7 @@ public class MimicEntity extends PathfinderMob {
             guest.abandonHome(sl); // 원래 단독 거처 폐기
         }
         guest.setHomePos(host.getHomePos());
-        guest.homeFacing = host.homeFacing;
+        guest.adoptDesign(host.homeDesign, host.homeFacing, host.homeMirror);
         if (wasLoneOwner && guest.getIndividual() != null) {
             long gid = guest.getIndividual().id();
             for (MimicEntity c : sl.getEntitiesOfClass(MimicEntity.class,
@@ -1115,11 +1132,12 @@ public class MimicEntity extends PathfinderMob {
                         && (c.getIndividual().parentAId() == gid
                                 || c.getIndividual().parentBId() == gid)) {
                     c.setHomePos(host.getHomePos());
-                    c.homeFacing = host.homeFacing;
+                    c.adoptDesign(host.homeDesign, host.homeFacing, host.homeMirror);
                 }
             }
         }
-        relightHearth(sl, host.getHomePos(), host.getHomeFacingDir());
+        HomeStore.get(sl).touch(host.getHomePos(), host.homeDesign, host.homeFacing,
+                host.getIndividual() != null ? host.getIndividual().id() : 0L, host.today());
         SimEvents.event(guest, "합류", String.format("#%d 거처로 입주 @%d,%d",
                 host.getId(), host.getHomePos().getX(), host.getHomePos().getZ()));
     }
@@ -1136,7 +1154,7 @@ public class MimicEntity extends PathfinderMob {
 
         // ① 애향심: 확률적으로 빈 거처 재사용 시도. 이주자는 emptyPercent=0 → 항상 신축.
         if (plan.emptyPercent() > 0 && getRandom().nextInt(100) < plan.emptyPercent()) {
-            int[] reuse = findAbandonedHome(sl);
+            BlockPos reuse = findAbandonedHome(sl);
             if (reuse != null) {
                 occupyAbandoned(sl, other, reuse);
                 return;
@@ -1147,56 +1165,112 @@ public class MimicEntity extends PathfinderMob {
         int[] anchor = buildAnchor(other, da, plan.anchor());
         List<int[]> existing = collectExistingHomes(sl, anchor[0], anchor[2]);
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
-        int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
-                existing, Settlement.MIN_GAP, rng);
-        Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
+        // 도면 추첨 — 소형 3종 × 회전 4 × 좌우반전 2 = 24가지. 등급 선택은 4단계(자산 기준).
+        String[] pool = HomeTemplate.Tier.SMALL.designs;
+        String design = pool[getRandom().nextInt(pool.length)];
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        int gap = requiredGap(sl, design);
+        int dist = Math.max(plan.distance(), gap); // 링 반경 < 간격이면 첫 링이 통째로 탈락한다
+        int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, dist, existing, gap, rng);
         // A-1 부지 검증 — 밭을 깔고 앉는 후보는 재추첨(최대 8회, 전패 시 마지막 후보 수용·로그).
-        for (int attempt = 0; attempt < 8
-                && homeSiteOnFarm(sl, new BlockPos(pos[0], anchor[1], pos[1]), facing); attempt++) {
-            pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, plan.distance(),
-                    existing, Settlement.MIN_GAP, rng);
+        for (int attempt = 0; attempt < 8 && homeSiteOnFarm(
+                sl, new BlockPos(pos[0], anchor[1], pos[1]), design, rot, mir); attempt++) {
+            pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, dist, existing, gap, rng);
             if (attempt == 7) {
                 SimEvents.event(this, "부지경고", "밭 회피 재추첨 전패 — 마지막 후보 수용");
             }
         }
-        // 기단 높이 = 발자국 지형 '최고점'에 맞춤(파묻힘·공중부양 방지). 그보다 낮은 칸은 흙으로 메운다.
+        // 기단 높이 = 발자국 지형 '중앙값'에 맞춤(파묻힘·공중부양 방지). 낮은 칸은 흙으로 메운다.
         BlockPos site = new BlockPos(pos[0], anchor[1], pos[1]);
-        int baseY = terrainBaseY(sl, site, facing);
+        int baseY = terrainBaseY(sl, HomeBlueprint.of(sl, site, design, rot, mir));
         BlockPos home = new BlockPos(pos[0], baseY, pos[1]);
 
         BlockPos preHomeSelf = homePos;        // 결혼 전 거처(부모 집) — 지참금 출처(성장 자녀는 부모 homePos 유지)
         BlockPos preHomeOther = other.homePos;
         setHomePos(home);
         other.setHomePos(home);
-        homeFacing = (byte) facing.get2DDataValue();
-        other.homeFacing = homeFacing;
+        adoptDesign(design, rot, mir);
+        other.adoptDesign(design, rot, mir);
+        // 착공 즉시 등기 — 짓는 도중에도 마을이 이 자리를 '집'으로 인식해야 옆에서 겹쳐 짓지 않는다.
+        HomeStore.get(sl).register(home, design, rot, mir,
+                individual != null ? individual.id() : 0L, today());
         endowNewHome(sl, preHomeSelf, other, preHomeOther, home); // 양가 지참금 이전(공짜 신규 폐지·레버①)
-        flattenSite(sl, home, facing); // 하단 평탄화 — 낮은 칸 흙 메움 + 흙 효과음(하단 전부 접지)
+        HomeBlueprint bp = blueprint(sl);
+        flattenSite(sl, bp);  // 하단 평탄화 — 낮은 칸 흙 메움 + 흙 효과음(하단 전부 접지)
+        excavate(sl, bp);     // 실내·문간·정원 자리 비우기(언덕에 지어도 실내가 흙으로 차지 않게)
         // 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지). 실제 분담·리더는 buildTick 이 매 틱 결정.
         this.building = true;
         this.buildReachTicks = 0;
         other.building = true;
         other.buildReachTicks = 0;
-        SimEvents.event(this, "건축", String.format("신축 시작 @%d,%d 방향=%s (배우자 #%d) 성향 %s×%s",
-                home.getX(), home.getZ(), facing, other.getId(), da, db));
+        SimEvents.event(this, "건축", String.format(
+                "신축 시작 @%d,%d 도면=%s 회전%d%s (배우자 #%d) 성향 %s×%s",
+                home.getX(), home.getZ(), design, rot, mir ? "·반전" : "", other.getId(), da, db));
+    }
+
+    /** 도면 사본 갱신 — homePos 를 바꾼 직후 항상 함께 부른다(기하 불일치 방지). */
+    private void adoptDesign(String design, byte rot, boolean mirror) {
+        this.homeDesign = design;
+        this.homeFacing = rot;
+        this.homeMirror = mirror;
+        this.bpCache = null; // 도면이 바뀌면 해석도 다시
+    }
+
+    /**
+     * 필요한 거처 간격 — <b>내 반경 + 이웃 최대 반경 + 여유 2</b>.
+     *
+     * <p>종전의 고정 {@code MIN_GAP=10} 은 천막(반경 ~5.7) 시절의 값이다. 스키메틱은 소형도
+     * 반경 6.1, 저택은 10.6이라 10으로는 <b>두 집이 겹친다</b>. 반경에서 유도하면 4단계에서
+     * 저택이 들어와도 간격이 저절로 따라 커진다.
+     */
+    public static int requiredGap(ServerLevel sl, String design) {
+        double mine = HomeBlueprint.reachOf(sl, design);
+        double neighbor = 0.0;
+        HomeStore reg = HomeStore.get(sl);
+        for (BlockPos h : reg.positions()) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e != null) {
+                neighbor = Math.max(neighbor, HomeBlueprint.reachOf(sl, e.design()));
+            }
+        }
+        neighbor = Math.max(neighbor, HomeBlueprint.reachOf(sl, HomeStore.TENT)); // 미등기 이웃 대비
+        return Math.max(Settlement.MIN_GAP, (int) Math.ceil(mine + neighbor) + 2);
+    }
+
+    /** 도면이 요구하는 빈 칸(실내·문간·앵커·정원)을 실제로 비운다 — 착공 시 1회. */
+    private static void excavate(ServerLevel sl, HomeBlueprint bp) {
+        boolean sound = false;
+        for (BlockPos c : bp.clear()) {
+            var st = sl.getBlockState(c);
+            if (st.isAir() || !isDiggable(st)) {
+                continue; // 이미 비었거나 남의 구조물 — 건드리지 않는다
+            }
+            sl.setBlock(c, Blocks.AIR.defaultBlockState(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+            if (!sound) {
+                playDirtSound(sl, c);
+                sound = true;
+            }
+        }
     }
 
     /** 빈 거처(꺼진 모닥불)에 부부가 입주 — 모닥불 재점화. */
-    private void occupyAbandoned(ServerLevel sl, MimicEntity other, int[] reuse) {
-        BlockPos home = new BlockPos(reuse[0], reuse[1], reuse[2]);
-        Direction facing = Direction.from2DDataValue(reuse[3]);
+    private void occupyAbandoned(ServerLevel sl, MimicEntity other, BlockPos home) {
+        HomeStore reg = HomeStore.get(sl);
+        HomeStore.Entry e = reg.entry(home);
         BlockPos preHomeSelf = homePos;        // 결혼 전 거처(부모 집) — 지참금 출처
         BlockPos preHomeOther = other.homePos;
         setHomePos(home);
         other.setHomePos(home);
-        homeFacing = (byte) reuse[3];
-        other.homeFacing = homeFacing;
+        adoptDesign(e.design(), e.rotation(), e.mirrored());
+        other.adoptDesign(e.design(), e.rotation(), e.mirrored());
         endowNewHome(sl, preHomeSelf, other, preHomeOther, home); // 양가 지참금 이전(재사용 폐가 잔량 위에 가산)
-        relightHearth(sl, home, facing);
-        HomeStore.get(sl).touch(home, HomeStore.TENT, homeFacing,
+        reg.touch(home, e.design(), e.rotation(),
                 individual != null ? individual.id() : 0L, today()); // 재점유 — 빈집 해제
         SimEvents.event(this, "입주", "빈 거처 재사용 @" + home.getX() + "," + home.getZ()
-                + " (상대 #" + other.getId() + ")");
+                + " 도면=" + e.design() + " (상대 #" + other.getId() + ")");
     }
 
     /** 지참금 1가(家) 최소자부담 X — 양가합산 지참금 = 2X = 14 = initialLarder(부부 need). 부모 저장고 실차감. */
@@ -1315,45 +1389,45 @@ public class MimicEntity extends PathfinderMob {
         if (homePos == null) {
             return;
         }
-        Direction facing = getHomeFacingDir();
-        BlockPos hp = HomeStructure.hearthPos(homePos, facing);
-        if (sl.getBlockState(hp).getBlock() instanceof MimicHearthBlock) {
-            sl.setBlockAndUpdate(hp, sl.getBlockState(hp)
-                    .setValue(MimicHearthBlock.LIT, Boolean.FALSE));
-            hearthLit(homePos, false);
-            HomeStore.get(sl).vacate(homePos);
-            SimEvents.event(this, "폐가", String.format("모닥불 끔 @%d,%d (저장고는 남아 재사용 시 계승)",
-                    homePos.getX(), homePos.getZ()));
-        }
+        HomeStore.get(sl).vacate(homePos);
+        SimEvents.event(this, "폐가", String.format("퇴거 @%d,%d (건물·저장고는 남아 재사용 시 계승)",
+                homePos.getX(), homePos.getZ()));
     }
+
+    /** 도면 대비 실제로 서 있는 비율 — 구조물이 남아 있는지 판정(모닥불 유무를 대신한다). */
+    private static double structureRatio(ServerLevel sl, HomeBlueprint bp) {
+        return bp.standingRatio(sl);
+    }
+
+    /** 이 비율 미만이면 "구조물이 사라졌다"로 본다(폐허·철거·지형 침식). */
+    public static final double STANDING_RATIO = 0.5;
 
     /** 재사용 탐색 반경 — 종전 폐기목록 시절과 동일(96). */
     private static final double REUSE_RANGE = 96.0;
 
     /** 등기부에서 근처 빈 거처 하나 찾아 반환(거주자 없고 모닥불 꺼짐 확인). 없으면 null. */
-    private int[] findAbandonedHome(ServerLevel sl) {
+    @Nullable
+    private BlockPos findAbandonedHome(ServerLevel sl) {
         HomeStore reg = HomeStore.get(sl);
         for (BlockPos home : reg.vacantNear(blockPosition(), REUSE_RANGE, today())) {
             HomeStore.Entry e = reg.entry(home);
-            Direction facing = Direction.from2DDataValue(e.rotation());
-            if (homeSiteOnFarm(sl, home, facing)) {
+            if (homeSiteOnFarm(sl, home, e.design(), e.rotation(), e.mirrored())) {
                 continue; // 밭을 깔고 앉은 폐가는 재사용 금지(A-1) — fixhomes 도구가 철거한다
             }
-            var st = sl.getBlockState(HomeStructure.hearthPos(home, facing));
-            if (!(st.getBlock() instanceof MimicHearthBlock)) {
+            if (structureRatio(sl, HomeBlueprint.of(sl, home, e.design(), e.rotation(),
+                    e.mirrored())) < STANDING_RATIO) {
                 // 구조 자체가 소멸한 집 — 등기 말소 + 고아 저장고 청소(M-9). 여기서 포기하지 않고
                 // 계속 탐색해야 뒤의 유효 폐가를 놓치지 않는다(애향심 재사용 설계).
                 LarderStore.get(sl).remove(home);
                 reg.remove(home);
                 continue;
             }
-            if (st.getValue(MimicHearthBlock.LIT) || anyResidentAt(sl, home)) {
-                // 불이 켜졌거나 사람이 있다 = 실거주 중. 등기의 빈집 판정이 틀린 것이므로
-                // 오늘 거주로 되돌려 놓는다(다음 탐색에서 다시 후보로 뜨지 않게).
+            if (anyResidentAt(sl, home)) {
+                // 사람이 산다 = 등기의 빈집 판정이 틀렸다. 오늘 거주로 되돌려 다음 탐색에서 빼둔다.
                 reg.touch(home, e.design(), e.rotation(), e.ownerId(), today());
                 continue;
             }
-            return new int[] {home.getX(), home.getY(), home.getZ(), e.rotation()};
+            return home;
         }
         return null;
     }
@@ -1461,8 +1535,8 @@ public class MimicEntity extends PathfinderMob {
      * 기단 Y = 발자국 지표들의 <b>중앙값</b>(median) + 1. 중앙값에 맞추면 낮은 칸 메움량 + 높은 칸 파냄량의
      * 총합이 최소가 된다(L1 최소화점=median) → 흙을 가장 덜 쓰고 덜 파는 방향.
      */
-    private static int terrainBaseY(ServerLevel sl, BlockPos site, Direction facing) {
-        List<BlockPos> foot = HomeStructure.footprint(site, facing);
+    private static int terrainBaseY(ServerLevel sl, HomeBlueprint bp) {
+        List<BlockPos> foot = bp.footprint();
         int[] surf = new int[foot.size()];
         for (int i = 0; i < foot.size(); i++) {
             surf[i] = sl.getHeight(SURFACE_MAP, foot.get(i).getX(), foot.get(i).getZ()) - 1; // 지표 블록 Y
@@ -1476,10 +1550,10 @@ public class MimicEntity extends PathfinderMob {
      * 기단이 중앙값이라 메움·파냄 총량이 최소다. 하단이 전부 지면에 닿고(공중부양 방지) 벽이 흙에 묻히지
      * 않는다(매립 방지). 파냄은 destroyBlock 이 흙 파괴음·파티클을, 메움은 별도 흙 효과음을 낸다.
      */
-    private void flattenSite(ServerLevel sl, BlockPos home, Direction facing) {
-        int target = home.getY() - 1; // 하단이 딛어야 할 지면 레벨
+    private void flattenSite(ServerLevel sl, HomeBlueprint bp) {
+        int target = bp.home().getY() - 1; // 하단이 딛어야 할 지면 레벨
         boolean played = false;
-        for (BlockPos col : HomeStructure.footprint(home, facing)) {
+        for (BlockPos col : bp.footprint()) {
             int surface = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
             if (surface < target) {
                 for (int y = Math.max(surface + 1, target - MAX_FLATTEN); y <= target; y++) {
@@ -1514,10 +1588,9 @@ public class MimicEntity extends PathfinderMob {
         if (st.isAir() || !st.getFluidState().isEmpty()) {
             return false;
         }
-        if (st.is(Blocks.WHITE_WOOL) || st.is(Blocks.OAK_FENCE) || st.is(Blocks.BEDROCK)) {
-            return false;
-        }
-        return !(st.getBlock() instanceof MimicHearthBlock);
+        // 남이 지은 자재·기반암·구 모닥불은 보호. 그 외 자연물(흙·돌·나무 밑동·초목)은 판다.
+        return !st.is(Blocks.BEDROCK) && !isHomeMaterial(st)
+                && !(st.getBlock() instanceof MimicHearthBlock);
     }
 
     /** 흙 파괴(정지 작업) 효과음. */
@@ -1527,8 +1600,15 @@ public class MimicEntity extends PathfinderMob {
                 (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
     }
 
-    // ── 옆 베리 정원 (거처 좌우 x=±3 · 8칸, 평탄화로 자리 확보됨) ──
-    private static final int BERRY_CAP = 8; // 거처당 베리 상한
+    /**
+     * 거처당 베리 상한 = <b>도면의 정원 칸 수</b>. 상수가 아니라 도면이 정한다 — 스키메틱은 6칸,
+     * 구 천막은 8칸(+폴백)이다. 상한과 실제 칸 수가 어긋나면 그 가구는 정원을 영영 못 채우거나
+     * (상한 > 칸 수) 남는 자리를 놀린다(상한 < 칸 수).
+     */
+    private int berryCap(ServerLevel sl) {
+        HomeBlueprint bp = blueprint(sl);
+        return bp == null ? 0 : bp.gardenCap();
+    }
 
     /** 옆 정원 8칸에 베리를 {@code maxCount}그루까지 심는다(빈 자리·심을 지면인 곳만). 심은 수 반환. */
     public int plantBerries(ServerLevel sl, int maxCount) {
@@ -1537,8 +1617,7 @@ public class MimicEntity extends PathfinderMob {
         }
         int planted = 0;
         FarmStore farms = FarmStore.get(sl);
-        // 기본 8칸 우선 + 폴백 셀(gardenCells 순서) — 고정 칸이 지형에 막혀도 정원이 완성되게.
-        for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
+        for (BlockPos tile : blueprint(sl).garden()) {
             if (planted >= maxCount) {
                 break;
             }
@@ -1597,7 +1676,7 @@ public class MimicEntity extends PathfinderMob {
         }
         int cleared = 0;
         FarmStore farms = FarmStore.get(sl);
-        for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
+        for (BlockPos tile : blueprint(sl).garden()) {
             if (farmClaimsCell(farms, tile)) {
                 continue; // 밭 작물은 정원 청소 대상이 아니다(남의 원장 훼손 금지)
             }
@@ -1619,7 +1698,7 @@ public class MimicEntity extends PathfinderMob {
         }
         int c = 0;
         FarmStore farms = FarmStore.get(sl);
-        for (BlockPos tile : HomeStructure.gardenCells(homePos, getHomeFacingDir())) {
+        for (BlockPos tile : blueprint(sl).garden()) {
             if (farmClaimsCell(farms, tile)) {
                 continue; // 밭 타일의 작물을 정원으로 세지 않는다(정원 9/8 원인)
             }
@@ -1643,6 +1722,9 @@ public class MimicEntity extends PathfinderMob {
      * 밭 타일은 {@link FarmTicker} 의 정비가 따로 처리하므로 여기서는 건드리지 않는다.
      */
     private void sweepLegacyGarden(ServerLevel sl) {
+        if (!HomeStore.TENT.equals(homeDesign)) {
+            return; // 스키메틱 거처엔 '구 정원 범위'라는 것이 없다
+        }
         FarmStore farms = FarmStore.get(sl);
         for (BlockPos tile : HomeStructure.legacyGardenCells(homePos, getHomeFacingDir())) {
             if (farmClaimsCell(farms, tile)) {
@@ -1706,7 +1788,7 @@ public class MimicEntity extends PathfinderMob {
         if (homePos == null) {
             return;
         }
-        for (BlockPos tile : HomeStructure.berryTiles(homePos, getHomeFacingDir())) {
+        for (BlockPos tile : blueprint(sl).garden()) {
             for (int dy = 3; dy >= -3; dy--) {
                 BlockPos p = tile.offset(0, dy, 0);
                 BlockState s = sl.getBlockState(p);
@@ -1719,23 +1801,6 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 거처 모닥불 배치/재점화 (완성·이주 시). */
-    private static void relightHearth(ServerLevel sl, BlockPos home, Direction facing) {
-        placeHearth(sl, home, facing, true);
-    }
-
-    private static void placeHearth(ServerLevel sl, BlockPos home, Direction facing, boolean lit) {
-        BlockPos hp = HomeStructure.hearthPos(home, facing);
-        var cur = sl.getBlockState(hp);
-        boolean replaceable = cur.isAir() || cur.getBlock() instanceof MimicHearthBlock
-                || cur.is(Blocks.GRASS) || cur.is(Blocks.TALL_GRASS) || cur.is(Blocks.FERN);
-        if (replaceable) {
-            sl.setBlockAndUpdate(hp, ModBlocks.MIMIC_HEARTH.get().defaultBlockState()
-                    .setValue(MimicHearthBlock.LIT, lit)
-                    .setValue(MimicHearthBlock.FACING, facing));
-        }
-        hearthLit(home, lit); // 켜진 모닥불 전역 목록 갱신(구혼 여행 목적지)
-    }
 
     /**
      * 짓는 연출 — 부부가 <b>각자에게 가장 가까운 칸</b>으로 직접 걸어가(MimicBuildGoal) 손에 든 그 블럭을
@@ -1757,19 +1822,17 @@ public class MimicEntity extends PathfinderMob {
             clearBuildItem();
             return;
         }
-        Direction facing = getHomeFacingDir();
-        List<HomeStructure.Placement> plan = HomeStructure.plan(homePos, facing);
+        List<HomeBlueprint.Placement> plan = blueprint(sl).plan();
         List<MimicEntity> crew = buildCrew(sl);
 
-        // ① 완성 판정 — 남은 설치 가능 블록이 없으면 종료(최소 id가 점화·완료 처리).
+        // ① 완성 판정 — 남은 설치 가능 블록이 없으면 종료(최소 id가 완료 처리).
         if (!anyPlaceable(sl, plan)) {
             buildTargetPos = null;
             clearBuildItem();
             if (crew.isEmpty() || crew.get(0) == this) {
-                placeHearth(sl, homePos, facing, true); // 완성 → 점화
                 finishBuilding(sl);
             } else {
-                building = false; // 동료가 마무리(점화)를 맡음
+                building = false; // 동료가 마무리를 맡음
             }
             return;
         }
@@ -1779,7 +1842,7 @@ public class MimicEntity extends PathfinderMob {
         }
 
         // ② 목표 선정 — 진행 중 목표가 아직 유효하면 유지(오실레이션 방지), 아니면 내가 소유한 최근접 칸.
-        HomeStructure.Placement target = stickyOrNearest(sl, plan, crew);
+        HomeBlueprint.Placement target = stickyOrNearest(sl, plan, crew);
         if (target == null) {
             buildTargetPos = null;
             clearBuildItem();
@@ -1813,18 +1876,18 @@ public class MimicEntity extends PathfinderMob {
 
     /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */
     @Nullable
-    private HomeStructure.Placement stickyOrNearest(ServerLevel sl, List<HomeStructure.Placement> plan,
+    private HomeBlueprint.Placement stickyOrNearest(ServerLevel sl, List<HomeBlueprint.Placement> plan,
                                                     List<MimicEntity> crew) {
-        if (buildTargetPos != null && isPlaceable(sl, buildTargetPos)) {
-            HomeStructure.Placement cur = placementAt(plan, buildTargetPos);
-            if (cur != null) {
+        if (buildTargetPos != null) {
+            HomeBlueprint.Placement cur = placementAt(plan, buildTargetPos);
+            if (cur != null && needsPlacing(sl, cur)) {
                 return cur; // 고정 유지
             }
         }
-        HomeStructure.Placement best = null;
+        HomeBlueprint.Placement best = null;
         double bestD = Double.MAX_VALUE;
-        for (HomeStructure.Placement p : plan) {
-            if (!isPlaceable(sl, p.pos())) {
+        for (HomeBlueprint.Placement p : plan) {
+            if (!needsPlacing(sl, p)) {
                 continue;
             }
             double d = horizDistSq(p.pos());
@@ -1850,8 +1913,8 @@ public class MimicEntity extends PathfinderMob {
         return true;
     }
 
-    private static HomeStructure.Placement placementAt(List<HomeStructure.Placement> plan, BlockPos pos) {
-        for (HomeStructure.Placement p : plan) {
+    private static HomeBlueprint.Placement placementAt(List<HomeBlueprint.Placement> plan, BlockPos pos) {
+        for (HomeBlueprint.Placement p : plan) {
             if (p.pos().equals(pos)) {
                 return p;
             }
@@ -1859,9 +1922,9 @@ public class MimicEntity extends PathfinderMob {
         return null;
     }
 
-    private static boolean anyPlaceable(ServerLevel sl, List<HomeStructure.Placement> plan) {
-        for (HomeStructure.Placement p : plan) {
-            if (isPlaceable(sl, p.pos())) {
+    private static boolean anyPlaceable(ServerLevel sl, List<HomeBlueprint.Placement> plan) {
+        for (HomeBlueprint.Placement p : plan) {
+            if (needsPlacing(sl, p)) {
                 return true;
             }
         }
@@ -1926,15 +1989,19 @@ public class MimicEntity extends PathfinderMob {
         return crew;
     }
 
-    private boolean placeBuildBlock(ServerLevel sl, HomeStructure.Placement p) {
-        if (!isPlaceable(sl, p.pos())) {
-            return false; // 이미 채워짐/장애물
+    private boolean placeBuildBlock(ServerLevel sl, HomeBlueprint.Placement p) {
+        if (!needsPlacing(sl, p)) {
+            return false; // 이미 도면대로거나 남의 구조물
         }
         if (cellOccupiedByOther(sl, p.pos())) {
             nudgeOccupants(sl, p.pos()); // 파묻지 않되 살짝 밀어냄 — 마지막 칸에 동료가 계속 서 있으면
             return false;                // 완성 판정이 영영 안 나던 교착의 자연 해소를 가속
         }
-        sl.setBlockAndUpdate(p.pos(), blockFor(p).defaultBlockState());
+        // UPDATE_KNOWN_SHAPE — 새 블록이 이웃 계단·울타리의 모양을 다시 계산시키면 완성된 집이
+        // 도면과 달라진다(HomeTemplate.place 와 같은 이유).
+        sl.setBlock(p.pos(), p.state(),
+                net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                        | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
         return true;
     }
 
@@ -1957,11 +2024,41 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
-    /** 그 자리에 부지 블록을 놓을 수 있나(빈 칸·교체 가능 초목만 대체). 꽃·묘목·버섯·잎이
-     *  벽 칸을 차지하면 그 칸이 영영 미설치된 채 완공되던(구멍 난 천막) 결함 — 초목은 치운다. */
-    private static boolean isPlaceable(ServerLevel sl, BlockPos pos) {
-        var cur = sl.getBlockState(pos);
-        return cur.isAir() || isClearableVegetation(cur);
+    /**
+     * 이 칸에 아직 손댈 일이 남았나. <b>도면의 상태와 같으면 끝난 칸</b>이고, 비었거나 초목·자연
+     * 지형이면 놓을 칸이다. 그 외(남의 구조물·다른 가공 블록)는 건드리지 않는다.
+     *
+     * <p>"공기·초목만 놓을 수 있다"는 종전 규칙은 천막에선 맞았다 — 천막은 지면 <b>위</b>에만
+     * 쌓으니까. 스키메틱은 바닥(앵커−1)과 계단 밑동이 지면 <b>속</b>에 들어가므로 평탄화한 흙을
+     * 뚫고 놓을 수 있어야 한다. 반대로 "자연 지형이면 무조건 놓을 칸"으로 두면, 도면이 흙을
+     * 요구하는 칸(정원 밑 grass_block)이 영영 '미완성'으로 남아 완성 판정이 나지 않는다 —
+     * 그래서 <b>도면 상태와의 일치</b>를 먼저 본다.
+     */
+    private static boolean needsPlacing(ServerLevel sl, HomeBlueprint.Placement p) {
+        var cur = sl.getBlockState(p.pos());
+        if (cur == p.state()) {
+            return false; // 이미 도면대로
+        }
+        return cur.isAir() || isDiggable(cur);
+    }
+
+    /**
+     * 이 블록은 <b>누군가 지은 자재</b>인가 — 정지·건축이 건드리면 안 되는 것들.
+     *
+     * <p>목록은 8개 도면의 팔레트를 실제로 세어서 만들었다(추측 아님). 다만 {@code oak_log} 와
+     * {@code grass_block} 은 <b>일부러 뺐다</b>: 둘 다 자재이면서 동시에 자연물이라, 보호하면
+     * 부지의 나무 밑동과 잔디를 못 치워 벽에 구멍이 남는다. 이웃 집을 헐지 않는 보장은
+     * 재질이 아니라 <b>거처 간 간격</b>(requiredGap)이 맡는다.
+     */
+    private static boolean isHomeMaterial(net.minecraft.world.level.block.state.BlockState s) {
+        return s.is(Blocks.OAK_PLANKS) || s.is(Blocks.OAK_STAIRS) || s.is(Blocks.OAK_SLAB)
+                || s.is(Blocks.OAK_TRAPDOOR) || s.is(Blocks.OAK_FENCE)
+                || s.is(Blocks.OAK_FENCE_GATE) || s.is(Blocks.OAK_DOOR)
+                || s.is(Blocks.GLASS_PANE) || s.is(Blocks.STONE_BRICKS)
+                || s.is(Blocks.STONE_BRICK_STAIRS) || s.is(Blocks.WHITE_CARPET)
+                || s.is(Blocks.BOOKSHELF) || s.is(Blocks.LANTERN) || s.is(Blocks.WALL_TORCH)
+                || s.is(Blocks.CHAIN) || s.is(Blocks.POTTED_CACTUS)
+                || s.is(Blocks.WHITE_WOOL); // 구 천막 자재
     }
 
     /** 건축·메움이 밀어내도 되는 자연 초목(재생 가능·비구조물). */
@@ -1984,13 +2081,9 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
-    private static Block blockFor(HomeStructure.Placement p) {
-        return p.token() == HomeStructure.TOKEN_FENCE ? Blocks.OAK_FENCE : Blocks.WHITE_WOOL;
-    }
-
     /** 지금 설치할 블럭을 손에 들려 보여준다(바뀔 때만 갱신해 동기화 절약). */
-    private void showBuildItem(HomeStructure.Placement p) {
-        ItemStack want = new ItemStack(blockFor(p));
+    private void showBuildItem(HomeBlueprint.Placement p) {
+        ItemStack want = new ItemStack(p.state().getBlock());
         if (!ItemStack.matches(getItemBySlot(EquipmentSlot.MAINHAND), want)) {
             setItemSlot(EquipmentSlot.MAINHAND, want);
         }
@@ -2004,8 +2097,8 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 블록별 설치 효과음(양털=푹신, 울타리=나무) — 바닐라 블록 배치음과 동일 톤. */
-    private void playPlaceSound(ServerLevel sl, HomeStructure.Placement p) {
-        SoundType st = blockFor(p).defaultBlockState().getSoundType();
+    private void playPlaceSound(ServerLevel sl, HomeBlueprint.Placement p) {
+        SoundType st = p.state().getSoundType();
         sl.playSound(null, p.pos(), st.getPlaceSound(), SoundSource.BLOCKS,
                 (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
     }
@@ -2019,10 +2112,11 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         building = false;
-        // 등기 — 이제부터 이 집은 거주자가 전멸하든 서버가 꺼졌다 켜지든 마을이 기억한다.
-        HomeStore.get(sl).register(homePos, HomeStore.TENT, homeFacing, false,
+        // 등기는 착공 때 이미 했다 — 여기선 거주 갱신만(도면·방향은 그대로 둔다).
+        HomeStore.get(sl).touch(homePos, homeDesign, homeFacing,
                 individual != null ? individual.id() : 0L, today());
-        SimEvents.event(this, "건축완료", "거처 @" + homePos.getX() + "," + homePos.getY() + "," + homePos.getZ());
+        SimEvents.event(this, "건축완료", "거처 @" + homePos.getX() + "," + homePos.getY()
+                + "," + homePos.getZ() + " 도면=" + homeDesign);
     }
 
     /** 오늘(일). 등기부의 거주일 기록·빈집 유예 판정에 쓰는 단일 기준. */
@@ -2035,6 +2129,8 @@ public class MimicEntity extends PathfinderMob {
     public void remove(Entity.RemovalReason reason) {
         BlockPos home = homePos;
         byte facing = homeFacing;
+        String design = homeDesign;
+        boolean mirror = homeMirror;
         boolean destroy = reason.shouldDestroy();
         // 사전 포착(super.remove 전) — 상속인·분가 자식을 제거 <b>이전</b>에 조회한다. 제거 콜백
         // 도중의 getEntities 는 자식을 놓쳐 heir null(무주지화)·분배 실패를 일으키던 잠복 버그.
@@ -2058,26 +2154,23 @@ public class MimicEntity extends PathfinderMob {
             // 식량 상속(P4) — 가구 해체(거주자 0): 저장고를 사전 포착 분가 자식에게 분배.
             //   상속인(장남→장녀) 2/3, 나머지 균등, 잔여는 폐가 유산(현 흐름 유지).
             distributeInheritanceFood(sl, home, preKids);
-            BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(facing));
-            var st = sl.getBlockState(hp);
-            if (st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT)) {
-                sl.setBlockAndUpdate(hp, st.setValue(MimicHearthBlock.LIT, Boolean.FALSE));
-                hearthLit(home, false);
+            HomeBlueprint bp = HomeBlueprint.of(sl, home, design, facing, mirror);
+            if (building && structureRatio(sl, bp) < STANDING_RATIO) {
+                // 미완성 부지에서 마지막 건축자까지 죽음 — 반쯤 선 잔해를 철거해 자연 복원하고
+                // 등기·저장고를 함께 말소한다(고아 방지, M-9). 남겨두면 아무도 못 쓰는 폐허다.
+                demolishUnfinished(sl, bp);
+                HomeStore.get(sl).remove(home);
+                LarderStore.get(sl).remove(home);
+            } else {
                 HomeStore.get(sl).vacate(home); // 거주자 0 — 빈집 등기(영속: 재접속해도 남는다)
-            } else if (building && !(st.getBlock() instanceof MimicHearthBlock)) {
-                // 미완성 부지(모닥불은 완공 때 놓임)에서 마지막 건축자까지 죽음 — 폐가 목록은
-                // 모닥불을 요구해 영영 재사용 불가였으므로, 잔해(양털·울타리)를 철거해 자연 복원.
-                demolishUnfinished(sl, home, Direction.from2DDataValue(facing));
-                LarderStore.get(sl).remove(home); // 집이 사라졌으니 저장고 엔트리도(고아 방지, M-9)
             }
         }
     }
 
     /** 미완성 부지의 구조 토큰 블록만 철거(자연 지형·타인 블록은 무접촉). */
-    private static void demolishUnfinished(ServerLevel sl, BlockPos home, Direction facing) {
-        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
-            var cur = sl.getBlockState(p.pos());
-            if (cur.is(Blocks.WHITE_WOOL) || cur.is(Blocks.OAK_FENCE)) {
+    private static void demolishUnfinished(ServerLevel sl, HomeBlueprint bp) {
+        for (HomeBlueprint.Placement p : bp.plan()) {
+            if (sl.getBlockState(p.pos()) == p.state()) { // 우리가 놓은 칸만 — 남의 블록은 무접촉
                 sl.setBlockAndUpdate(p.pos(), Blocks.AIR.defaultBlockState());
             }
         }
@@ -2485,7 +2578,8 @@ public class MimicEntity extends PathfinderMob {
             double costMult = BerryEconomy.costMult(
                     father != null && father.getIndividual() != null ? father.getIndividual()
                             : individual);
-            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, BERRY_CAP, costMult);
+            int cap = berryCap(sl);
+            int n = BerryEconomy.plant(larder, need, reproReserve, bushCount, cap, costMult);
             if (n > 0) {
                 int done = plantBerries(sl, n);
                 if (done > 0) {
@@ -2495,7 +2589,7 @@ public class MimicEntity extends PathfinderMob {
                     larder = Math.max(0.0, larder - cost);
                     SimEvents.event(this, "베리", "옆 정원 +" + done + " (비용 " + cost
                             + " → 저장고 " + String.format("%.0f", larder)
-                            + " · 누적 " + (bushCount + done) + "/" + BERRY_CAP + ")");
+                            + " · 누적 " + (bushCount + done) + "/" + cap + ")");
                 }
             }
         }
@@ -2625,18 +2719,8 @@ public class MimicEntity extends PathfinderMob {
      * 목록에서 소거. 밭을 깔고 앉은 잘못된 거처만 대상으로 호출된다(밭 타일은 밤 정비가 재식수).
      */
     public static void debugDemolishHome(ServerLevel sl, BlockPos home, Direction facing) {
-        for (HomeStructure.Placement p : HomeStructure.plan(home, facing)) {
-            var st = sl.getBlockState(p.pos());
-            if (st.is(Blocks.WHITE_WOOL) || st.is(Blocks.OAK_FENCE)) {
-                sl.setBlockAndUpdate(p.pos(), Blocks.AIR.defaultBlockState());
-            }
-        }
-        BlockPos hp = HomeStructure.hearthPos(home, facing);
-        if (sl.getBlockState(hp).getBlock() instanceof MimicHearthBlock) {
-            sl.setBlockAndUpdate(hp, Blocks.AIR.defaultBlockState());
-        }
+        demolishUnfinished(sl, HomeBlueprint.of(sl, home));
         HomeStore.get(sl).remove(home); // 구조물 철거 = 등기 말소
-        hearthLit(home, false);
         LarderStore.get(sl).remove(home);
     }
 
@@ -2659,16 +2743,21 @@ public class MimicEntity extends PathfinderMob {
 
         DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
         List<int[]> existingNear = collectExistingHomes(sl, dest.getX(), dest.getZ());
-        int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, 8,
-                existingNear, Settlement.MIN_GAP, rng);
-        Direction facing = Direction.from2DDataValue(getRandom().nextInt(4));
+        String[] pool = HomeTemplate.Tier.SMALL.designs;
+        String design = pool[getRandom().nextInt(pool.length)];
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        int gap = requiredGap(sl, design);
+        int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, gap,
+                existingNear, gap, rng);
         // A-1 부지 검증 — 이주 신축도 밭 회피 재추첨(혼인 신축과 동일 규칙).
-        for (int attempt = 0; attempt < 8
-                && homeSiteOnFarm(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), facing); attempt++) {
-            xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, 8,
-                    existingNear, Settlement.MIN_GAP, rng);
+        for (int attempt = 0; attempt < 8 && homeSiteOnFarm(
+                sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir); attempt++) {
+            xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, gap,
+                    existingNear, gap, rng);
         }
-        int baseY = terrainBaseY(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), facing);
+        int baseY = terrainBaseY(sl, HomeBlueprint.of(sl,
+                new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir));
         BlockPos newHome = new BlockPos(xz[0], baseY, xz[1]);
 
         // 여행 식량: 저장고에서 각자 상한(2)까지 정수 인출 — 남는 몫은 폐가 유산(재사용 시 계승).
@@ -2704,7 +2793,7 @@ public class MimicEntity extends PathfinderMob {
         int nextCarrier = 0;
         for (MimicEntity m : fam) {
             m.setHomePos(newHome); // settledTick 갱신 → 재이주 쿨다운 시작
-            m.homeFacing = (byte) facing.get2DDataValue();
+            m.adoptDesign(design, rot, mir);
             if (m.getStage() == LifeStage.INFANT && !carriers.isEmpty()) {
                 // 친어미(부모 링크)가 비어 있으면 그녀가 업고, 아니면 순환 배정(다둥이 분산 유지).
                 MimicEntity own = motherIn(fam, m);
@@ -2719,7 +2808,11 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         store.set(newHome, 0.0); // 새 저장고는 0에서 — 이주 반복으로 공짜 식량이 생기지 않게(착취 방지)
-        flattenSite(sl, newHome, facing);
+        HomeStore.get(sl).register(newHome, design, rot, mir,
+                individual != null ? individual.id() : 0L, today());
+        HomeBlueprint nbp = HomeBlueprint.of(sl, newHome, design, rot, mir);
+        flattenSite(sl, nbp);
+        excavate(sl, nbp);
 
         SimEvents.event(this, "이주", String.format(
                 "기근 → @%d,%d 출발 → @%d,%d 정착 · 가족%d · 여행식량 %d개%s",
@@ -2918,7 +3011,7 @@ public class MimicEntity extends PathfinderMob {
         s.larder = (float) larder;
         int bushes = homePos == null ? 0 : countBerries(sl);
         s.garden = bushes;
-        s.gardenCap = BERRY_CAP;
+        s.gardenCap = berryCap(sl);
         long myId = individual != null ? individual.id() : 0L;
         java.util.List<FarmStore.Plot> mine = new java.util.ArrayList<>();
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
@@ -2959,7 +3052,7 @@ public class MimicEntity extends PathfinderMob {
                 s.reproNeed = -2; // 부부 아님 — 번식 판정 자체가 없음
                 s.reproLack = -2;
             }
-            if (bushes >= BERRY_CAP) {
+            if (bushes >= berryCap(sl)) {
                 s.berryNeed = -1; // 정원 완성
                 s.berryLack = -1;
             } else {
@@ -4066,6 +4159,8 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("RejGiven", rejectionsGiven);     // 눈낮춤 진행도 — 리로드로 수렴이 리셋되지 않게
         tag.putBoolean("WasCrit", wasCritical);      // 위급 전이 감지 — 리로드 직후 중복 로그 방지
         tag.putByte("HomeFacing", homeFacing);
+        tag.putString("HomeDesign", homeDesign);
+        tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
         if (individual != null) {
             tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
@@ -4127,6 +4222,9 @@ public class MimicEntity extends PathfinderMob {
         rejectionsGiven = tag.getInt("RejGiven");
         wasCritical = tag.getBoolean("WasCrit");
         homeFacing = tag.getByte("HomeFacing");
+        // 구 세이브엔 없는 키 — 없으면 천막이다(이 변경 이전에 지어진 집).
+        adoptDesign(tag.contains("HomeDesign") ? tag.getString("HomeDesign") : HomeStore.TENT,
+                homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
         if (tag.contains("Individual")) {
             this.individual = IndividualNbt.load(tag.getCompound("Individual"));

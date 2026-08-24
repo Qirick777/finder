@@ -358,13 +358,18 @@ public class MimicForageGoal extends Goal {
         return null;
     }
 
-    /** 자기 거처 옆 정원(x=±3, 8칸)에서 다 익은 베리 한 칸. 없으면 null. 위치와 무관하게 정확히 조준한다. */
+    /**
+     * 자기 거처 정원에서 다 익은 베리 한 칸. 없으면 null. 위치와 무관하게 정확히 조준한다.
+     *
+     * <p>칸 목록은 반드시 심기·집계와 <b>같은 출처</b>({@link com.evosim.mod.entity.HomeBlueprint})
+     * 여야 한다. 다른 목록을 보면 심어 놓고 영영 못 따는 정원이 생긴다(장부 대칭).
+     */
     private BlockPos ripeHomeBerry() {
         BlockPos home = mob.getHomePos();
-        if (home == null) {
+        if (home == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return null;
         }
-        for (BlockPos tile : HomeStructure.gardenCells(home, mob.getHomeFacingDir())) {
+        for (BlockPos tile : mob.blueprint(sl).garden()) {
             for (int dy = 3; dy >= -3; dy--) {
                 BlockPos p = tile.offset(0, dy, 0);
                 if (isRipeBerry(mob.level().getBlockState(p))) {

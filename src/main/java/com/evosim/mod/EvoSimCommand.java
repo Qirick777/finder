@@ -16,6 +16,7 @@ import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.FamilyLedger;
 import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.FarmTicker;
+import com.evosim.mod.entity.HomeBlueprint;
 import com.evosim.mod.entity.HomeStore;
 import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.HomeTemplate;
@@ -1965,22 +1966,21 @@ public final class EvoSimCommand {
 
         List<BlockPos> all = reg.positions();
         int vacant = 0;
-        int ghost = 0;      // 등기엔 있는데 모닥불(구조물)이 없다
-        int lit = 0;
+        int ghost = 0;      // 등기엔 있는데 구조물이 없다
+        double standSum = 0.0;
         int conflict = 0;   // 등기는 빈집인데 실거주자가 있다 = 남의 집에 입주할 위험
         int stale = 0;      // 실거주자가 있는데 등기가 없다 = 겹쳐 지을 위험
         StringBuilder vac = new StringBuilder();
         for (BlockPos h : all) {
             HomeStore.Entry e = reg.entry(h);
-            Direction f = Direction.from2DDataValue(e.rotation());
-            var st = level.getBlockState(HomeStructure.hearthPos(h, f));
-            boolean hasHearth = st.getBlock()
-                    instanceof com.evosim.mod.block.MimicHearthBlock;
-            if (!hasHearth) {
+            // 구조물이 실제로 서 있는가 — 도면 대비 일치 비율로 잰다(모닥불 폐지 후의 관측 경로).
+            double stand = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored())
+                    .standingRatio(level);
+            boolean standing = stand >= MimicEntity.STANDING_RATIO;
+            if (!standing) {
                 ghost++;
-            } else if (st.getValue(com.evosim.mod.block.MimicHearthBlock.LIT)) {
-                lit++;
             }
+            standSum += stand;
             int res = residents.getOrDefault(h.asLong(), 0);
             if (reg.isVacant(h, today)) {
                 vacant++;
@@ -1988,14 +1988,44 @@ public final class EvoSimCommand {
                     conflict++;
                 }
                 if (vac.length() < 300) {
-                    vac.append(String.format("%d,%d(%s r%d %s거주%d) ", h.getX(), h.getZ(),
-                            e.design(), e.rotation(), hasHearth ? "" : "구조없음 ", res));
+                    vac.append(String.format("%d,%d(%s r%d%s %s거주%d) ", h.getX(), h.getZ(),
+                            e.design(), e.rotation(), e.mirrored() ? "m" : "",
+                            standing ? "" : "구조없음", res));
                 }
             }
         }
         for (Long k : residents.keySet()) {
             if (reg.entry(BlockPos.of(k)) == null) {
                 stale++;
+            }
+        }
+
+        // ④ 도면 분포와 정원·문 실측 — "심는 칸"과 "실제 덤불"이 같은 목록을 보는지 드러낸다.
+        //    수확 경로가 다른 칸을 보면 덤불은 늘어나는데 수확(AUDIT garden)이 0으로 남는다.
+        java.util.Map<String, Integer> byDesign = new java.util.TreeMap<>();
+        int gardenCells = 0;
+        int bushes = 0;
+        int doors = 0;
+        for (BlockPos h : all) {
+            HomeStore.Entry e = reg.entry(h);
+            byDesign.merge(e.design() + (e.mirrored() ? "m" : "") + "r" + e.rotation(), 1,
+                    Integer::sum);
+            HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            gardenCells += bp.gardenCap(); // 훑는 칸이 아니라 상한(천막은 16칸/상한 8)
+            for (BlockPos g : bp.garden()) {
+                for (int dy = 3; dy >= -3; dy--) {
+                    if (level.getBlockState(g.offset(0, dy, 0))
+                            .is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)) {
+                        bushes++;
+                        break;
+                    }
+                }
+            }
+            for (HomeBlueprint.Placement pp : bp.plan()) {
+                if (pp.state().getBlock() instanceof net.minecraft.world.level.block.DoorBlock
+                        && level.getBlockState(pp.pos()) == pp.state()) {
+                    doors++;
+                }
             }
         }
 
@@ -2015,12 +2045,16 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "§e[등기부] day=%d 등기%d 거주%d 빈집%d · 모닥불켜짐%d 구조없음%d · "
-                        + "실거주좌표%d 미등기%d 빈집인데거주%d · 최소간격%.1f(MIN_GAP=%d) %s",
-                today, all.size(), all.size() - vacant, vacant, lit, ghost,
+                "§e[등기부] day=%d 등기%d 거주%d 빈집%d · 구조평균%.0f%% 구조없음%d · "
+                        + "실거주좌표%d 미등기%d 빈집인데거주%d · 최소간격%.1f(기준간격%d) %s",
+                today, all.size(), all.size() - vacant, vacant,
+                all.isEmpty() ? 0.0 : standSum / all.size() * 100.0, ghost,
                 residents.size(), stale, conflict,
                 minGap == Double.MAX_VALUE ? -1.0 : minGap,
-                com.evosim.core.Settlement.MIN_GAP, gapPair));
+                MimicEntity.requiredGap(level, com.evosim.mod.entity.HomeTemplate.Tier.SMALL
+                        .designs[0]), gapPair));
+        tell(ctx.getSource(), String.format("도면분포 %s · 정원칸합%d 덤불합%d 문블록합%d",
+                byDesign.isEmpty() ? "-" : byDesign.toString(), gardenCells, bushes, doors));
         if (vac.length() > 0) {
             tell(ctx.getSource(), "빈집: " + vac);
         }
@@ -2901,7 +2935,7 @@ public final class EvoSimCommand {
                 c[0] = cc[0];
                 c[1] = cc[1];
                 c[0].debugClearBerries(level);
-                for (BlockPos tile : HomeStructure.berryTiles(home, c[0].getHomeFacingDir())) {
+                for (BlockPos tile : HomeBlueprint.of(level, home).garden()) {
                     BlockPos g = level.getHeightmapPos(
                             net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                             tile);
@@ -2913,7 +2947,7 @@ public final class EvoSimCommand {
                     () -> c[0].countBerries(level) == 8,
                     () -> {
                         c[0].debugClearBerries(level);
-                        for (BlockPos tile : HomeStructure.berryTiles(home, c[0].getHomeFacingDir())) {
+                        for (BlockPos tile : HomeBlueprint.of(level, home).garden()) {
                             for (int dy = -2; dy <= 3; dy++) {
                                 BlockPos p = tile.offset(0, dy, 0);
                                 if (level.getBlockState(p).is(Blocks.OAK_LOG)) {
@@ -3957,7 +3991,7 @@ public final class EvoSimCommand {
     /** 정원의 베리를 전부 익힘(AGE 3) — 구속 수확·carryCap 무대 조성. 익힌 그루 수 반환. */
     private static int ripenGarden(ServerLevel level, BlockPos home, Direction facing) {
         int n = 0;
-        for (BlockPos tile : com.evosim.mod.entity.HomeStructure.gardenCells(home, facing)) {
+        for (BlockPos tile : HomeBlueprint.of(level, home).garden()) {
             for (int dy = 3; dy >= -3; dy--) {
                 BlockPos p = tile.offset(0, dy, 0);
                 var st = level.getBlockState(p);
@@ -3973,7 +4007,7 @@ public final class EvoSimCommand {
     /** 정원의 익은(AGE 3) 그루 수 — 구속 수확 판정의 결과값. */
     private static int ripeGardenCount(ServerLevel level, BlockPos home, Direction facing) {
         int n = 0;
-        for (BlockPos tile : com.evosim.mod.entity.HomeStructure.gardenCells(home, facing)) {
+        for (BlockPos tile : HomeBlueprint.of(level, home).garden()) {
             for (int dy = 3; dy >= -3; dy--) {
                 var st = level.getBlockState(tile.offset(0, dy, 0));
                 if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
@@ -4618,7 +4652,7 @@ public final class EvoSimCommand {
                 level.setDayTime(9000L);
             }, () -> String.format("topicA '%s' posA %s act=%s hearths=%d phase=%s probe[%s]",
                     c[0].lastTopic(), c[0].blockPosition().toShortString(),
-                    c[0].currentActionLabel(), MimicEntity.litHearthsView().size(),
+                    c[0].currentActionLabel(), MimicEntity.occupiedHomes(level).size(),
                     com.evosim.core.Schedule.phaseAt(c[0].getIndividual(), level.getDayTime()),
                     MimicVisitGoal.debugProbe(c[0])),
                     () -> "smalltalk".equals(c[0].lastTopic()),

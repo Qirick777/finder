@@ -65,8 +65,8 @@ public class MimicVisitGoal extends Goal {
         sb.append(" day=").append(gameDay).append(" lastVisit=").append(m.lastVisitDay());
         int cands = 0;
         int nearRejected = 0;
-        if (m.getHomePos() != null) {
-            for (long h : MimicEntity.litHearthsView()) {
+        if (m.getHomePos() != null && m.level() instanceof net.minecraft.server.level.ServerLevel sl) {
+            for (long h : MimicEntity.occupiedHomes(sl)) {
                 net.minecraft.core.BlockPos p = net.minecraft.core.BlockPos.of(h);
                 if (p.equals(m.getHomePos())) {
                     continue;
@@ -186,7 +186,10 @@ public class MimicVisitGoal extends Goal {
     /** 목적지 — 8~48블록 내 타 가구 켜진 모닥불(거처 좌표) 중 (id+날) 결정론 선택 + 좌석 확인. */
     private BlockPos pickDest(long day) {
         List<BlockPos> cands = new ArrayList<>();
-        for (long h : MimicEntity.litHearthsView()) {
+        if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return null;
+        }
+        for (long h : MimicEntity.occupiedHomes(sl)) {
             BlockPos p = BlockPos.of(h);
             if (p.equals(mob.getHomePos())) {
                 continue; // 자기 집

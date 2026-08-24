@@ -189,6 +189,17 @@ public class HomeStore extends SavedData {
         return out;
     }
 
+    /** 사람이 사는 거처 좌표(long) — 마실·구혼 여행의 목적지 후보 출처. */
+    public List<Long> occupiedPositions(int today) {
+        List<Long> out = new ArrayList<>();
+        for (Map.Entry<Long, Entry> e : homes.entrySet()) {
+            if (!isVacant(e.getValue(), today)) {
+                out.add(e.getKey());
+            }
+        }
+        return out;
+    }
+
     /** 빈집 수 — 관측·검증용. */
     public int vacantCount(int today) {
         int n = 0;

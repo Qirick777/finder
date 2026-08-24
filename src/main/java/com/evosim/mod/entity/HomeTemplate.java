@@ -153,8 +153,24 @@ public final class HomeTemplate {
      *
      * @return 실패 시 empty — 도면 파일이 없을 때(데이터팩 미탑재)
      */
+    // 해석 결과 캐시 — 도면 NBT 는 런타임에 바뀌지 않는데, 부지 후보 검증은 한 번의 신축에도
+    // 열 번 가까이 도면을 묻는다. 매번 압축 NBT 를 다시 파싱하면 그게 곧 건축 지연이다.
+    private static final java.util.Map<String, HomeTemplate> CACHE = new java.util.HashMap<>();
+
     public static Optional<HomeTemplate> load(ServerLevel level, String design,
                                               Rotation rotation, Mirror mirror) {
+        String key = design + '|' + rotation + '|' + mirror;
+        HomeTemplate hit = CACHE.get(key);
+        if (hit != null) {
+            return Optional.of(hit);
+        }
+        Optional<HomeTemplate> made = parse(level, design, rotation, mirror);
+        made.ifPresent(t -> CACHE.put(key, t));
+        return made;
+    }
+
+    private static Optional<HomeTemplate> parse(ServerLevel level, String design,
+                                                Rotation rotation, Mirror mirror) {
         Optional<CompoundTag> raw = readNbt(level, design);
         if (raw.isEmpty()) {
             return Optional.empty();

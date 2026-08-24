@@ -65,8 +65,15 @@ public class HomeStore extends SavedData {
      * @param lastSeenDay 마지막 거주 확인일.
      */
     public record Entry(String design, byte rotation, boolean mirrored,
-                        long ownerId, int lastSeenDay) {
+                        long ownerId, int lastSeenDay, double upkeepDue, int showoffSince) {
+
+        Entry(String design, byte rotation, boolean mirrored, long ownerId, int lastSeenDay) {
+            this(design, rotation, mirrored, ownerId, lastSeenDay, 0.0, NOT_SHOWING_OFF);
+        }
     }
+
+    /** 과시 이사 조건을 아직 만족하지 않은 상태. */
+    public static final int NOT_SHOWING_OFF = Integer.MIN_VALUE;
 
     /** 현 천막 거처의 도면 이름 — 3단계 전까지의 값. */
     public static final String TENT = "tent";
@@ -84,7 +91,8 @@ public class HomeStore extends SavedData {
             CompoundTag e = list.getCompound(i);
             store.homes.put(e.getLong("Pos"), new Entry(
                     e.getString("Design"), e.getByte("Rot"), e.getBoolean("Mirror"),
-                    e.getLong("Owner"), e.getInt("Seen")));
+                    e.getLong("Owner"), e.getInt("Seen"), e.getDouble("Upkeep"),
+                    e.contains("Showoff") ? e.getInt("Showoff") : NOT_SHOWING_OFF));
         }
         return store;
     }
@@ -100,6 +108,8 @@ public class HomeStore extends SavedData {
             c.putBoolean("Mirror", e.getValue().mirrored());
             c.putLong("Owner", e.getValue().ownerId());
             c.putInt("Seen", e.getValue().lastSeenDay());
+            c.putDouble("Upkeep", e.getValue().upkeepDue());
+            c.putInt("Showoff", e.getValue().showoffSince());
             list.add(c);
         }
         tag.put("Homes", list);
@@ -123,7 +133,34 @@ public class HomeStore extends SavedData {
         Entry cur = homes.get(home.asLong());
         homes.put(home.asLong(), cur == null
                 ? new Entry(design, rotation, false, ownerId, day)
-                : new Entry(cur.design(), cur.rotation(), cur.mirrored(), ownerId, day));
+                : new Entry(cur.design(), cur.rotation(), cur.mirrored(), ownerId, day,
+                        cur.upkeepDue(), cur.showoffSince()));
+        setDirty();
+    }
+
+    /**
+     * 유지비 잔돈 — 하루 유지비가 1 미만이라 <b>모아서</b> 정수로 낸다. 저장고 L 은 정수 불변식
+     * (B-3)을 지켜야 하는데 소형 0.05/일을 매일 빼면 그 불변식이 깨진다. 그래서 잔돈을 여기
+     * (집의 장부)에 쌓고 1을 넘길 때만 정수로 차감한다.
+     */
+    public void setUpkeepDue(BlockPos home, double due) {
+        Entry c = homes.get(home.asLong());
+        if (c == null) {
+            return;
+        }
+        homes.put(home.asLong(), new Entry(c.design(), c.rotation(), c.mirrored(), c.ownerId(),
+                c.lastSeenDay(), due, c.showoffSince()));
+        setDirty();
+    }
+
+    /** 과시 조건을 처음 만족한 날(또는 {@link #NOT_SHOWING_OFF}) — 지속 일수 판정의 기준점. */
+    public void setShowoffSince(BlockPos home, int day) {
+        Entry c = homes.get(home.asLong());
+        if (c == null || c.showoffSince() == day) {
+            return;
+        }
+        homes.put(home.asLong(), new Entry(c.design(), c.rotation(), c.mirrored(), c.ownerId(),
+                c.lastSeenDay(), c.upkeepDue(), day));
         setDirty();
     }
 
@@ -134,7 +171,7 @@ public class HomeStore extends SavedData {
             return;
         }
         homes.put(home.asLong(), new Entry(cur.design(), cur.rotation(), cur.mirrored(),
-                0L, VACATED));
+                0L, VACATED, cur.upkeepDue(), NOT_SHOWING_OFF));
         setDirty();
     }
 

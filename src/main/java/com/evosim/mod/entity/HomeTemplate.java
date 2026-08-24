@@ -77,7 +77,59 @@ public final class HomeTemplate {
             this.upkeep = upkeep;
             this.designs = designs;
         }
+
+        /** 도면 이름 → 등급. 모르는 이름(구 천막 등)은 소형으로 본다. */
+        public static Tier of(String design) {
+            for (Tier t : values()) {
+                for (String d : t.designs) {
+                    if (d.equals(design)) {
+                        return t;
+                    }
+                }
+            }
+            return SMALL;
+        }
+
+        /** 이 인원을 담을 수 있는 <b>가장 작은</b> 등급 — 협소 이사의 목표. */
+        public static Tier smallestFor(int members) {
+            for (Tier t : values()) { // 선언 순서가 곧 수용 인원 오름차순
+                if (t.capacity >= members) {
+                    return t;
+                }
+            }
+            return MANSION;
+        }
+
+        /** 이 자금으로 지을 수 있는 <b>가장 큰</b> 등급. 소형은 건축비 0이라 언제나 가능. */
+        public static Tier affordable(double funds) {
+            Tier best = SMALL;
+            for (Tier t : values()) {
+                if (funds >= t.buildCost) {
+                    best = t;
+                }
+            }
+            return best;
+        }
     }
+
+    /**
+     * 이사 후에도 손에 남겨야 하는 여유금 — <b>성인 하루 명목소모</b>과 6 중 큰 쪽.
+     *
+     * <p>집을 짓느라 저장고를 바닥내면 그 가구는 다음 날 굶는다. 6은 신혼 부부(하루 소모 약 6)를
+     * 기준으로 한 하한이고, 대가족은 자기 소모가 그보다 크므로 그쪽을 쓴다.
+     */
+    public static double reserve(double adultNeed) {
+        return Math.max(6.0, adultNeed);
+    }
+
+    /** 과시 이사: 여유금의 이 배수를 넘겨 남길 수 있어야 한다(협소 이사는 1배). */
+    public static final double SHOWOFF_FACTOR = 2.0;
+
+    /**
+     * 과시 이사 지속 요건(일). 하루치 부(富)로 저택을 짓지 못하게 한다 — 수확이 한 번 몰린 날의
+     * 일시적 잔고가 아니라, <b>며칠 유지되는</b> 여유여야 등급이 올라간다.
+     */
+    public static final int SHOWOFF_DAYS = 3;
 
     /** 배치 한 칸 — 앵커 상대 좌표 + 놓을 블록. */
     public record Placement(BlockPos rel, BlockState state) {

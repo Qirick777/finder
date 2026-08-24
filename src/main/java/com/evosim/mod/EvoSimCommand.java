@@ -88,6 +88,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("gallery").executes(EvoSimCommand::gallery))
                 .then(Commands.literal("hometest").executes(EvoSimCommand::homeTest))
                 .then(Commands.literal("homes").executes(EvoSimCommand::homes))
+                .then(Commands.literal("tierx").executes(EvoSimCommand::tierStage))
                 .then(Commands.literal("homeshow")
                         .then(Commands.argument("design", StringArgumentType.word())
                                 .executes(ctx -> homeShow(ctx,
@@ -2053,12 +2054,79 @@ public final class EvoSimCommand {
                 minGap == Double.MAX_VALUE ? -1.0 : minGap,
                 MimicEntity.requiredGap(level, com.evosim.mod.entity.HomeTemplate.Tier.SMALL
                         .designs[0]), gapPair));
-        tell(ctx.getSource(), String.format("도면분포 %s · 정원칸합%d 덤불합%d 문블록합%d",
-                byDesign.isEmpty() ? "-" : byDesign.toString(), gardenCells, bushes, doors));
+        double upkeepDue = 0.0;
+        for (BlockPos h : all) {
+            upkeepDue += reg.entry(h).upkeepDue();
+        }
+        tell(ctx.getSource(), String.format(
+                "도면분포 %s · 정원칸합%d 덤불합%d 문블록합%d · 유지비잔돈합%.2f",
+                byDesign.isEmpty() ? "-" : byDesign.toString(), gardenCells, bushes, doors,
+                upkeepDue));
         if (vac.length() > 0) {
             tell(ctx.getSource(), "빈집: " + vac);
         }
         return all.size();
+    }
+
+    /**
+     * 4단계 무대 — 거처 등급 이사가 <b>발동하기 직전</b>의 네 가구를 한 번에 세운다.
+     *
+     * <p>각 가구는 승격의 서로 다른 갈래를 하나씩 대표하고, 그중 하나는 <b>발동해서는 안 되는</b>
+     * 대조군이다. 대조군이 없으면 "이사가 일어났다"는 관측이 조건 때문인지 그냥 아무나 이사하는
+     * 것인지 구분되지 않는다.
+     *
+     * <ol>
+     *   <li><b>과시</b> — 소형·부부·저장고 100. 여유가 넘치지만 협소하진 않다.
+     *       {@link HomeTemplate#SHOWOFF_DAYS} 일 연속이라야 오른다 → <b>D+2 불변, D+3 이사</b>.</li>
+     *   <li><b>협소</b> — 소형(수용 4)·5인·저장고 100. 지속 요건 없이 <b>즉시</b> 중형 이상.</li>
+     *   <li><b>협소인데 무일푼</b>(대조군) — 소형·5인·저장고 16. 비좁아도 <b>이사하지 못한다</b>
+     *       (중형 12 + 여유 6 = 18 미달). 승격이 자산 조건을 실제로 보는지 가른다.</li>
+     *   <li><b>빈집 재사용</b> — 옆에 <b>저택 빈집</b>이 서 있는 부유한 소형 가구.
+     *       신축이 아니라 그 빈집으로 <b>건축비 0</b>에 들어가야 한다.</li>
+     * </ol>
+     */
+    private static int tierStage(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 4; i++) {
+            // 강제로드 대역 안에 나란히 — 슬롯 방식(z += 64×n)은 검증 스위트와 자리가 겹치고
+            // 시뮬레이션 거리 밖이라 개체가 틱하지 않는다(가구 정산이 안 돌면 승격도 안 돈다).
+            BlockPos home = groundAt(level, b, -120.0 + i * 60.0, 0.0);
+            MimicEntity dad = spawnAdult(level, Vec3.atBottomCenterOf(home).add(2, 0, 2), Sex.MALE);
+            MimicEntity mom = spawnAdult(level, Vec3.atBottomCenterOf(home).add(3, 0, 2), Sex.FEMALE);
+            // 짝은 <b>debugMarryTo</b>(배우자 링크만)로 맺는다. debugForcePair 는 성사 절차를
+            // 그대로 태워서, 이미 집이 있어도 그날 밤 자연 신축(makeNewHome)이 돌아 무대가 준 집을
+            // 버리고 새 집으로 나가 버린다 — 실측: 무대 4가구가 전부 저장고 0인 새 집으로 이사해
+            // 이튿날 굶어 죽었고, 등기에는 아무도 안 사는 집 4채가 남았다.
+            dad.debugSettleWithHome(level, home, "small1", (byte) 0, false);
+            mom.debugSettleWithHome(level, home, "small1", (byte) 0, false);
+            dad.debugMarryTo(mom);
+            int kids = (i == 1 || i == 2) ? 3 : 0; // ②③ 만 5인 가구(부부 2 + 자녀 3 > 수용 4)
+            for (int k = 0; k < kids; k++) {
+                MimicEntity c = spawnChildOf(level,
+                        Vec3.atBottomCenterOf(home).add(1 + k, 0, 1), dad, Sex.MALE);
+                c.setHomePos(home);
+            }
+            // ③ 대조군은 16 — 협소 이사 문턱(중형 12 + 여유 6 = 18)에 <b>딱 미치지 못하는</b>
+            // 값이다. 8로 두면 판정이 서기 전에 굶어 죽어 "못 갔다"가 조건 때문인지 죽어서인지
+            // 구분되지 않는다.
+            double larder = i == 2 ? 16.0 : 100.0;
+            LarderStore.get(level).set(home, larder);
+            if (i == 3) { // ④ 옆에 저택 빈집 — 신축보다 이쪽이 우선이어야 한다
+                BlockPos vac = home.offset(30, 0, 0);
+                MimicEntity.debugPlaceVacantHome(level, vac, "mansion", (byte) 0, false);
+                sb.append(String.format("④ 저택 빈집 @%d,%d\n", vac.getX(), vac.getZ()));
+            }
+            sb.append(String.format("%s 가구%d 저장고%.0f @%d,%d (small1)\n",
+                    new String[] {"① 과시", "② 협소", "③ 협소·무일푼", "④ 빈집재사용"}[i],
+                    2 + kids, larder, home.getX(), home.getZ()));
+        }
+        tell(ctx.getSource(), "§e[4단계 무대] 승격 직전 4가구 조성§r\n" + sb
+                + "판정 — ①은 3일 연속이라야 오른다(D+2 불변·D+3 이사) / ②는 즉시 / "
+                + "③은 돈이 없어 못 간다(대조군) / ④는 신축이 아니라 저택 빈집으로 비용 0.\n"
+                + "관측: /evosim homes 의 도면분포와 [이사] 로그.");
+        return 1;
     }
 
     /** 정원 6칸의 중심(앵커 상대, 정수 반올림) — 회전·대칭이 먹혔는지 판정하는 관측값. */

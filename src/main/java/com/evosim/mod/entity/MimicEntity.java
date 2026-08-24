@@ -521,6 +521,47 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
+     * 점검용 — 스키메틱 거처를 즉시 완성 배치하고 등기한다(등급 이사 무대 조성용).
+     * 자연 건축(부부가 한 칸씩)을 기다리지 않고 완성 상태에서 출발시킨다.
+     */
+    public void debugSettleWithHome(ServerLevel sl, BlockPos home, String design,
+                                    byte rot, boolean mirror) {
+        setHomePos(home);
+        adoptDesign(design, rot, mirror);
+        building = false;
+        HomeBlueprint bp = HomeBlueprint.of(sl, home, design, rot, mirror);
+        flattenSite(sl, bp);
+        excavate(sl, bp);
+        for (HomeBlueprint.Placement pp : bp.plan()) {
+            sl.setBlock(pp.pos(), pp.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        HomeStore.get(sl).register(home, design, rot, mirror,
+                individual != null ? individual.id() : 0L, today());
+    }
+
+    /** 점검용 — 스키메틱 빈집 하나를 세워 두고 즉시 퇴거 등기(빈집 재사용 무대). */
+    public static void debugPlaceVacantHome(ServerLevel sl, BlockPos home, String design,
+                                            byte rot, boolean mirror) {
+        HomeBlueprint bp = HomeBlueprint.of(sl, home, design, rot, mirror);
+        for (BlockPos c : bp.clear()) {
+            sl.setBlock(c, Blocks.AIR.defaultBlockState(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        for (HomeBlueprint.Placement pp : bp.plan()) {
+            sl.setBlock(pp.pos(), pp.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        HomeStore reg = HomeStore.get(sl);
+        reg.register(home, design, rot, mirror, 0L,
+                (int) (com.evosim.mod.entity.SimTime.tick(sl) / 24000L));
+        reg.vacate(home);
+    }
+
+    /**
      * 점검용 — 빈 거처(천막 + 꺼진 모닥불)를 즉시 지어 폐기목록에 등록. 애향심/이주자 재사용 판정 관찰용
      * (거주자 없이 존재하는 꺼진 거처를 하나 만들어 둔다).
      */
@@ -2465,10 +2506,15 @@ public class MimicEntity extends PathfinderMob {
 
         LarderStore store = null;
         double larder = 0.0;
+        boolean newHomeDay = false; // 이 집의 오늘 첫 정산인가 — 유지비·과시 판정은 하루 1회다
         if (homePos != null) {
             // 거주 신호 — 가구 정산이 돌았다는 것은 이 집에 산 사람이 있다는 뜻이다. 명시적 퇴거가
             // 닿지 못하는 경로(강제 처치·크래시·구 월드 이관)를 이 갱신 유무가 대신 판정한다.
-            HomeStore.get(sl).touch(homePos, HomeStore.TENT, homeFacing,
+            // 등기가 없는 집이면 touch 가 대신 등기한다 — 그때 <b>내 도면</b>을 넘겨야 한다.
+            // 여기에 TENT 를 박아 두면 미등기 스키메틱이 천막으로 등기되어 기하가 통째로 어긋난다.
+            HomeStore.Entry before = HomeStore.get(sl).entry(homePos);
+            newHomeDay = before == null || before.lastSeenDay() != today();
+            HomeStore.get(sl).touch(homePos, homeDesign, homeFacing,
                     father != null && father.getIndividual() != null
                             ? father.getIndividual().id() : 0L, today());
             store = LarderStore.get(sl);
@@ -2618,6 +2664,7 @@ public class MimicEntity extends PathfinderMob {
 
         // 정산 마감·가계 기록 (베리·출산 반영 후의 저장고를 확정 저장).
         if (homePos != null) {
+            larder = payUpkeep(sl, larder, newHomeDay);
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,
@@ -2638,8 +2685,220 @@ public class MimicEntity extends PathfinderMob {
             // 기근 → 이주(이주 설계 §1–3): 채집자 전원 무수확 + 비축 바닥 + 쿨다운 경과 → 인지거리 외곽.
             if (!fastSettle && shouldFamilyMigrate(fam, larder, need)) {
                 migrate(sl, fam);
+            } else if (!fastSettle && !building) {
+                // 승격 이사 — 기근 이주와 <b>배타</b>다. 굶어서 떠나는 것과 넓혀서 옮기는 것이
+                // 같은 틱에 겹치면 어느 쪽이 이겼는지 로그로 분간할 수 없다.
+                upgradeTick(sl, fam, larder, adultNeed, newHomeDay);
             }
         }
+    }
+
+    // ── 거처 승격(4단계): 유지비 · 협소/과시 이사 ──────────────────────────────
+
+    /**
+     * 하루 유지비를 낸다 — <b>이 집의 오늘 첫 정산에서만</b>.
+     *
+     * <p>등급이 오를수록 유지비가 커진다(소형 0.05 → 저택 1.0/일). 몰락을 급격한 붕괴가 아니라
+     * 완만한 하향 압력으로 만드는 장치다: 저택을 지어 놓고 수입이 끊긴 가구는 매일 1씩 새어
+     * 결국 저장고가 마르고, 그때 협소·과시가 아닌 <b>하향</b> 압력이 생긴다.
+     *
+     * <p>저장고 L 은 정수 불변식(B-3)을 지켜야 하므로 소수 유지비는 집의 장부에 잔돈으로 쌓고
+     * 1을 넘길 때만 정수로 뺀다. 낼 돈이 없으면 빚으로 쌓이지 않고 그냥 못 낸다 — 굶는 가구를
+     * 유지비로 한 번 더 때리면 아사 원인이 뒤섞여 관측이 흐려진다.
+     */
+    private double payUpkeep(ServerLevel sl, double larder, boolean newDay) {
+        if (!newDay || fastSettle) {
+            return larder;
+        }
+        HomeStore reg = HomeStore.get(sl);
+        HomeStore.Entry e = reg.entry(homePos);
+        if (e == null) {
+            return larder;
+        }
+        double due = e.upkeepDue() + HomeTemplate.Tier.of(e.design()).upkeep;
+        int pay = (int) Math.floor(due);
+        if (pay > 0 && larder >= pay) {
+            larder -= pay;
+            due -= pay;
+            SimEvents.note(sl, "유지비", String.format("@%d,%d %s −%d (저장고 %.0f)",
+                    homePos.getX(), homePos.getZ(), e.design(), pay, larder));
+        }
+        reg.setUpkeepDue(homePos, due);
+        return larder;
+    }
+
+    /**
+     * 거처 승격 판정 — 하루 1회. 두 갈래가 있고 <b>협소가 우선</b>이다.
+     *
+     * <ul>
+     *   <li><b>협소 이사</b> — 가구원이 수용 인원을 넘었다. 즉시(지속 요건 없음). 자녀가 늘어
+     *       비좁아진 집을 그대로 두는 편이 부자연스럽고, 이 압력이 없으면 등급이 자산에만
+     *       반응해 "부자만 큰 집"이 되어 가족 크기가 주거에 아무 영향을 못 준다.</li>
+     *   <li><b>과시 이사</b> — 협소하지 않은데도 여유가 넘친다. 여유금 2배를 남기고도 상위 등급을
+     *       지을 수 있는 상태가 {@link HomeTemplate#SHOWOFF_DAYS} 일 <b>연속</b>이어야 한다.
+     *       하루치 잔고로 저택이 서면 수확이 몰린 날마다 마을이 요동친다.</li>
+     * </ul>
+     *
+     * <p>지속 일수는 <b>집</b>의 장부에 적는다. 가구 대표는 사망·성장으로 바뀌는데 그때마다
+     * 개체 필드에 적힌 연속일이 0으로 돌아가면 큰 가구일수록 영영 승격하지 못한다.
+     */
+    private void upgradeTick(ServerLevel sl, List<MimicEntity> fam, double larder,
+                             double adultNeed, boolean newDay) {
+        if (!newDay || homePos == null) {
+            return;
+        }
+        HomeStore reg = HomeStore.get(sl);
+        HomeStore.Entry e = reg.entry(homePos);
+        if (e == null) {
+            return;
+        }
+        HomeTemplate.Tier cur = HomeTemplate.Tier.of(e.design());
+        double res = HomeTemplate.reserve(adultNeed);
+
+        // ① 협소 — 즉시. 지금 인원을 담을 최소 등급을 목표로 한다(감당 못 하면 그냥 참고 산다).
+        HomeTemplate.Tier need = HomeTemplate.Tier.smallestFor(fam.size());
+        if (need.ordinal() > cur.ordinal()) {
+            reg.setShowoffSince(homePos, HomeStore.NOT_SHOWING_OFF);
+            if (larder >= need.buildCost + res) {
+                moveUp(sl, fam, need, larder, res, String.format("협소(가구 %d > 수용 %d)",
+                        fam.size(), cur.capacity));
+            }
+            return;
+        }
+
+        // ② 과시 — 여유금 2배를 남기고 상위 등급이 가능한 상태가 연속 SHOWOFF_DAYS 일.
+        HomeTemplate.Tier want =
+                HomeTemplate.Tier.affordable(larder - res * HomeTemplate.SHOWOFF_FACTOR);
+        if (want.ordinal() <= cur.ordinal()) {
+            reg.setShowoffSince(homePos, HomeStore.NOT_SHOWING_OFF); // 조건 깨짐 → 처음부터
+            return;
+        }
+        if (e.showoffSince() == HomeStore.NOT_SHOWING_OFF) {
+            reg.setShowoffSince(homePos, today());
+            return;
+        }
+        if (today() - e.showoffSince() >= HomeTemplate.SHOWOFF_DAYS - 1) {
+            moveUp(sl, fam, want, larder, res, String.format("과시(%d일 유지)",
+                    today() - e.showoffSince() + 1));
+        }
+    }
+
+    /**
+     * 상위 등급으로 옮긴다. <b>빈집이 먼저다</b> — 근처에 목표 등급 이상의 빈집이 서 있으면
+     * 건축비 0으로 들어간다. 이미 서 있는 집을 놔두고 옆에 새로 짓는 마을은 부자연스럽고,
+     * 몰락한 가문의 저택이 다음 가문에게 넘어가는 경로이기도 하다(계승의 물질적 형태).
+     *
+     * <p>옛 집은 헐지 않고 <b>빈집으로 남긴다</b> — 남이 재사용할 수 있어야 한다. 저장고는
+     * 통째로 옮긴다(이사할 때 곳간을 두고 가지 않는다).
+     */
+    private void moveUp(ServerLevel sl, List<MimicEntity> fam, HomeTemplate.Tier target,
+                        double larder, double reserve, String why) {
+        BlockPos oldHome = homePos;
+        LarderStore store = LarderStore.get(sl);
+        HomeStore reg = HomeStore.get(sl);
+
+        // ① 빈집 우선 — 목표 등급 이상, 무주, 구조가 실제로 서 있고, 밭 위가 아닌 집.
+        BlockPos reuse = null;
+        for (BlockPos h : reg.vacantNear(oldHome, REUSE_RANGE, today())) {
+            HomeStore.Entry ve = reg.entry(h);
+            if (h.equals(oldHome) || HomeTemplate.Tier.of(ve.design()).ordinal() < target.ordinal()
+                    || anyResidentAt(sl, h)
+                    || homeSiteOnFarm(sl, h, ve.design(), ve.rotation(), ve.mirrored())
+                    || HomeBlueprint.of(sl, h, ve.design(), ve.rotation(), ve.mirrored())
+                            .standingRatio(sl) < STANDING_RATIO) {
+                continue;
+            }
+            reuse = h;
+            break;
+        }
+
+        String design;
+        byte rot;
+        boolean mir;
+        BlockPos dest;
+        double cost;
+        if (reuse != null) {
+            HomeStore.Entry ve = reg.entry(reuse);
+            design = ve.design();
+            rot = ve.rotation();
+            mir = ve.mirrored();
+            dest = reuse;
+            cost = 0.0; // 이미 서 있는 집 — 자재비가 들지 않는다
+        } else {
+            design = target.designs[getRandom().nextInt(target.designs.length)];
+            rot = (byte) getRandom().nextInt(4);
+            mir = getRandom().nextBoolean();
+            cost = target.buildCost;
+            int gap = requiredGap(sl, design);
+            List<int[]> existing = collectExistingHomes(sl, oldHome.getX(), oldHome.getZ());
+            DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
+            int[] xz = Settlement.placeHome(new int[] {oldHome.getX(), oldHome.getZ()},
+                    gap, existing, gap, rng);
+            for (int attempt = 0; attempt < 8 && homeSiteOnFarm(
+                    sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir); attempt++) {
+                xz = Settlement.placeHome(new int[] {oldHome.getX(), oldHome.getZ()},
+                        gap, existing, gap, rng);
+            }
+            int baseY = terrainBaseY(sl, HomeBlueprint.of(sl,
+                    new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir));
+            dest = new BlockPos(xz[0], baseY, xz[1]);
+        }
+
+        // ② 장부 이전 — 옛 집 저장고를 비우고 새 집으로. 건축비는 여기서 한 번만 뺀다.
+        double moved = Math.max(0.0, larder - cost);
+        store.set(oldHome, 0.0);
+        store.set(dest, moved);
+        reg.vacate(oldHome);          // 옛 집은 헐지 않는다 — 빈집으로 남아 재사용 대상
+        reg.register(dest, design, rot, mir,
+                individual != null ? individual.id() : 0L, today());
+
+        // ③ 가족 전원 이사. 도면 사본이 함께 가야 기하가 어긋나지 않는다.
+        //
+        // 명단은 fam(반경 96 스캔)이 아니라 <b>옛 집을 가리키는 개체 전부</b>로 잡는다. 채집·밭일로
+        // 96블록 밖에 나가 있던 가구원은 fam 에 없어서, fam 만 옮기면 그 사람만 옛 집을 계속
+        // 가리킨 채 홀로 남는다 — 저장고는 새 집으로 옮겨 갔으므로 그는 빈 곳간을 지키게 된다.
+        List<MimicEntity> movers = new ArrayList<>();
+        for (MimicEntity m : sl.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && oldHome.equals(e.getHomePos()))) {
+            movers.add(m);
+        }
+        for (MimicEntity m : fam) {
+            if (!movers.contains(m)) {
+                movers.add(m);
+            }
+        }
+        int builders = 0;
+        for (MimicEntity m : movers) {
+            m.setHomePos(dest);
+            m.adoptDesign(design, rot, mir);
+            if (reuse == null && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
+                    && builders < 2) {
+                m.building = true;
+                m.buildReachTicks = 0;
+                builders++;
+            }
+        }
+        if (reuse == null) {
+            HomeBlueprint bp = HomeBlueprint.of(sl, dest, design, rot, mir);
+            flattenSite(sl, bp);
+            excavate(sl, bp);
+        }
+        // 실제로 들어간 집의 등급을 찍는다. 빈집 재사용은 <b>목표 등급 이상</b>이면 받아들이므로
+        // (목표 BIG 인데 저택 빈집이 비어 있으면 그리로 간다) target 을 찍으면 로그와 등기가
+        // 어긋나 보인다 — 목표는 괄호에 따로 남긴다.
+        HomeTemplate.Tier got = HomeTemplate.Tier.of(design);
+        SimEvents.event(this, "이사", String.format(
+                "%s → %s %s @%d,%d (비용 %.0f · 저장고 %.0f) — %s%s",
+                HomeTemplate.Tier.of(homeDesignOf(reg, oldHome)), got, design,
+                dest.getX(), dest.getZ(), cost, moved,
+                reuse != null ? "빈집 재사용(목표 " + target + ") · " : "",
+                why));
+    }
+
+    /** 등기부에서 그 집의 도면 이름(없으면 천막) — 이사 로그의 '이전 등급' 표기용. */
+    private static String homeDesignOf(HomeStore reg, BlockPos home) {
+        HomeStore.Entry e = reg.entry(home);
+        return e == null ? HomeStore.TENT : e.design();
     }
 
     // ── 이주(기근·동반 이주·족외혼) — 판정은 순수 Famine, 여기는 배선 ──

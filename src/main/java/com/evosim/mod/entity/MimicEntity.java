@@ -503,8 +503,11 @@ public class MimicEntity extends PathfinderMob {
             sl.setBlockAndUpdate(p.pos(), state);
         }
         placeHearth(sl, home, facing, false); // 꺼진 모닥불
-        ABANDONED_HOMES.add(new int[] {home.getX(), home.getY(), home.getZ(),
-                facing.get2DDataValue()});
+        // 등기한 뒤 곧바로 퇴거 — "존재하지만 비어 있는 집"이라는 상태를 등기부로 표현한다.
+        HomeStore reg = HomeStore.get(sl);
+        reg.register(home, HomeStore.TENT, (byte) facing.get2DDataValue(), false, 0L,
+                (int) (com.evosim.mod.entity.SimTime.tick(sl) / 24000L));
+        reg.vacate(home);
     }
 
     /** 거처 상태 — 방랑/단독거처주/가족동거 (재혼 판정용). */
@@ -803,7 +806,7 @@ public class MimicEntity extends PathfinderMob {
         lonelySinceTick = -1L;
     }
 
-    // 켜진 모닥불 전역 목록(구혼 여행·마실 목적지) — ABANDONED_HOMES처럼 휘발성(재점화 이벤트로 복구).
+    // 켜진 모닥불 전역 목록(구혼 여행·마실 목적지) — 휘발성(재점화 이벤트로 복구).
     private static final List<Long> LIT_HEARTHS = new ArrayList<>();
 
     /** 마실(MimicVisitGoal) 목적지 후보 — 켜진 모닥불 보유 거처 좌표 뷰(읽기 전용 취급). */
@@ -1190,6 +1193,8 @@ public class MimicEntity extends PathfinderMob {
         other.homeFacing = homeFacing;
         endowNewHome(sl, preHomeSelf, other, preHomeOther, home); // 양가 지참금 이전(재사용 폐가 잔량 위에 가산)
         relightHearth(sl, home, facing);
+        HomeStore.get(sl).touch(home, HomeStore.TENT, homeFacing,
+                individual != null ? individual.id() : 0L, today()); // 재점유 — 빈집 해제
         SimEvents.event(this, "입주", "빈 거처 재사용 @" + home.getX() + "," + home.getZ()
                 + " (상대 #" + other.getId() + ")");
     }
@@ -1295,16 +1300,17 @@ public class MimicEntity extends PathfinderMob {
                 existing.add(new int[] {h.getX(), h.getZ()});
             }
         }
-        for (int[] a : ABANDONED_HOMES) {
-            existing.add(new int[] {a[0], a[2]});
+        // 등기부(영속) — 거주자가 전멸했거나 청크가 언로드된 집도 여기엔 남아 있다. 개체 스캔과
+        // <b>합집합</b>으로 쓴다: 중복은 무해하고(간격 판정은 최소거리만 본다), 누락은 겹쳐 짓기다.
+        for (BlockPos h : HomeStore.get(sl).positions()) {
+            if (Math.abs(h.getX() - anchorX) <= 160 && Math.abs(h.getZ() - anchorZ) <= 160) {
+                existing.add(new int[] {h.getX(), h.getZ()});
+            }
         }
         return existing;
     }
 
-    // 세션 내 폐기(꺼진) 거처 목록 {x,y,z,facing2d} — 재활용용(리로드엔 사라짐, 무해).
-    private static final List<int[]> ABANDONED_HOMES = new ArrayList<>();
-
-    /** 내 거처를 폐기 — 모닥불 끄고 폐기목록 등록(건물은 폐허로 남음). */
+    /** 내 거처를 폐기 — 모닥불 끄고 등기부에 퇴거 기록(건물은 폐허로 남음). */
     private void abandonHome(ServerLevel sl) {
         if (homePos == null) {
             return;
@@ -1315,42 +1321,39 @@ public class MimicEntity extends PathfinderMob {
             sl.setBlockAndUpdate(hp, sl.getBlockState(hp)
                     .setValue(MimicHearthBlock.LIT, Boolean.FALSE));
             hearthLit(homePos, false);
-            ABANDONED_HOMES.add(new int[] {homePos.getX(), homePos.getY(), homePos.getZ(),
-                    facing.get2DDataValue()});
+            HomeStore.get(sl).vacate(homePos);
             SimEvents.event(this, "폐가", String.format("모닥불 끔 @%d,%d (저장고는 남아 재사용 시 계승)",
                     homePos.getX(), homePos.getZ()));
         }
     }
 
-    /** 폐기목록에서 근처 빈 거처 하나 찾아 반환(거주자 없고 모닥불 꺼짐 확인). 없으면 null. */
+    /** 재사용 탐색 반경 — 종전 폐기목록 시절과 동일(96). */
+    private static final double REUSE_RANGE = 96.0;
+
+    /** 등기부에서 근처 빈 거처 하나 찾아 반환(거주자 없고 모닥불 꺼짐 확인). 없으면 null. */
     private int[] findAbandonedHome(ServerLevel sl) {
-        for (int i = 0; i < ABANDONED_HOMES.size(); i++) {
-            int[] a = ABANDONED_HOMES.get(i);
-            BlockPos home = new BlockPos(a[0], a[1], a[2]);
-            if (home.distSqr(blockPosition()) > 96.0 * 96.0) {
-                continue;
-            }
-            if (homeSiteOnFarm(sl, home, Direction.from2DDataValue(a[3]))) {
+        HomeStore reg = HomeStore.get(sl);
+        for (BlockPos home : reg.vacantNear(blockPosition(), REUSE_RANGE, today())) {
+            HomeStore.Entry e = reg.entry(home);
+            Direction facing = Direction.from2DDataValue(e.rotation());
+            if (homeSiteOnFarm(sl, home, facing)) {
                 continue; // 밭을 깔고 앉은 폐가는 재사용 금지(A-1) — fixhomes 도구가 철거한다
             }
-            BlockPos hp = HomeStructure.hearthPos(home, Direction.from2DDataValue(a[3]));
-            var st = sl.getBlockState(hp);
+            var st = sl.getBlockState(HomeStructure.hearthPos(home, facing));
             if (!(st.getBlock() instanceof MimicHearthBlock)) {
-                LarderStore.get(sl).remove(home); // 구조 자체가 소멸한 집 — 고아 저장고 함께 청소(M-9)
-                ABANDONED_HOMES.remove(i);
-                i--;         // 무효 항목 정리 후 계속 탐색 — 첫 꽝에서 포기해 뒤의 유효 폐가를
-                continue;    // 놓치고 신축하던(애향심 재사용 설계 훼손) 결함 수정
-            }
-            if (st.getValue(MimicHearthBlock.LIT)) {
-                ABANDONED_HOMES.remove(i);
-                i--;         // 재점화 = 새 가족 거주 중 — 목록에서만 빼고 저장고는 그 가족 것(유지)
+                // 구조 자체가 소멸한 집 — 등기 말소 + 고아 저장고 청소(M-9). 여기서 포기하지 않고
+                // 계속 탐색해야 뒤의 유효 폐가를 놓치지 않는다(애향심 재사용 설계).
+                LarderStore.get(sl).remove(home);
+                reg.remove(home);
                 continue;
             }
-            if (anyResidentAt(sl, home)) {
+            if (st.getValue(MimicHearthBlock.LIT) || anyResidentAt(sl, home)) {
+                // 불이 켜졌거나 사람이 있다 = 실거주 중. 등기의 빈집 판정이 틀린 것이므로
+                // 오늘 거주로 되돌려 놓는다(다음 탐색에서 다시 후보로 뜨지 않게).
+                reg.touch(home, e.design(), e.rotation(), e.ownerId(), today());
                 continue;
             }
-            ABANDONED_HOMES.remove(i);
-            return a;
+            return new int[] {home.getX(), home.getY(), home.getZ(), e.rotation()};
         }
         return null;
     }
@@ -2016,7 +2019,15 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         building = false;
+        // 등기 — 이제부터 이 집은 거주자가 전멸하든 서버가 꺼졌다 켜지든 마을이 기억한다.
+        HomeStore.get(sl).register(homePos, HomeStore.TENT, homeFacing, false,
+                individual != null ? individual.id() : 0L, today());
         SimEvents.event(this, "건축완료", "거처 @" + homePos.getX() + "," + homePos.getY() + "," + homePos.getZ());
+    }
+
+    /** 오늘(일). 등기부의 거주일 기록·빈집 유예 판정에 쓰는 단일 기준. */
+    private int today() {
+        return (int) (com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
     }
 
     /** 영구 제거(사망·아사) 시 거처 무인화되면 모닥불을 끈다(폐허로 남김). 청크 언로드엔 반응 안 함. */
@@ -2052,7 +2063,7 @@ public class MimicEntity extends PathfinderMob {
             if (st.getBlock() instanceof MimicHearthBlock && st.getValue(MimicHearthBlock.LIT)) {
                 sl.setBlockAndUpdate(hp, st.setValue(MimicHearthBlock.LIT, Boolean.FALSE));
                 hearthLit(home, false);
-                ABANDONED_HOMES.add(new int[] {home.getX(), home.getY(), home.getZ(), facing});
+                HomeStore.get(sl).vacate(home); // 거주자 0 — 빈집 등기(영속: 재접속해도 남는다)
             } else if (building && !(st.getBlock() instanceof MimicHearthBlock)) {
                 // 미완성 부지(모닥불은 완공 때 놓임)에서 마지막 건축자까지 죽음 — 폐가 목록은
                 // 모닥불을 요구해 영영 재사용 불가였으므로, 잔해(양털·울타리)를 철거해 자연 복원.
@@ -2365,6 +2376,11 @@ public class MimicEntity extends PathfinderMob {
         LarderStore store = null;
         double larder = 0.0;
         if (homePos != null) {
+            // 거주 신호 — 가구 정산이 돌았다는 것은 이 집에 산 사람이 있다는 뜻이다. 명시적 퇴거가
+            // 닿지 못하는 경로(강제 처치·크래시·구 월드 이관)를 이 갱신 유무가 대신 판정한다.
+            HomeStore.get(sl).touch(homePos, HomeStore.TENT, homeFacing,
+                    father != null && father.getIndividual() != null
+                            ? father.getIndividual().id() : 0L, today());
             store = LarderStore.get(sl);
             // 시작 L = ceil(하루소모) 정수(B-3). 무대(fast)는 인위 세팅이라 0에서 시작.
             larder = store.getOrInit(homePos, fastSettle ? 0.0 : FoodEconomy.initialLarder(need));
@@ -2619,8 +2635,7 @@ public class MimicEntity extends PathfinderMob {
         if (sl.getBlockState(hp).getBlock() instanceof MimicHearthBlock) {
             sl.setBlockAndUpdate(hp, Blocks.AIR.defaultBlockState());
         }
-        ABANDONED_HOMES.removeIf(a -> a[0] == home.getX() && a[1] == home.getY()
-                && a[2] == home.getZ());
+        HomeStore.get(sl).remove(home); // 구조물 철거 = 등기 말소
         hearthLit(home, false);
         LarderStore.get(sl).remove(home);
     }

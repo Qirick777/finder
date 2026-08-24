@@ -16,6 +16,7 @@ import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.FamilyLedger;
 import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.FarmTicker;
+import com.evosim.mod.entity.HomeStore;
 import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.HomeTemplate;
 import com.evosim.mod.entity.MimicEntity;
@@ -85,6 +86,7 @@ public final class EvoSimCommand {
                 .then(spawn)
                 .then(Commands.literal("gallery").executes(EvoSimCommand::gallery))
                 .then(Commands.literal("hometest").executes(EvoSimCommand::homeTest))
+                .then(Commands.literal("homes").executes(EvoSimCommand::homes))
                 .then(Commands.literal("homeshow")
                         .then(Commands.argument("design", StringArgumentType.word())
                                 .executes(ctx -> homeShow(ctx,
@@ -1940,6 +1942,89 @@ public final class EvoSimCommand {
                 + "정원을 공짜로 심지 않음 / 회전상이4: 4방향이 실제로 갈림 / 대칭 A→B: 정원이 반대쪽으로 "
                 + "이동 / 배치상이8: 8배치가 서로 다른 건물");
         return pass;
+    }
+
+    /**
+     * 거처 등기부 조회 — 등기부와 <b>월드의 실제 상태</b>를 대조해 어긋난 곳을 드러낸다.
+     *
+     * <p>등기부만 출력하면 "등기부가 자기 자신과 일치한다"는 공허한 확인이 된다. 그래서 세 가지
+     * 독립된 사실과 맞춘다: ① 개체의 {@code homePos}(지금 누가 어디 사는가) ② 모닥불 블록의
+     * 존재·점화(구조물이 실제로 있는가) ③ 등기 좌표 간 최소 거리(겹쳐 지었는가).
+     */
+    private static int homes(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        HomeStore reg = HomeStore.get(level);
+        int today = (int) (com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+
+        // ① 실거주 집합 — 살아 있는 개체의 homePos.
+        java.util.Map<Long, Integer> residents = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getHomePos() != null)) {
+            residents.merge(m.getHomePos().asLong(), 1, Integer::sum);
+        }
+
+        List<BlockPos> all = reg.positions();
+        int vacant = 0;
+        int ghost = 0;      // 등기엔 있는데 모닥불(구조물)이 없다
+        int lit = 0;
+        int conflict = 0;   // 등기는 빈집인데 실거주자가 있다 = 남의 집에 입주할 위험
+        int stale = 0;      // 실거주자가 있는데 등기가 없다 = 겹쳐 지을 위험
+        StringBuilder vac = new StringBuilder();
+        for (BlockPos h : all) {
+            HomeStore.Entry e = reg.entry(h);
+            Direction f = Direction.from2DDataValue(e.rotation());
+            var st = level.getBlockState(HomeStructure.hearthPos(h, f));
+            boolean hasHearth = st.getBlock()
+                    instanceof com.evosim.mod.block.MimicHearthBlock;
+            if (!hasHearth) {
+                ghost++;
+            } else if (st.getValue(com.evosim.mod.block.MimicHearthBlock.LIT)) {
+                lit++;
+            }
+            int res = residents.getOrDefault(h.asLong(), 0);
+            if (reg.isVacant(h, today)) {
+                vacant++;
+                if (res > 0) {
+                    conflict++;
+                }
+                if (vac.length() < 300) {
+                    vac.append(String.format("%d,%d(%s r%d %s거주%d) ", h.getX(), h.getZ(),
+                            e.design(), e.rotation(), hasHearth ? "" : "구조없음 ", res));
+                }
+            }
+        }
+        for (Long k : residents.keySet()) {
+            if (reg.entry(BlockPos.of(k)) == null) {
+                stale++;
+            }
+        }
+
+        // ③ 등기 좌표 간 최소 평면 거리 — MIN_GAP 미만이면 겹쳐 지은 것이다.
+        double minGap = Double.MAX_VALUE;
+        String gapPair = "-";
+        for (int i = 0; i < all.size(); i++) {
+            for (int j = i + 1; j < all.size(); j++) {
+                double dx = all.get(i).getX() - all.get(j).getX();
+                double dz = all.get(i).getZ() - all.get(j).getZ();
+                double d = Math.sqrt(dx * dx + dz * dz);
+                if (d < minGap) {
+                    minGap = d;
+                    gapPair = String.format("%d,%d↔%d,%d", all.get(i).getX(), all.get(i).getZ(),
+                            all.get(j).getX(), all.get(j).getZ());
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[등기부] day=%d 등기%d 거주%d 빈집%d · 모닥불켜짐%d 구조없음%d · "
+                        + "실거주좌표%d 미등기%d 빈집인데거주%d · 최소간격%.1f(MIN_GAP=%d) %s",
+                today, all.size(), all.size() - vacant, vacant, lit, ghost,
+                residents.size(), stale, conflict,
+                minGap == Double.MAX_VALUE ? -1.0 : minGap,
+                com.evosim.core.Settlement.MIN_GAP, gapPair));
+        if (vac.length() > 0) {
+            tell(ctx.getSource(), "빈집: " + vac);
+        }
+        return all.size();
     }
 
     /** 정원 6칸의 중심(앵커 상대, 정수 반올림) — 회전·대칭이 먹혔는지 판정하는 관측값. */

@@ -45,6 +45,12 @@ public class MimicRestGoal extends Goal {
         if (Schedule.phaseAt(ind, mob.level().getDayTime()) != Schedule.Phase.SLEEP) {
             return false;
         }
+        // 문간에서는 자지 않는다 — 문을 막고 누우면 나머지 가구원이 못 들어온다.
+        // 귀가 goal 이 자리까지 데려가는 것이 정상 경로이고, 이건 그 경로가 실패했을 때의 안전망.
+        if (mob.level().getBlockState(mob.blockPosition()).getBlock()
+                instanceof net.minecraft.world.level.block.DoorBlock) {
+            return false;
+        }
         BlockPos home = mob.getHomePos();
         return home == null || mob.blockPosition().distSqr(home) <= NEAR_HOME_SQR;
     }

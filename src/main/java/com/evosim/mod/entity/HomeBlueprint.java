@@ -44,12 +44,14 @@ public final class HomeBlueprint {
     private final List<BlockPos> garden;
     private final int gardenCap;
     private final List<BlockPos> footprint;
+    private final List<BlockPos> interior;
     private final Direction doorDir;
     private final double reach;
 
     private HomeBlueprint(BlockPos home, String design, boolean legacy, List<Placement> plan,
                           List<BlockPos> clear, List<BlockPos> garden, int gardenCap,
-                          List<BlockPos> footprint, Direction doorDir, double reach) {
+                          List<BlockPos> footprint, List<BlockPos> interior,
+                          Direction doorDir, double reach) {
         this.home = home;
         this.design = design;
         this.legacy = legacy;
@@ -58,6 +60,7 @@ public final class HomeBlueprint {
         this.garden = garden;
         this.gardenCap = gardenCap;
         this.footprint = footprint;
+        this.interior = interior;
         this.doorDir = doorDir;
         this.reach = reach;
     }
@@ -81,7 +84,7 @@ public final class HomeBlueprint {
             // 도면 파일이 사라진 경우(데이터팩 누락). 천막으로 떨어뜨리면 <b>엉뚱한 기하</b>로
             // 남의 집을 헐 수 있으므로, 아무것도 없는 빈 도면으로 만들어 무해하게 둔다.
             return new HomeBlueprint(home, design, false, List.of(), List.of(), List.of(), 0,
-                    List.of(home), doorOf(rot), 0.0);
+                    List.of(home), List.of(home), doorOf(rot), 0.0);
         }
         HomeTemplate t = opt.get();
         List<Placement> pl = new ArrayList<>(t.plan().size());
@@ -100,8 +103,12 @@ public final class HomeBlueprint {
         for (BlockPos f : t.footprint()) {
             fp.add(new BlockPos(home.getX() + f.getX(), home.getY(), home.getZ() + f.getZ()));
         }
+        List<BlockPos> in = new ArrayList<>(t.interior().size());
+        for (BlockPos c : t.interior()) {
+            in.add(home.offset(c));
+        }
         // 스키메틱은 칸 = 상한이다(도면이 정확히 그 수만큼 자리를 낸다).
-        return new HomeBlueprint(home, design, false, pl, cl, gd, gd.size(), fp,
+        return new HomeBlueprint(home, design, false, pl, cl, gd, gd.size(), fp, in,
                 doorOf(rot), t.reach());
     }
 
@@ -137,7 +144,7 @@ public final class HomeBlueprint {
         // 칸 수로 잡으면 구 천막 가구의 정원이 8 → 24로 <b>세 배</b>가 되어 식량이 부풀고,
         // 그 위에 세워진 밭·지대·출산 회계가 전부 어긋난다.
         return new HomeBlueprint(home, HomeStore.TENT, true, pl, List.of(home), gd,
-                HomeStructure.berryTiles(home, f).size(), fp, f, far);
+                HomeStructure.berryTiles(home, f).size(), fp, List.of(home), f, far);
     }
 
     /**
@@ -222,6 +229,14 @@ public final class HomeBlueprint {
      */
     public int gardenCap() {
         return gardenCap;
+    }
+
+    /**
+     * 실내에 설 수 있는 칸 — 앵커에 가까운 순. 가구원이 <b>각자 자리</b>를 갖는 근거다.
+     * 천막(레거시)은 앵커 한 칸뿐이다(원래 그런 구조다).
+     */
+    public List<BlockPos> interior() {
+        return interior;
     }
 
     /** 점유 열(x·z, y=home.y) — 평탄화·밭 회피 판정의 단일 출처. */

@@ -2142,28 +2142,43 @@ public final class EvoSimCommand {
      */
     private static int homeNight(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
-        int[] hist = new int[6]; // 0,1,2,3,4,5+ 칸
         int n = 0;
-        double worst = 0.0;
         int sleeping = 0;
+        int atDoor = 0;
+        int onSpot = 0;
+        int stacked = 0;
+        java.util.Map<Long, Integer> cell = new java.util.HashMap<>();
+        StringBuilder bad = new StringBuilder();
         for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getHomePos() != null)) {
-            double d = Math.sqrt(m.blockPosition().distSqr(m.getHomePos()));
-            if (d > 12.0) {
+            if (m.blockPosition().distSqr(m.getHomePos()) > 144.0) {
                 continue; // 아직 귀가 중 — 판정 대상 아님
             }
             n++;
-            hist[Math.min(5, (int) Math.round(d))]++;
-            worst = Math.max(worst, d);
             if (m.getPose() == net.minecraft.world.entity.Pose.SLEEPING) {
                 sleeping++;
             }
+            // 문간에 낀 개체 — 서 있는 칸이나 그 아래가 문이다.
+            if (level.getBlockState(m.blockPosition()).getBlock()
+                    instanceof net.minecraft.world.level.block.DoorBlock) {
+                atDoor++;
+                if (bad.length() < 200) {
+                    bad.append(m.blockPosition().toShortString()).append(' ');
+                }
+            }
+            BlockPos spot = m.homeSpot(level);
+            if (spot != null && m.blockPosition().distSqr(spot) <= 2.25) {
+                onSpot++;
+            }
+            int c = cell.merge(m.blockPosition().asLong(), 1, Integer::sum);
+            if (c == 2) {
+                stacked++; // 같은 칸을 두 명 이상이 나눠 쓰는 중
+            }
         }
         tell(ctx.getSource(), String.format(
-                "§e[밤 위치] 귀가권 %d명 · 취침 %d명 · 앵커까지 최대 %.1f칸\n"
-                        + "거리별 0칸:%d 1칸:%d 2칸:%d 3칸:%d 4칸:%d 5칸+:%d "
-                        + "(2칸 이상이 문간 후보 — 소형 도면의 문이 앵커에서 2칸)",
-                n, sleeping, worst, hist[0], hist[1], hist[2], hist[3], hist[4], hist[5]));
+                "§e[밤 위치] 귀가권 %d명 · 취침 %d · 제자리 %d · <b>문간 %d</b> · 겹친칸 %d%s",
+                n, sleeping, onSpot, atDoor, stacked,
+                bad.length() == 0 ? "" : "\n  문간 좌표: " + bad));
         return n;
     }
 

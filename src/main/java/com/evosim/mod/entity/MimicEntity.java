@@ -2224,7 +2224,46 @@ public class MimicEntity extends PathfinderMob {
                 + "," + homePos.getZ() + " 도면=" + homeDesign);
     }
 
-    /** 오늘(일). 등기부의 거주일 기록·빈집 유예 판정에 쓰는 단일 기준. */
+    /**
+     * 집 안에서 <b>내 자리</b> — 가구원마다 다른 칸. 없으면 앵커.
+     *
+     * <p>전원이 앵커 한 칸을 목표로 삼으면 먼저 온 한 명이 거기 누운 순간 나머지는 갈 곳이
+     * 없어 문간에 멈춘다(제보: 한 명은 누워 있고 나머지는 문에 낀 채 밤을 샌다). 가구원을
+     * 개체 id 순으로 줄 세우고 그 등수로 실내 칸을 나눠 가지면 서로 자리를 뺏지 않는다.
+     *
+     * <p>id 해시가 아니라 <b>등수</b>인 이유: 해시는 충돌하면 영영 겹치지만, 등수는 가구가
+     * 바뀌면 다시 배분되어 스스로 풀린다.
+     */
+    public BlockPos homeSpot(ServerLevel sl) {
+        if (homePos == null) {
+            return null;
+        }
+        // 캐시 — 귀가 goal 의 canUse 가 매 틱 이걸 묻는데, 계산은 반경 96 개체 스캔이다.
+        // 가구 구성은 하루 단위로나 바뀌므로 100틱 캐시로 충분하다.
+        long now = com.evosim.mod.entity.SimTime.tick(sl);
+        if (spotCache != null && now - spotTick < 100L && homePos.equals(spotHome)) {
+            return spotCache;
+        }
+        spotTick = now;
+        spotHome = homePos;
+        HomeBlueprint bp = blueprint(sl);
+        if (bp == null || bp.interior().isEmpty() || individual == null) {
+            spotCache = homePos;
+            return spotCache;
+        }
+        List<MimicEntity> fam = householdMembers();
+        fam.sort(java.util.Comparator.comparingLong(m ->
+                m.getIndividual() == null ? Long.MAX_VALUE : m.getIndividual().id()));
+        int rank = Math.max(0, fam.indexOf(this));
+        spotCache = bp.interior().get(rank % bp.interior().size());
+        return spotCache;
+    }
+
+    private transient BlockPos spotCache;
+    private transient BlockPos spotHome;
+    private transient long spotTick = Long.MIN_VALUE;
+
+    /** 오늘(일). 등기부의 거처일 기록·빈집 유예 판정에 쓰는 단일 기준. */
     private int today() {
         return (int) (com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
     }
@@ -2681,7 +2720,20 @@ public class MimicEntity extends PathfinderMob {
         // 옆 정원 베리 — 출산보다 <b>먼저</b>(정원 우선 원칙): 지참금이 출산 게이트(12)로 새기 전에
         // 생존 기반(정원)부터 완성한다. 부트스트랩 8(=상한)이라 게이트는 생계 유보(need)+비용뿐 —
         // 출산 게이트보다 항상 낮아 순위 역전(베리 13 > 출산 12로 2그루 동결되던 관측)이 사라진다.
-        if (homePos != null) {
+        // 건축이 끝나기 전에는 정원을 심지 않는다. 급식·입출금은 그대로 돌아야 하지만
+        // (건축 중 가구가 굶으면 안 된다) <b>식재만은</b> 기다려야 한다 — 바닥층(정원 흙)이
+        // 아직 없으면 findBerryGround 가 아래쪽 지형에서 흙을 찾아 엉뚱한 높이에 심고, 뒤이어
+        // 빌더가 그 칸에 흙을 놓아 덮어 버린다. 그러면 그 그루는 사라지는데 비용은 이미
+        // 나갔고, 다음 정산이 다시 심어 <b>비용을 두 번</b> 낸다.
+        // 실측 로그: "+5 (비용 3 … 누적 6/6)" 직후 같은 집에서 "+1 (비용 1 … 누적 6/6)".
+        boolean underConstruction = false;
+        for (MimicEntity m : fam) {
+            if (m.building) {
+                underConstruction = true;
+                break;
+            }
+        }
+        if (homePos != null && !underConstruction) {
             sweepLegacyGarden(sl); // 구 정원 범위(입구 줄)에 굳은 고아 덤불 걷어내기 — 기존 월드 치유
             int bushCount = countBerries(sl);
             double reproReserve = FoodEconomy.BIRTH_COST + adults + 1; // 상한 도달 후 잔여분에만 의미

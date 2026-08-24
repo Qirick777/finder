@@ -142,11 +142,12 @@ public final class HomeTemplate {
     private final List<BlockPos> clear;
     private final List<BlockPos> gardenCells;
     private final List<BlockPos> footprint;
+    private final List<BlockPos> interior;
     private final double reach;
 
     private HomeTemplate(String design, Rotation rotation, Mirror mirror, List<Placement> plan,
                          List<BlockPos> clear, List<BlockPos> gardenCells,
-                         List<BlockPos> footprint, double reach) {
+                         List<BlockPos> footprint, List<BlockPos> interior, double reach) {
         this.design = design;
         this.rotation = rotation;
         this.mirror = mirror;
@@ -154,7 +155,21 @@ public final class HomeTemplate {
         this.clear = clear;
         this.gardenCells = gardenCells;
         this.footprint = footprint;
+        this.interior = interior;
         this.reach = reach;
+    }
+
+    /**
+     * 실내에 <b>설 수 있는 칸</b> — 앵커 상대. 바닥재를 딛고 머리 위가 트인 y=0 칸이다.
+     *
+     * <p>거처마다 이 목록이 있어야 가구원이 <b>각자 자리</b>를 가진다. 전원이 앵커 한 칸만
+     * 목표로 삼으면, 먼저 온 한 명이 거기 누운 순간 나머지는 갈 곳이 없어 문간에 멈춰 선다
+     * (제보 스크린샷: 한 명은 누워 있고 나머지는 문에 낀 채 밤을 샌다).
+     *
+     * <p>칸 수는 실측으로 수용 인원보다 넉넉하다 — 소형 9 · 중형 15 · 대형 35 · 저택 100.
+     */
+    public List<BlockPos> interior() {
+        return interior;
     }
 
     public String design() {
@@ -335,8 +350,32 @@ public final class HomeTemplate {
             far = Math.max(far, Math.sqrt(g.getX() * g.getX() + g.getZ() * g.getZ()));
         }
         pl.sort(java.util.Comparator.comparingInt(p -> p.rel().getY())); // 낮은 층부터
+
+        // 실내 자리 — 바닥재를 딛고(아래가 고체) 머리 위가 트인(위가 공기) y=0 칸.
+        // 앵커 칸도 포함한다(금블록은 배치 시 공기가 되고, 원래 개체가 서는 자리다).
+        List<BlockPos> inside = new ArrayList<>();
+        for (var e : byRel.entrySet()) {
+            BlockPos rel = e.getKey();
+            if (rel.getY() != 0) {
+                continue;
+            }
+            boolean standable = e.getValue().isAir() || rel.equals(BlockPos.ZERO)
+                    || e.getValue().is(Blocks.WHITE_CARPET);
+            BlockState floorBelow = byRel.get(rel.below());
+            BlockState over = byRel.get(rel.above());
+            if (standable && floorBelow != null && !floorBelow.isAir()
+                    && (over == null || over.isAir()) && !skip.contains(rel)) {
+                inside.add(rel);
+            }
+        }
+        // 앵커에 가까운 순 — 배정이 결정적이고, 적은 인원은 가운데부터 채운다.
+        inside.sort(java.util.Comparator
+                .comparingInt((BlockPos q) -> q.getX() * q.getX() + q.getZ() * q.getZ())
+                .thenComparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
+
         return Optional.of(new HomeTemplate(design, rotation, mirror, List.copyOf(pl),
-                List.copyOf(carve), List.copyOf(garden), List.copyOf(cols), far));
+                List.copyOf(carve), List.copyOf(garden), List.copyOf(cols),
+                List.copyOf(inside), far));
     }
 
     /**

@@ -63,8 +63,11 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
+import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
+import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.entity.monster.Zombie;
@@ -264,9 +267,34 @@ public class MimicEntity extends PathfinderMob {
         refreshStageAttributes();
     }
 
+    /**
+     * 지상 경로 탐색 — <b>문을 통과 가능한 대상</b>으로 취급한다.
+     *
+     * <p>기본 {@link GroundPathNavigation} 은 닫힌 문을 벽으로 보고 경로를 끊는다. 종전 천막은
+     * 문이 없어(울타리 기둥 사이로 드나듦) 문제가 없었지만, 문이 달린 거처를 지으면 그 집은
+     * <b>들어갈 수 없는 상자</b>가 된다 — 귀가·취침·정산·급식이 전부 문 앞에서 멈춘다.
+     *
+     * <p>{@code setCanOpenDoors} 는 <b>닫힌</b> 문을 "열고 지나갈 수 있는 칸"으로,
+     * {@code setCanPassDoors} 는 <b>열린</b> 문을 통과 가능한 칸으로 만든다. 실제로 여는 것은
+     * 아래 {@link OpenDoorGoal} 이 담당한다 — 둘이 짝이어야 동작한다.
+     */
+    @Override
+    protected PathNavigation createNavigation(Level level) {
+        GroundPathNavigation nav = new GroundPathNavigation(this, level);
+        nav.setCanOpenDoors(true);
+        nav.setCanPassDoors(true);
+        return nav;
+    }
+
     @Override
     protected void registerGoals() {
         // 하루 리듬(§16): 밤=귀가·취침, 낮=채집·구애. 우선순위 낮을수록 먼저 점유.
+        // 문 여닫기는 <b>우선순위 0</b> — 다른 어떤 goal 이 이동을 쥐고 있어도 가로막힌 문은 열어야
+        // 한다. 동순위였다면 실행 중인 goal 을 선점하지 못해(GoalSelector 는 동순위 교체를 막는다)
+        // 돌봄·건축 중인 개체가 문 앞에서 영영 멈춘다. 발동 조건이 좁아 상시 점유 위험은 없다:
+        // 바닐라 DoorInteractGoal 은 <b>실제로 벽에 부딪혔고</b>(horizontalCollision) 현재 경로의
+        // 코앞(2.25블록)에 문이 있을 때만 켜진다. FloatGoal(0)은 JUMP 플래그라 충돌하지 않는다.
+        this.goalSelector.addGoal(0, new OpenDoorGoal(this, true)); // true = 지나간 뒤 닫는다
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new MimicBuildGoal(this));     // 거처 건축(부지로 이동·머묾)
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)

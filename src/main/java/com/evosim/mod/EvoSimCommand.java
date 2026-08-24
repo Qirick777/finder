@@ -90,6 +90,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("homes").executes(EvoSimCommand::homes))
                 .then(Commands.literal("tierx").executes(EvoSimCommand::tierStage))
                 .then(Commands.literal("homenight").executes(EvoSimCommand::homeNight))
+                .then(Commands.literal("heirtest").executes(EvoSimCommand::heirStage))
+                .then(Commands.literal("heirshow").executes(ctx -> heirShow(ctx, false)))
+                .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("homeshow")
                         .then(Commands.argument("design", StringArgumentType.word())
                                 .executes(ctx -> homeShow(ctx,
@@ -2108,7 +2111,10 @@ public final class EvoSimCommand {
             // 버리고 새 집으로 나가 버린다 — 실측: 무대 4가구가 전부 저장고 0인 새 집으로 이사해
             // 이튿날 굶어 죽었고, 등기에는 아무도 안 사는 집 4채가 남았다.
             dad.debugSettleWithHome(level, home, "small1", (byte) 0, false);
-            mom.debugSettleWithHome(level, home, "small1", (byte) 0, false);
+            // 두 번째 사람은 <b>합류</b>다. debugSettleWithHome 을 또 부르면 기단을 지붕 하이트맵
+            // 위로 다시 잡아 mom 이 딴 집에 사는 것으로 등록된다(실측으로 드러난 무대 결함).
+            home = dad.getHomePos();
+            mom.debugJoinHome(home, "small1", (byte) 0, false);
             dad.debugMarryTo(mom);
             int kids = (i == 1 || i == 2) ? 3 : 0; // ②③ 만 5인 가구(부부 2 + 자녀 3 > 수용 4)
             for (int k = 0; k < kids; k++) {
@@ -2135,6 +2141,389 @@ public final class EvoSimCommand {
                 + "③은 돈이 없어 못 간다(대조군) / ④는 신축이 아니라 저택 빈집으로 비용 0.\n"
                 + "관측: /evosim homes 의 도면분포와 [이사] 로그.");
         return 1;
+    }
+
+    /**
+     * <b>봉건 관측 1줄 보고</b> — 3회 반복 관측에서 <b>같은 시각마다 같은 값</b>을 읽기 위한 창구.
+     *
+     * <p>여기 담긴 값만으로 사전 선언한 합격 기준을 전부 판정할 수 있어야 한다. 그래서 계층 평균
+     * (AUDIT 이 이미 준다)이 아니라 <b>가구 저장고의 최대·중앙·최소·상위 1가구 비중</b>을 낸다 —
+     * 평균은 지주 한 명이 가려버려 "격차가 벌어졌는가"를 못 읽는다(관측 함정).
+     *
+     * <p>겹침은 두 축이다. <b>집↔집</b>은 등기 좌표 간 최소 평면거리, <b>집↔밭</b>은 도면 발자국·
+     * 정원 칸이 밭 열을 밟는지. 후자는 밟는 순간 그 타일이 영구 수확불능이 되므로 0이어야 한다.
+     */
+    private static int feudReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        HomeStore reg = HomeStore.get(level);
+        FarmStore farms = FarmStore.get(level);
+        LarderStore lar = LarderStore.get(level);
+        int today = (int) (com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+
+        int pop = 0;
+        int adult = 0;
+        java.util.Set<Long> resHomes = new java.util.HashSet<>();
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            pop++;
+            if (m.getStage() == LifeStage.ADULT) {
+                adult++;
+            }
+            if (m.getHomePos() != null) {
+                resHomes.add(m.getHomePos().asLong());
+            }
+        }
+
+        // ── 밭 ──
+        int plots = 0;
+        int tiles = 0;
+        java.util.Map<Long, long[]> byOwner = new java.util.HashMap<>();
+        for (FarmStore.Plot pl : farms.all().values()) {
+            plots++;
+            tiles += pl.tiles.length;
+            if (pl.ownerId != 0L) {
+                long[] v = byOwner.computeIfAbsent(pl.ownerId, k -> new long[2]);
+                v[0]++;
+                v[1] += pl.tiles.length;
+            }
+        }
+        long topPlots = 0;
+        long topTiles = 0;
+        for (long[] v : byOwner.values()) {
+            if (v[1] > topTiles) {
+                topTiles = v[1];
+                topPlots = v[0];
+            }
+        }
+        int tenants = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getTenantFarm() != 0L)) {
+            tenants++;
+        }
+
+        // ── 재산 격차(거주 가구 저장고) ──
+        java.util.List<Double> wealth = new java.util.ArrayList<>();
+        double sum = 0.0;
+        for (long h : resHomes) {
+            double v = lar.get(BlockPos.of(h));
+            wealth.add(v);
+            sum += v;
+        }
+        java.util.Collections.sort(wealth);
+        double max = wealth.isEmpty() ? 0.0 : wealth.get(wealth.size() - 1);
+        double min = wealth.isEmpty() ? 0.0 : wealth.get(0);
+        double med = wealth.isEmpty() ? 0.0 : wealth.get(wealth.size() / 2);
+        double topShare = sum <= 0.0 ? 0.0 : max / sum * 100.0;
+
+        // ── 주거 등급·겹침 ──
+        int[] tier = new int[5]; // 0 천막 1 소 2 중 3 대 4 저택
+        int vacant = 0;
+        int onFarm = 0;
+        StringBuilder farmHit = new StringBuilder();
+        java.util.List<BlockPos> all = reg.positions();
+        for (BlockPos h : all) {
+            HomeStore.Entry e = reg.entry(h);
+            if (HomeStore.TENT.equals(e.design())) {
+                tier[0]++;
+            } else {
+                switch (HomeTemplate.Tier.of(e.design())) {
+                    case SMALL -> tier[1]++;
+                    case MIDDLE -> tier[2]++;
+                    case BIG -> tier[3]++;
+                    case MANSION -> tier[4]++;
+                    default -> tier[0]++;
+                }
+            }
+            if (reg.isVacant(h, today)) {
+                vacant++;
+            }
+            if (MimicEntity.homeSiteOnFarm(level, h, e.design(), e.rotation(), e.mirrored())) {
+                onFarm++;
+                if (farmHit.length() < 200) {
+                    farmHit.append(h.getX()).append(',').append(h.getZ()).append('(')
+                            .append(e.design()).append(") ");
+                }
+            }
+        }
+        double minGap = Double.MAX_VALUE;
+        for (int i = 0; i < all.size(); i++) {
+            for (int j = i + 1; j < all.size(); j++) {
+                double dx = all.get(i).getX() - all.get(j).getX();
+                double dz = all.get(i).getZ() - all.get(j).getZ();
+                minGap = Math.min(minGap, Math.sqrt(dx * dx + dz * dz));
+            }
+        }
+
+        tell(ctx.getSource(), String.format(
+                "§e[봉건보고] D%d§r 인구%d 성인%d 거주가구%d 등기%d(빈집%d)", today, pop, adult,
+                resHomes.size(), all.size(), vacant));
+        tell(ctx.getSource(), String.format(
+                "  밭 구획%d 타일%d 지주%d 상시소작%d · 최대지주 구획%d/타일%d",
+                plots, tiles, byOwner.size(), tenants, topPlots, topTiles));
+        tell(ctx.getSource(), String.format(
+                "  재산 최대%.0f 중앙%.0f 최소%.0f 총합%.0f 상위1가구%.0f%%",
+                max, med, min, sum, topShare));
+        tell(ctx.getSource(), String.format(
+                "  주거 천막%d 소%d 중%d 대%d §6저택%d§r · 최소집간격%.1f(기준%d) · §c밭겹침%d§r %s",
+                tier[0], tier[1], tier[2], tier[3], tier[4],
+                minGap == Double.MAX_VALUE ? -1.0 : minGap,
+                MimicEntity.requiredGap(level, HomeTemplate.Tier.SMALL.designs[0]),
+                onFarm, farmHit));
+        return tier[4];
+    }
+
+    // ── 5단계 검증: 저택 상속 ────────────────────────────────────────────────
+    //
+    // 판정 기준을 <b>미리</b> 못 박고, 그 기준이 성립하는지 등기부·homePos·저장고 세 값으로만
+    // 읽는다. "잘 도는 것 같다"는 근거가 아니다.
+
+    /** heirtest 가 세운 무대 — heirshow 가 <b>시간이 지난 뒤</b> 같은 자리를 다시 읽도록 남긴다. */
+    private static final java.util.List<String> HEIR_STAGE = new java.util.ArrayList<>();
+    private static final java.util.Map<String, BlockPos> HEIR_POS = new java.util.LinkedHashMap<>();
+    private static final java.util.Map<String, Long> HEIR_ID = new java.util.LinkedHashMap<>();
+
+    private static void chk(StringBuilder sb, int[] tally, boolean ok, String label, String got) {
+        tally[ok ? 0 : 1]++;
+        sb.append(ok ? "  §a[O]§r " : "  §c[X]§r ").append(label).append(" — ").append(got)
+                .append('\n');
+    }
+
+    /**
+     * 저택 상속 무대 — 5가지 경우를 <b>한 번에</b> 세우고 가장을 죽인 뒤 즉시 판정한다.
+     *
+     * <p>대조군을 셋(비저택·이미저택·무연부자) 두는 이유: "상속이 됐다"만 보면 <b>아무나
+     * 아무 집이나 물려받아도</b> 통과한다. 물려받지 <b>못해야</b> 하는 경우가 실제로 막히는지를
+     * 같은 무대에서 함께 재야 규칙이 검증된다.
+     */
+    private static int heirStage(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        HEIR_STAGE.clear();
+        HEIR_POS.clear();
+        HEIR_ID.clear();
+        LarderStore lar = LarderStore.get(level);
+
+        // ① 이사 상속 — 저택 가장 부부 사망, 분가한 성년 아들 가구(3명)가 통째로 옮겨와야 한다.
+        BlockPos m1 = MimicEntity.liftToBase(level, groundAt(level, b, -60, 0), "mansion", (byte) 0, false);
+        MimicEntity lord1 = spawnAdult(level, Vec3.atBottomCenterOf(m1).add(2, 0, 2), Sex.MALE);
+        MimicEntity wife1 = spawnAdult(level, Vec3.atBottomCenterOf(m1).add(3, 0, 2), Sex.FEMALE);
+        lord1.debugSettleWithHome(level, m1, "mansion", (byte) 0, false);
+        m1 = lord1.getHomePos(); // 실제 앵커 — 기단 보정이 들어간 값이 진짜 등기 키다
+        wife1.debugJoinHome(m1, "mansion", (byte) 0, false);
+        lord1.debugMarryTo(wife1);
+        BlockPos s1 = MimicEntity.liftToBase(level, groundAt(level, b, -25, 0), "small1", (byte) 0, false);
+        MimicEntity son1 = spawnChildOf(level, Vec3.atBottomCenterOf(s1).add(2, 0, 2), lord1, Sex.MALE);
+        MimicEntity sonw1 = spawnAdult(level, Vec3.atBottomCenterOf(s1).add(3, 0, 2), Sex.FEMALE);
+        MimicEntity sonk1 = spawnChildOf(level, Vec3.atBottomCenterOf(s1).add(1, 0, 2), son1, Sex.MALE);
+        son1.debugSettleWithHome(level, s1, "small1", (byte) 0, false);
+        s1 = son1.getHomePos();
+        sonw1.debugJoinHome(s1, "small1", (byte) 0, false);
+        sonk1.debugJoinHome(s1, "small1", (byte) 0, false);
+        son1.debugMarryTo(sonw1);
+        lar.set(m1, 40.0);
+        lar.set(s1, 10.0);
+        HEIR_POS.put("①저택", m1);
+        HEIR_POS.put("①옛집", s1);
+        HEIR_ID.put("①아들", son1.getIndividual().id());
+
+        // ② 동거 승계 — 아들이 이미 그 저택에 산다. 집은 빌 일이 없고 주인 칸만 넘어가야 한다.
+        BlockPos m2 = MimicEntity.liftToBase(level, groundAt(level, b, 25, 0), "mansion", (byte) 0, false);
+        MimicEntity lord2 = spawnAdult(level, Vec3.atBottomCenterOf(m2).add(2, 0, 2), Sex.MALE);
+        lord2.debugSettleWithHome(level, m2, "mansion", (byte) 0, false);
+        m2 = lord2.getHomePos();
+        MimicEntity son2 = spawnChildOf(level, Vec3.atBottomCenterOf(m2).add(3, 0, 2), lord2, Sex.MALE);
+        son2.debugJoinHome(m2, "mansion", (byte) 0, false);
+        lar.set(m2, 60.0);
+        HEIR_POS.put("②저택", m2);
+        HEIR_ID.put("②아들", son2.getIndividual().id());
+
+        // ③ 대조군: 비저택 — 대형(big2)은 대를 잇지 않는다. 빈집이 되어 시장에 나와야 한다.
+        BlockPos m3 = MimicEntity.liftToBase(level, groundAt(level, b, -60, 70), "big2", (byte) 0, false);
+        MimicEntity lord3 = spawnAdult(level, Vec3.atBottomCenterOf(m3).add(2, 0, 2), Sex.MALE);
+        MimicEntity wife3 = spawnAdult(level, Vec3.atBottomCenterOf(m3).add(3, 0, 2), Sex.FEMALE);
+        lord3.debugSettleWithHome(level, m3, "big2", (byte) 0, false);
+        m3 = lord3.getHomePos();
+        wife3.debugJoinHome(m3, "big2", (byte) 0, false);
+        lord3.debugMarryTo(wife3);
+        BlockPos s3 = MimicEntity.liftToBase(level, groundAt(level, b, -25, 70), "small1", (byte) 0, false);
+        MimicEntity son3 = spawnChildOf(level, Vec3.atBottomCenterOf(s3).add(2, 0, 2), lord3, Sex.MALE);
+        son3.debugSettleWithHome(level, s3, "small1", (byte) 0, false);
+        s3 = son3.getHomePos();
+        lar.set(m3, 40.0);
+        HEIR_POS.put("③대형", m3);
+        HEIR_POS.put("③아들집", s3);
+        HEIR_ID.put("③아들", son3.getIndividual().id());
+
+        // ④ 대조군: 이미 저택 — 한 가문이 저택을 둘 갖지 않는다. 죽은 쪽은 빈집이 되어야 한다.
+        BlockPos m4 = MimicEntity.liftToBase(level, groundAt(level, b, 25, 70), "mansion", (byte) 0, false);
+        MimicEntity lord4 = spawnAdult(level, Vec3.atBottomCenterOf(m4).add(2, 0, 2), Sex.MALE);
+        MimicEntity wife4 = spawnAdult(level, Vec3.atBottomCenterOf(m4).add(3, 0, 2), Sex.FEMALE);
+        lord4.debugSettleWithHome(level, m4, "mansion", (byte) 0, false);
+        m4 = lord4.getHomePos();
+        wife4.debugJoinHome(m4, "mansion", (byte) 0, false);
+        lord4.debugMarryTo(wife4);
+        BlockPos s4 = MimicEntity.liftToBase(level, groundAt(level, b, 70, 70), "mansion", (byte) 0, false);
+        MimicEntity son4 = spawnChildOf(level, Vec3.atBottomCenterOf(s4).add(2, 0, 2), lord4, Sex.MALE);
+        son4.debugSettleWithHome(level, s4, "mansion", (byte) 0, false);
+        s4 = son4.getHomePos();
+        lar.set(m4, 40.0);
+        lar.set(s4, 40.0);
+        HEIR_POS.put("④죽은저택", m4);
+        HEIR_POS.put("④아들저택", s4);
+        HEIR_ID.put("④아들", son4.getIndividual().id());
+
+        // ⑤ 대조군: 무연 부자 — 남의 저택을 채가면 안 된다(빈집 우선 입주가 상속을 앞지르는가).
+        BlockPos s5 = MimicEntity.liftToBase(level, groundAt(level, b, 60, 0), "small1", (byte) 0, false);
+        MimicEntity rich = spawnAdult(level, Vec3.atBottomCenterOf(s5).add(2, 0, 2), Sex.MALE);
+        MimicEntity richw = spawnAdult(level, Vec3.atBottomCenterOf(s5).add(3, 0, 2), Sex.FEMALE);
+        rich.debugSettleWithHome(level, s5, "small1", (byte) 0, false);
+        s5 = rich.getHomePos();
+        richw.debugJoinHome(s5, "small1", (byte) 0, false);
+        rich.debugMarryTo(richw);
+        lar.set(s5, 400.0);
+        HEIR_POS.put("⑤부자집", s5);
+        HEIR_ID.put("⑤부자", rich.getIndividual().id());
+
+        // ── 가장 사망 ───────────────────────────────────────────────────────
+        // 배우자를 먼저 지운다. 배우자가 남아 있으면 그 집은 <b>빌 일이 없어</b> 이사 상속 경로가
+        // 아예 열리지 않는다(그 경우는 ②가 따로 검증한다).
+        wife1.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+        lord1.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+        lord2.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+        wife3.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+        lord3.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+        wife4.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+        lord4.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+
+        HEIR_STAGE.add("staged");
+        tell(ctx.getSource(), "§e[5단계 무대] 저택 상속 5경우 조성 + 가장 사망 처리 완료§r\n"
+                + "  ① 이사상속 저택@" + m1.getX() + "," + m1.getZ() + " 옛집@" + s1.getX() + "," + s1.getZ()
+                + " / ② 동거승계 저택@" + m2.getX() + "," + m2.getZ()
+                + " / ③ 비저택대조 big2@" + m3.getX() + "," + m3.getZ()
+                + " / ④ 이미저택대조 @" + m4.getX() + "," + m4.getZ()
+                + " / ⑤ 무연부자 @" + s5.getX() + "," + s5.getZ());
+        return heirShow(ctx, true);
+    }
+
+    /** 시간이 지나면 <b>당연히</b> 변하는 값(식비·출산)은 지연 판정에서 참고치로만 적는다. */
+    private static void info(StringBuilder sb, String label, String got) {
+        sb.append("  §7[·]§r ").append(label).append(" — ").append(got).append(" §7(참고)§r\n");
+    }
+
+    /**
+     * 무대 판정 — heirtest 직후(immediate)와 <b>며칠 뒤</b>를 같은 창구로 읽는다.
+     *
+     * <p>지연 판정에서 "가구 3명·저장고 50" 같은 <b>등식</b>을 그대로 쓰면 안 된다. 하루가 지나면
+     * 출산으로 가구가 늘고 식비로 저장고가 준다 — 정상 동작이 실패로 찍힌다(실측: D1 에 4건).
+     * 그래서 지연 판정에서는 늘기만 하는 값은 부등식으로, 소비되는 값은 참고치로 낮춘다.
+     * 등기 주인·빈집 미경유·도면·미탈취는 <b>시간이 지나도 참이어야 하는 불변식</b>이라 그대로 둔다.
+     */
+    private static int heirShow(CommandContext<CommandSourceStack> ctx, boolean immediate) {
+        ServerLevel level = ctx.getSource().getLevel();
+        if (HEIR_STAGE.isEmpty()) {
+            tell(ctx.getSource(), "§c무대 없음 — /evosim heirtest 먼저");
+            return 0;
+        }
+        HomeStore reg = HomeStore.get(level);
+        LarderStore lar = LarderStore.get(level);
+        int today = (int) (com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+        StringBuilder sb = new StringBuilder();
+        int[] tally = new int[2];
+
+        BlockPos m1 = HEIR_POS.get("①저택");
+        BlockPos s1 = HEIR_POS.get("①옛집");
+        long son1 = HEIR_ID.get("①아들");
+        HomeStore.Entry e1 = reg.entry(m1);
+        sb.append("§6① 이사 상속§r (기준: 등기주인=아들 · 아들가구 3명 전원 저택 · 옛집 빈집 · 저장고 50 · 저택 비빈집)\n");
+        chk(sb, tally, e1 != null && e1.ownerId() == son1, "등기 주인",
+                e1 == null ? "등기없음" : "#" + e1.ownerId() + " (기대 #" + son1 + ")");
+        int moved1 = countHome(level, m1);
+        chk(sb, tally, immediate ? moved1 == 3 : moved1 >= 3, "아들 가구 이주",
+                moved1 + "명 (기대 " + (immediate ? "3" : "3 이상 — 출산으로 늘 수 있다") + ")");
+        chk(sb, tally, countHome(level, s1) == 0, "옛집 잔류", countHome(level, s1) + "명 (기대 0)");
+        chk(sb, tally, reg.isVacant(s1, today), "옛집 빈집화", reg.isVacant(s1, today) ? "빈집" : "점유중");
+        chk(sb, tally, !reg.isVacant(m1, today), "저택 빈집 미경유",
+                reg.isVacant(m1, today) ? "빈집으로 나감" : "한 번도 안 빔");
+        if (immediate) {
+            chk(sb, tally, Math.abs(lar.get(m1) - 50.0) < 0.5, "저장고 합산",
+                    String.format("저택 %.0f · 옛집 %.0f (기대 50 / 0)", lar.get(m1), lar.get(s1)));
+        } else {
+            info(sb, "저장고 합산", String.format("저택 %.0f · 옛집 %.0f — 식비로 줄어든다",
+                    lar.get(m1), lar.get(s1)));
+        }
+        chk(sb, tally, e1 != null && HomeTemplate.Tier.of(e1.design()) == HomeTemplate.Tier.MANSION,
+                "도면 유지", e1 == null ? "-" : e1.design());
+
+        BlockPos m2 = HEIR_POS.get("②저택");
+        long son2 = HEIR_ID.get("②아들");
+        HomeStore.Entry e2 = reg.entry(m2);
+        sb.append("§6② 동거 승계§r (기준: 등기주인=아들 · 저택 비빈집 · 거주 1명 유지)\n");
+        chk(sb, tally, e2 != null && e2.ownerId() == son2, "등기 주인",
+                e2 == null ? "등기없음" : "#" + e2.ownerId() + " (기대 #" + son2 + ")");
+        chk(sb, tally, !reg.isVacant(m2, today), "빈집 미경유",
+                reg.isVacant(m2, today) ? "빈집" : "점유");
+        chk(sb, tally, countHome(level, m2) == 1, "거주자", countHome(level, m2) + "명 (기대 1)");
+
+        BlockPos m3 = HEIR_POS.get("③대형");
+        BlockPos s3 = HEIR_POS.get("③아들집");
+        HomeStore.Entry e3 = reg.entry(m3);
+        sb.append("§6③ 비저택 대조§r (기준: big2 는 상속 안 됨 → 빈집 · 아들은 제집 유지)\n");
+        chk(sb, tally, reg.isVacant(m3, today), "대형 빈집화",
+                reg.isVacant(m3, today) ? "빈집" : "누군가 상속");
+        chk(sb, tally, e3 != null && e3.ownerId() == 0L, "주인 없음",
+                e3 == null ? "등기없음" : "#" + e3.ownerId());
+        chk(sb, tally, countHome(level, s3) == 1, "아들 제집 유지",
+                countHome(level, s3) + "명 @제집 (기대 1)");
+        chk(sb, tally, countHome(level, m3) == 0, "대형 무인", countHome(level, m3) + "명");
+
+        BlockPos m4 = HEIR_POS.get("④죽은저택");
+        BlockPos s4 = HEIR_POS.get("④아들저택");
+        long son4 = HEIR_ID.get("④아들");
+        HomeStore.Entry e4 = reg.entry(m4);
+        HomeStore.Entry e4s = reg.entry(s4);
+        sb.append("§6④ 이미 저택 대조§r (기준: 한 가문 저택 둘 금지 → 죽은 저택은 빈집 · 아들은 제 저택 유지)\n");
+        chk(sb, tally, reg.isVacant(m4, today), "죽은 저택 빈집화",
+                reg.isVacant(m4, today) ? "빈집" : "상속됨");
+        chk(sb, tally, countHome(level, s4) == 1 && e4s != null && e4s.ownerId() == son4,
+                "아들 제 저택 유지", countHome(level, s4) + "명 · 주인 #"
+                        + (e4s == null ? "-" : e4s.ownerId()));
+        chk(sb, tally, countHome(level, m4) == 0, "죽은 저택 무인", countHome(level, m4) + "명");
+        // 40(원래) + 40(못 물려받은 저택의 <b>식량</b> 상속 — 분가 자식 1명이라 전액). 식량 상속은
+        // 이번 단계 이전부터 있던 별개 규칙이고, "집은 안 넘어가지만 식량은 넘어간다"가 맞다.
+        if (immediate) {
+            chk(sb, tally, Math.abs(lar.get(s4) - 80.0) < 0.5, "아들 저장고 = 제것 40 + 식량상속 40",
+                    String.format("%.0f (기대 80)", lar.get(s4)));
+        } else {
+            info(sb, "아들 저장고", String.format("%.0f — 식비로 줄어든다", lar.get(s4)));
+        }
+
+        // ④·③의 집은 <b>정당하게</b> 빈집이 되었으므로 나중엔 누가 들어가도 옳다. 그래서
+        // 미탈취 판정은 상속으로 넘어간 ①에만 건다 — 시간이 지난 뒤 다시 읽어도 참이어야 한다.
+        BlockPos s5 = HEIR_POS.get("⑤부자집");
+        long rich = HEIR_ID.get("⑤부자");
+        HomeStore.Entry e5 = reg.entry(s5);
+        sb.append("§6⑤ 무연 부자 대조§r (기준: 남의 저택 미획득 — 제집·소형 유지)\n");
+        chk(sb, tally, immediate ? countHome(level, s5) == 2 : countHome(level, s5) >= 2,
+                "제집 유지", countHome(level, s5) + "명 (기대 "
+                        + (immediate ? "2" : "2 이상 — 출산으로 늘 수 있다") + ")");
+        chk(sb, tally, e5 != null && "small1".equals(e5.design()), "도면 소형 유지",
+                e5 == null ? "등기없음" : e5.design());
+        chk(sb, tally, e1 == null || e1.ownerId() != rich, "①저택 미탈취",
+                e1 == null ? "-" : "#" + e1.ownerId());
+
+        tell(ctx.getSource(), String.format("§e[5단계 판정] D%d(%s) — 통과 %d / 실패 %d§r\n",
+                today, immediate ? "즉시" : "지속", tally[0], tally[1]) + sb);
+        return tally[1] == 0 ? 1 : 0;
+    }
+
+    /** 그 집을 homePos 로 가리키는 생존 개체 수 — "누가 사는가"의 단일 관측값. */
+    private static int countHome(ServerLevel level, BlockPos home) {
+        int n = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && home.equals(e.getHomePos()))) {
+            n++;
+        }
+        return n;
     }
 
     /**

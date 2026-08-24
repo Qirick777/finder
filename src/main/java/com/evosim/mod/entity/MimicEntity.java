@@ -542,6 +542,21 @@ public class MimicEntity extends PathfinderMob {
                 individual != null ? individual.id() : 0L, today());
     }
 
+    /**
+     * 무대 전용 — <b>이미 선 집에 가구원으로 합류</b>만 한다(기단 재계산·건축 없음).
+     *
+     * <p>{@link #debugSettleWithHome} 를 가구원마다 부르면 안 된다. 그 메서드는 매번
+     * {@link #liftToBase} 로 기단을 다시 계산하는데, 기단은 <b>지표 하이트맵</b>에서 나온다.
+     * 첫 사람이 집을 세우고 나면 그 자리의 하이트맵은 <b>지붕</b>이라, 두 번째 사람은 지붕 위를
+     * 앵커로 잡아 <b>다른 집에 사는 것으로 등록된다</b>(실측: 부부 2명 무대가 1인 가구 둘이 됐고,
+     * 그래서 상속 무대의 "가구 3명 이주"가 1명으로 나왔다). 합류는 좌표를 그대로 받는다.
+     */
+    public void debugJoinHome(BlockPos home, String design, byte rot, boolean mirror) {
+        setHomePos(home);
+        adoptDesign(design, rot, mirror);
+        building = false;
+    }
+
     /** 무대가 준 자리를 실제 건축과 <b>같은 기단</b>으로 올린다 — 무대만 파묻히는 일이 없게. */
     public static BlockPos liftToBase(ServerLevel sl, BlockPos at, String design,
                                       byte rot, boolean mirror) {
@@ -2280,9 +2295,21 @@ public class MimicEntity extends PathfinderMob {
         // 도중의 getEntities 는 자식을 놓쳐 heir null(무주지화)·분배 실패를 일으키던 잠복 버그.
         MimicEntity preHeir = null;
         java.util.List<MimicEntity> preKids = null;
+        java.util.List<MimicEntity> preHeirFam = null;
         if (destroy && individual != null && level() instanceof ServerLevel pre) {
             preHeir = FarmStore.selectHeir(pre, individual.id(), spouseId);
             preKids = collectFoundedChildren(pre, home);
+            // 상속인의 <b>가구원</b>도 여기서 잡는다. 제거 콜백 안에서 스캔하면 죽는 개체가 아직
+            // 목록에 섞여 명단이 오염된다(같은 이유로 preHeir·preKids 도 사전 포착이다).
+            if (preHeir != null && preHeir.getHomePos() != null) {
+                preHeirFam = new java.util.ArrayList<>();
+                BlockPos hh = preHeir.getHomePos();
+                for (MimicEntity m : pre.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e != this && hh.equals(e.getHomePos()))) {
+                    preHeirFam.add(m);
+                }
+                preHeirFam.add(preHeir);
+            }
         }
         super.remove(reason);
         if (destroy && individual != null && level() instanceof ServerLevel sld) {
@@ -2305,10 +2332,91 @@ public class MimicEntity extends PathfinderMob {
                 demolishUnfinished(sl, bp);
                 HomeStore.get(sl).remove(home);
                 LarderStore.get(sl).remove(home);
-            } else {
+            } else if (!inheritHome(sl, home, design, facing, mirror, preHeir, preHeirFam)) {
                 HomeStore.get(sl).vacate(home); // 거주자 0 — 빈집 등기(영속: 재접속해도 남는다)
             }
+        } else if (destroy && home != null && level() instanceof ServerLevel sl2
+                && preHeir != null && home.equals(preHeir.getHomePos())
+                && HomeTemplate.Tier.of(design) == HomeTemplate.Tier.MANSION) {
+            // <b>동거 승계</b> — 상속인이 이미 저택에 함께 살면 집은 빌 일이 없다. 남는 것은
+            // 등기부의 주인 칸이 죽은 자를 가리킨 채 다음 가구 정산까지 방치되는 것뿐이라,
+            // 여기서 즉시 넘겨 "누구의 저택인가"가 한 틱도 비지 않게 한다.
+            HomeStore reg = HomeStore.get(sl2);
+            HomeStore.Entry e = reg.entry(home);
+            if (e != null && preHeir.getIndividual() != null
+                    && e.ownerId() != preHeir.getIndividual().id()) {
+                reg.touch(home, e.design(), e.rotation(), preHeir.getIndividual().id(), today());
+                SimEvents.note(sl2, "거처상속", String.format("@%d,%d %s 동거 승계 — 주인 #%d",
+                        home.getX(), home.getZ(), e.design(), preHeir.getId()));
+            }
         }
+    }
+
+    /**
+     * <b>저택 상속</b> — 가장이 죽어 저택이 빌 때, 이미 정해진 상속인이 물려받는다.
+     *
+     * <h3>왜 저택만인가</h3>
+     * 소·중·대형은 주인이 죽으면 시장에 나온다(빈집 우선 입주가 다음 부부에게 준다). 저택만
+     * 대를 잇게 하면 "가문의 상징"이라는 읽기가 선명해지고, 규칙4(거대한 지배체계)·규칙5(무한
+     * 누적)가 주거로도 드러난다. 밭은 등급 무관하게 전부 상속되므로 대형 지주의 상속인은 밭을
+     * 받아 곧 스스로 올라간다 — 자기교정된다.
+     *
+     * <h3>빈집을 거치지 않는다</h3>
+     * 사망 → 빈집 등기 → 상속인이 걸어옴 순서로 두면, 그 사이 {@code findAbandonedHome} 이
+     * 그 저택을 빈집 후보로 내놓아 <b>지나가던 부부가 건축비 0으로 채간다</b>. 그래서 이 자리에서
+     * 등기와 {@code homePos} 를 즉시 넘기고, 이동은 그 다음에 일어나게 한다.
+     *
+     * @return 상속이 성립해 등기를 넘겼으면 true(호출부는 vacate 하지 않는다)
+     */
+    private static boolean inheritHome(ServerLevel sl, BlockPos home, String design, byte rot,
+                                       boolean mirror, MimicEntity heir,
+                                       java.util.List<MimicEntity> heirFam) {
+        if (HomeTemplate.Tier.of(design) != HomeTemplate.Tier.MANSION
+                || heir == null || !heir.isAlive() || heir.getIndividual() == null) {
+            return false;
+        }
+        // 미성년은 이사시키지 않는다 — 유아가 혼자 저택으로 걸어가면 부모와 떨어져 굶어 죽는다.
+        // 동거 중이면 애초에 이 경로가 아니라 위의 동거 승계로 처리된다.
+        if (heir.getStage() != LifeStage.ADULT && heir.getStage() != LifeStage.ELDER) {
+            return false;
+        }
+        BlockPos old = heir.getHomePos();
+        if (old == null || old.equals(home)) {
+            return false;
+        }
+        // 이미 저택에 산다면 물려받지 않는다 — 한 가문이 저택을 둘 갖지 않는다.
+        // 그 저택은 빈집으로 남아 다음 부자가 채운다.
+        if (HomeTemplate.Tier.of(heir.homeDesign) == HomeTemplate.Tier.MANSION) {
+            return false;
+        }
+        LarderStore store = LarderStore.get(sl);
+        double moved = store.get(old) + store.get(home);
+        store.set(old, 0.0);
+        store.set(home, moved);
+
+        HomeStore reg = HomeStore.get(sl);
+        int day = (int) (com.evosim.mod.entity.SimTime.tick(sl) / 24000L);
+        long heirId = heir.getIndividual().id();
+        if (reg.entry(home) == null) {
+            reg.register(home, design, rot, mirror, heirId, day);
+        } else {
+            // touch 는 유지비 잔돈·과시 시작일을 보존한다 — 상속으로 빚이 탕감되면 안 된다.
+            reg.touch(home, design, rot, heirId, day);
+        }
+        reg.vacate(old); // 상속인이 살던 집은 빈집으로 — 남이 재사용할 수 있어야 한다
+
+        int moveCount = 0;
+        for (MimicEntity m : heirFam == null ? java.util.List.of(heir) : heirFam) {
+            if (m.isAlive() && old.equals(m.getHomePos())) {
+                m.setHomePos(home);
+                m.adoptDesign(design, rot, mirror);
+                moveCount++;
+            }
+        }
+        SimEvents.event(heir, "거처상속", String.format(
+                "저택 승계 @%d,%d ← 옛집 @%d,%d (가구 %d명 이주 · 저장고 %.0f)",
+                home.getX(), home.getZ(), old.getX(), old.getZ(), moveCount, moved));
+        return true;
     }
 
     /** 미완성 부지의 구조 토큰 블록만 철거(자연 지형·타인 블록은 무접촉). */

@@ -149,8 +149,11 @@ public class MimicFarmGoal extends Goal {
             // 오버사이트가 바닥이라 무능 마름 조기 임명해도 붕괴 없음, 지주가 캡 초과로 얇아지면
             // 마름 전담 E가 바닥 넘어 캡 돌파. 무마름 밭은 지주의 무마름 타일 합 기준. (plotEfficiency)
             double e = p != null ? farmStore().plotEfficiency(serverLevel(), p) : 1.0;
+            // 가구 밭 판정 — 배우자는 <b>양방향</b>으로 본다(marriedTo). 남편의 spouseId 는 본처만
+            // 가리키므로 단방향이면 첩 소유 밭이 "남의 밭"으로 잡혀 자기 가구 수확이 소작 분할로
+            // 새어 나간다.
             boolean household = p != null && (p.ownerId == mob.getIndividual().id()
-                    || (mob.getSpouseId() != 0L && p.ownerId == mob.getSpouseId()));
+                    || mob.marriedTo(p.ownerId));
             if (p != null && !household) {
                 // 소작 분할 — <b>E 는 지주 몫에만</b> 곱한다(5규칙 정합):
                 //   규칙4·5(밭 무한 성장·자산 무한 누적) + 규칙3(소작 출산 2~3)이 동시에 서려면
@@ -244,17 +247,18 @@ public class MimicFarmGoal extends Goal {
         }
         double careR = careRadius();
         long id = mob.getIndividual().id();
-        long sid = mob.getSpouseId();
         long assigned = FarmTicker.assignedPlot(mob.getId());
         FarmStore fs = FarmStore.get(sl);
         long newestMine = fs.newestOwnedPlot(id);
-        long newestSpouse = sid == 0L ? 0L : fs.newestOwnedPlot(sid);
         long stewardPlot = fs.stewardOf(id);
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         for (FarmStore.Plot p : fs.all().values()) {
             boolean mine = p.ownerId == id;
-            boolean spouses = sid != 0L && p.ownerId == sid;
+            // 배우자 소유 밭 — 양방향 판정. 종전 단방향(mob.getSpouseId() == p.ownerId)은 남편이
+            // 첩의 밭을 가족 노동으로 인정하지 못했다(다처 비대칭). 아래 '직영지 원칙'의 최신
+            // 구획도 그 배우자 기준으로 구해야 하므로 소유자별로 조회한다.
+            boolean spouses = !mine && mob.marriedTo(p.ownerId);
             // 마름 노동 모드(v1.3) — 소작 0인 자기 위임 구획은 직접 일군다(분배는 소작식).
             // 소작이 1명이라도 배정되면 관리 모드(수당) — 밭일 대신 본업(채집)으로 복귀.
             boolean stewardLabor = p.id == stewardPlot && p.id != assigned
@@ -267,7 +271,7 @@ public class MimicFarmGoal extends Goal {
             if (mine && p.id != newestMine && p.id != assigned) {
                 continue;
             }
-            if (spouses && p.id != newestSpouse && p.id != assigned) {
+            if (spouses && p.id != fs.newestOwnedPlot(p.ownerId) && p.id != assigned) {
                 continue;
             }
             for (long l : p.tiles) {

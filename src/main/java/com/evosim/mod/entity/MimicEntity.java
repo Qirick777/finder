@@ -2298,20 +2298,7 @@ public class MimicEntity extends PathfinderMob {
         // 혼인 우선 — 성년 아들이 UUID 순으로 아버지를 밀어내면 어미 탐색(spouseId 대조)이 조용히 실패해
         // 번식이 막히는 결함 방지. 노년도 가장 자격 유지 — 노년은 나이(배율·번식 종료)일 뿐,
         // 남편·아내 포지션은 혼인 링크가 있는 한 그대로다.
-        MimicEntity father = null;
-        boolean fatherMarried = false;
-        for (MimicEntity m : fam) {
-            if (m.getIndividual() == null || m.isFemale()
-                    || (m.getStage() != LifeStage.ADULT && m.getStage() != LifeStage.ELDER)) {
-                continue;
-            }
-            boolean married = hasWifeIn(fam, m);
-            if (father == null || (married && !fatherMarried)
-                    || (married == fatherMarried && m.getUUID().compareTo(father.getUUID()) < 0)) {
-                father = m;
-                fatherMarried = married;
-            }
-        }
+        MimicEntity father = headOf(fam, sl); // 판정·표시 단일 출처(headOf 주석 참조)
         List<MimicEntity> ordered = new ArrayList<>(fam.size());
         if (father != null) {
             ordered.add(father);
@@ -2870,8 +2857,6 @@ public class MimicEntity extends PathfinderMob {
         s.spouseId = spouseId;
         // ── 가구 ──
         List<MimicEntity> fam = householdMembers();
-        MimicEntity father = null;
-        MimicEntity mother = null;
         for (MimicEntity m : fam) {
             switch (m.getStage()) {
                 case ADULT -> s.adults++;
@@ -2879,10 +2864,9 @@ public class MimicEntity extends PathfinderMob {
                 case INFANT -> s.infants++;
                 case ELDER -> s.elders++;
             }
-            if (m.getIndividual() != null && !m.isFemale() && hasWifeIn(fam, m)) {
-                father = m; // 가장 기준 — familyTick 의 동원·정원 투자 기준과 동일
-            }
         }
+        MimicEntity father = headOf(fam, sl); // 판정과 같은 함수(headOf) — 종전엔 서로 다른 규칙이었다
+        MimicEntity mother;
         // 판정과 같은 함수로 어미를 고른다 — 종전 렌즈는 "명단에서 처음 발견된 아내"를 잡아,
         // 일부다처에서 실제 출산 차례(상한 미달 · 최고참)와 다른 아내의 쿨다운을 표시했다.
         mother = nextMother(fam, father);
@@ -3048,6 +3032,91 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** fam 안에 이 남성을 배우자로 가리키는 아내(성년·노년)가 있나 — 가장(아버지) 선출의 혼인 우선 기준. */
+    /**
+     * 가구의 가장 — <b>판정과 표시가 공유하는 단일 출처</b>.
+     *
+     * <p>순위: ① 혼인 링크 보유 남성 우선 ② 최연장(세대 → 원장 출생일) ③ id(결정론 동률 해소).
+     *
+     * <p>종전에는 두 곳이 <b>서로 다른 규칙</b>을 썼다. familyTick 은 동률을 <b>UUID 비교</b>로
+     * 갈랐고(사실상 무작위·리로드마다 뒤집힐 수 있음), 렌즈 스냅샷은 명단에서 <b>마지막에
+     * 발견된</b> 남성을 가장으로 삼았다 — 스냅샷 쪽 주석은 "familyTick 의 기준과 동일"이라고
+     * 적혀 있었지만 사실이 아니었다. 한 집에 기혼 남성이 둘 이상이면(성인 기혼 자녀 동거,
+     * 앞으로의 저택 합가) 렌즈가 보여주는 가장과 실제 가장이 어긋난다.
+     *
+     * <p>가장은 정산·동원·정원 투자·<b>출산 어미 선택</b>의 기준이라, 흔들리면 어미 탐색
+     * (spouseId 대조)이 조용히 실패해 그 가구의 번식이 멈춘다. 최연장 고정은 그 진동을 없애고,
+     * 덤으로 아버지가 죽으면 다음 최연장(장남)이 자동으로 가장이 된다 — 승계가 공짜로 나온다.
+     */
+    static MimicEntity headOf(List<MimicEntity> fam, ServerLevel sl) {
+        FamilyLedger led = sl == null ? null : FamilyLedger.get(sl);
+        MimicEntity best = null;
+        boolean bestMarried = false;
+        long bestBorn = Long.MAX_VALUE;
+        for (MimicEntity m : fam) {
+            if (m.getIndividual() == null || m.isFemale()
+                    || (m.getStage() != LifeStage.ADULT && m.getStage() != LifeStage.ELDER)) {
+                continue;
+            }
+            boolean married = hasWifeIn(fam, m);
+            long born = Long.MAX_VALUE;
+            if (led != null) {
+                FamilyLedger.Rec r = led.get(m.getIndividual().id());
+                if (r != null) {
+                    born = r.bornDay;
+                }
+            }
+            if (best == null) {
+                best = m;
+                bestMarried = married;
+                bestBorn = born;
+                continue;
+            }
+            int cmp = Boolean.compare(bestMarried, married);           // 기혼 우선
+            if (cmp == 0) {
+                cmp = Integer.compare(m.getIndividual().generation(),
+                        best.getIndividual().generation());            // 낮은 세대 = 윗대
+                cmp = -cmp;
+            }
+            if (cmp == 0) {
+                cmp = Long.compare(bestBorn, born);                    // 먼저 태어난 쪽
+            }
+            if (cmp == 0) {
+                cmp = Long.compare(best.getIndividual().id(), m.getIndividual().id());
+            }
+            if (cmp < 0) {
+                best = m;
+                bestMarried = married;
+                bestBorn = born;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 이 개체가 {@code otherIndividualId} 와 혼인 관계인가 — <b>양방향</b> 검사.
+     *
+     * <p>다처에서 {@code spouseId} 는 비대칭이다: 아내는 늘 남편을 가리키지만 남편은 <b>본처
+     * 한 명만</b> 가리킨다({@code marrySecond} 주석: "신부만 링크 갱신, 남편 spouseId는 본처
+     * 유지"). 그래서 남편 쪽에서 한 방향만 보면 첩이 통째로 샌다. FarmTicker 의 부양 예비·
+     * 노동 예산 계산은 이미 양방향으로 보고 있는데(그쪽 주석이 이 함정을 기록해 두었다),
+     * 밭 노동 권한만 남편의 단방향 값을 쓰고 있었다.
+     */
+    public boolean marriedTo(long otherIndividualId) {
+        if (individual == null || otherIndividualId == 0L) {
+            return false;
+        }
+        if (spouseId == otherIndividualId) {
+            return true; // 나 → 상대(아내 방향은 항상 정확)
+        }
+        for (MimicEntity m : householdMembers()) {
+            if (m.getIndividual() != null && m.getIndividual().id() == otherIndividualId
+                    && m.spouseId == individual.id()) {
+                return true; // 상대 → 나(첩 방향)
+            }
+        }
+        return false;
+    }
+
     private static boolean hasWifeIn(List<MimicEntity> fam, MimicEntity male) {
         long id = male.getIndividual().id();
         for (MimicEntity w : fam) {

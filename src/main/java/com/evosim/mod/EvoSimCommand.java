@@ -17,6 +17,7 @@ import com.evosim.mod.entity.FamilyLedger;
 import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.FarmTicker;
 import com.evosim.mod.entity.HomeStructure;
+import com.evosim.mod.entity.HomeTemplate;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.entity.MimicVisitGoal;
 import com.evosim.mod.gui.StatsSnapshot;
@@ -32,7 +33,9 @@ import java.util.List;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -81,6 +84,20 @@ public final class EvoSimCommand {
                 .requires(src -> src.hasPermission(2))
                 .then(spawn)
                 .then(Commands.literal("gallery").executes(EvoSimCommand::gallery))
+                .then(Commands.literal("hometest").executes(EvoSimCommand::homeTest))
+                .then(Commands.literal("homeshow")
+                        .then(Commands.argument("design", StringArgumentType.word())
+                                .executes(ctx -> homeShow(ctx,
+                                        StringArgumentType.getString(ctx, "design"), 0, false))
+                                .then(Commands.argument("rot", IntegerArgumentType.integer(0, 3))
+                                        .executes(ctx -> homeShow(ctx,
+                                                StringArgumentType.getString(ctx, "design"),
+                                                IntegerArgumentType.getInteger(ctx, "rot"), false))
+                                        .then(Commands.argument("mirror", BoolArgumentType.bool())
+                                                .executes(ctx -> homeShow(ctx,
+                                                        StringArgumentType.getString(ctx, "design"),
+                                                        IntegerArgumentType.getInteger(ctx, "rot"),
+                                                        BoolArgumentType.getBool(ctx, "mirror")))))))
                 .then(Commands.literal("village")
                         .executes(ctx -> village(ctx, 4))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 12))
@@ -1809,6 +1826,214 @@ public final class EvoSimCommand {
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
         return e;
+    }
+
+    // ── 1단계 검증: 구조물 도면 로더 ──────────────────────────────────────────────
+    //
+    // 검증 원칙: "잘 되는 것 같다"가 아니라 <b>측정 가능한 대조</b>로만 판정한다. 각 항목은
+    // 어긋났을 때 무엇이 깨지는지를 함께 적는다.
+
+    private static final net.minecraft.world.level.block.Rotation[] ROTS = {
+            net.minecraft.world.level.block.Rotation.NONE,
+            net.minecraft.world.level.block.Rotation.CLOCKWISE_90,
+            net.minecraft.world.level.block.Rotation.CLOCKWISE_180,
+            net.minecraft.world.level.block.Rotation.COUNTERCLOCKWISE_90};
+
+    private static int homeTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int pass = 0;
+        int fail = 0;
+        StringBuilder sb = new StringBuilder();
+        for (HomeTemplate.Tier tier : HomeTemplate.Tier.values()) {
+            for (String design : tier.designs) {
+                // ① 8배치(회전 4 × 대칭 2)를 전부 로드 — 규약 위반이면 여기서 예외가 난다.
+                java.util.List<HomeTemplate> variants = new java.util.ArrayList<>();
+                String err = null;
+                for (var rot : ROTS) {
+                    for (var mir : new net.minecraft.world.level.block.Mirror[] {
+                            net.minecraft.world.level.block.Mirror.NONE, HomeTemplate.MIRROR}) {
+                        try {
+                            var t = HomeTemplate.load(level, design, rot, mir);
+                            if (t.isEmpty()) {
+                                err = "도면 파일 없음(데이터팩 미탑재)";
+                            } else {
+                                variants.add(t.get());
+                            }
+                        } catch (RuntimeException e) {
+                            err = e.getMessage();
+                        }
+                    }
+                }
+                if (err != null || variants.size() != 8) {
+                    fail++;
+                    sb.append(String.format("§c✗ %-8s 배치 %d/8 — %s\n", design, variants.size(),
+                            err == null ? "일부 누락" : err));
+                    continue;
+                }
+                HomeTemplate base = variants.get(0);
+
+                // ② 계획에 금블록·베리가 섞이면 안 된다.
+                //    금블록이 남으면 앵커 자리가 막혀 미믹이 자기 집 중앙에 설 수 없고,
+                //    베리가 남으면 빌더가 공짜로 정원을 완성해 BUSH_COST 회계가 무너진다.
+                long gold = base.plan().stream().filter(pp -> pp.state()
+                        .is(net.minecraft.world.level.block.Blocks.GOLD_BLOCK)).count();
+                long bush = base.plan().stream().filter(pp -> pp.state()
+                        .is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)).count();
+
+                // ③ 정원 6칸 + 각 칸 아래에 흙이 계획에 실제로 들어 있는가(심을 땅 보장).
+                java.util.Set<net.minecraft.core.BlockPos> planned = new java.util.HashSet<>();
+                for (var pp : base.plan()) {
+                    planned.add(pp.rel());
+                }
+                int soilOk = 0;
+                for (var g : base.gardenCells()) {
+                    if (planned.contains(g.below())) {
+                        soilOk++;
+                    }
+                }
+
+                // ④ 회전이 실제로 좌표를 바꾸는가 — 정원 중심이 4방향 모두 달라야 한다.
+                //    같으면 회전이 먹히지 않은 것이고, 마을이 전부 같은 방향으로 선다.
+                java.util.Set<String> centers = new java.util.HashSet<>();
+                for (int i = 0; i < 4; i++) {
+                    centers.add(gardenCenter(variants.get(i * 2)));
+                }
+
+                // ⑤ 좌우대칭이 정원을 반대쪽으로 보내는가 — 회전 0 기준 대칭 전/후 비교.
+                //    사용자 요구의 핵심: "좌우대칭이라 함은 베리 정원이 반대쪽에 나타난다는 의미".
+                String cNormal = gardenCenter(variants.get(0));
+                String cMirror = gardenCenter(variants.get(1));
+
+                // ⑥ 8배치가 <b>서로 다른 건물</b>인가. ⑤만으로는 약하다 — 정원 위치가 같아도
+                //    내부가 뒤집혔을 수 있고, 반대로 정원만 옮기고 몸통은 그대로일 수도 있다.
+                //    (좌표,상태) 전체를 지문으로 삼아 8개가 전부 갈리는지 본다. 같은 지문이 있으면
+                //    그만큼 마을의 외형 다양성이 줄어든 것이다.
+                java.util.Set<Integer> prints = new java.util.HashSet<>();
+                for (var v : variants) {
+                    int h = 0;
+                    for (var pp : v.plan()) {
+                        h += pp.rel().hashCode() * 31 + System.identityHashCode(pp.state());
+                    }
+                    prints.add(h);
+                }
+
+                boolean ok = gold == 0 && bush == 0
+                        && base.gardenCells().size() == HomeTemplate.GARDEN_CELLS
+                        && soilOk == HomeTemplate.GARDEN_CELLS
+                        && centers.size() == 4
+                        && !cNormal.equals(cMirror)
+                        && prints.size() == 8;
+                if (ok) {
+                    pass++;
+                } else {
+                    fail++;
+                }
+                sb.append(String.format(
+                        "%s %-8s 계획%4d 정원%d 흙%d 금%d베리%d 회전상이%d 대칭%s→%s 배치상이%d/8 reach%.1f\n",
+                        ok ? "§a✓§r" : "§c✗§r", design, base.plan().size(),
+                        base.gardenCells().size(), soilOk, gold, bush, centers.size(),
+                        cNormal, cMirror, prints.size(), base.reach()));
+            }
+        }
+        tell(ctx.getSource(), String.format("§e[도면 검증] 통과 %d · 실패 %d§r\n%s", pass, fail, sb));
+        tell(ctx.getSource(), "판정 기준 — 정원6·흙6: 심을 땅 보장 / 금0베리0: 빌더가 앵커를 막거나 "
+                + "정원을 공짜로 심지 않음 / 회전상이4: 4방향이 실제로 갈림 / 대칭 A→B: 정원이 반대쪽으로 "
+                + "이동 / 배치상이8: 8배치가 서로 다른 건물");
+        return pass;
+    }
+
+    /** 정원 6칸의 중심(앵커 상대, 정수 반올림) — 회전·대칭이 먹혔는지 판정하는 관측값. */
+    private static String gardenCenter(HomeTemplate t) {
+        int sx = 0;
+        int sz = 0;
+        for (var g : t.gardenCells()) {
+            sx += g.getX();
+            sz += g.getZ();
+        }
+        int n = Math.max(1, t.gardenCells().size());
+        return String.format("(%+d,%+d)", Math.round((float) sx / n), Math.round((float) sz / n));
+    }
+
+    /** 도면 한 배치를 발밑에 실제로 배치 — 눈으로 확인용(정원 자리는 흙만, 덤불 없음). */
+    private static int homeShow(CommandContext<CommandSourceStack> ctx, String design,
+                                int rot, boolean mirror) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var t = HomeTemplate.load(level, design, ROTS[rot],
+                mirror ? HomeTemplate.MIRROR
+                        : net.minecraft.world.level.block.Mirror.NONE);
+        if (t.isEmpty()) {
+            tell(ctx.getSource(), "§c도면 없음: " + design);
+            return 0;
+        }
+        var pos = net.minecraft.core.BlockPos.containing(ctx.getSource().getPosition());
+        HomeTemplate h = t.get();
+        h.place(level, pos);
+
+        // ── 배치 후 <b>월드를 되읽어</b> 판정한다 ──────────────────────────────────
+        // 계획(plan)이 옳다는 것과 월드가 옳다는 것은 다른 명제다. setBlock 플래그·지형 충돌·
+        // 문 상단 파괴 등은 계획을 봐서는 알 수 없고, 실제 블록을 읽어야만 드러난다.
+        var world = level;
+        boolean anchorAir = world.getBlockState(pos).isAir();
+        var floor = world.getBlockState(pos.below());
+        boolean floorSolid = floor.isFaceSturdy(world, pos.below(),
+                net.minecraft.core.Direction.UP);
+        int gardenAir = 0;
+        int gardenSoil = 0;
+        for (var g : h.gardenCells()) {
+            var gp = pos.offset(g);
+            if (world.getBlockState(gp).isAir()) {
+                gardenAir++;
+            }
+            var s = world.getBlockState(gp.below());
+            if (s.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                    || s.is(net.minecraft.world.level.block.Blocks.DIRT)
+                    || s.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                    || s.is(net.minecraft.world.level.block.Blocks.PODZOL)) {
+                gardenSoil++;
+            }
+        }
+        // 계획 대비 실제 일치율 — 어긋난 칸이 있으면 그 좌표를 찍는다(원인 추적용).
+        int match = 0;
+        int bushes = 0;
+        int doors = 0;
+        String firstBad = null;
+        for (var p : h.plan()) {
+            var wp = pos.offset(p.rel());
+            var ws = world.getBlockState(wp);
+            if (ws == p.state()) {
+                match++;
+            } else if (firstBad == null) {
+                firstBad = p.rel().toShortString() + " 계획="
+                        + p.state().getBlock().getName().getString()
+                        + " 실제=" + ws.getBlock().getName().getString();
+            }
+            if (ws.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)) {
+                bushes++;
+            }
+            if (ws.getBlock() instanceof net.minecraft.world.level.block.DoorBlock) {
+                doors++;
+            }
+        }
+        // 파낸 칸이 실제로 비었는가 — 평지에서는 원래 공기라 항상 통과한다. 흙에 파묻고 지어야
+        // 의미가 생긴다(집이 언덕에 박혔을 때 실내가 흙으로 차는 사고를 잡는 검사).
+        int carved = 0;
+        for (var c : h.clear()) {
+            if (world.getBlockState(pos.offset(c)).isAir()) {
+                carved++;
+            }
+        }
+        boolean ok = anchorAir && floorSolid && gardenAir == HomeTemplate.GARDEN_CELLS
+                && gardenSoil == HomeTemplate.GARDEN_CELLS && bushes == 0 && doors >= 2
+                && match == h.plan().size() && carved == h.clear().size();
+        tell(ctx.getSource(), String.format(
+                "%s %s 회전%d 대칭%s @%s — 계획%d 일치%d · 파냄%d/%d · 앵커공기%s 바닥%s · "
+                        + "정원 공기%d/흙%d · 덤불%d 문%d · reach%.1f%s",
+                ok ? "§a✓§r" : "§c✗§r", design, rot, mirror ? "O" : "X", pos.toShortString(),
+                h.plan().size(), match, carved, h.clear().size(),
+                anchorAir ? "O" : "X", floorSolid ? "O" : "X",
+                gardenAir, gardenSoil, bushes, doors, h.reach(),
+                firstBad == null ? "" : " §c불일치첫칸 " + firstBad));
+        return ok ? 1 : 0;
     }
 
     private static void tell(CommandSourceStack src, String msg) {

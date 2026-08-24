@@ -160,10 +160,16 @@ public class MimicFarmGoal extends Goal {
                 //   깨지는 구조였다. 소작은 자기가 딴 만큼 받고, 관리 실패의 손실은 지주가 진다.
                 //   (fee 누진은 FarmEconomy.fee 에서 함께 평탄화 — 그쪽 주석 참조.)
                 //   새 회계 항등식: tShare + ownerCut + waste == base, waste = base×fee×(1−E).
-                int ownerTiles = farmStore().ownedTiles(p.ownerId);
-                double tShare = FarmEconomy.tenantShare(base, ownerTiles);   // E 미적용
-                double baseShare = FarmEconomy.baseOwnerShare(base) * e;     // E 적용
-                double excessShare = FarmEconomy.excessOwnerShare(base, ownerTiles) * e;
+                // 자산 누진 지대 — 소작 가구가 부유할수록 수취 비율이 줄고, 줄어든 만큼이 지주의
+                // 초과분(저장고 직행)으로 간다. 기준선은 <b>성인</b> 소모라 자녀가 늘어도 오르지
+                // 않는다(출산 자기제한). 규모 누진(ownerTiles)이 규칙4 성공 시 규칙3을 깨던 것과
+                // 달리, 자산 기준은 소작 개인에 대해 자기교정적이고 영지 크기와 무관하다.
+                double tenantLarder = mob.getHomePos() == null ? 0.0
+                        : LarderStore.get(serverLevel()).get(mob.getHomePos());
+                double adultNeed = mob.adultDailyNeed();
+                double tShare = FarmEconomy.tenantShare(base, tenantLarder, adultNeed); // E 미적용
+                double baseShare = FarmEconomy.baseOwnerShare(base, tenantLarder, adultNeed) * e;
+                double excessShare = FarmEconomy.excessOwnerShare(base, tenantLarder, adultNeed) * e;
                 mob.addHarvest(tShare);
                 p.account += baseShare;
                 p.excessHoard += excessShare; // 잠금 축장(밤 정산 때 지주 저장고로, 확장 무관)

@@ -217,6 +217,67 @@ public final class FarmEconomy {
      *  소농 fee(0)=0.45 불변(초기 사슬·소작 유인 무손상), 상한 0.70/소작 하한 0.30(임금
      *  1.8/일 = 아사 방지선: 배우자 정원·구휼 합산 생존). 대영지 소작은 2자녀 밴드로 계층화
      *  (소농 밭 소작 3자녀 유지) — 부익부의 자연 귀결. */
+    /** 자산 누진 지대의 하한 — 무일푼 소작이 내는 몫. 낮을수록 빈곤 탈출이 빠르다. */
+    public static final double FEE_MIN = 0.15;
+    /** 자산 누진 지대의 상한 — 부유한 소작이 내는 몫. 1.0에 가까울수록 축적 제동이 단단하다. */
+    public static final double FEE_MAX = 0.95;
+    /** 누진 곡선의 급격함. 클수록 기준선 부근에서 급제동. */
+    public static final double FEE_CURVE_K = 1.0;
+    /** 기준선 = <b>성인</b> 명목소모 × 이 일수. 자녀를 빼는 것이 핵심(아래 progressiveFee 참조). */
+    public static final double WEALTH_CAP_DAYS = 3.5;
+
+    /**
+     * 자산 누진 지대 — 소작 가구가 <b>부유할수록 수취 비율이 줄어든다</b>.
+     *
+     * <pre>
+     *   r   = 가구 저장고 ÷ (성인 명목소모 × WEALTH_CAP_DAYS)
+     *   fee = FEE_MIN + (FEE_MAX − FEE_MIN) × (1 − e^(−k·r))
+     * </pre>
+     *
+     * <p>지수 감쇠라 소작 <b>수취</b>가 r 에 따라 지수로 줄고, 따라서 누적은 로그처럼 완만해진다.
+     * 가난하면 거의 다 가져가 빠르게 회복하고(애는 빨리 낳게), 기준선에 닿으면 수취가 말라
+     * 더 쌓지 못한다(축적은 못하게).
+     *
+     * <p><b>기준선에서 자녀를 빼는 것</b>이 자기제한의 핵심이다. 출산 게이트는 자녀마다 1.8씩
+     * 오르는데(BIRTH_COST + 가구소모×REPRO_NEED_DAYS + 성인수+1) 기준선은 그대로이므로,
+     * 자녀가 늘수록 게이트가 기준선 위로 올라가 출산이 스스로 막힌다. 자녀가 성년이 되어
+     * 독립하면 게이트가 내려와 다시 열린다 — 평생 출산을 막지 않고 <b>속도만</b> 제한한다.
+     * 기준선을 출산 게이트로 정규화하면 정반대가 된다(낳을수록 상한이 따라 올라 영영 안 막힘).
+     *
+     * <p>성인 수에는 비례하므로 일부다처 가구는 기준선이 높아 더 낳을 수 있고, 홀로 남은 가구는
+     * 기준선이 게이트 아래로 떨어져 출산이 멎는다 — 별도 조항 없이 가구 형태가 반영된다.
+     *
+     * @param larder    소작 <b>가구</b>의 저장고
+     * @param adultNeed 그 가구 <b>성인</b>의 명목 하루소모 합(자녀 제외)
+     */
+    public static double progressiveFee(double larder, double adultNeed) {
+        double cap = Math.max(1.0E-6, adultNeed * WEALTH_CAP_DAYS);
+        double r = Math.max(0.0, larder) / cap;
+        return FEE_MIN + (FEE_MAX - FEE_MIN) * (1.0 - Math.exp(-FEE_CURVE_K * r));
+    }
+
+    /** 소작 몫 — 자산 누진. 아래 두 지주 몫과 합이 정확히 yield(회계 항등식). */
+    public static double tenantShare(double yield, double larder, double adultNeed) {
+        return yield * (1.0 - progressiveFee(larder, adultNeed));
+    }
+
+    /**
+     * 지주 몫의 <b>기본분</b> — 밭 계정(확장 재원)으로. 누진 요율이 FEE 아래면 그 요율이 전부다
+     * (가난한 소작에게서는 확장 재원조차 적게 걷힌다). FEE 를 넘는 부분은 아래 초과분이 가져간다.
+     */
+    public static double baseOwnerShare(double yield, double larder, double adultNeed) {
+        return yield * Math.min(progressiveFee(larder, adultNeed), FEE);
+    }
+
+    /**
+     * 지주 몫의 <b>초과분</b> — 지주 저장고 직행·확장 재원 아님(E11 축장 경로). 부유한 소작에게서
+     * 더 걷힌 만큼이 그대로 지주의 자산 격차가 된다. 규모 누진이 폐지되며 휴면 상태였던 이 경로를
+     * 자산 누진이 되살린다.
+     */
+    public static double excessOwnerShare(double yield, double larder, double adultNeed) {
+        return yield * Math.max(0.0, progressiveFee(larder, adultNeed) - FEE);
+    }
+
     public static double fee(int ownerTiles) {
         // 규모 누진 폐지 → 고정 FEE(0.45). 5규칙 정합: 규칙4·5(밭 무한 성장·자산 무한 누적)와
         // 규칙3(소작 출산 2~3)이 동시에 서려면 <b>소작 몫이 밭 크기와 무관</b>해야 한다. 누진은

@@ -191,6 +191,7 @@ public class MimicEntity extends PathfinderMob {
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
     private boolean fastSettle = false;         // 무대 검증용 초고속(시간 600배 압축)
     private double cachedFamilyNeed = 6.0;      // 가족틱이 갱신하는 가족 하루소모 캐시(goal용)
+    private double cachedAdultNeed = 6.0;       // 성인만의 하루소모 캐시(자산 누진 지대 기준선)
     private boolean cachedProvider = true;      // 가족틱이 갱신하는 제공자 역할 캐시(R4)
     private boolean cachedOwnsFarm = false;     // 가족틱이 갱신하는 밭 보유 캐시(농사 집중 게이트)
     private double cachedGardenMult = 1.0;      // 가족틱이 갱신하는 정원 배율(가구 최고 관리등급 기준)
@@ -2336,6 +2337,15 @@ public class MimicEntity extends PathfinderMob {
             eaters.add(new FoodEconomy.Eater(m.getIndividual(), m.getStage(), m.holding, m.isHome()));
         }
         double need = FoodEconomy.nominalDailyNeed(eaters);
+        // 성인만의 명목소모 합 — 자산 누진 지대의 기준선(FarmEconomy.progressiveFee)에 쓴다.
+        // 자녀를 빼야 출산 게이트만 오르고 기준선은 그대로여서 출산이 자기제한적이 된다.
+        double adultNeed = 0.0;
+        for (MimicEntity m : ordered) {
+            if (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER) {
+                adultNeed += FoodEconomy.consumptionPerDay(
+                        m.getStage(), Activity.MOVE, m.getIndividual(), false);
+            }
+        }
 
         LarderStore store = null;
         double larder = 0.0;
@@ -2371,6 +2381,7 @@ public class MimicEntity extends PathfinderMob {
             m.lastSurplus = larder;
             m.lastFed = !m.isCritical();
             m.cachedFamilyNeed = need;
+            m.cachedAdultNeed = adultNeed;
             m.cachedProvider = (m == father) || (father == null && m.getStage() == LifeStage.ADULT);
             // 밭 보유(자기 or 배우자) — 농사 집중 게이트용. 자기 밭이 있으면 채집으로 이탈하지 않고
             // 밭에 매인다(채집 goal 이 매 틱 밭 원장을 스캔하지 않도록 여기서 캐시).
@@ -3513,6 +3524,11 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 제공자 역할(가족틱이 갱신) — 남편 또는 성년 홀로 가장. R4에서 항상 채집. */
+    /** 가구 <b>성인</b>의 명목 하루소모 합 — 자산 누진 지대의 기준선(가족틱이 갱신). */
+    public double adultDailyNeed() {
+        return cachedAdultNeed;
+    }
+
     public boolean isProviderRole() {
         return cachedProvider;
     }

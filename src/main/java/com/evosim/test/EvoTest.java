@@ -2313,6 +2313,25 @@ public final class EvoTest {
                 && close(FarmEconomy.excessOwnerShare(y, 1000), 0.0)
                 && close(FarmEconomy.tenantShare(y, 200) + FarmEconomy.baseOwnerShare(y)
                         + FarmEconomy.excessOwnerShare(y, 200), y) // 3분할 항등식(E 미적용 기준)
+                // 자산 누진 지대(신) — 기준선 = 성인소모 6.0 × 3.5 = 21.
+                //   무일푼 FEE_MIN 0.15 · 기준선 도달 0.15+0.80×(1−e⁻¹)=0.656 · 부유할수록 FEE_MAX 로.
+                && close(FarmEconomy.progressiveFee(0.0, 6.0), FarmEconomy.FEE_MIN)
+                && FarmEconomy.progressiveFee(21.0, 6.0) > 0.64
+                && FarmEconomy.progressiveFee(21.0, 6.0) < 0.67
+                && FarmEconomy.progressiveFee(63.0, 6.0) > 0.90     // 3배 부유 → 상한 근처
+                && FarmEconomy.progressiveFee(200.0, 6.0) < FarmEconomy.FEE_MAX
+                // 단조 증가(부유할수록 소작 수취 감소)
+                && FarmEconomy.tenantShare(y, 0.0, 6.0) > FarmEconomy.tenantShare(y, 21.0, 6.0)
+                && FarmEconomy.tenantShare(y, 21.0, 6.0) > FarmEconomy.tenantShare(y, 63.0, 6.0)
+                // 3분할 항등식 — 누진 요율 어디에서나 정확히 yield
+                && close(FarmEconomy.tenantShare(y, 0.0, 6.0) + FarmEconomy.baseOwnerShare(y, 0.0, 6.0)
+                        + FarmEconomy.excessOwnerShare(y, 0.0, 6.0), y)
+                && close(FarmEconomy.tenantShare(y, 21.0, 6.0) + FarmEconomy.baseOwnerShare(y, 21.0, 6.0)
+                        + FarmEconomy.excessOwnerShare(y, 21.0, 6.0), y)
+                && close(FarmEconomy.tenantShare(y, 300.0, 6.0) + FarmEconomy.baseOwnerShare(y, 300.0, 6.0)
+                        + FarmEconomy.excessOwnerShare(y, 300.0, 6.0), y)
+                // 성인 수 비례: 다처(성인 3, 9.0)는 기준선이 높아 같은 저장고에서 요율이 낮다
+                && FarmEconomy.progressiveFee(21.0, 9.0) < FarmEconomy.progressiveFee(21.0, 6.0)
                 && close(FarmEconomy.newFarmCost(0), 18.0) && close(FarmEconomy.newFarmCost(2), 40.5)
                 // 게이트는 타일당 한계비용 비교: 확장 2.0 ≤ 신규 18/9타일(T1) = 2.0 — 동률(소작 루프 v2:
                 // 확장이 주 성장 경로, 신규는 직영지 교체 트리거라 유인 우열 불요)

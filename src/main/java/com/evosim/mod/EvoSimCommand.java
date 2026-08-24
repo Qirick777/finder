@@ -2094,7 +2094,9 @@ public final class EvoSimCommand {
         for (int i = 0; i < 4; i++) {
             // 강제로드 대역 안에 나란히 — 슬롯 방식(z += 64×n)은 검증 스위트와 자리가 겹치고
             // 시뮬레이션 거리 밖이라 개체가 틱하지 않는다(가구 정산이 안 돌면 승격도 안 돈다).
-            BlockPos home = groundAt(level, b, -120.0 + i * 60.0, 0.0);
+            // 기단을 먼저 맞춘다 — 저장고·등기 키가 실제 앵커와 어긋나면 무대가 통째로 헛돈다.
+            BlockPos home = MimicEntity.liftToBase(level,
+                    groundAt(level, b, -120.0 + i * 60.0, 0.0), "small1", (byte) 0, false);
             MimicEntity dad = spawnAdult(level, Vec3.atBottomCenterOf(home).add(2, 0, 2), Sex.MALE);
             MimicEntity mom = spawnAdult(level, Vec3.atBottomCenterOf(home).add(3, 0, 2), Sex.FEMALE);
             // 짝은 <b>debugMarryTo</b>(배우자 링크만)로 맺는다. debugForcePair 는 성사 절차를
@@ -2188,7 +2190,43 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "§c도면 없음: " + design);
             return 0;
         }
-        var pos = net.minecraft.core.BlockPos.containing(ctx.getSource().getPosition());
+        // <b>실제 건축 경로</b>를 그대로 태운다 — 명령 위치에 그냥 놓으면(종전) 지형과 무관하게
+        // 공중에 뜬 집을 재게 되어 "땅을 파고 짓는가"라는 질문 자체가 성립하지 않는다.
+        // 지형 높이 산출 → 평탄화 → 파내기 → 배치, 미믹이 짓는 순서와 동일하다.
+        var cmd = net.minecraft.core.BlockPos.containing(ctx.getSource().getPosition());
+        int baseY = MimicEntity.terrainBaseY(level,
+                HomeBlueprint.of(level, cmd, design, (byte) rot, mirror));
+        var pos = new net.minecraft.core.BlockPos(cmd.getX(), baseY, cmd.getZ());
+        HomeBlueprint bp0 = HomeBlueprint.of(level, pos, design, (byte) rot, mirror);
+        // 건축 <b>전</b> 바깥 지면 — 발자국 바로 둘레 한 겹. 손대지 않는 땅이라 "지면 위에
+        // 섰는가"의 기준선이 된다. 최하층(앵커−1)이 이 지면보다 정확히 1칸 위여야 한다.
+        java.util.Set<Long> inside = new java.util.HashSet<>();
+        for (BlockPos c : bp0.footprint()) {
+            inside.add(net.minecraft.core.BlockPos.asLong(c.getX(), 0, c.getZ()));
+        }
+        java.util.List<Integer> ring = new java.util.ArrayList<>();
+        for (BlockPos c : bp0.footprint()) {
+            for (int[] d8 : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                int nx = c.getX() + d8[0];
+                int nz = c.getZ() + d8[1];
+                if (inside.contains(net.minecraft.core.BlockPos.asLong(nx, 0, nz))) {
+                    continue;
+                }
+                ring.add(level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                        .MOTION_BLOCKING_NO_LEAVES, nx, nz) - 1);
+            }
+        }
+        java.util.Collections.sort(ring);
+        int outside = ring.isEmpty() ? pos.getY() - 2 : ring.get(ring.size() / 2);
+        // 건축 전 지형 표면을 기억한다 — '원래 지면보다 낮아졌는가'(침하)의 기준선.
+        java.util.Map<Long, Integer> before = new java.util.HashMap<>();
+        for (BlockPos col : bp0.footprint()) {
+            before.put(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()),
+                    level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                            .MOTION_BLOCKING_NO_LEAVES, col.getX(), col.getZ()) - 1);
+        }
+        MimicEntity.flattenSite(level, bp0);
+        MimicEntity.excavate(level, bp0);
         HomeTemplate h = t.get();
         h.place(level, pos);
 
@@ -2245,22 +2283,50 @@ public final class EvoSimCommand {
                 carved++;
             }
         }
-        // 해자 검사 — 발자국 열의 바닥층(앵커−1)이 공기로 뚫렸는가. 도면이 바닥재를 놓지 않는
-        // 처마 밑 여백까지 파내면 건물 둘레가 1칸 꺼져 "땅을 파고 지은" 모습이 된다.
-        int moat = 0;
-        for (BlockPos col : h.footprint()) {
-            if (world.getBlockState(new BlockPos(col.getX(), pos.getY() - 1, col.getZ())).isAir()) {
-                moat++;
+        // ── "지면 위에 지었는가" 두 관측값 ──────────────────────────────────────
+        //  해자 : 발자국 열의 바닥층(앵커−1)이 공기로 뚫렸다 = 건물 둘레가 꺼졌다.
+        //  침하 : 그 열의 지표가 <b>건축 전보다 낮아졌다</b> = 땅을 파고 들어갔다.
+        // 둘을 나눈 이유: 해자는 '구멍', 침하는 '깎임'이라 원인이 다르다(파내기 vs 평탄화).
+        // 해자는 <b>최하층이 덮는 열</b>에서만 센다. 처마 밑 여백 열은 손대지 않은 지형이라
+        // 앵커−2 가 공기인 것이 정상이다 — 그걸 세면 정상 배치가 전부 실패로 나온다(실측 오판).
+        java.util.Set<Long> floored = new java.util.HashSet<>();
+        for (HomeBlueprint.Placement pp : bp0.plan()) {
+            if (pp.pos().getY() == pos.getY() - 1) {
+                floored.add(net.minecraft.core.BlockPos.asLong(pp.pos().getX(), 0,
+                        pp.pos().getZ()));
             }
         }
-        boolean ok = moat == 0 && anchorAir && floorSolid && gardenAir == HomeTemplate.GARDEN_CELLS
+        int moat = 0;
+        int sunk = 0;
+        String worst = "-";
+        int worstD = 0;
+        for (BlockPos col : bp0.footprint()) {
+            long key = net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ());
+            if (floored.contains(key) && world.getBlockState(
+                    new BlockPos(col.getX(), pos.getY() - 2, col.getZ())).isAir()) {
+                moat++; // 최하층 밑이 뚫렸다 = 건물이 공중에 떴다
+            }
+            int now = world.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                    .MOTION_BLOCKING_NO_LEAVES, col.getX(), col.getZ()) - 1;
+            Integer was = before.get(key);
+            if (was != null && now < was) {
+                sunk++;
+                if (was - now > worstD) {
+                    worstD = was - now;
+                    worst = col.getX() + "," + col.getZ() + " " + was + "→" + now;
+                }
+            }
+        }
+        int lift = (pos.getY() - 1) - outside; // 바깥 지면 대비 최하층 높이 — +1 이어야 한다
+        boolean ok = lift == 1 && moat == 0 && anchorAir && floorSolid
+                && gardenAir == HomeTemplate.GARDEN_CELLS
                 && gardenSoil == HomeTemplate.GARDEN_CELLS && bushes == 0 && doors >= 2
                 && match == h.plan().size() && carved == h.clear().size();
         tell(ctx.getSource(), String.format(
-                "%s %s 회전%d 대칭%s @%s — 계획%d 일치%d · 파냄%d/%d · 해자%d · 앵커공기%s 바닥%s · "
-                        + "정원 공기%d/흙%d · 덤불%d 문%d · reach%.1f%s",
+                "%s %s 회전%d 대칭%s @%s — <b>올라섬%+d</b>(기대 +1) · 계획%d 일치%d · "
+                        + "해자%d 정지%d · 앵커공기%s 바닥%s · 정원 공기%d/흙%d · 덤불%d 문%d · reach%.1f%s",
                 ok ? "§a✓§r" : "§c✗§r", design, rot, mirror ? "O" : "X", pos.toShortString(),
-                h.plan().size(), match, carved, h.clear().size(), moat,
+                lift, h.plan().size(), match, moat, sunk,
                 anchorAir ? "O" : "X", floorSolid ? "O" : "X",
                 gardenAir, gardenSoil, bushes, doors, h.reach(),
                 firstBad == null ? "" : " §c불일치첫칸 " + firstBad));

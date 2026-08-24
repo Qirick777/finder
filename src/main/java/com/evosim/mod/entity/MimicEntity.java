@@ -526,6 +526,7 @@ public class MimicEntity extends PathfinderMob {
      */
     public void debugSettleWithHome(ServerLevel sl, BlockPos home, String design,
                                     byte rot, boolean mirror) {
+        home = liftToBase(sl, home, design, rot, mirror);
         setHomePos(home);
         adoptDesign(design, rot, mirror);
         building = false;
@@ -541,9 +542,17 @@ public class MimicEntity extends PathfinderMob {
                 individual != null ? individual.id() : 0L, today());
     }
 
+    /** 무대가 준 자리를 실제 건축과 <b>같은 기단</b>으로 올린다 — 무대만 파묻히는 일이 없게. */
+    public static BlockPos liftToBase(ServerLevel sl, BlockPos at, String design,
+                                      byte rot, boolean mirror) {
+        int y = terrainBaseY(sl, HomeBlueprint.of(sl, at, design, rot, mirror));
+        return new BlockPos(at.getX(), y, at.getZ());
+    }
+
     /** 점검용 — 스키메틱 빈집 하나를 세워 두고 즉시 퇴거 등기(빈집 재사용 무대). */
     public static void debugPlaceVacantHome(ServerLevel sl, BlockPos home, String design,
                                             byte rot, boolean mirror) {
+        home = liftToBase(sl, home, design, rot, mirror);
         HomeBlueprint bp = HomeBlueprint.of(sl, home, design, rot, mirror);
         for (BlockPos c : bp.clear()) {
             sl.setBlock(c, Blocks.AIR.defaultBlockState(),
@@ -1235,7 +1244,7 @@ public class MimicEntity extends PathfinderMob {
                 individual != null ? individual.id() : 0L, today());
         endowNewHome(sl, preHomeSelf, other, preHomeOther, home); // 양가 지참금 이전(공짜 신규 폐지·레버①)
         HomeBlueprint bp = blueprint(sl);
-        flattenSite(sl, bp);  // 하단 평탄화 — 낮은 칸 흙 메움 + 흙 효과음(하단 전부 접지)
+        flattenSite(sl, bp); // 하단 평탄화 — 낮은 칸 흙 메움 + 흙 효과음(하단 전부 접지)
         excavate(sl, bp);     // 실내·문간·정원 자리 비우기(언덕에 지어도 실내가 흙으로 차지 않게)
         // 둘 다 건축 상태(부지로 이동·완성까지 구애/채집 정지). 실제 분담·리더는 buildTick 이 매 틱 결정.
         this.building = true;
@@ -1277,7 +1286,7 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 도면이 요구하는 빈 칸(실내·문간·앵커·정원)을 실제로 비운다 — 착공 시 1회. */
-    private static void excavate(ServerLevel sl, HomeBlueprint bp) {
+    public static void excavate(ServerLevel sl, HomeBlueprint bp) {
         boolean sound = false;
         for (BlockPos c : bp.clear()) {
             var st = sl.getBlockState(c);
@@ -1570,33 +1579,49 @@ public class MimicEntity extends PathfinderMob {
             net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
 
     /**
-     * 기단 Y = 발자국 지표들의 <b>중앙값</b>(median) + 1. 중앙값에 맞추면 낮은 칸 메움량 + 높은 칸 파냄량의
-     * 총합이 최소가 된다(L1 최소화점=median) → 흙을 가장 덜 쓰고 덜 파는 방향.
+     * 앵커 Y = 발자국 지표들의 <b>중앙값</b> + {@value #BASE_LIFT}. 중앙값을 쓰는 이유는 낮은 칸
+     * 메움량 + 높은 칸 파냄량의 총합이 그때 최소이기 때문이다(L1 최소화점=median).
      */
-    private static int terrainBaseY(ServerLevel sl, HomeBlueprint bp) {
+    public static int terrainBaseY(ServerLevel sl, HomeBlueprint bp) {
         List<BlockPos> foot = bp.footprint();
         int[] surf = new int[foot.size()];
         for (int i = 0; i < foot.size(); i++) {
             surf[i] = sl.getHeight(SURFACE_MAP, foot.get(i).getX(), foot.get(i).getZ()) - 1; // 지표 블록 Y
         }
         java.util.Arrays.sort(surf);
-        return surf[surf.length / 2] + 1; // 하단 딛는 레벨(기단-1)=중앙값 지표
+        return surf[surf.length / 2] + BASE_LIFT;
     }
+
+    /**
+     * 지표 블록에서 앵커까지의 높이. <b>2다 — 1이 아니다.</b>
+     *
+     * <p>도면의 최하층은 앵커 상대 y=−1 이고, 그 층은 <b>주춧돌(stone_bricks)·바닥(oak_planks)·
+     * 정원 상자(oak_trapdoor)·정원 흙(grass_block)</b>이다. 8개 도면 전부 같고, <b>문 앞 계단
+     * (stone_brick_stairs)도 정확히 그 층</b>에 있다. 계단이 거기 있다는 것은 지면이 그보다 한 칸
+     * 아래이고 <b>딛고 올라선다</b>는 뜻이다 — 즉 그 층은 지면 <b>위에</b> 얹히는 층이다.
+     *
+     * <p>종전 값 1은 그 층을 지표 블록 <b>자리에</b> 밀어 넣었다. 그래서 주춧돌·계단·정원 상자가
+     * 통째로 땅에 파묻히고, 건물 둘레만 한 칸 꺼진 채로 보였다(제보 스크린샷). 천막에는 최하층이
+     * 없어서 1이 맞았고, 스키메틱으로 바꾸면서 그 값을 그대로 물려받은 것이 원인이다.
+     */
+    private static final int BASE_LIFT = 2;
 
     /**
      * 하단 평탄화 — 기단보다 낮은 칸은 흙으로 <b>메우고</b>, 높은 칸은 구조가 파묻히지 않게 <b>파낸다</b>.
      * 기단이 중앙값이라 메움·파냄 총량이 최소다. 하단이 전부 지면에 닿고(공중부양 방지) 벽이 흙에 묻히지
      * 않는다(매립 방지). 파냄은 destroyBlock 이 흙 파괴음·파티클을, 메움은 별도 흙 효과음을 낸다.
      */
-    private void flattenSite(ServerLevel sl, HomeBlueprint bp) {
-        int target = bp.home().getY() - 1; // 하단이 딛어야 할 지면 레벨
+    public static void flattenSite(ServerLevel sl, HomeBlueprint bp) {
+        // 건물이 <b>딛고 서는</b> 지면 레벨 = 앵커−2. 최하층(앵커−1)은 그 위에 얹히는 층이다.
+        int target = bp.home().getY() - BASE_LIFT;
+        int course = bp.home().getY() - 1; // 도면 최하층(주춧돌·바닥·정원 흙)
         boolean played = false;
-        // 바닥재가 덮는 열만 고른다. 도면의 점유 열에는 <b>처마 밑 여백</b>이 섞여 있어서
-        // (small1: 62개 중 20개) 발자국 전체를 target 까지 깎으면 건물 둘레가 1칸 파여
-        // 해자가 된다. 그 열들은 지형을 그대로 두어야 "지면 위에 선" 모습이 된다.
+        // 최하층이 덮는 열만 고른다. 도면의 점유 열에는 <b>처마 밑 여백</b>이 섞여 있어서
+        // (small1: 62개 중 20개) 발자국 전체를 깎으면 건물 둘레가 1칸 파여 해자가 된다.
+        // 그 열들은 지형을 그대로 두어야 "지면 위에 선" 모습이 된다.
         java.util.Set<Long> floored = new java.util.HashSet<>();
         for (HomeBlueprint.Placement pp : bp.plan()) {
-            if (pp.pos().getY() == target) {
+            if (pp.pos().getY() == course) {
                 floored.add(net.minecraft.core.BlockPos.asLong(pp.pos().getX(), 0,
                         pp.pos().getZ()));
             }

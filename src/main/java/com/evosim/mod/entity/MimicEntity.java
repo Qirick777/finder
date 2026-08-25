@@ -2154,6 +2154,14 @@ public class MimicEntity extends PathfinderMob {
         }
         java.util.List<java.util.Set<Long>> parts = roads.splitBy(gone);
         roads.removeAll(gone);
+        // 등기만 빼면 안 된다 — <b>폭 3으로 퍼진 이웃 칸</b>의 흙길 블록이 밭 몸통 안에 그대로
+        // 남는다(중심선 하나만 되돌리던 첫 수정이 놓친 지점: D14 에 관통 1 → D15 에 5로 늘었다).
+        // 그래서 이 구획 몸통 <b>전체</b>를 훑어 흙길이면 잔디로 되돌린다.
+        if (plot != null) {
+            for (long l : bodyOf(plot)) {
+                unpave(sl, RoadStore.keyX(l), RoadStore.keyZ(l), taken.getY());
+            }
+        }
         for (long l : gone) {
             unpave(sl, RoadStore.keyX(l), RoadStore.keyZ(l), taken.getY());
         }

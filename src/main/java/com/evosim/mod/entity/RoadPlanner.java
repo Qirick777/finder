@@ -69,19 +69,24 @@ public final class RoadPlanner {
         int dz = d.getStepZ();
         int px = -dz;
         int pz = dx;
-        List<BlockPos> out = new ArrayList<>();
-        for (int step = 1; step <= 2 && out.isEmpty(); step++) {
-            for (int off : new int[] {0, -1, 1, -2, 2}) {
-                for (BlockPos s : stairs) {
-                    BlockPos c = new BlockPos(s.getX() + dx * step + px * off, s.getY(),
-                            s.getZ() + dz * step + pz * off);
-                    if (!ob.blocked(c.getX(), c.getZ()) && !out.contains(c)) {
-                        out.add(c);
-                    }
+        // <b>우선순위대로</b> 한 겹씩 시도한다. 계단 정면(off 0)이 열려 있으면 거기서 끝이다 —
+        // 후보를 한꺼번에 담으면 다익스트라가 그중 제일 싼 것을 고르는데, 그게 옆으로 두 칸
+        // 비낀 칸이면 길이 <b>문 정면이 아니라 집 모서리에서</b> 시작한다(실측: 5채 중 4채).
+        int[][] tiers = {{1, 0}, {1, -1}, {1, 1}, {2, 0}, {1, -2}, {1, 2}, {2, -1}, {2, 1}};
+        for (int[] t : tiers) {
+            List<BlockPos> out = new ArrayList<>();
+            for (BlockPos s : stairs) {
+                BlockPos c = new BlockPos(s.getX() + dx * t[0] + px * t[1], s.getY(),
+                        s.getZ() + dz * t[0] + pz * t[1]);
+                if (!ob.blocked(c.getX(), c.getZ()) && !out.contains(c)) {
+                    out.add(c);
                 }
             }
+            if (!out.isEmpty()) {
+                return out;
+            }
         }
-        return out;
+        return List.of();
     }
 
     /** 통행 금지 판정의 단일 출처 — 집·계단·밭 몸통. */

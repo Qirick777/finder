@@ -2132,17 +2132,35 @@ public class MimicEntity extends PathfinderMob {
      * 33채 중 12채가 마을에서 떨어져 나갔다). 자른 사람이 고치는 것이 가장 자연스럽고,
      * 그 분량은 신축 시공과 비슷해 같은 장치로 처리된다.
      */
-    public static void farmTookRoad(ServerLevel sl, MimicEntity farmer, BlockPos taken) {
+    public static void farmTookRoad(ServerLevel sl, MimicEntity farmer, FarmStore.Plot plot,
+                                    BlockPos taken) {
         RoadStore roads = RoadStore.get(sl);
-        if (!roads.has(taken.getX(), taken.getZ())) {
+        java.util.Set<Long> gone = new java.util.HashSet<>();
+        if (roads.has(taken.getX(), taken.getZ())) {
+            gone.add(RoadStore.key(taken.getX(), taken.getZ()));
+        }
+        // <b>고랑에 갇힌 길</b>도 함께 정리한다. 밭이 기존 길 건너편에 새 줄을 열면 그 길 칸은
+        // 타일이 아닌 채로 두 줄 사이에 갇힌다 — 타일 칸만 보면 영영 안 잡히고, 밭 한복판을
+        // 길이 관통하는 모습으로 남는다(실측: D12 에 2칸). 확장한 자가 그것까지 치운다.
+        if (plot != null) {
+            for (long l : bodyOf(plot)) {
+                if (roads.has(RoadStore.keyX(l), RoadStore.keyZ(l))) {
+                    gone.add(l);
+                }
+            }
+        }
+        if (gone.isEmpty()) {
             return;
         }
-        java.util.Set<Long> gone = java.util.Set.of(RoadStore.key(taken.getX(), taken.getZ()));
         java.util.List<java.util.Set<Long>> parts = roads.splitBy(gone);
         roads.removeAll(gone);
+        for (long l : gone) {
+            unpave(sl, RoadStore.keyX(l), RoadStore.keyZ(l), taken.getY());
+        }
         if (parts.isEmpty() || farmer == null || !farmer.paveTodo.isEmpty()) {
             return; // 안 쪼개졌거나, 고칠 사람이 이미 다른 길을 놓는 중
         }
+        // 조각이 생겼다 — 자른 사람이 제 밭을 돌아가는 길을 놓는다.
         RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
         int y = taken.getY();
         for (int i = 1; i < parts.size(); i++) {
@@ -2157,6 +2175,37 @@ public class MimicEntity extends PathfinderMob {
         }
         SimEvents.event(farmer, "길우회", String.format(
                 "밭이 길을 끊음 @%d,%d — 우회 실패(끊긴 채 둠)", taken.getX(), taken.getZ()));
+    }
+
+    /** 이 구획의 <b>몸통</b> 열 — 타일과 그 사이 고랑(같은 x 열의 최소 z ~ 최대 z). */
+    private static java.util.Set<Long> bodyOf(FarmStore.Plot plot) {
+        java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>();
+        for (long l : plot.tiles) {
+            BlockPos t = BlockPos.of(l);
+            span.compute(t.getX(), (k, v) -> v == null
+                    ? new int[] {t.getZ(), t.getZ()}
+                    : new int[] {Math.min(v[0], t.getZ()), Math.max(v[1], t.getZ())});
+        }
+        java.util.HashSet<Long> out = new java.util.HashSet<>();
+        for (var e : span.entrySet()) {
+            for (int z = e.getValue()[0]; z <= e.getValue()[1]; z++) {
+                out.add(RoadStore.key(e.getKey(), z));
+            }
+        }
+        return out;
+    }
+
+    /** 길을 걷어낸다 — 흙길을 잔디로 되돌린다(밭 한복판에 길 자국이 남지 않게). */
+    private static void unpave(ServerLevel sl, int x, int z, int y) {
+        for (int dy = 2; dy >= -3; dy--) {
+            BlockPos g = new BlockPos(x, y + dy, z);
+            if (sl.getBlockState(g).is(Blocks.DIRT_PATH)) {
+                sl.setBlock(g, Blocks.GRASS_BLOCK.defaultBlockState(),
+                        net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                                | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+                return;
+            }
+        }
     }
 
     /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */

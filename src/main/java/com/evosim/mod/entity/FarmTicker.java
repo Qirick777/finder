@@ -299,13 +299,14 @@ public final class FarmTicker {
                 if (gp == null) {
                     continue; // 4방 전부 막힘 — 이 칸 스킵(비용 미지불)
                 }
-                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, gp);
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
                 level.setBlockAndUpdate(gp,
                         net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
                                 .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
                 store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
+                // 타일을 <b>등록한 뒤</b> 부른다 — 그래야 새 줄까지 포함한 몸통으로 판정한다.
+                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, plot, gp);
                 placed++;
             }
             // 공간 포화 감지 — 자금·노동은 있었는데 한 칸도 못 심음. 2일 연속이면 성숙 간주(막힌
@@ -513,13 +514,13 @@ public final class FarmTicker {
                 if (gp == null) {
                     continue; // 막힌 칸 스킵 — 착공 부지는 findFarmSite가 회피해 대개 전부 성립
                 }
-                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, m, gp);
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
                 level.setBlockAndUpdate(gp,
                         net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
                                 .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
                 store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
+                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, m, plot, gp);
             }
             larders.set(m.getHomePos(), funds - cost);
             if (familyLord != null) {

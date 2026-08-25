@@ -18,6 +18,8 @@ import com.evosim.mod.entity.FarmStore;
 import com.evosim.mod.entity.FarmTicker;
 import com.evosim.mod.entity.HomeBlueprint;
 import com.evosim.mod.entity.HomeStore;
+import com.evosim.mod.entity.RoadPlanner;
+import com.evosim.mod.entity.RoadStore;
 import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.HomeTemplate;
 import com.evosim.mod.entity.MimicEntity;
@@ -93,6 +95,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("heirtest").executes(EvoSimCommand::heirStage))
                 .then(Commands.literal("heirshow").executes(ctx -> heirShow(ctx, false)))
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
+                .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
                 .then(Commands.literal("homeshow")
                         .then(Commands.argument("design", StringArgumentType.word())
                                 .executes(ctx -> homeShow(ctx,
@@ -2270,6 +2273,173 @@ public final class EvoSimCommand {
                 MimicEntity.requiredGap(level, HomeTemplate.Tier.SMALL.designs[0]),
                 onFarm, farmHit));
         return tier[4];
+    }
+
+    /**
+     * <b>길 관측</b> — 흙 길이 의도대로 깔렸는지를 수치로만 판정한다.
+     *
+     * <p>세 축을 본다. <b>형태</b>(중심선·실제 흙길 블록·폭), <b>연결</b>(덩어리 수와 도로망에
+     * 붙은 집 수), <b>침범</b>(밭 몸통·타일·집 지면층·문앞 계단·정원). 침범은 전부 0이어야 하는
+     * 불변식이고, 특히 <b>밭 몸통 관통</b>은 타일만 세면 0으로 보이므로 따로 센다 —
+     * 밭은 재배줄 + 고랑 구조라 타일 사이로 길이 꿰뚫고 지나갈 수 있다.
+     */
+    private static int roadsReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        RoadStore roads = RoadStore.get(level);
+        FarmStore farms = FarmStore.get(level);
+        HomeStore reg = HomeStore.get(level);
+
+        // ── 형태 ──
+        java.util.Set<Long> center = new java.util.HashSet<>(roads.raw());
+        java.util.Set<Long> paved = new java.util.HashSet<>();   // 월드에 실제로 깔린 흙길
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (long c : center) {
+            int x = RoadStore.keyX(c);
+            int z = RoadStore.keyZ(c);
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minZ = Math.min(minZ, z);
+            maxZ = Math.max(maxZ, z);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    BlockPos g = surfaceNear(level, x + dx, z + dz);
+                    if (g != null && level.getBlockState(g).is(Blocks.DIRT_PATH)) {
+                        paved.add(RoadStore.key(x + dx, z + dz));
+                    }
+                }
+            }
+        }
+        // 폭 분포 — 중심선 칸마다 3×3 중 몇 칸이 실제 흙길인가
+        int[] wide = new int[10];
+        for (long c : center) {
+            int n = 0;
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (paved.contains(RoadStore.key(RoadStore.keyX(c) + dx,
+                            RoadStore.keyZ(c) + dz))) {
+                        n++;
+                    }
+                }
+            }
+            wide[Math.min(9, n)]++;
+        }
+
+        // ── 연결 ──
+        java.util.List<java.util.Set<Long>> parts = roads.splitBy(java.util.Set.of());
+        int lumps = parts.isEmpty() ? (center.isEmpty() ? 0 : 1) : parts.size();
+        java.util.Set<Long> main = parts.isEmpty() ? center : parts.get(0);
+        int homesOn = 0;
+        int homesTotal = 0;
+        StringBuilder off = new StringBuilder();
+        for (BlockPos h : reg.positions()) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            homesTotal++;
+            HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            boolean on = false;
+            for (BlockPos st : bp.doorSteps()) {
+                for (int[] d : RoadPlanner.D4) {
+                    if (main.contains(RoadStore.key(st.getX() + d[0], st.getZ() + d[1]))) {
+                        on = true;
+                    }
+                }
+            }
+            if (on) {
+                homesOn++;
+            } else if (off.length() < 160) {
+                off.append(h.getX()).append(',').append(h.getZ()).append(' ');
+            }
+        }
+
+        // ── 침범(불변식) ──
+        int vBody = 0;
+        int vTile = 0;
+        int vHome = 0;
+        int vStep = 0;
+        int vGarden = 0;
+        java.util.Set<Long> homeCols = new java.util.HashSet<>();
+        java.util.Set<Long> stepCols = new java.util.HashSet<>();
+        java.util.Set<Long> gardenCols = new java.util.HashSet<>();
+        for (BlockPos h : reg.positions()) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            for (BlockPos c : bp.groundFootprint()) {
+                homeCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.doorSteps()) {
+                stepCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.garden()) {
+                gardenCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+        }
+        java.util.Set<Long> body = farms.bodyColumns();
+        for (long c : paved) {
+            int x = RoadStore.keyX(c);
+            int z = RoadStore.keyZ(c);
+            if (farms.isFarmColumn(x, z)) {
+                vTile++;
+            } else if (body.contains(c)) {
+                vBody++;
+            }
+            if (homeCols.contains(c)) {
+                vHome++;
+            }
+            if (stepCols.contains(c)) {
+                vStep++;
+            }
+            if (gardenCols.contains(c)) {
+                vGarden++;
+            }
+        }
+
+        // ── 진행 중 ──
+        int paving = 0;
+        int todo = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.isPaving())) {
+            paving++;
+            todo += m.paveRemaining();
+        }
+
+        boolean clean = vBody + vTile + vHome + vStep + vGarden == 0;
+        tell(ctx.getSource(), String.format(
+                "§e[길] 중심선%d · 실제 흙길%d칸 · 범위 x%d..%d z%d..%d",
+                center.size(), paved.size(),
+                center.isEmpty() ? 0 : minX, center.isEmpty() ? 0 : maxX,
+                center.isEmpty() ? 0 : minZ, center.isEmpty() ? 0 : maxZ));
+        tell(ctx.getSource(), String.format(
+                "  폭 분포(중심선 3×3 중 깔린 칸) 9칸:%d 7~8:%d 5~6:%d 3~4:%d 1~2:%d 0:%d",
+                wide[9], wide[7] + wide[8], wide[5] + wide[6], wide[3] + wide[4],
+                wide[1] + wide[2], wide[0]));
+        tell(ctx.getSource(), String.format(
+                "  연결 덩어리%d · 본체%d칸 · <b>도로망에 붙은 집 %d/%d</b>%s",
+                lumps, main.size(), homesOn, homesTotal,
+                off.length() == 0 ? "" : " · 안 붙은 집: " + off));
+        tell(ctx.getSource(), String.format(
+                "  %s침범 — 밭몸통관통%d 밭타일%d 집지면%d 문앞계단%d 정원%d§r",
+                clean ? "§a" : "§c", vBody, vTile, vHome, vStep, vGarden));
+        tell(ctx.getSource(), String.format(
+                "  시공 중 %d명 · 남은 %d칸", paving, todo));
+        return center.size();
+    }
+
+    /** 이 열의 지표 블록 — 길은 지표에 깔리므로 y 를 하이트맵에서 찾는다. */
+    private static BlockPos surfaceNear(ServerLevel level, int x, int z) {
+        if (!level.isLoaded(new BlockPos(x, 64, z))) {
+            return null;
+        }
+        return level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                new BlockPos(x, 0, z)).below();
     }
 
     // ── 5단계 검증: 저택 상속 ────────────────────────────────────────────────

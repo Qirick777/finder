@@ -299,6 +299,7 @@ public final class FarmTicker {
                 if (gp == null) {
                     continue; // 4방 전부 막힘 — 이 칸 스킵(비용 미지불)
                 }
+                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, gp);
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
                 level.setBlockAndUpdate(gp,
@@ -512,6 +513,7 @@ public final class FarmTicker {
                 if (gp == null) {
                     continue; // 막힌 칸 스킵 — 착공 부지는 findFarmSite가 회피해 대개 전부 성립
                 }
+                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, m, gp);
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
                 level.setBlockAndUpdate(gp,
@@ -708,9 +710,13 @@ public final class FarmTicker {
             var at = level.getBlockState(gp);
             var below = level.getBlockState(gp.below());
             boolean natural = at.isAir() || at.canBeReplaced();
+            // 흙길도 개간 대상이다 — <b>밭이 길보다 우선</b>. 빼놓으면 길 위에는 영영 밭을
+            // 못 만들어, "길이 밭 형성을 방해한다"가 실제로 일어난다. 심을 때 아래를 흙으로
+            // 갈아엎으므로(setBlockAndUpdate) 길은 그 자리에서 사라진다 — 확장자가 고치는 것이다.
             boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
                     || below.is(net.minecraft.world.level.block.Blocks.DIRT)
-                    || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT);
+                    || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                    || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH);
             if (natural && ground) {
                 return gp;
             }

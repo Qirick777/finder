@@ -143,11 +143,14 @@ public final class HomeTemplate {
     private final List<BlockPos> gardenCells;
     private final List<BlockPos> footprint;
     private final List<BlockPos> interior;
+    private final List<BlockPos> groundCols;
+    private final List<BlockPos> doorSteps;
     private final double reach;
 
     private HomeTemplate(String design, Rotation rotation, Mirror mirror, List<Placement> plan,
                          List<BlockPos> clear, List<BlockPos> gardenCells,
-                         List<BlockPos> footprint, List<BlockPos> interior, double reach) {
+                         List<BlockPos> footprint, List<BlockPos> interior,
+                         List<BlockPos> groundCols, List<BlockPos> doorSteps, double reach) {
         this.design = design;
         this.rotation = rotation;
         this.mirror = mirror;
@@ -156,7 +159,31 @@ public final class HomeTemplate {
         this.gardenCells = gardenCells;
         this.footprint = footprint;
         this.interior = interior;
+        this.groundCols = groundCols;
+        this.doorSteps = doorSteps;
         this.reach = reach;
+    }
+
+    /**
+     * <b>지면층 점유 열</b>(앵커 상대, y=0 정규화) — 도면 최하층(앵커−1)에 실제 블록이 있는 칸.
+     *
+     * <p>{@link #footprint()} 와 다르다. footprint 는 <b>머리 위 처마까지</b> 포함한 모든 열이라
+     * 지붕만 걸친 칸도 들어 있는데, 그 칸의 지면은 비어 있어 길이 지나가도 된다(오히려 처마 밑
+     * 길이 마을처럼 보인다). 길이 피해야 하는 것은 <b>여기</b>다.
+     */
+    public List<BlockPos> groundCols() {
+        return groundCols;
+    }
+
+    /**
+     * <b>문 앞 계단</b>(앵커 상대) — 도면 최하층의 {@code stone_brick_stairs}.
+     *
+     * <p>이 칸은 지면 <b>위</b> 한 칸이라, 그 자리 지면에 흙길을 깔면 계단 밑에 묻혀 안 보이고
+     * {@code dirt_path} 가 "위에 고체가 오면 흙으로 되돌아가는" 바닐라 규칙에 걸린다.
+     * 길은 계단을 건너뛰고 <b>그 바로 앞 칸</b>에서 시작한다.
+     */
+    public List<BlockPos> doorSteps() {
+        return doorSteps;
     }
 
     /**
@@ -382,9 +409,23 @@ public final class HomeTemplate {
                 .comparingInt((BlockPos q) -> q.getX() * q.getX() + q.getZ() * q.getZ())
                 .thenComparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
 
+        // 지면층 점유 열 · 문앞 계단 — 길이 피해야 하는 두 목록(RoadPlanner 의 하드 제약).
+        java.util.Set<BlockPos> gcols = new java.util.HashSet<>();
+        List<BlockPos> steps = new ArrayList<>();
+        for (var e : byRel.entrySet()) {
+            BlockPos rel = e.getKey();
+            if (rel.getY() != -1 || e.getValue().isAir()) {
+                continue;
+            }
+            gcols.add(new BlockPos(rel.getX(), 0, rel.getZ()));
+            if (e.getValue().getBlock() instanceof net.minecraft.world.level.block.StairBlock
+                    && e.getValue().is(Blocks.STONE_BRICK_STAIRS)) {
+                steps.add(new BlockPos(rel.getX(), 0, rel.getZ()));
+            }
+        }
         return Optional.of(new HomeTemplate(design, rotation, mirror, List.copyOf(pl),
                 List.copyOf(carve), List.copyOf(garden), List.copyOf(cols),
-                List.copyOf(inside), far));
+                List.copyOf(inside), List.copyOf(gcols), List.copyOf(steps), far));
     }
 
     /**

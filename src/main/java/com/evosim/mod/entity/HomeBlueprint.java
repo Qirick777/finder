@@ -45,12 +45,15 @@ public final class HomeBlueprint {
     private final int gardenCap;
     private final List<BlockPos> footprint;
     private final List<BlockPos> interior;
+    private final List<BlockPos> groundFootprint;
+    private final List<BlockPos> doorSteps;
     private final Direction doorDir;
     private final double reach;
 
     private HomeBlueprint(BlockPos home, String design, boolean legacy, List<Placement> plan,
                           List<BlockPos> clear, List<BlockPos> garden, int gardenCap,
                           List<BlockPos> footprint, List<BlockPos> interior,
+                          List<BlockPos> groundFootprint, List<BlockPos> doorSteps,
                           Direction doorDir, double reach) {
         this.home = home;
         this.design = design;
@@ -61,6 +64,8 @@ public final class HomeBlueprint {
         this.gardenCap = gardenCap;
         this.footprint = footprint;
         this.interior = interior;
+        this.groundFootprint = groundFootprint;
+        this.doorSteps = doorSteps;
         this.doorDir = doorDir;
         this.reach = reach;
     }
@@ -84,7 +89,7 @@ public final class HomeBlueprint {
             // 도면 파일이 사라진 경우(데이터팩 누락). 천막으로 떨어뜨리면 <b>엉뚱한 기하</b>로
             // 남의 집을 헐 수 있으므로, 아무것도 없는 빈 도면으로 만들어 무해하게 둔다.
             return new HomeBlueprint(home, design, false, List.of(), List.of(), List.of(), 0,
-                    List.of(home), List.of(home), doorOf(rot), 0.0);
+                    List.of(home), List.of(home), List.of(), List.of(), doorOf(rot), 0.0);
         }
         HomeTemplate t = opt.get();
         List<Placement> pl = new ArrayList<>(t.plan().size());
@@ -107,8 +112,16 @@ public final class HomeBlueprint {
         for (BlockPos c : t.interior()) {
             in.add(home.offset(c));
         }
+        List<BlockPos> gc = new ArrayList<>(t.groundCols().size());
+        for (BlockPos c : t.groundCols()) {
+            gc.add(new BlockPos(home.getX() + c.getX(), home.getY(), home.getZ() + c.getZ()));
+        }
+        List<BlockPos> ds = new ArrayList<>(t.doorSteps().size());
+        for (BlockPos c : t.doorSteps()) {
+            ds.add(new BlockPos(home.getX() + c.getX(), home.getY(), home.getZ() + c.getZ()));
+        }
         // 스키메틱은 칸 = 상한이다(도면이 정확히 그 수만큼 자리를 낸다).
-        return new HomeBlueprint(home, design, false, pl, cl, gd, gd.size(), fp, in,
+        return new HomeBlueprint(home, design, false, pl, cl, gd, gd.size(), fp, in, gc, ds,
                 doorOf(rot), t.reach());
     }
 
@@ -143,8 +156,10 @@ public final class HomeBlueprint {
         // 8이다 — 폴백은 "기본 칸이 막혔을 때 대신 쓸 자리"이지 늘어난 정원이 아니다. 상한을
         // 칸 수로 잡으면 구 천막 가구의 정원이 8 → 24로 <b>세 배</b>가 되어 식량이 부풀고,
         // 그 위에 세워진 밭·지대·출산 회계가 전부 어긋난다.
+        // 천막은 최하층이 없어 지면층 점유 열 = 발자국이고, 문 앞 계단도 없다.
         return new HomeBlueprint(home, HomeStore.TENT, true, pl, List.of(home), gd,
-                HomeStructure.berryTiles(home, f).size(), fp, List.of(home), f, far);
+                HomeStructure.berryTiles(home, f).size(), fp, List.of(home), fp, List.of(),
+                f, far);
     }
 
     /**
@@ -242,6 +257,19 @@ public final class HomeBlueprint {
     /** 점유 열(x·z, y=home.y) — 평탄화·밭 회피 판정의 단일 출처. */
     public List<BlockPos> footprint() {
         return footprint;
+    }
+
+    /**
+     * <b>지면층 점유 열</b> — 도면 최하층에 실제 블록이 있는 칸. 길이 절대 못 지나는 곳이다.
+     * {@link #footprint()} 는 처마까지 포함하지만 처마 밑 지면은 비어 있어 길이 지나가도 된다.
+     */
+    public List<BlockPos> groundFootprint() {
+        return groundFootprint;
+    }
+
+    /** <b>문 앞 계단</b> 칸 — 길은 여기를 건너뛰고 그 바로 앞에서 시작한다. */
+    public List<BlockPos> doorSteps() {
+        return doorSteps;
     }
 
     /** 문이 향하는 바깥 방향(천막은 모닥불 쪽). 취침 시 머리를 그 반대로 둔다. */

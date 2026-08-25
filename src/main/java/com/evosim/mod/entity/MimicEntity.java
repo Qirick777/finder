@@ -132,6 +132,15 @@ public class MimicEntity extends PathfinderMob {
     private String homeDesign = HomeStore.TENT; // 도면 이름
     private boolean homeMirror = false;         // 좌우반전 배치인가(스키메틱 전용)
     private boolean building = false;           // 거처 건축 중(부부 공통) — 분담·리더는 buildTick 이 결정
+    /**
+     * <b>깔아야 할 길</b>(중심선, 진입 칸 → 도로망 순). 집을 다 지은 미믹이 삽을 들고
+     * 앞에서부터 한 칸씩 지운다. 건축의 <b>다음 단계</b>일 뿐 새 goal 이 아니다 —
+     * 새 goal 을 만들면 우선순위 1에 넣어 집짓기와 다투거나, 낮게 넣어 채집·밭일에 밀려
+     * 영영 안 깔린다. 같은 goal 을 쓰면 위급 시 중단·양보도 이미 있는 것을 그대로 탄다.
+     */
+    private final java.util.List<BlockPos> paveTodo = new java.util.ArrayList<>();
+    private BlockPos paveTargetPos;             // 지금 걸어가 깔 칸(MimicBuildGoal 목적지)
+    private int paveCooldown;
     @Nullable
     private BlockPos buildTargetPos = null;     // 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
     private int buildReachTicks = 0;            // 현재 목표 접근 시도 누적(교착 방지 폴백용)
@@ -659,7 +668,16 @@ public class MimicEntity extends PathfinderMob {
     }
 
     public boolean isBuilding() {
-        return building;
+        return building || !paveTodo.isEmpty();
+    }
+
+    /** 지금 길을 놓는 중인가 — 보고·검증용. */
+    public boolean isPaving() {
+        return !paveTodo.isEmpty();
+    }
+
+    public int paveRemaining() {
+        return paveTodo.size();
     }
 
     public Direction getHomeFacingDir() {
@@ -742,6 +760,7 @@ public class MimicEntity extends PathfinderMob {
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
+            paveTick();        // 그 다음 단계 — 문 앞에서 마을 쪽으로 흙길을 놓는다
             // 이주 중 업힌 유아: 어미가 새 거처 반경에 들면 내려줌(도착).
             if (getStage() == LifeStage.INFANT && isPassenger()
                     && getVehicle() instanceof MimicEntity carrier && carrier.isHome()) {
@@ -1965,6 +1984,181 @@ public class MimicEntity extends PathfinderMob {
         buildTargetPos = null; // 다음 틱에 다음 최근접 칸 선정
     }
 
+    // ── 흙 길 놓기(건축의 다음 단계) ──────────────────────────────────────────
+
+    /** 길 한 칸 놓고 쉬는 박자(틱). 집짓기와 같은 리듬. */
+    private static final int PAVE_INTERVAL = 6;
+    /** 못 닿아도 이만큼 지나면 놓는다 — 길이 좁은 틈에 걸려 교착되지 않게. */
+    private static final int PAVE_REACH_TIMEOUT = 100;
+    private int paveReachTicks;
+
+    /**
+     * <b>길 놓기</b> — 집이 다 선 뒤 제 문 앞에서 도로망 쪽으로 한 칸씩 삽질해 나간다.
+     *
+     * <p>방향이 중요하다. 진입 칸에서 <b>마을 쪽으로</b> 나가야 "집에서 마을로 이어 붙인다"로
+     * 읽힌다. 반대로 하면 "어디선가 우리 집으로 온다"가 되어 덜 자연스럽다. 그래서 목록은
+     * 진입 칸이 앞이고 앞에서부터 지운다.
+     */
+    private void paveTick() {
+        if (paveTodo.isEmpty() || !(level() instanceof ServerLevel sl)) {
+            paveTargetPos = null;
+            return;
+        }
+        if (building || isUnderThreat() || isCritical()) {
+            // 집이 아직이거나 위급하면 길은 뒤로 미룬다 — 굶는 개체를 삽질로 붙잡지 않는다.
+            paveTargetPos = null;
+            clearBuildItem();
+            return;
+        }
+        if (paveCooldown > 0) {
+            paveCooldown--;
+        }
+        BlockPos next = paveTodo.get(0);
+        if (!next.equals(paveTargetPos)) {
+            paveReachTicks = 0;
+        }
+        paveTargetPos = next;
+        showShovel();
+        if (!withinReach(next)) {
+            paveReachTicks++;
+            if (paveReachTicks < PAVE_REACH_TIMEOUT) {
+                return; // 걸어가는 중
+            }
+        }
+        if (paveCooldown > 0) {
+            return;
+        }
+        int laid = paveCell(sl, next);
+        paveTodo.remove(0);
+        paveReachTicks = 0;
+        paveCooldown = PAVE_INTERVAL;
+        if (laid > 0) {
+            swing(InteractionHand.MAIN_HAND);
+            sl.playSound(null, next, net.minecraft.sounds.SoundEvents.SHOVEL_FLATTEN,
+                    net.minecraft.sounds.SoundSource.BLOCKS, 0.8f, 1.0f);
+        }
+        if (paveTodo.isEmpty()) {
+            paveTargetPos = null;
+            clearBuildItem();
+            SimEvents.event(this, "길놓기", String.format("완료 @%d,%d", next.getX(), next.getZ()));
+        }
+    }
+
+    /**
+     * 중심선 한 칸을 <b>폭 3</b>으로 깐다 — 실제로 바뀐 블록 수를 돌려준다.
+     *
+     * <p>등기는 <b>중심선만</b> 한다. 폭은 필요할 때 다시 유도하므로, 나중에 밭이 옆칸을
+     * 가져가도 등기를 손댈 일이 없다.
+     */
+    private int paveCell(ServerLevel sl, BlockPos center) {
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
+        if (ob.blocked(center.getX(), center.getZ())) {
+            return 0; // 계획한 뒤 밭·집이 들어섰다 — 그 칸은 조용히 포기한다
+        }
+        FarmStore farms = FarmStore.get(sl);
+        int laid = 0;
+        for (BlockPos c : RoadPlanner.band(sl, center, ob, farms)) {
+            BlockPos ground = groundUnder(sl, c);
+            if (ground == null || !RoadPlanner.pavable(sl, ground)) {
+                continue;
+            }
+            if (sl.getBlockState(ground).is(Blocks.DIRT_PATH)) {
+                continue;
+            }
+            // UPDATE_KNOWN_SHAPE — 이웃 계단·울타리 모양을 다시 계산시키지 않는다(집과 같은 이유).
+            sl.setBlock(ground, Blocks.DIRT_PATH.defaultBlockState(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+            laid++;
+        }
+        RoadStore.get(sl).add(center.getX(), center.getZ());
+        return laid;
+    }
+
+    /** 이 칸 근처의 <b>지표 블록</b> — 진입 칸 높이 기준 ±2 안에서 찾는다(완만한 경사 대응). */
+    @Nullable
+    private static BlockPos groundUnder(ServerLevel sl, BlockPos at) {
+        for (int dy = 1; dy >= -3; dy--) {
+            BlockPos g = at.offset(0, dy, 0);
+            if (!sl.getBlockState(g).isAir() && sl.getBlockState(g.above()).isAir()) {
+                return g;
+            }
+        }
+        return null;
+    }
+
+    /** 삽을 손에 든다 — 길을 놓는 동안의 연출. */
+    private void showShovel() {
+        setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND,
+                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_SHOVEL));
+    }
+
+    /**
+     * 집을 다 지은 미믹에게 <b>깔 길</b>을 준다 — 진입 칸에서 기존 도로망까지 한 가닥.
+     * 첫 집은 이을 곳이 없어 문 앞 도막 하나로 끝나고, 그 도막이 도로망의 뿌리가 된다.
+     */
+    private void assignRoad(ServerLevel sl) {
+        if (homePos == null || !paveTodo.isEmpty()) {
+            return;
+        }
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
+        HomeBlueprint bp = blueprint(sl);
+        if (bp == null) {
+            return;
+        }
+        java.util.List<BlockPos> starts = RoadPlanner.entries(sl, bp, ob);
+        if (starts.isEmpty()) {
+            SimEvents.event(this, "길놓기", "진입 칸이 막혀 포기 @"
+                    + homePos.getX() + "," + homePos.getZ());
+            return;
+        }
+        java.util.List<BlockPos> path = RoadPlanner.planSpur(sl, starts, RoadStore.get(sl), ob);
+        if (path.isEmpty()) {
+            SimEvents.event(this, "길놓기", "경로 없음 — 고립 부지 @"
+                    + homePos.getX() + "," + homePos.getZ());
+            return;
+        }
+        paveTodo.addAll(path);
+        SimEvents.event(this, "길놓기", String.format("착수 %d칸 @%d,%d → @%d,%d",
+                path.size(), path.get(0).getX(), path.get(0).getZ(),
+                path.get(path.size() - 1).getX(), path.get(path.size() - 1).getZ()));
+    }
+
+    /**
+     * <b>밭이 길을 자르면 확장자가 고친다</b> — 밭으로 가져간 칸들을 등기에서 빼고, 그 때문에
+     * 도로망이 쪼개졌으면 제 밭을 돌아가는 우회로를 이 미믹에게 맡긴다.
+     *
+     * <p>도로망은 나무라 한 칸만 끊겨도 아래가 통째로 떨어진다(설계 검토 실측: 5칸이 잘려
+     * 33채 중 12채가 마을에서 떨어져 나갔다). 자른 사람이 고치는 것이 가장 자연스럽고,
+     * 그 분량은 신축 시공과 비슷해 같은 장치로 처리된다.
+     */
+    public static void farmTookRoad(ServerLevel sl, MimicEntity farmer, BlockPos taken) {
+        RoadStore roads = RoadStore.get(sl);
+        if (!roads.has(taken.getX(), taken.getZ())) {
+            return;
+        }
+        java.util.Set<Long> gone = java.util.Set.of(RoadStore.key(taken.getX(), taken.getZ()));
+        java.util.List<java.util.Set<Long>> parts = roads.splitBy(gone);
+        roads.removeAll(gone);
+        if (parts.isEmpty() || farmer == null || !farmer.paveTodo.isEmpty()) {
+            return; // 안 쪼개졌거나, 고칠 사람이 이미 다른 길을 놓는 중
+        }
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
+        int y = taken.getY();
+        for (int i = 1; i < parts.size(); i++) {
+            java.util.List<BlockPos> by =
+                    RoadPlanner.planBypass(sl, parts.get(i), parts.get(0), ob, y);
+            if (!by.isEmpty()) {
+                farmer.paveTodo.addAll(by);
+                SimEvents.event(farmer, "길우회", String.format(
+                        "밭이 길을 끊음 @%d,%d → 우회 %d칸", taken.getX(), taken.getZ(), by.size()));
+                return;
+            }
+        }
+        SimEvents.event(farmer, "길우회", String.format(
+                "밭이 길을 끊음 @%d,%d — 우회 실패(끊긴 채 둠)", taken.getX(), taken.getZ()));
+    }
+
     /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */
     @Nullable
     private HomeBlueprint.Placement stickyOrNearest(ServerLevel sl, List<HomeBlueprint.Placement> plan,
@@ -2065,7 +2259,7 @@ public class MimicEntity extends PathfinderMob {
     /** 지금 걸어가 설치할 다음 블록 좌표(없으면 null) — MimicBuildGoal 이 목적지로 사용. */
     @Nullable
     public BlockPos getBuildTargetPos() {
-        return buildTargetPos;
+        return buildTargetPos != null ? buildTargetPos : paveTargetPos;
     }
 
     /** 같은 거처를 함께 짓는 살아있는 구성원(나 포함) — id 순 정렬로 소유 판정 동률이 안정적. */
@@ -2237,6 +2431,7 @@ public class MimicEntity extends PathfinderMob {
                 individual != null ? individual.id() : 0L, today());
         SimEvents.event(this, "건축완료", "거처 @" + homePos.getX() + "," + homePos.getY()
                 + "," + homePos.getZ() + " 도면=" + homeDesign);
+        assignRoad(sl); // 건축의 다음 단계 — 문 앞에서 마을 쪽으로 흙길을 놓는다
     }
 
     /**
@@ -4645,6 +4840,13 @@ public class MimicEntity extends PathfinderMob {
         tag.putString("HomeDesign", homeDesign);
         tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
+        if (!paveTodo.isEmpty()) {
+            long[] pv = new long[paveTodo.size()];
+            for (int i = 0; i < pv.length; i++) {
+                pv[i] = paveTodo.get(i).asLong();
+            }
+            tag.putLongArray("PaveTodo", pv);
+        }
         if (individual != null) {
             tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
         }
@@ -4709,6 +4911,10 @@ public class MimicEntity extends PathfinderMob {
         adoptDesign(tag.contains("HomeDesign") ? tag.getString("HomeDesign") : HomeStore.TENT,
                 homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
+        paveTodo.clear();
+        for (long l : tag.getLongArray("PaveTodo")) {
+            paveTodo.add(BlockPos.of(l));
+        }
         if (tag.contains("Individual")) {
             this.individual = IndividualNbt.load(tag.getCompound("Individual"));
             refreshStageAttributes(); // 성별 배율 등 재적용

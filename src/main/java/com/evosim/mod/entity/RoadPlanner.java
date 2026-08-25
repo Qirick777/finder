@@ -1,0 +1,291 @@
+package com.evosim.mod.entity;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Blocks;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Set;
+
+/**
+ * 길 경로 계산 — 새 집의 <b>진입 칸</b>에서 <b>이미 있는 도로망</b>까지 한 가닥.
+ *
+ * <p>설계 검토(평면도 위 20일 시뮬레이션)에서 확정한 규칙 그대로다.
+ *
+ * <h3>① 절대 못 지나는 칸</h3>
+ * 집 지면층 · <b>문앞 계단</b> · <b>밭 몸통</b>. 계단은 앵커−1층이라 그 칸에 흙길을 깔면
+ * 계단 밑에 묻히고, {@code dirt_path} 는 위에 고체가 오면 흙으로 되돌아간다.
+ * 밭은 <b>타일이 아니라 몸통</b>(타일 + 그 사이 고랑)을 막는다 — 타일만 막으면 길이 고랑을
+ * 타고 밭 한복판을 꿰뚫는다(실측: 폭3 길 2090칸 중 33칸이 두 구획을 관통했다).
+ *
+ * <h3>② 꺾임 벌점</h3>
+ * 방향이 바뀌면 비용을 더 문다. 없으면 최단경로가 계단처럼 지저분해진다.
+ *
+ * <h3>③ 재사용 할인</h3>
+ * 이미 길인 칸은 싸다. 새 가닥이 기존 길에 <b>합류</b>하게 만드는 장치이고, 없으면 집마다
+ * 제 길을 따로 내서 거미줄이 된다.
+ *
+ * <h3>④ 밭 옆 벌점</h3>
+ * 밭 몸통 2칸 이내는 비싸다. <b>막지는 않는다</b> — 하드 금지로 두면 밭 사이에 낀 집이 아예
+ * 연결되지 못한다(연결성이 미관보다 앞선다).
+ */
+public final class RoadPlanner {
+
+    /** 4방향만 쓴다 — 대각을 허용하면 폭 1 구간이 바둑판처럼 끊겨 보인다. */
+    public static final int[][] D4 = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+    /** 꺾임 1회의 추가 비용(칸 단위). */
+    private static final double TURN = 2.2;
+    /** 기존 길 칸의 비용 배율 — 합류를 유도한다. */
+    private static final double REUSE = 0.15;
+    /** 밭 몸통 근처 칸의 추가 비용. */
+    private static final double NEAR_FARM = 6.0;
+    /** 밭 옆 벌점이 붙는 반경. */
+    private static final int NEAR_R = 2;
+    /** 신축 가닥 길이 상한 — 넘으면 포기(고립 부지). */
+    public static final int MAX_SPUR = 160;
+    /** <b>우회로</b> 길이 상한 — 밭 몸통을 돌아야 해서 42칸까지 필요했다(실측). 40은 실패한다. */
+    public static final int MAX_BYPASS = 80;
+    /** 탐색 범위 상한(진입 칸 기준 반경) — 폭주 방지. */
+    private static final int RANGE = 220;
+
+    private RoadPlanner() {
+    }
+
+    /**
+     * 진입 칸 후보 — 계단 앞 한 칸이 기본. 막혔으면 좌우로, 그다음 한 칸 더 밖으로 물러난다.
+     * (문 앞이 밭 고랑에 들어앉은 집이 실제로 있었다.)
+     */
+    public static List<BlockPos> entries(ServerLevel sl, HomeBlueprint bp, Obstacles ob) {
+        List<BlockPos> stairs = bp.doorSteps();
+        Direction d = bp.doorDir();
+        int dx = d.getStepX();
+        int dz = d.getStepZ();
+        int px = -dz;
+        int pz = dx;
+        List<BlockPos> out = new ArrayList<>();
+        for (int step = 1; step <= 2 && out.isEmpty(); step++) {
+            for (int off : new int[] {0, -1, 1, -2, 2}) {
+                for (BlockPos s : stairs) {
+                    BlockPos c = new BlockPos(s.getX() + dx * step + px * off, s.getY(),
+                            s.getZ() + dz * step + pz * off);
+                    if (!ob.blocked(c.getX(), c.getZ()) && !out.contains(c)) {
+                        out.add(c);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 통행 금지 판정의 단일 출처 — 집·계단·밭 몸통. */
+    public static final class Obstacles {
+        private final Set<Long> hard = new HashSet<>();
+        private final Set<Long> soft = new HashSet<>();
+
+        /** 등기된 모든 거처의 지면층·계단 + 모든 밭 <b>몸통</b>을 모은다. */
+        public static Obstacles of(ServerLevel sl) {
+            Obstacles ob = new Obstacles();
+            HomeStore reg = HomeStore.get(sl);
+            for (BlockPos h : reg.positions()) {
+                HomeStore.Entry e = reg.entry(h);
+                if (e == null) {
+                    continue;
+                }
+                HomeBlueprint bp = HomeBlueprint.of(sl, h, e.design(), e.rotation(), e.mirrored());
+                for (BlockPos c : bp.groundFootprint()) {
+                    ob.hard.add(RoadStore.key(c.getX(), c.getZ()));
+                }
+                for (BlockPos c : bp.doorSteps()) {
+                    ob.hard.add(RoadStore.key(c.getX(), c.getZ()));
+                }
+            }
+            for (long l : FarmStore.get(sl).bodyColumns()) {
+                ob.hard.add(l);
+                int x = RoadStore.keyX(l);
+                int z = RoadStore.keyZ(l);
+                for (int ax = -NEAR_R; ax <= NEAR_R; ax++) {
+                    for (int az = -NEAR_R; az <= NEAR_R; az++) {
+                        ob.soft.add(RoadStore.key(x + ax, z + az));
+                    }
+                }
+            }
+            ob.soft.removeAll(ob.hard);
+            return ob;
+        }
+
+        public boolean blocked(int x, int z) {
+            return hard.contains(RoadStore.key(x, z));
+        }
+
+        boolean nearFarm(int x, int z) {
+            return soft.contains(RoadStore.key(x, z));
+        }
+    }
+
+    /**
+     * 진입 칸 → 도로망 최단(비용) 경로. 도로망이 비어 있으면 문 앞 짧은 도막을 돌려준다
+     * (첫 짝은 이을 곳이 없다 — 그 도막이 도로망의 뿌리가 된다).
+     */
+    public static List<BlockPos> planSpur(ServerLevel sl, List<BlockPos> starts, RoadStore roads,
+                                          Obstacles ob) {
+        if (starts.isEmpty()) {
+            return List.of();
+        }
+        if (roads.size() == 0) {
+            return rootStub(starts.get(0), ob);
+        }
+        return dijkstra(starts, roads.raw(), ob, MAX_SPUR);
+    }
+
+    /** 첫 집의 문 앞 도막 — 진입 칸에서 문이 보는 쪽으로 곧게 3칸. */
+    private static List<BlockPos> rootStub(BlockPos entry, Obstacles ob) {
+        List<BlockPos> out = new ArrayList<>();
+        out.add(entry);
+        return out;
+    }
+
+    /** 조각 → 본체 우회로. 밭 몸통을 돌아가야 하므로 상한이 넉넉해야 한다. */
+    public static List<BlockPos> planBypass(ServerLevel sl, Set<Long> from, Set<Long> to,
+                                            Obstacles ob, int y) {
+        List<BlockPos> starts = new ArrayList<>();
+        for (long l : from) {
+            starts.add(RoadStore.posOf(l, y));
+            if (starts.size() >= 64) {
+                break;
+            }
+        }
+        return dijkstra(starts, to, ob, MAX_BYPASS);
+    }
+
+    private static List<BlockPos> dijkstra(List<BlockPos> starts, Set<Long> goals, Obstacles ob,
+                                           int cap) {
+        int y = starts.get(0).getY();
+        int cx = starts.get(0).getX();
+        int cz = starts.get(0).getZ();
+        Map<Long, Double> dist = new HashMap<>();
+        Map<Long, Long> prev = new HashMap<>();
+        PriorityQueue<double[]> pq = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));
+        for (BlockPos s : starts) {
+            long st = state(s.getX(), s.getZ(), 4);
+            dist.put(st, 0.0);
+            pq.add(new double[] {0.0, s.getX(), s.getZ(), 4});
+        }
+        long best = Long.MIN_VALUE;
+        while (!pq.isEmpty()) {
+            double[] cur = pq.poll();
+            int x = (int) cur[1];
+            int z = (int) cur[2];
+            int pd = (int) cur[3];
+            long st = state(x, z, pd);
+            Double dv = dist.get(st);
+            if (dv == null || cur[0] > dv + 1e-9) {
+                continue;
+            }
+            if (pd != 4 && goals.contains(RoadStore.key(x, z))) {
+                best = st;
+                break;
+            }
+            for (int i = 0; i < 4; i++) {
+                int nx = x + D4[i][0];
+                int nz = z + D4[i][1];
+                if (Math.abs(nx - cx) > RANGE || Math.abs(nz - cz) > RANGE) {
+                    continue;
+                }
+                if (ob.blocked(nx, nz)) {
+                    continue;
+                }
+                double step = 1.0;
+                if (goals.contains(RoadStore.key(nx, nz))) {
+                    step *= REUSE;
+                }
+                if (ob.nearFarm(nx, nz)) {
+                    step += NEAR_FARM;
+                }
+                if (pd != 4 && pd != i) {
+                    step += TURN;
+                }
+                long ns = state(nx, nz, i);
+                double nd = cur[0] + step;
+                Double old = dist.get(ns);
+                if (old == null || nd < old - 1e-9) {
+                    dist.put(ns, nd);
+                    prev.put(ns, st);
+                    pq.add(new double[] {nd, nx, nz, i});
+                }
+            }
+        }
+        if (best == Long.MIN_VALUE) {
+            return List.of();
+        }
+        List<BlockPos> out = new ArrayList<>();
+        long cur = best;
+        while (true) {
+            out.add(new BlockPos(sx(cur), y, sz(cur)));
+            Long p = prev.get(cur);
+            if (p == null) {
+                break;
+            }
+            cur = p;
+        }
+        if (out.size() > cap) {
+            return List.of();
+        }
+        java.util.Collections.reverse(out);
+        return out;
+    }
+
+    /** 상태 = (x, z, 들어온 방향). 방향을 넣어야 꺾임을 벌할 수 있다. */
+    private static final int OFF = 1 << 20;
+
+    private static long state(int x, int z, int dir) {
+        return ((long) (x + OFF) << 43) | ((long) (z + OFF) << 22) | (dir & 7);
+    }
+
+    private static int sx(long s) {
+        return (int) ((s >>> 43) & 0x1FFFFFL) - OFF;
+    }
+
+    private static int sz(long s) {
+        return (int) ((s >>> 22) & 0x1FFFFFL) - OFF;
+    }
+
+    /**
+     * 중심선 한 칸의 <b>폭 3 띠</b> — 3×3 중 통행 금지·밭 옆이 아닌 칸.
+     *
+     * <p>밭 <b>바로 옆</b>으로는 넓히지 않는다. 넓히기는 미관이고 밭은 생계다 — 부딪히면
+     * 언제나 밭이 이긴다. 그래서 밭 사이나 집 옆을 지날 때 길이 저절로 2칸·1칸으로 좁아진다
+     * (실측: 중심선의 24%가 3×3을 다 못 채운다 — 획일적 대로가 아니라 마을길로 읽히는 이유).
+     */
+    public static List<BlockPos> band(ServerLevel sl, BlockPos center, Obstacles ob,
+                                      FarmStore farms) {
+        List<BlockPos> out = new ArrayList<>(9);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                int x = center.getX() + dx;
+                int z = center.getZ() + dz;
+                if (ob.blocked(x, z)) {
+                    continue;
+                }
+                if ((dx != 0 || dz != 0) && farms.nearBody(x, z, 1)) {
+                    continue; // 밭 바로 옆으로는 살을 안 찌운다(중심선 자체는 통과 허용)
+                }
+                out.add(new BlockPos(x, center.getY(), z));
+            }
+        }
+        return out;
+    }
+
+    /** 이 칸에 흙길을 깔아도 되는 지면인가 — 잔디·흙 계열만, 물·구조물 위는 금지. */
+    public static boolean pavable(ServerLevel sl, BlockPos ground) {
+        var s = sl.getBlockState(ground);
+        return s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.DIRT) || s.is(Blocks.COARSE_DIRT)
+                || s.is(Blocks.PODZOL) || s.is(Blocks.ROOTED_DIRT);
+    }
+}

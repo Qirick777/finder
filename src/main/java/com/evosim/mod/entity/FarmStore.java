@@ -141,6 +141,17 @@ public class FarmStore extends SavedData {
 
     private final Map<Long, Plot> plots = new HashMap<>();
     private final java.util.HashSet<Long> tileIndex = new java.util.HashSet<>(); // pos.asLong — 무단 수확 가드용
+    /**
+     * <b>밭 몸통</b> 열 캐시 — 타일 + <b>그 사이 고랑</b>. {@link RoadStore#key} 형식(x/z만).
+     *
+     * <p>밭은 재배줄 + 한 칸 고랑 구조라(월드 깊이 = row×2), 타일만 보면 줄 사이가 뻥 뚫린
+     * 것으로 읽힌다. 그 틈으로 길이 밭 한복판을 꿰뚫고, 신축 부지 판정도 그 틈을 빈 땅으로
+     * 본다 — 실측 월드에서 <b>길 33칸이 두 구획을 관통했고, 집 한 채가 개간된 밭 위에 서서
+     * 문이 밭으로 열렸다</b>. 그래서 "밭이 차지한 땅"의 단일 출처를 여기 둔다.
+     *
+     * <p>타일이 바뀔 때만 무효화하고 필요할 때 다시 만든다(하루 몇 번).
+     */
+    private transient java.util.HashSet<Long> bodyCache;
     private long nextId = 1;
 
     public static FarmStore get(ServerLevel level) {
@@ -183,6 +194,7 @@ public class FarmStore extends SavedData {
         p.tiles = t;
         p.planted = g;
         tileIndex.add(pos.asLong());
+        bodyCache = null;
         setDirty();
     }
 
@@ -205,6 +217,53 @@ public class FarmStore extends SavedData {
     }
 
     /** 이 x/z 열에 밭 타일이 있는가(y 무시) — 신축 부지 검증용(천막 발자국은 y가 제각각). */
+    /**
+     * <b>밭 몸통</b> 열 전체 — 타일과 <b>그 사이 고랑</b>. 길·신축 부지 판정의 단일 출처.
+     *
+     * <p>구획마다 같은 x 열에서 최소 z ~ 최대 z 를 메운다. 경계 상자로 메우면 성긴 구획이
+     * 주변 빈 땅까지 통째로 삼키므로(실측: 타일 44개인데 상자는 299칸) 열 단위로만 채운다.
+     */
+    public java.util.Set<Long> bodyColumns() {
+        if (bodyCache != null) {
+            return bodyCache;
+        }
+        java.util.HashSet<Long> out = new java.util.HashSet<>();
+        for (Plot p : plots.values()) {
+            java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>(); // x → [minZ, maxZ]
+            for (long l : p.tiles) {
+                BlockPos t = BlockPos.of(l);
+                span.compute(t.getX(), (k, v) -> v == null
+                        ? new int[] {t.getZ(), t.getZ()}
+                        : new int[] {Math.min(v[0], t.getZ()), Math.max(v[1], t.getZ())});
+            }
+            for (var e : span.entrySet()) {
+                for (int z = e.getValue()[0]; z <= e.getValue()[1]; z++) {
+                    out.add(RoadStore.key(e.getKey(), z));
+                }
+            }
+        }
+        bodyCache = out;
+        return out;
+    }
+
+    /** 이 열이 밭 몸통(타일 또는 고랑)인가. */
+    public boolean isFarmBody(int x, int z) {
+        return bodyColumns().contains(RoadStore.key(x, z));
+    }
+
+    /** 밭 몸통에서 r칸 이내인가 — 길을 넓힐 때 여기로는 살을 안 찌운다. */
+    public boolean nearBody(int x, int z, int r) {
+        java.util.Set<Long> b = bodyColumns();
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                if (b.contains(RoadStore.key(x + dx, z + dz))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public boolean isFarmColumn(int x, int z) {
         for (long l : tileIndex) {
             BlockPos p = BlockPos.of(l);
@@ -221,6 +280,7 @@ public class FarmStore extends SavedData {
             return;
         }
         tileIndex.remove(p.tiles[i]);
+        bodyCache = null;
         long[] t = new long[p.tiles.length - 1];
         long[] g = new long[p.planted.length - 1];
         System.arraycopy(p.tiles, 0, t, 0, i);
@@ -585,6 +645,7 @@ public class FarmStore extends SavedData {
         if (p != null) {
             for (long l : p.tiles) {
                 tileIndex.remove(l);
+                bodyCache = null;
             }
             setDirty();
         }

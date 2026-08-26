@@ -11,6 +11,8 @@ import com.evosim.core.ParentingClass;
 import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
+import com.evosim.mod.entity.LampPlanner;
+import com.evosim.mod.entity.LampStore;
 import com.evosim.mod.entity.LarderStore;
 import com.evosim.mod.entity.MigrationDest;
 import com.evosim.mod.entity.FamilyLedger;
@@ -96,6 +98,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("heirshow").executes(ctx -> heirShow(ctx, false)))
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
+                .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -2307,11 +2310,32 @@ public final class EvoSimCommand {
         out.append(String.format("# center %d %d radius %d day %d%n", cx, cz, radius,
                 com.evosim.mod.entity.SimTime.tick(level) / 24000L));
         int missing = 0;
+        // 가로등은 집과 같은 참나무라 블록만 보면 'W'로 뭉개진다 — 등기부로 따로 표시한다.
+        // 기둥은 'P', 그 위 지붕이 덮는 3×3 은 'p'.
+        java.util.Set<Long> lampPost = new java.util.HashSet<>();
+        java.util.Set<Long> lampTop = new java.util.HashSet<>();
+        for (BlockPos b : LampStore.get(level).all()) {
+            lampPost.add(RoadStore.key(b.getX(), b.getZ()));
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    lampTop.add(RoadStore.key(b.getX() + dx, b.getZ() + dz));
+                }
+            }
+        }
         for (int z = cz - radius; z <= cz + radius; z++) {
             for (int x = cx - radius; x <= cx + radius; x++) {
                 if (!level.hasChunk(x >> 4, z >> 4)) {
                     out.append('?');
                     missing++;
+                    continue;
+                }
+                long lk = RoadStore.key(x, z);
+                if (lampPost.contains(lk)) {
+                    out.append('P');
+                    continue;
+                }
+                if (lampTop.contains(lk)) {
+                    out.append('p');
                     continue;
                 }
                 int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
@@ -2583,6 +2607,170 @@ public final class EvoSimCommand {
                 "  시공 중 %d명 · 남은 %d칸 · 미포장 중심선 %d (지면없음%d 포장불가%d)",
                 paving, todo, bare, noGround, notPavable));
         return center.size();
+    }
+
+    /**
+     * <b>가로등 보고</b> — 등기 수와 <b>실제로 선 등</b>을 따로 센다.
+     *
+     * <p>등기는 <b>착공</b> 시점에 이루어진다(같은 자리 중복 착공 방지). 그래서 시공 중이거나
+     * 시공자가 죽으면 등기 ≠ 실물이다. 이 둘을 한 숫자로 뭉치면 "몇 기 섰다"가 허수가 된다.
+     */
+    private static int lampsReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LampStore lamps = LampStore.get(level);
+        RoadStore roads = RoadStore.get(level);
+        FarmStore farms = FarmStore.get(level);
+        HomeStore reg = HomeStore.get(level);
+        int need = LampPlanner.blockCount(level);
+
+        java.util.List<BlockPos> all = lamps.all();
+        int done = 0;      // 도면 14칸이 전부 선 등
+        int partial = 0;   // 착공했으나 미완
+        int lit = 0;       // 랜턴이 실제로 걸린 등
+        for (BlockPos b : all) {
+            int have = 0;
+            boolean lantern = false;
+            for (HomeTemplate.Placement p : LampPlanner.plan(level).orElse(java.util.List.of())) {
+                BlockPos w = b.offset(p.rel());
+                if (level.getBlockState(w).is(p.state().getBlock())) {
+                    have++;
+                    if (p.state().is(Blocks.LANTERN)) {
+                        lantern = true;
+                    }
+                }
+            }
+            if (have >= need) {
+                done++;
+            } else {
+                partial++;
+            }
+            if (lantern) {
+                lit++;
+            }
+        }
+
+        // ── 간격 ── 등기된 등끼리의 최근접 거리 분포. 설계 하한은 SPACING.
+        double minGap = Double.MAX_VALUE;
+        double sumGap = 0.0;
+        int gaps = 0;
+        int tooClose = 0;
+        for (int i = 0; i < all.size(); i++) {
+            double best = Double.MAX_VALUE;
+            for (int j = 0; j < all.size(); j++) {
+                if (i == j) {
+                    continue;
+                }
+                double dx = all.get(i).getX() - all.get(j).getX();
+                double dz = all.get(i).getZ() - all.get(j).getZ();
+                best = Math.min(best, Math.sqrt(dx * dx + dz * dz));
+            }
+            if (best < Double.MAX_VALUE) {
+                minGap = Math.min(minGap, best);
+                sumGap += best;
+                gaps++;
+                if (best < LampPlanner.SPACING - 1.0E-6) {
+                    tooClose++;
+                }
+            }
+        }
+
+        // ── 침범(불변식) ── 등 기둥이 있으면 안 되는 곳. 길과 <b>같은 목록</b>을 본다.
+        java.util.Set<Long> homeCols = new java.util.HashSet<>();
+        java.util.Set<Long> stepCols = new java.util.HashSet<>();
+        java.util.Set<Long> gardenCols = new java.util.HashSet<>();
+        for (BlockPos h : reg.positions()) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            for (BlockPos c : bp.groundFootprint()) {
+                homeCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.doorSteps()) {
+                stepCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.garden()) {
+                gardenCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+        }
+        java.util.Set<Long> body = farms.bodyColumns();
+        int vRoad = 0;
+        int vHome = 0;
+        int vStep = 0;
+        int vGarden = 0;
+        int vFarm = 0;
+        int nearRoad = 0; // 길에서 2칸(=폭3 띠 바로 바깥)인 등 — 길가에 섰는가
+        for (BlockPos b : all) {
+            long k = RoadStore.key(b.getX(), b.getZ());
+            boolean onBand = false;
+            boolean beside = false;
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    if (!roads.has(b.getX() + dx, b.getZ() + dz)) {
+                        continue;
+                    }
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) <= 1) {
+                        onBand = true;
+                    } else {
+                        beside = true;
+                    }
+                }
+            }
+            if (onBand) {
+                vRoad++;
+            } else if (beside) {
+                nearRoad++;
+            }
+            if (homeCols.contains(k)) {
+                vHome++;
+            }
+            if (stepCols.contains(k)) {
+                vStep++;
+            }
+            if (gardenCols.contains(k)) {
+                vGarden++;
+            }
+            if (body.contains(k)) {
+                vFarm++;
+            }
+        }
+
+        // ── 밝기 ── 완성된 등의 랜턴 칸 밝기 + 길 위 어두운 칸(몹 생성 가능 = 0) 비율.
+        int dark = 0;
+        int sampled = 0;
+        for (int[] c : roads.all()) {
+            BlockPos g = surfaceNear(level, c[0], c[1]);
+            if (g == null) {
+                continue;
+            }
+            sampled++;
+            if (level.getBrightness(net.minecraft.world.level.LightLayer.BLOCK, g.above()) == 0) {
+                dark++;
+            }
+        }
+
+        int building = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getLampSite() != null)) {
+            building++;
+        }
+        boolean clean = vRoad + vHome + vStep + vGarden + vFarm + tooClose == 0;
+        tell(ctx.getSource(), String.format(
+                "§e[가로등] 등기%d (완성%d · 시공중/미완%d) · 랜턴 걸린 등%d · 지금 세우는 중 %d명",
+                all.size(), done, partial, lit, building));
+        tell(ctx.getSource(), String.format(
+                "  간격 — 최소%.1f 평균%.1f (설계 하한 %d) · 도로망 중심선%d칸당 등 1기",
+                gaps == 0 ? 0.0 : minGap, gaps == 0 ? 0.0 : sumGap / gaps, LampPlanner.SPACING,
+                all.isEmpty() ? 0 : roads.size() / all.size()));
+        tell(ctx.getSource(), String.format(
+                "  %s침범 — 길위%d 집지면%d 문앞계단%d 정원%d 밭몸통%d 간격위반%d§r · 길가(2칸)%d/%d",
+                clean ? "§a" : "§c", vRoad, vHome, vStep, vGarden, vFarm, tooClose,
+                nearRoad, all.size()));
+        tell(ctx.getSource(), String.format(
+                "  밤 밝기 — 길 위 밝기0(몹 생성 가능) %d/%d칸 (%.0f%%)",
+                dark, sampled, sampled == 0 ? 0.0 : 100.0 * dark / sampled));
+        return all.size();
     }
 
     /** 이 열의 지표 블록 — 길은 지표에 깔리므로 y 를 하이트맵에서 찾는다. */

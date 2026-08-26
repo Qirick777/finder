@@ -141,6 +141,16 @@ public class MimicEntity extends PathfinderMob {
     private final java.util.List<BlockPos> paveTodo = new java.util.ArrayList<>();
     private BlockPos paveTargetPos;             // 지금 걸어가 깔 칸(MimicBuildGoal 목적지)
     private int paveCooldown;
+    /**
+     * <b>세우는 중인 가로등</b>의 기둥 밑동 — 없으면 null. 길 놓기와 같은 자리에 얹은
+     * "건축의 또 다른 다음 단계"다. 도면 순서대로 {@link #lampStep} 칸까지 놓았다.
+     */
+    @Nullable
+    private BlockPos lampSite;
+    private int lampStep;
+    private int lampReachTicks;
+    /** 착공한 틱 — 완성 로그에 걸린 시간을 적어, "순간이동이 아니다"를 로그만으로 검증하게 한다. */
+    private long lampStartTick;
     @Nullable
     private BlockPos buildTargetPos = null;     // 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
     private int buildReachTicks = 0;            // 현재 목표 접근 시도 누적(교착 방지 폴백용)
@@ -668,7 +678,7 @@ public class MimicEntity extends PathfinderMob {
     }
 
     public boolean isBuilding() {
-        return building || !paveTodo.isEmpty();
+        return building || !paveTodo.isEmpty() || lampSite != null;
     }
 
     /** 지금 길을 놓는 중인가 — 보고·검증용. */
@@ -678,6 +688,12 @@ public class MimicEntity extends PathfinderMob {
 
     public int paveRemaining() {
         return paveTodo.size();
+    }
+
+    /** 지금 가로등을 세우는 중인가 — 보고·검증용. */
+    @Nullable
+    public BlockPos getLampSite() {
+        return lampSite;
     }
 
     public Direction getHomeFacingDir() {
@@ -761,6 +777,7 @@ public class MimicEntity extends PathfinderMob {
             mateTick();        // 구애 인식·후보 등록(노동/배회). 실제 구애 이동은 MimicCourtshipGoal
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
             paveTick();        // 그 다음 단계 — 문 앞에서 마을 쪽으로 흙길을 놓는다
+            lampTick();        // 또 그 다음 — 여유 있는 지주가 길가에 가로등을 세운다
             // 이주 중 업힌 유아: 어미가 새 거처 반경에 들면 내려줌(도착).
             if (getStage() == LifeStage.INFANT && isPassenger()
                     && getVehicle() instanceof MimicEntity carrier && carrier.isHome()) {
@@ -2275,6 +2292,112 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
+    // ── 가로등 세우기(건축의 또 다른 다음 단계) ─────────────────────────────────
+
+    /**
+     * <b>가로등 시공</b> — 걸어가서 도면 순서대로 한 칸씩 놓는다.
+     *
+     * <p>길 놓기와 같은 장치·같은 박자다. 순간이동으로 뿅 나타나지 않고, 위급하면 멈춘다.
+     * 집짓기·길놓기가 남아 있으면 그쪽이 먼저다 — 등은 언제나 마지막 사치다.
+     */
+    private void lampTick() {
+        if (lampSite == null || !(level() instanceof ServerLevel sl)) {
+            return;
+        }
+        if (building || !paveTodo.isEmpty() || isUnderThreat() || isCritical()) {
+            return; // 집·길·생존이 먼저
+        }
+        var pl = LampPlanner.plan(sl);
+        if (pl.isEmpty()) {
+            lampSite = null;
+            return;
+        }
+        List<HomeTemplate.Placement> plan = pl.get();
+        if (lampStep >= plan.size()) {
+            finishLamp(sl);
+            return;
+        }
+        if (paveCooldown > 0) {
+            paveCooldown--; // 길 놓기와 박자를 공유한다(한 개체가 둘을 동시에 하지 않는다)
+        }
+        HomeTemplate.Placement p = plan.get(lampStep);
+        BlockPos target = lampSite.offset(p.rel());
+        showShovel();
+        if (!withinReach(target)) {
+            lampReachTicks++;
+            if (lampReachTicks < PAVE_REACH_TIMEOUT) {
+                return; // 걸어가는 중
+            }
+        }
+        if (paveCooldown > 0) {
+            return;
+        }
+        if (sl.isEmptyBlock(target)) {
+            sl.setBlock(target, p.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+            swing(InteractionHand.MAIN_HAND);
+            SoundType st = p.state().getSoundType();
+            sl.playSound(null, target, st.getPlaceSound(), SoundSource.BLOCKS,
+                    (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
+        }
+        lampStep++;
+        lampReachTicks = 0;
+        paveCooldown = PAVE_INTERVAL;
+        if (lampStep >= plan.size()) {
+            finishLamp(sl);
+        }
+    }
+
+    private void finishLamp(ServerLevel sl) {
+        BlockPos at = lampSite;
+        lampSite = null;
+        lampStep = 0;
+        lampReachTicks = 0;
+        clearBuildItem();
+        if (at != null) {
+            SimEvents.event(this, "가로등", String.format("완성 @%d,%d (등 %d기, 착공부터 %d틱)",
+                    at.getX(), at.getZ(), LampStore.get(sl).size(),
+                    SimTime.tick(sl) - lampStartTick));
+        }
+    }
+
+    /**
+     * <b>가로등을 세울 것인가</b> — 하루 1회, 가구 정산에서 묻는다.
+     *
+     * <p>규칙5 그대로다. 마을 단위의 "가로등 몇 기" 같은 상수가 없다. 조건은 둘뿐 —
+     * <b>밭을 가졌고</b>(지주), <b>여유금 3배를 남기고도</b> 등값을 낼 수 있는가. 가난한 마을은
+     * 어둡고, 지주가 부유해지면 그만큼 밝아진다. 간격({@link LampPlanner#SPACING})이 상한을
+     * 대신하므로 부자가 아무리 많아도 도배되지 않는다.
+     *
+     * @return 등값을 낸 뒤의 저장고
+     */
+    private double considerLamp(ServerLevel sl, double larder, double adultNeed, boolean newDay) {
+        if (!newDay || fastSettle || homePos == null || building || lampSite != null
+                || !paveTodo.isEmpty() || !cachedOwnsFarm) {
+            return larder;
+        }
+        double gate = LampPlanner.COST + HomeTemplate.reserve(adultNeed) * 3.0;
+        if (larder < gate) {
+            return larder;
+        }
+        BlockPos site = LampPlanner.pickSite(sl);
+        if (site == null) {
+            return larder;
+        }
+        // 착공과 동시에 등기한다 — 같은 날 다른 지주가 같은 자리를 집는 것을 막는다.
+        LampStore.get(sl).add(site);
+        LampPlanner.taken();
+        RoadPlanner.Obstacles.invalidate(); // 기둥이 길의 장애물로 즉시 잡히게
+        lampSite = site;
+        lampStep = 0;
+        lampReachTicks = 0;
+        lampStartTick = SimTime.tick(sl);
+        SimEvents.event(this, "가로등", String.format("착공 @%d,%d (값 %.0f, 저장고 %.0f→%.0f)",
+                site.getX(), site.getZ(), LampPlanner.COST, larder, larder - LampPlanner.COST));
+        return larder - LampPlanner.COST;
+    }
+
     /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */
     @Nullable
     private HomeBlueprint.Placement stickyOrNearest(ServerLevel sl, List<HomeBlueprint.Placement> plan,
@@ -2375,7 +2498,18 @@ public class MimicEntity extends PathfinderMob {
     /** 지금 걸어가 설치할 다음 블록 좌표(없으면 null) — MimicBuildGoal 이 목적지로 사용. */
     @Nullable
     public BlockPos getBuildTargetPos() {
-        return buildTargetPos != null ? buildTargetPos : paveTargetPos;
+        if (buildTargetPos != null) {
+            return buildTargetPos;
+        }
+        if (paveTargetPos != null) {
+            return paveTargetPos;
+        }
+        return lampSite; // 가로등 시공 — 밑동으로 걸어간다(도면 칸은 전부 그 위 6칸 안)
+    }
+
+    /** 가로등 도면에서 지금까지 놓은 칸 수 — 보고용. */
+    public int getLampStep() {
+        return lampStep;
     }
 
     /** 같은 거처를 함께 짓는 살아있는 구성원(나 포함) — id 순 정렬로 소유 판정 동률이 안정적. */
@@ -3203,6 +3337,7 @@ public class MimicEntity extends PathfinderMob {
         // 정산 마감·가계 기록 (베리·출산 반영 후의 저장고를 확정 저장).
         if (homePos != null) {
             larder = payUpkeep(sl, larder, newHomeDay);
+            larder = considerLamp(sl, larder, adultNeed, newHomeDay);
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,
@@ -4963,6 +5098,10 @@ public class MimicEntity extends PathfinderMob {
             }
             tag.putLongArray("PaveTodo", pv);
         }
+        if (lampSite != null) {
+            tag.putLong("LampSite", lampSite.asLong());
+            tag.putInt("LampStep", lampStep);
+        }
         if (individual != null) {
             tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
         }
@@ -5031,6 +5170,8 @@ public class MimicEntity extends PathfinderMob {
         for (long l : tag.getLongArray("PaveTodo")) {
             paveTodo.add(BlockPos.of(l));
         }
+        lampSite = tag.contains("LampSite") ? BlockPos.of(tag.getLong("LampSite")) : null;
+        lampStep = tag.getInt("LampStep");
         if (tag.contains("Individual")) {
             this.individual = IndividualNbt.load(tag.getCompound("Individual"));
             refreshStageAttributes(); // 성별 배율 등 재적용

@@ -158,6 +158,9 @@ public final class RoadPlanner {
                     ob.hard.add(RoadStore.key(c.getX(), c.getZ()));
                 }
             }
+            // 가로등 기둥 — 울타리라 통행을 막는다. 등은 길 바깥에 서지만, 나중에 나는 길이
+            // 그 칸을 지나면 새 길 한복판에 기둥이 박힌다. 길이 알아서 비껴가게 둔다.
+            ob.hard.addAll(LampPlanner.postColumns(sl));
             for (long l : FarmStore.get(sl).bodyColumns()) {
                 ob.hard.add(l);
                 int x = RoadStore.keyX(l);

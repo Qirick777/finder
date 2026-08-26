@@ -2366,9 +2366,15 @@ public class MimicEntity extends PathfinderMob {
      * <b>가로등을 세울 것인가</b> — 하루 1회, 가구 정산에서 묻는다.
      *
      * <p>규칙5 그대로다. 마을 단위의 "가로등 몇 기" 같은 상수가 없다. 조건은 둘뿐 —
-     * <b>밭을 가졌고</b>(지주), <b>여유금 3배를 남기고도</b> 등값을 낼 수 있는가. 가난한 마을은
+     * <b>밭을 가졌고</b>(지주), 여유금을 남기고도 등값을 낼 수 있는가. 가난한 마을은
      * 어둡고, 지주가 부유해지면 그만큼 밝아진다. 간격({@link LampPlanner#SPACING})이 상한을
      * 대신하므로 부자가 아무리 많아도 도배되지 않는다.
+     *
+     * <p>여유 계수는 <b>과시 이사와 같은 {@link HomeTemplate#SHOWOFF_FACTOR}</b>를 쓴다.
+     * "이걸 살 여유가 있는가"의 기준은 이미 이 코드베이스에 있고, 재량 지출인 가로등이 그보다
+     * 엄할 이유가 없다. 처음에 3을 쓴 것은 근거 없는 값이었고, 그 결과 6짜리 등이 12짜리
+     * 중형 집보다 단가당 더 높은 문턱을 요구했다(실측: D6 까지 마을 최대 재산 20 < 문턱 24 라
+     * 한 기도 서지 않았다).
      *
      * @return 등값을 낸 뒤의 저장고
      */
@@ -2377,12 +2383,17 @@ public class MimicEntity extends PathfinderMob {
                 || !paveTodo.isEmpty() || !cachedOwnsFarm) {
             return larder;
         }
-        double gate = LampPlanner.COST + HomeTemplate.reserve(adultNeed) * 3.0;
+        double gate = LampPlanner.COST
+                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
         if (larder < gate) {
             return larder;
         }
         BlockPos site = LampPlanner.pickSite(sl);
         if (site == null) {
+            // <b>돈은 되는데 자리가 없다</b>를 기록해 둔다. 이게 없으면 등이 안 서는 이유가
+            // "가난해서"인지 "자리 고르기가 죽어서"인지 로그만 보고는 가를 수 없다.
+            SimEvents.event(this, "가로등", String.format(
+                    "자리 없음 (저장고 %.0f ≥ 문턱 %.0f)", larder, gate));
             return larder;
         }
         // 착공과 동시에 등기한다 — 같은 날 다른 지주가 같은 자리를 집는 것을 막는다.

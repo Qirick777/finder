@@ -39,6 +39,8 @@ import javax.annotation.Nullable;
  * <h3>어디에 세우는가 — <b>"중요한 자리"가 아니라 "어두운 자리"</b></h3>
  * 자리값 = <b>유형가중 × 어둠</b>이다. 어둠은 {@link #lampDist 길을 따라} 가장 가까운 등까지의
  * 걸음 수({@link #DARK_CAP} 에서 자름), 유형가중은 교차로 1.5 · 막다른 골목 1.2 · 직선 1.0 이다.
+ * 점수가 같으면 <b>실제(자르지 않은) 어둠</b>이 큰 쪽이 이긴다 — 상한 위쪽이 통째로 동률이라
+ * 그 자리를 좌표순으로 가르면 가장 어두운 곳이 좌표 운으로 밀린다.
  *
  * <p>처음에는 유형만 절대점수로 봤다(교차로 3.0 · 막다른 1.5 · 직선 1.0 + 집 밀도 가산).
  * 그러면 <b>이미 밝은 교차로가 캄캄한 직선을 언제나 이긴다</b> — 간격 하한은 하드 금지일 뿐
@@ -65,8 +67,10 @@ public final class LampPlanner {
 
     /** 등 사이 최소 평면 거리(빛 계산 근거는 클래스 주석). */
     public static final int SPACING = 14;
-    /** 어둠의 상한(길 따라 걸음 수). 이보다 먼 칸은 전부 "가장 어둡다"로 같게 친다. */
+    /** 어둠의 상한(길 따라 걸음 수). 이보다 먼 칸은 <b>점수상</b> 전부 "가장 어둡다"로 같게 친다. */
     public static final int DARK_CAP = SPACING * 2;
+    /** 등에서 길을 따라 닿지 못하는 칸(등이 아예 없거나 도로망이 끊긴 조각) — 가장 어둡다. */
+    private static final int UNREACHED = DARK_CAP * 4;
     /** 한 기 세우는 값 — 저장고에서 즉시 차감한다. */
     public static final double COST = 6.0;
     /** 밑동에서 랜턴까지의 높이 — 보고의 밝기 검산에 쓴다. */
@@ -210,7 +214,7 @@ public final class LampPlanner {
 
         // 후보 = 중심선 칸. 자리값 = <b>유형가중 × 어둠</b>(클래스 주석 참조).
         java.util.Map<Long, Integer> lit = lampDist(roads, lamps);
-        List<double[]> cand = new ArrayList<>(); // {−점수, x, z}
+        List<double[]> cand = new ArrayList<>(); // {−점수, −실제어둠, x, z}
         for (int[] c : roads.all()) {
             int x = c[0];
             int z = c[1];
@@ -223,18 +227,23 @@ public final class LampPlanner {
             // 유형가중은 <b>납작하다</b>. 예전의 3.0/1.5/1.0 은 교차로가 직선을 세 배로 눌러,
             // 어둠을 곱해도 중심부가 계속 이겼다. 여기서 유형은 동률을 가르는 정도만 한다.
             double type = deg >= 3 ? 1.5 : (deg == 1 ? 1.2 : (deg == 2 ? 1.0 : 0.8));
-            double dark = lit.getOrDefault(RoadStore.key(x, z), DARK_CAP);
-            cand.add(new double[] {-(type * dark), x, z});
+            int walk = lit.getOrDefault(RoadStore.key(x, z), UNREACHED);
+            cand.add(new double[] {-(type * Math.min(walk, DARK_CAP)), -walk, x, z});
         }
-        cand.sort(Comparator.<double[]>comparingDouble(a -> a[0])
-                .thenComparingDouble(a -> a[1]).thenComparingDouble(a -> a[2]));
+        // 2순위가 <b>실제</b> 어둠이다. 점수는 상한에서 잘리므로 39칸 떨어진 칸과 28칸 떨어진
+        // 칸이 동률로 묶이는데, 그 동률을 좌표순으로 가르면 가장 어두운 자리가 좌표 운으로
+        // 밀린다(실측: 상한만 두었을 때 최대 무등화 거리가 39칸에 머물렀고, 남은 어둠 28칸이
+        // 전부 한 spur 끝에 몰려 있었다). 어차피 의미 없이 갈리던 자리를 목적에 맞게 가른다 —
+        // 1순위가 그대로라 상한이 유형가중과 이루는 균형에는 영향이 없다.
+        cand.sort(Comparator.<double[]>comparingDouble(a -> a[0]).thenComparingDouble(a -> a[1])
+                .thenComparingDouble(a -> a[2]).thenComparingDouble(a -> a[3]));
 
         // 한 번의 훑기에 <b>정밀 검사</b>는 이만큼만 — 자리가 하나도 없는 날(간격이 다 찬 마을)에
         // 후보 전부를 14칸씩 읽으면 그 틱만 수만 회 블록 조회가 된다. 못 찾으면 다음 주기에 다시 본다.
         int budget = 300;
         for (double[] c : cand) {
-            int x = (int) c[1];
-            int z = (int) c[2];
+            int x = (int) c[2];
+            int z = (int) c[3];
             if (lamps.nearest(x, z) < SPACING) {
                 continue; // 이 근방은 이미 밝다 — 기둥 자리를 따져 볼 것도 없다
             }
@@ -264,8 +273,9 @@ public final class LampPlanner {
      * 재면 길과 무관한 들판 건너 등이 가깝다고 잡혀 긴 우회 구간이 밝은 것으로 오판된다.
      *
      * <p>등은 중심선에서 2칸 물러나 서므로, 등 주변 5×5 안의 중심선 칸을 거리 0으로 놓는다.
-     * {@link #DARK_CAP} 을 넘어가면 더 볼 것 없이 "가장 어둡다"로 같게 친다 — 그 너머를
-     * 계속 구분하면 등이 도로망 <b>맨 끝</b>부터 박혀 중간이 비는 반대 현상이 생긴다.
+     * 거리는 <b>자르지 않고</b> 그대로 돌려준다 — 상한은 {@link #scan 자리값}을 매길 때만
+     * 씌운다. 여기서 미리 잘라 버리면 39칸 떨어진 칸과 28칸 떨어진 칸이 구분 자체가 안 되어,
+     * 동률을 실제 어둠으로 가르는 2순위 정렬이 무력해진다.
      *
      * @return 칸 → 걸음 수. 표에 없는 칸은 {@link #DARK_CAP} 이상(=최대 어둠)이다.
      */
@@ -286,9 +296,6 @@ public final class LampPlanner {
         while (!q.isEmpty()) {
             long cur = q.poll();
             int nd = d.get(cur) + 1;
-            if (nd >= DARK_CAP) {
-                continue; // 상한 밖은 전부 같은 어둠 — 더 퍼뜨릴 필요가 없다
-            }
             int x = RoadStore.keyX(cur);
             int z = RoadStore.keyZ(cur);
             for (int[] dd : RoadPlanner.D4) {

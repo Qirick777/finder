@@ -507,6 +507,56 @@ public class MimicEntity extends PathfinderMob {
         return false;
     }
 
+    /**
+     * <b>부지 결격 사유</b> — 없으면 null, 있으면 사람이 읽을 수 있는 한 줄.
+     *
+     * <p>종전에는 <b>밭만</b> 봤다. 그래서 일반 지형에서 물을 전혀 거르지 않았고, 하이트맵이
+     * 물 위에서 <b>수면</b>을 돌려주는 탓에 기단이 해수면에 맞춰져 <b>호수 위에 집이 섰다</b>
+     * (실측: seed 12345 @66,-42, 7×7 집의 서쪽 면이 열린 수면에 맞닿음). 게다가 길은 유체를
+     * 지면으로 치지 않으므로 그 집만 도로망에서 영영 떨어져 나갔다.
+     *
+     * <p>낙차도 여기서 거른다. 절토·성토로 억지로 앉히는 대신 <b>애초에 평평한 자리를 고르는</b>
+     * 것이 자연스럽고, 그래야 {@link #MAX_FLATTEN} 을 작게 유지할 수 있다.
+     * 정원 열은 낙차 판정에서 뺀다 — 화단 상자는 제 지형 위에 얹혀도 된다.
+     */
+    @Nullable
+    private static String siteFault(ServerLevel sl, BlockPos site, String design, byte rot,
+                                    boolean mir) {
+        if (homeSiteOnFarm(sl, site, design, rot, mir)) {
+            return "밭 위";
+        }
+        HomeBlueprint bp = HomeBlueprint.of(sl, site, design, rot, mir);
+        java.util.Set<Long> garden = new java.util.HashSet<>();
+        for (BlockPos gcell : bp.garden()) {
+            garden.add(net.minecraft.core.BlockPos.asLong(gcell.getX(), 0, gcell.getZ()));
+        }
+        int lo = Integer.MAX_VALUE;
+        int hi = Integer.MIN_VALUE;
+        int wet = 0;
+        for (BlockPos col : bp.groundFootprint()) {
+            if (garden.contains(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()))) {
+                continue;
+            }
+            if (!sl.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+                continue; // 아직 안 열린 청크는 판단을 미룬다(없는 것으로 치면 부지가 말라붙는다)
+            }
+            int y = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
+            if (!sl.getBlockState(new BlockPos(col.getX(), y, col.getZ()))
+                    .getFluidState().isEmpty()) {
+                wet++;
+            }
+            lo = Math.min(lo, y);
+            hi = Math.max(hi, y);
+        }
+        if (wet > 0) {
+            return String.format("물·용암 위(%d칸)", wet);
+        }
+        if (hi != Integer.MIN_VALUE && hi - lo > MAX_SITE_SLOPE) {
+            return String.format("절벽(낙차 %d > %d)", hi - lo, MAX_SITE_SLOPE);
+        }
+        return null;
+    }
+
     /** 내 거처의 도면 해석 — 건축·평탄화·정원·철거가 전부 이 한 곳을 거친다. 거처 없으면 null. */
     @Nullable
     public HomeBlueprint blueprint(ServerLevel sl) {
@@ -1271,13 +1321,14 @@ public class MimicEntity extends PathfinderMob {
         int gap = requiredGap(sl, design);
         int dist = Math.max(plan.distance(), gap); // 링 반경 < 간격이면 첫 링이 통째로 탈락한다
         int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, dist, existing, gap, rng);
-        // A-1 부지 검증 — 밭을 깔고 앉는 후보는 재추첨(최대 8회, 전패 시 마지막 후보 수용·로그).
-        for (int attempt = 0; attempt < 8 && homeSiteOnFarm(
-                sl, new BlockPos(pos[0], anchor[1], pos[1]), design, rot, mir); attempt++) {
+        // A-1 부지 검증 — 밭·물·절벽을 피해 재추첨(최대 8회, 전패 시 마지막 후보 수용·로그).
+        String fault = siteFault(sl, new BlockPos(pos[0], anchor[1], pos[1]), design, rot, mir);
+        for (int attempt = 0; attempt < 8 && fault != null; attempt++) {
             pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, dist, existing, gap, rng);
-            if (attempt == 7) {
-                SimEvents.event(this, "부지경고", "밭 회피 재추첨 전패 — 마지막 후보 수용");
-            }
+            fault = siteFault(sl, new BlockPos(pos[0], anchor[1], pos[1]), design, rot, mir);
+        }
+        if (fault != null) {
+            SimEvents.event(this, "부지경고", fault + " — 재추첨 8회 전패, 마지막 후보 수용");
         }
         // 기단 높이 = 발자국 지형 '중앙값'에 맞춤(파묻힘·공중부양 방지). 낮은 칸은 흙으로 메운다.
         BlockPos site = new BlockPos(pos[0], anchor[1], pos[1]);
@@ -1625,7 +1676,17 @@ public class MimicEntity extends PathfinderMob {
                 split.heir(), otherCount, split.perOther(), individual.shortName()));
     }
 
-    private static final int MAX_FLATTEN = 16; // 메움·파냄 최대 깊이(협곡 폭주 방지)
+    /**
+     * 메움·파냄 최대 깊이. <b>3이다 — 16이 아니다.</b>
+     *
+     * <p>16은 협곡 폭주만 막는 값이라 사실상 무제한 성토·절토였다. 언덕에 걸친 집이 주변
+     * 지형을 통째로 도려내고 메워 "땅을 파괴하고 지은" 모습이 된다. 이제 부지 검증이
+     * {@link #MAX_SITE_SLOPE} 를 넘는 후보를 아예 되돌리므로, 여기서는 <b>남은 잔 낙차만</b>
+     * 다듬으면 된다.
+     */
+    private static final int MAX_FLATTEN = 3;
+    /** 부지가 허용하는 발자국 낙차(최고−최저). 넘으면 절벽으로 보고 다른 자리를 뽑는다. */
+    private static final int MAX_SITE_SLOPE = 3;
     private static final net.minecraft.world.level.levelgen.Heightmap.Types SURFACE_MAP =
             net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
 
@@ -1634,13 +1695,27 @@ public class MimicEntity extends PathfinderMob {
      * 메움량 + 높은 칸 파냄량의 총합이 그때 최소이기 때문이다(L1 최소화점=median).
      */
     public static int terrainBaseY(ServerLevel sl, HomeBlueprint bp) {
-        List<BlockPos> foot = bp.footprint();
-        int[] surf = new int[foot.size()];
-        for (int i = 0; i < foot.size(); i++) {
-            surf[i] = sl.getHeight(SURFACE_MAP, foot.get(i).getX(), foot.get(i).getZ()) - 1; // 지표 블록 Y
+        // <b>정원 열은 뺀다.</b> 정원은 도면상 oak_trapdoor 화단 상자라 건물과 같은 높이일
+        // 이유가 없고, 넣어 두면 정원 쪽 지형이 기단을 끌어당겨 건물 밑을 쓸데없이 깎거나
+        // 메우게 된다. 기단은 <b>건물이 딛는 땅</b>만 보고 정한다.
+        java.util.Set<Long> garden = new java.util.HashSet<>();
+        for (BlockPos gcell : bp.garden()) {
+            garden.add(net.minecraft.core.BlockPos.asLong(gcell.getX(), 0, gcell.getZ()));
         }
-        java.util.Arrays.sort(surf);
-        return surf[surf.length / 2] + BASE_LIFT;
+        java.util.List<Integer> surf = new java.util.ArrayList<>();
+        for (BlockPos col : bp.footprint()) {
+            if (garden.contains(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()))) {
+                continue;
+            }
+            surf.add(sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1); // 지표 블록 Y
+        }
+        if (surf.isEmpty()) { // 도면이 통째로 정원일 리는 없으나 방어
+            for (BlockPos col : bp.footprint()) {
+                surf.add(sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1);
+            }
+        }
+        java.util.Collections.sort(surf);
+        return surf.get(surf.size() / 2) + BASE_LIFT;
     }
 
     /**
@@ -1677,9 +1752,15 @@ public class MimicEntity extends PathfinderMob {
                         pp.pos().getZ()));
             }
         }
+        // 정원 열도 손대지 않는다 — 화단 상자는 제 자리 지형 위에 얹히면 된다.
+        java.util.Set<Long> gardenCols = new java.util.HashSet<>();
+        for (BlockPos gcell : bp.garden()) {
+            gardenCols.add(net.minecraft.core.BlockPos.asLong(gcell.getX(), 0, gcell.getZ()));
+        }
         for (BlockPos col : bp.footprint()) {
-            if (!floored.contains(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()))) {
-                continue; // 처마 밑 여백 — 손대지 않는다
+            long ck = net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ());
+            if (!floored.contains(ck) || gardenCols.contains(ck)) {
+                continue; // 처마 밑 여백·정원 — 손대지 않는다
             }
             int surface = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
             if (surface < target) {
@@ -3537,10 +3618,16 @@ public class MimicEntity extends PathfinderMob {
             DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
             int[] xz = Settlement.placeHome(new int[] {oldHome.getX(), oldHome.getZ()},
                     gap, existing, gap, rng);
-            for (int attempt = 0; attempt < 8 && homeSiteOnFarm(
-                    sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir); attempt++) {
+            // 부지 검증은 혼인 신축과 <b>같은 판정</b>을 쓴다 — 밭·물·절벽. 여기만 밭으로
+            // 두면 저택이 호수 위에 서는 길이 그대로 남는다.
+            String fu = siteFault(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
+            for (int attempt = 0; attempt < 8 && fu != null; attempt++) {
                 xz = Settlement.placeHome(new int[] {oldHome.getX(), oldHome.getZ()},
                         gap, existing, gap, rng);
+                fu = siteFault(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
+            }
+            if (fu != null) {
+                SimEvents.event(this, "부지경고", fu + " — 승격 이사 재추첨 전패, 마지막 후보 수용");
             }
             int baseY = terrainBaseY(sl, HomeBlueprint.of(sl,
                     new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir));
@@ -3709,11 +3796,15 @@ public class MimicEntity extends PathfinderMob {
         int gap = requiredGap(sl, design);
         int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, gap,
                 existingNear, gap, rng);
-        // A-1 부지 검증 — 이주 신축도 밭 회피 재추첨(혼인 신축과 동일 규칙).
-        for (int attempt = 0; attempt < 8 && homeSiteOnFarm(
-                sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir); attempt++) {
+        // A-1 부지 검증 — 이주 신축도 혼인 신축과 동일 규칙(밭·물·절벽).
+        String fm = siteFault(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
+        for (int attempt = 0; attempt < 8 && fm != null; attempt++) {
             xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, gap,
                     existingNear, gap, rng);
+            fm = siteFault(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
+        }
+        if (fm != null) {
+            SimEvents.event(this, "부지경고", fm + " — 기근 이주 재추첨 전패, 마지막 후보 수용");
         }
         int baseY = terrainBaseY(sl, HomeBlueprint.of(sl,
                 new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir));

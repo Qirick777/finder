@@ -96,6 +96,10 @@ public final class EvoSimCommand {
                 .then(Commands.literal("heirshow").executes(ctx -> heirShow(ctx, false)))
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
+                .then(Commands.literal("topdown")
+                        .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
+                                .executes(ctx -> topDown(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "radius")))))
                 .then(Commands.literal("homeshow")
                         .then(Commands.argument("design", StringArgumentType.word())
                                 .executes(ctx -> homeShow(ctx,
@@ -2273,6 +2277,116 @@ public final class EvoSimCommand {
                 MimicEntity.requiredGap(level, HomeTemplate.Tier.SMALL.designs[0]),
                 onFarm, farmHit));
         return tier[4];
+    }
+
+    /**
+     * <b>공중 촬영</b> — 마을 상공에서 내려다본 지표 블록을 글자 격자로 덤프한다.
+     *
+     * <p>헤드리스 서버라 게임 클라이언트 스크린샷을 찍을 수 없다. 대신 <b>실제 월드의 블록</b>을
+     * 열마다 읽어 내보낸다 — 도면에서 유도한 그림이 아니라 정말로 거기 놓여 있는 것이다.
+     * 파일은 서버 폴더의 {@code evosim-topdown.txt} 에 쓰고, 바깥에서 색을 입혀 그림으로 만든다.
+     */
+    private static int topDown(CommandContext<CommandSourceStack> ctx, int radius) {
+        ServerLevel level = ctx.getSource().getLevel();
+        // 중심은 <b>등기된 집들의 무게중심</b> — 명령 실행 위치가 아니라 마을이 있는 곳을 찍는다.
+        HomeStore reg = HomeStore.get(level);
+        long sx = 0;
+        long sz = 0;
+        int n = 0;
+        for (BlockPos h : reg.positions()) {
+            sx += h.getX();
+            sz += h.getZ();
+            n++;
+        }
+        int cx = n == 0 ? (int) ctx.getSource().getPosition().x : (int) (sx / n);
+        int cz = n == 0 ? (int) ctx.getSource().getPosition().z : (int) (sz / n);
+
+        StringBuilder out = new StringBuilder();
+        out.append(String.format("# center %d %d radius %d day %d%n", cx, cz, radius,
+                com.evosim.mod.entity.SimTime.tick(level) / 24000L));
+        int missing = 0;
+        for (int z = cz - radius; z <= cz + radius; z++) {
+            for (int x = cx - radius; x <= cx + radius; x++) {
+                if (!level.hasChunk(x >> 4, z >> 4)) {
+                    out.append('?');
+                    missing++;
+                    continue;
+                }
+                int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                        .MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+                out.append(codeOf(level.getBlockState(new BlockPos(x, top, z)),
+                        top - 63));
+            }
+            out.append('\n');
+        }
+        java.nio.file.Path f = level.getServer().getServerDirectory().toPath()
+                .resolve("evosim-topdown.txt");
+        try {
+            java.nio.file.Files.writeString(f, out.toString());
+        } catch (java.io.IOException e) {
+            tell(ctx.getSource(), "§c쓰기 실패: " + e.getMessage());
+            return 0;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[공중촬영] @%d,%d 반경%d (%d×%d칸) → evosim-topdown.txt · 미로드 %d칸",
+                cx, cz, radius, radius * 2 + 1, radius * 2 + 1, missing));
+        return 1;
+    }
+
+    /** 지표 블록 한 글자 코드 — 바깥에서 색을 입힌다. */
+    private static char codeOf(net.minecraft.world.level.block.state.BlockState st, int rel) {
+        var b = st.getBlock();
+        if (st.is(Blocks.DIRT_PATH)) {
+            return '#';                       // 흙 길
+        }
+        if (st.is(Blocks.SWEET_BERRY_BUSH)) {
+            return 'B';                       // 밭 덤불
+        }
+        if (st.is(Blocks.GRASS_BLOCK)) {
+            return rel > 3 ? 'G' : 'g';       // 잔디(높은 곳은 대문자 — 고도 표현)
+        }
+        if (st.is(Blocks.DIRT) || st.is(Blocks.COARSE_DIRT) || st.is(Blocks.ROOTED_DIRT)) {
+            return 'd';
+        }
+        if (st.is(Blocks.OAK_PLANKS) || st.is(Blocks.OAK_SLAB) || st.is(Blocks.OAK_STAIRS)
+                || st.is(Blocks.OAK_FENCE) || st.is(Blocks.OAK_FENCE_GATE)
+                || st.is(Blocks.OAK_TRAPDOOR) || st.is(Blocks.OAK_DOOR)) {
+            return 'W';                       // 집 — 나무
+        }
+        if (st.is(Blocks.STONE_BRICKS) || st.is(Blocks.STONE_BRICK_STAIRS)
+                || st.is(Blocks.STONE_BRICK_SLAB) || st.is(Blocks.COBBLESTONE)) {
+            return 'S';                       // 집 — 석재
+        }
+        if (st.is(Blocks.WHITE_WOOL) || st.is(Blocks.GLASS_PANE) || st.is(Blocks.GLASS)) {
+            return 'W';
+        }
+        if (b instanceof net.minecraft.world.level.block.LeavesBlock) {
+            return 'L';                       // 나뭇잎
+        }
+        if (b instanceof net.minecraft.world.level.block.RotatedPillarBlock
+                && st.is(net.minecraft.tags.BlockTags.LOGS)) {
+            return 'T';                       // 원목
+        }
+        if (!st.getFluidState().isEmpty()) {
+            return '~';                       // 물·용암
+        }
+        if (st.is(Blocks.SAND) || st.is(Blocks.RED_SAND) || st.is(Blocks.SANDSTONE)) {
+            return 's';
+        }
+        if (st.is(Blocks.GRAVEL)) {
+            return 'v';
+        }
+        if (st.is(Blocks.STONE) || st.is(Blocks.ANDESITE) || st.is(Blocks.DIORITE)
+                || st.is(Blocks.GRANITE) || st.is(Blocks.DEEPSLATE)) {
+            return 'r';                       // 돌
+        }
+        if (st.is(Blocks.SNOW) || st.is(Blocks.SNOW_BLOCK) || st.is(Blocks.ICE)) {
+            return 'n';
+        }
+        if (st.isAir()) {
+            return '.';
+        }
+        return 'o';                           // 그 밖
     }
 
     /**

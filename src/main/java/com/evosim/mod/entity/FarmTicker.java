@@ -343,6 +343,13 @@ public final class FarmTicker {
         //     복구 불능인 타일은 원장에서 소거. 깔린 타일이 원장에 남으면 영구 수확불능인데
         //     부족분 게시(고용 슬롯)만 부풀리는 유령 일자리가 된다(실측: 배정받고 수확 0).
         for (FarmStore.Plot plot : store.all().values()) {
+            // 밭 <b>몸통</b>을 지나는 흙길 정비 — 사라진 덤불을 다시 심는 것과 같은 종류의 일이다.
+            //
+            // 확장 때만 치우면(그것도 한다) <b>밭이 성장을 멈춘 뒤</b> 갇힌 길 자국이 영영 남는다.
+            // 실측: 런1 은 밭이 계속 자라 D14 이후 관통 0 이었지만, D11 에서 멈춘 런2 는 1칸이
+            // 남아 있었다. 밭은 재배줄 + 고랑 구조라 길이 줄 사이에 갇힐 수 있고, 그 칸은
+            // 타일이 아니어서 타일 순회로는 영영 안 잡힌다.
+            com.evosim.mod.entity.MimicEntity.tidyFarmRoads(level, plot);
             for (int i = plot.tiles.length - 1; i >= 0; i--) {
                 BlockPos pos = BlockPos.of(plot.tiles[i]);
                 if (!level.isLoaded(pos)) {

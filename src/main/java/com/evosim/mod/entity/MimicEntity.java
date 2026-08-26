@@ -2192,6 +2192,54 @@ public class MimicEntity extends PathfinderMob {
                 "밭이 길을 끊음 @%d,%d — 우회 실패(끊긴 채 둠)", taken.getX(), taken.getZ()));
     }
 
+    /**
+     * <b>밭 정비 — 밭 안을 지나는 흙길을 갈아엎는다.</b> 하루 1회, 구획마다.
+     *
+     * <p>{@link #farmTookRoad} 는 밭이 <b>새 타일을 놓는 순간</b>에만 돈다. 그래서 밭이 성장을
+     * 멈추면 몸통에 갇힌 길 자국이 영영 남는다. 이 패스는 그 구멍을 막는다 — 이미 매일 도는
+     * 죽은 타일 정비와 같은 자리에 얹으므로 새 순회 장치가 없다.
+     */
+    public static void tidyFarmRoads(ServerLevel sl, FarmStore.Plot plot) {
+        RoadStore roads = RoadStore.get(sl);
+        java.util.Set<Long> body = bodyOf(plot);
+        java.util.Set<Long> gone = new java.util.HashSet<>();
+        int cleared = 0;
+        for (long l : body) {
+            int x = RoadStore.keyX(l);
+            int z = RoadStore.keyZ(l);
+            if (roads.has(x, z)) {
+                gone.add(l);
+            }
+            if (unpaveAt(sl, x, z)) {
+                cleared++;
+            }
+        }
+        if (!gone.isEmpty()) {
+            RoadPlanner.Obstacles.invalidate();
+            roads.removeAll(gone);
+        }
+        if (cleared > 0) {
+            SimEvents.note(sl, "밭정비", String.format("구획 %d — 밭을 지나던 흙길 %d칸 갈아엎음",
+                    plot.id, cleared));
+        }
+    }
+
+    /** 이 열의 흙길을 잔디로 되돌린다 — 바꿨으면 true. */
+    private static boolean unpaveAt(ServerLevel sl, int x, int z) {
+        int y = RoadPlanner.surfaceY(sl, x, z);
+        if (y == Integer.MIN_VALUE) {
+            return false;
+        }
+        BlockPos g = new BlockPos(x, y, z);
+        if (!sl.getBlockState(g).is(Blocks.DIRT_PATH)) {
+            return false;
+        }
+        sl.setBlock(g, Blocks.GRASS_BLOCK.defaultBlockState(),
+                net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                        | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        return true;
+    }
+
     /** 이 구획의 <b>몸통</b> 열 — 타일과 그 사이 고랑(같은 x 열의 최소 z ~ 최대 z). */
     private static java.util.Set<Long> bodyOf(FarmStore.Plot plot) {
         java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>();

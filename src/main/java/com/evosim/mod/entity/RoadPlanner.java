@@ -94,8 +94,32 @@ public final class RoadPlanner {
         private final Set<Long> hard = new HashSet<>();
         private final Set<Long> soft = new HashSet<>();
 
-        /** 등기된 모든 거처의 지면층·계단 + 모든 밭 <b>몸통</b>을 모은다. */
+        private static Obstacles cache;
+        private static long cacheTick = Long.MIN_VALUE;
+
+        /**
+         * 등기된 모든 거처의 지면층·계단 + 모든 밭 <b>몸통</b>을 모은다.
+         *
+         * <p><b>틱 캐시가 필수다.</b> 이 계산은 집 수 × 발자국 + 밭 몸통 × 25(둘레 5×5) 라
+         * 마을이 서른 채만 되어도 삽입이 2~3만 회다. 길은 6틱마다 한 칸씩 깔리므로 캐시가
+         * 없으면 그 비용을 시공 내내 되문다. 집·밭은 하루 단위로나 바뀌므로 20틱이면 넉넉하다.
+         */
         public static Obstacles of(ServerLevel sl) {
+            long now = com.evosim.mod.entity.SimTime.tick(sl);
+            if (cache != null && now - cacheTick < 20L && now >= cacheTick) {
+                return cache;
+            }
+            cacheTick = now;
+            cache = build(sl);
+            return cache;
+        }
+
+        /** 캐시 무효화 — 밭이 길을 먹은 직후처럼 <b>즉시</b> 반영해야 할 때. */
+        public static void invalidate() {
+            cache = null;
+        }
+
+        private static Obstacles build(ServerLevel sl) {
             Obstacles ob = new Obstacles();
             HomeStore reg = HomeStore.get(sl);
             for (BlockPos h : reg.positions()) {

@@ -2152,6 +2152,7 @@ public class MimicEntity extends PathfinderMob {
         if (gone.isEmpty()) {
             return;
         }
+        RoadPlanner.Obstacles.invalidate(); // 밭이 늘었다 — 장애물 캐시를 즉시 버린다
         java.util.List<java.util.Set<Long>> parts = roads.splitBy(gone);
         roads.removeAll(gone);
         // 등기만 빼면 안 된다 — <b>폭 3으로 퍼진 이웃 칸</b>의 흙길 블록이 밭 몸통 안에 그대로

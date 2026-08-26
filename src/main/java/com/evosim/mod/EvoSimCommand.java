@@ -2427,8 +2427,29 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format(
                 "  %s침범 — 밭몸통관통%d 밭타일%d 집지면%d 문앞계단%d 정원%d§r",
                 clean ? "§a" : "§c", vBody, vTile, vHome, vStep, vGarden));
+        // 지형 진단 — 중심선인데 <b>블록이 안 깔린</b> 칸이 왜 그런지 가른다.
+        //   지면없음 = groundUnder 범위(앵커 Y +1~−3) 안에 지표가 없다 → 급경사
+        //   포장불가 = 지표는 있는데 잔디·흙 계열이 아니다 → 모래·자갈·돌·물
+        int noGround = 0;
+        int notPavable = 0;
+        int bare = 0;
+        for (long c : center) {
+            int x = RoadStore.keyX(c);
+            int z = RoadStore.keyZ(c);
+            if (paved.contains(c)) {
+                continue;
+            }
+            bare++;
+            BlockPos g = surfaceNear(level, x, z);
+            if (g == null) {
+                noGround++;
+            } else if (!RoadPlanner.pavable(level, g)) {
+                notPavable++;
+            }
+        }
         tell(ctx.getSource(), String.format(
-                "  시공 중 %d명 · 남은 %d칸", paving, todo));
+                "  시공 중 %d명 · 남은 %d칸 · 미포장 중심선 %d (지면없음%d 포장불가%d)",
+                paving, todo, bare, noGround, notPavable));
         return center.size();
     }
 

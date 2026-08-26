@@ -2411,7 +2411,8 @@ public class MimicEntity extends PathfinderMob {
         BlockPos site = LampPlanner.pickSite(sl);
         if (site == null) {
             SimEvents.event(this, "가로등", String.format(
-                    "자리 없음 (저장고 %.0f ≥ 문턱 %.0f)", larder, gate));
+                    "자리 없음 (저장고 %.0f ≥ 문턱 %.0f) — 걸러진 사유 %s",
+                    larder, gate, LampPlanner.rejectSummary()));
             return larder;
         }
         // 착공과 동시에 등기한다 — 같은 날 다른 지주가 같은 자리를 집는 것을 막는다.

@@ -155,7 +155,12 @@ public final class LampPlanner {
         if (cached != null) {
             return cached;
         }
-        if (now - scanTick < SCAN_PERIOD && now >= scanTick) {
+        // <b>아직 한 번도 안 훑었으면 무조건 훑는다.</b> 여기서 {@code now - scanTick} 을 그냥
+        // 빼면 안 된다 — 초기값이 {@link Long#MIN_VALUE} 라 뺄셈이 오버플로해 큰 <b>음수</b>가
+        // 되고, 그러면 "방금 훑었다"로 읽혀 스캔 없이 null 이 나간다. scanTick 은 갱신되지
+        // 않으므로 그 상태가 영구히 반복된다(실측: 문턱을 통과한 지주가 매번 "자리 없음"만
+        // 받았고 등이 한 기도 서지 못했다).
+        if (scanTick != Long.MIN_VALUE && now >= scanTick && now - scanTick < SCAN_PERIOD) {
             return null;
         }
         scanTick = now;
@@ -179,6 +184,7 @@ public final class LampPlanner {
         RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
         FarmStore farms = FarmStore.get(sl);
         List<BlockPos> homes = HomeStore.get(sl).positions();
+        java.util.Arrays.fill(REJ, 0);
 
         // 후보 = 중심선 칸. 점수는 ① 교차로 ② 막다른 골목(대개 문 앞 진입로) ③ 직선 순.
         List<double[]> cand = new ArrayList<>(); // {−점수, x, z}
@@ -254,6 +260,27 @@ public final class LampPlanner {
         return out;
     }
 
+    /**
+     * 자리를 못 찾았을 때 <b>어디서 걸렀는지</b> 집계 — 길위·금지·간격·지형·바닥·겹침 순.
+     *
+     * <p>"자리 없음" 한 줄만 남기면 그게 기하 때문인지 판정 결함인지 가릴 수 없다. 실제로
+     * 그 구분이 없어 시각 스캔이 통째로 죽은 것을 여러 날 놓쳤다.
+     */
+    private static final int[] REJ = new int[6];
+
+    private static final String[] REJ_NAME =
+            {"길위", "금지구역", "간격", "지형", "바닥", "겹침"};
+
+    public static String rejectSummary() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < REJ.length; i++) {
+            if (REJ[i] > 0) {
+                sb.append(sb.length() == 0 ? "" : " ").append(REJ_NAME[i]).append(REJ[i]);
+            }
+        }
+        return sb.length() == 0 ? "후보 자체가 없음" : sb.toString();
+    }
+
     /** 이 열에 기둥을 세워도 되는가 — 길·집·밭·지형·머리 위를 모두 본다. */
     private static boolean ok(ServerLevel sl, RoadStore roads, LampStore lamps,
                               RoadPlanner.Obstacles ob, FarmStore farms, int px, int pz, int cy) {
@@ -261,34 +288,41 @@ public final class LampPlanner {
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 if (roads.has(px + dx, pz + dz)) {
+                    REJ[0]++;
                     return false;
                 }
             }
         }
         // ② 집 지면층·문앞 계단·정원·밭 몸통 — 길과 같은 금지 출처를 그대로 쓴다.
         if (ob.blocked(px, pz) || farms.nearBody(px, pz, 1)) {
+            REJ[1]++;
             return false;
         }
         if (lamps.nearest(px, pz) < SPACING) {
+            REJ[2]++;
             return false;
         }
         // ③ 지형 — 딛는 지면이 있고 길과 높이가 어긋나지 않아야 한다.
         int gy = RoadPlanner.surfaceY(sl, px, pz);
         if (gy == Integer.MIN_VALUE || Math.abs(gy - cy) > 1) {
+            REJ[3]++;
             return false;
         }
         BlockPos ground = new BlockPos(px, gy, pz);
         if (!sl.getBlockState(ground).isFaceSturdy(sl, ground, net.minecraft.core.Direction.UP)) {
+            REJ[4]++;
             return false; // 나뭇잎·풀·물가 — 기둥이 설 바닥이 아니다
         }
         // ④ 도면이 들어갈 자리가 통째로 비어 있어야 한다(처마·나무·다른 등과 겹치지 않게).
         var pl = plan(sl);
         if (pl.isEmpty()) {
+            REJ[5]++;
             return false;
         }
         BlockPos base = ground.above();
         for (HomeTemplate.Placement p : pl.get()) {
             if (!sl.isEmptyBlock(base.offset(p.rel()))) {
+                REJ[5]++;
                 return false;
             }
         }

@@ -2378,20 +2378,38 @@ public class MimicEntity extends PathfinderMob {
      *
      * @return 등값을 낸 뒤의 저장고
      */
-    private double considerLamp(ServerLevel sl, double larder, double adultNeed, boolean newDay) {
+    private double considerLamp(ServerLevel sl, List<MimicEntity> fam, double larder,
+                                double adultNeed, boolean newDay) {
         if (!newDay || fastSettle || homePos == null || building || lampSite != null
-                || !paveTodo.isEmpty() || !cachedOwnsFarm) {
+                || !paveTodo.isEmpty()) {
+            return larder;
+        }
+        // <b>지주 판정은 가구 단위다.</b> 종전에는 정산 대표 <b>개인</b>의 밭 보유를 봤는데,
+        // 대표는 {@code settleLeader} 가 UUID 최소로 뽑아 사실상 무작위다 — 성인 3인 가구에서
+        // 배우자 없는 성년 자녀가 대표로 걸리면 부모가 밭을 가져도 그 가구는 영영 지주가
+        // 아니게 된다. 등값을 내는 저장고가 가구 공동이니 밭도 가구 것으로 봐야 앞뒤가 맞는다.
+        boolean owner = false;
+        for (MimicEntity m : fam) {
+            if (m.cachedOwnsFarm) {
+                owner = true;
+                break;
+            }
+        }
+        if (!owner) {
             return larder;
         }
         double gate = LampPlanner.COST
                 + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
         if (larder < gate) {
+            // <b>지주인데 왜 안 세웠나</b>를 남긴다. 이 줄이 없으면 등이 0기인 이유가 가난인지
+            // 판정 결함인지 로그만 보고는 가를 수 없다(실측: D7 까지 사건이 통째로 0건이라
+            // 어느 관문에서 막혔는지조차 알 수 없었다).
+            SimEvents.event(this, "가로등", String.format(
+                    "보류 — 저장고 %.0f < 문턱 %.0f", larder, gate));
             return larder;
         }
         BlockPos site = LampPlanner.pickSite(sl);
         if (site == null) {
-            // <b>돈은 되는데 자리가 없다</b>를 기록해 둔다. 이게 없으면 등이 안 서는 이유가
-            // "가난해서"인지 "자리 고르기가 죽어서"인지 로그만 보고는 가를 수 없다.
             SimEvents.event(this, "가로등", String.format(
                     "자리 없음 (저장고 %.0f ≥ 문턱 %.0f)", larder, gate));
             return larder;
@@ -3348,7 +3366,7 @@ public class MimicEntity extends PathfinderMob {
         // 정산 마감·가계 기록 (베리·출산 반영 후의 저장고를 확정 저장).
         if (homePos != null) {
             larder = payUpkeep(sl, larder, newHomeDay);
-            larder = considerLamp(sl, larder, adultNeed, newHomeDay);
+            larder = considerLamp(sl, fam, larder, adultNeed, newHomeDay);
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,

@@ -48,12 +48,33 @@ public final class RoadPlanner {
     private static final double NEAR_FARM = 6.0;
     /** 밭 옆 벌점이 붙는 반경. */
     private static final int NEAR_R = 2;
-    /** 신축 가닥 길이 상한 — 넘으면 포기(고립 부지). */
-    public static final int MAX_SPUR = 160;
+    /** 신축 가닥 길이 상한 — 넘으면 포기(고립 부지). 언덕은 돌아가므로 평지보다 넉넉해야 한다. */
+    public static final int MAX_SPUR = 260;
     /** <b>우회로</b> 길이 상한 — 밭 몸통을 돌아야 해서 42칸까지 필요했다(실측). 40은 실패한다. */
     public static final int MAX_BYPASS = 80;
     /** 탐색 범위 상한(진입 칸 기준 반경) — 폭주 방지. */
     private static final int RANGE = 220;
+    /** 이웃 칸과 허용하는 <b>높이차</b>. 1이면 계단 한 칸 — 미믹이 걸어 올라갈 수 있는 폭이다. */
+    private static final int MAX_STEP_UP = 1;
+
+    /**
+     * 이 열의 <b>딛는 지면</b> Y — 없으면 {@link Integer#MIN_VALUE}.
+     *
+     * <p>물·용암 위는 지면이 아니다(길을 깔 수도, 걸어갈 수도 없다). 청크가 안 열렸으면
+     * 판단을 미룬다 — 없는 것으로 치면 마을 밖으로 못 나가는 길이 된다.
+     */
+    public static int surfaceY(ServerLevel sl, int x, int z) {
+        if (!sl.hasChunk(x >> 4, z >> 4)) {
+            return Integer.MIN_VALUE;
+        }
+        int top = sl.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                .MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+        var st = sl.getBlockState(new net.minecraft.core.BlockPos(x, top, z));
+        if (st.getFluidState().isEmpty() && !st.isAir()) {
+            return top;
+        }
+        return Integer.MIN_VALUE;
+    }
 
     private RoadPlanner() {
     }
@@ -76,9 +97,11 @@ public final class RoadPlanner {
         for (int[] t : tiers) {
             List<BlockPos> out = new ArrayList<>();
             for (BlockPos s : stairs) {
-                BlockPos c = new BlockPos(s.getX() + dx * t[0] + px * t[1], s.getY(),
-                        s.getZ() + dz * t[0] + pz * t[1]);
-                if (!ob.blocked(c.getX(), c.getZ()) && !out.contains(c)) {
+                int ex = s.getX() + dx * t[0] + px * t[1];
+                int ez = s.getZ() + dz * t[0] + pz * t[1];
+                int ey = surfaceY(sl, ex, ez);
+                BlockPos c = new BlockPos(ex, ey, ez);
+                if (ey != Integer.MIN_VALUE && !ob.blocked(ex, ez) && !out.contains(c)) {
                     out.add(c);
                 }
             }
@@ -170,7 +193,7 @@ public final class RoadPlanner {
         if (roads.size() == 0) {
             return rootStub(starts.get(0), ob);
         }
-        return dijkstra(starts, roads.raw(), ob, MAX_SPUR);
+        return dijkstra(sl, starts, roads.raw(), ob, MAX_SPUR);
     }
 
     /** 첫 집의 문 앞 도막 — 진입 칸에서 문이 보는 쪽으로 곧게 3칸. */
@@ -190,14 +213,16 @@ public final class RoadPlanner {
                 break;
             }
         }
-        return dijkstra(starts, to, ob, MAX_BYPASS);
+        return dijkstra(sl, starts, to, ob, MAX_BYPASS);
     }
 
-    private static List<BlockPos> dijkstra(List<BlockPos> starts, Set<Long> goals, Obstacles ob,
-                                           int cap) {
-        int y = starts.get(0).getY();
+    private static List<BlockPos> dijkstra(ServerLevel sl, List<BlockPos> starts, Set<Long> goals,
+                                           Obstacles ob, int cap) {
+        Map<Long, Integer> surf = new HashMap<>();
         int cx = starts.get(0).getX();
         int cz = starts.get(0).getZ();
+        java.util.function.BiFunction<Integer, Integer, Integer> sy = (x, z) ->
+                surf.computeIfAbsent(RoadStore.key(x, z), k -> surfaceY(sl, x, z));
         Map<Long, Double> dist = new HashMap<>();
         Map<Long, Long> prev = new HashMap<>();
         PriorityQueue<double[]> pq = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));
@@ -230,6 +255,15 @@ public final class RoadPlanner {
                 if (ob.blocked(nx, nz)) {
                     continue;
                 }
+                // <b>경사 제약</b> — 이웃과 높이차가 1을 넘으면 못 간다. 이게 없으면 경로가
+                // 절벽·호수를 2D 로 가로지르고, 그 칸은 포장도 안 되며 놓으러 갈 수도 없다
+                // (실측: 일반 지형에서 중심선의 58%가 블록을 한 칸도 못 깔았다).
+                int hy = sy.apply(nx, nz);
+                int cy = sy.apply(x, z);
+                if (hy == Integer.MIN_VALUE || cy == Integer.MIN_VALUE
+                        || Math.abs(hy - cy) > MAX_STEP_UP) {
+                    continue;
+                }
                 double step = 1.0;
                 if (goals.contains(RoadStore.key(nx, nz))) {
                     step *= REUSE;
@@ -256,7 +290,9 @@ public final class RoadPlanner {
         List<BlockPos> out = new ArrayList<>();
         long cur = best;
         while (true) {
-            out.add(new BlockPos(sx(cur), y, sz(cur)));
+            int px = sx(cur);
+            int pz = sz(cur);
+            out.add(new BlockPos(px, sy.apply(px, pz), pz)); // 칸마다 <b>제</b> 지표 높이
             Long p = prev.get(cur);
             if (p == null) {
                 break;

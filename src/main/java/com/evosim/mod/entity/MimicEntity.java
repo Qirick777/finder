@@ -2062,6 +2062,10 @@ public class MimicEntity extends PathfinderMob {
             if (ground == null || !RoadPlanner.pavable(sl, ground)) {
                 continue;
             }
+            // 중심선과 높이차가 크면 그 칸은 <b>길의 옆구리가 아니라 벼랑</b>이다 — 깔지 않는다.
+            if (Math.abs(ground.getY() - center.getY()) > 1) {
+                continue;
+            }
             if (sl.getBlockState(ground).is(Blocks.DIRT_PATH)) {
                 continue;
             }
@@ -2075,16 +2079,18 @@ public class MimicEntity extends PathfinderMob {
         return laid;
     }
 
-    /** 이 칸 근처의 <b>지표 블록</b> — 진입 칸 높이 기준 ±2 안에서 찾는다(완만한 경사 대응). */
+    /**
+     * 이 열의 <b>지표 블록</b> — 하이트맵으로 <b>칸마다 독립적으로</b> 찾는다.
+     *
+     * <p>종전에는 경로가 물려준 Y 기준 +1~−3 만 훑었다. 그런데 경로는 집 앵커 하나의 높이를
+     * 전 구간에 물려주는 2D 계산이라, 집에서 멀어지면 지형과 어긋나 지표를 못 찾는다 —
+     * 실측: 일반 지형에서 <b>중심선의 58%</b>가 블록을 한 칸도 못 깔았고 평지는 0% 였다.
+     * 이제 각 칸이 제 지표를 본다. 물·용암 위는 지면이 아니므로 제외된다.
+     */
     @Nullable
     private static BlockPos groundUnder(ServerLevel sl, BlockPos at) {
-        for (int dy = 1; dy >= -3; dy--) {
-            BlockPos g = at.offset(0, dy, 0);
-            if (!sl.getBlockState(g).isAir() && sl.getBlockState(g.above()).isAir()) {
-                return g;
-            }
-        }
-        return null;
+        int y = RoadPlanner.surfaceY(sl, at.getX(), at.getZ());
+        return y == Integer.MIN_VALUE ? null : new BlockPos(at.getX(), y, at.getZ());
     }
 
     /** 삽을 손에 든다 — 길을 놓는 동안의 연출. */
@@ -2206,7 +2212,11 @@ public class MimicEntity extends PathfinderMob {
 
     /** 길을 걷어낸다 — 흙길을 잔디로 되돌린다(밭 한복판에 길 자국이 남지 않게). */
     private static void unpave(ServerLevel sl, int x, int z, int y) {
-        for (int dy = 2; dy >= -3; dy--) {
+        int sy = RoadPlanner.surfaceY(sl, x, z);
+        if (sy != Integer.MIN_VALUE) {
+            y = sy;
+        }
+        for (int dy = 1; dy >= -2; dy--) {
             BlockPos g = new BlockPos(x, y + dy, z);
             if (sl.getBlockState(g).is(Blocks.DIRT_PATH)) {
                 sl.setBlock(g, Blocks.GRASS_BLOCK.defaultBlockState(),

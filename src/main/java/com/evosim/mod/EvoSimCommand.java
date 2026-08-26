@@ -99,6 +99,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
+                .then(Commands.literal("farmshape").executes(EvoSimCommand::farmShape))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -2797,6 +2798,143 @@ public final class EvoSimCommand {
                 LampPlanner.SPACING, over1, ds.isEmpty() ? 0.0 : 100.0 * over1 / ds.size(),
                 LampPlanner.DARK_CAP, over2, ds.isEmpty() ? 0.0 : 100.0 * over2 / ds.size()));
         return all.size();
+    }
+
+    /**
+     * <b>밭 형태 진단</b> — 구획마다 격자 좌표로 되돌려 "얼마나 반듯한가"를 잰다.
+     *
+     * <p>공중 덤프의 덤불을 군집화해서 재면 안 된다. 렌더는 어느 타일이 <b>어느 구획</b>
+     * 소유인지 모르므로, 맞닿아 자란 두 구획과 집 정원이 한 덩어리로 묶여 멀쩡한 구획이
+     * 찌그러진 것으로 잡힌다(실측으로 그 오판을 확인했다). 여기서는 {@link FarmStore} 를
+     * 직접 읽어 타일마다 제 구획에 귀속시킨다.
+     *
+     * <p>{@link com.evosim.core.FarmLayout} 의 의도는 <b>재배줄 + 한 칸 고랑의 꽉 찬
+     * 직사각형</b>이다(월드 깊이 = 줄×2). 그래서 앵커 기준 격자 (col, row) 로 되돌리면
+     * 이상적인 구획은 빈틈없는 직사각형이어야 한다. 어긋나는 방식을 넷으로 나눠 센다.
+     *
+     * <ul>
+     *   <li><b>구멍</b> — 한 줄 안에서 최소~최대 col 사이에 빠진 칸.</li>
+     *   <li><b>줄끊김</b> — 한 줄이 연속 구간 둘 이상으로 갈린 횟수.</li>
+     *   <li><b>사분면</b> — 앵커 기준 부호 조합. 2 이상이면 {@code FarmLayout.mirrors} 의
+     *       거울 반사가 쓰였다는 뜻이다(막힌 칸을 반대편에 놓는다). 구획이 한쪽으로
+     *       자라지 않고 앵커를 중심으로 흩어진다.</li>
+     *   <li><b>고랑오염</b> — 줄 간격이 2가 아닌 타일. 있으면 재배줄 구조 자체가 깨진 것이다.</li>
+     * </ul>
+     */
+    private static int farmShape(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore farms = FarmStore.get(level);
+        java.util.List<FarmStore.Plot> plots = new java.util.ArrayList<>(farms.all().values());
+        plots.sort((a, b) -> Integer.compare(b.tiles.length, a.tiles.length));
+        int totTiles = 0;
+        int totHoles = 0;
+        int totBreaks = 0;
+        int totRows = 0;
+        int mirrored = 0;
+        int fouled = 0;
+        int strays = 0;
+        double fillSum = 0.0;
+        int counted = 0;
+        tell(ctx.getSource(), String.format("§e[밭형태] 구획%d — 의도: 재배줄+고랑1의 꽉 찬 직사각형",
+                plots.size()));
+        for (FarmStore.Plot p : plots) {
+            if (p.tiles.length == 0) {
+                continue;
+            }
+            // 격자 복원 — col = x−앵커x, row = (z−앵커z)/2. 나머지가 있으면 고랑 오염이다.
+            java.util.Map<Integer, java.util.List<Integer>> rows = new java.util.TreeMap<>();
+            int foul = 0;
+            java.util.Set<Integer> quad = new java.util.HashSet<>();
+            for (long l : p.tiles) {
+                BlockPos t = BlockPos.of(l);
+                int dc = t.getX() - p.anchor.getX();
+                int dz = t.getZ() - p.anchor.getZ();
+                if ((dz & 1) != 0) {
+                    foul++;
+                    continue;
+                }
+                rows.computeIfAbsent(dz / 2, k -> new java.util.ArrayList<>()).add(dc);
+                quad.add((dc < 0 ? 1 : 0) | (dz < 0 ? 2 : 0));
+            }
+            int n = p.tiles.length;
+            int holes = 0;
+            int breaks = 0;
+            int minLen = Integer.MAX_VALUE;
+            int maxLen = 0;
+            for (java.util.List<Integer> v : rows.values()) {
+                java.util.Collections.sort(v);
+                holes += (v.get(v.size() - 1) - v.get(0) + 1) - v.size();
+                for (int i = 1; i < v.size(); i++) {
+                    if (v.get(i) - v.get(i - 1) > 1) {
+                        breaks++;
+                    }
+                }
+                minLen = Math.min(minLen, v.size());
+                maxLen = Math.max(maxLen, v.size());
+                if (v.size() == 1) {
+                    strays++;
+                }
+            }
+            // 줄 번호가 연속인가 — 중간에 통째로 빠진 재배줄도 구멍이다.
+            int rowGaps = 0;
+            Integer prev = null;
+            for (int r : rows.keySet()) {
+                if (prev != null && r - prev > 1) {
+                    rowGaps += r - prev - 1;
+                }
+                prev = r;
+            }
+            double fill = rows.isEmpty() ? 0.0 : (double) n / (rows.size() * Math.max(1, maxLen));
+            totTiles += n;
+            totHoles += holes;
+            totBreaks += breaks;
+            totRows += rows.size();
+            fillSum += fill;
+            counted++;
+            if (quad.size() > 1) {
+                mirrored++;
+            }
+            if (foul > 0) {
+                fouled++;
+            }
+            String flag = (holes > 0 || breaks > 0 || quad.size() > 1 || foul > 0 || rowGaps > 0)
+                    ? "§c" : "§a";
+            tell(ctx.getSource(), String.format(
+                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 사분면%d 고랑오염%d§r @%d,%d",
+                    flag, p.id, n, rows.size(), minLen == Integer.MAX_VALUE ? 0 : minLen, maxLen,
+                    100 * fill, holes, breaks, rowGaps, quad.size(), foul,
+                    p.anchor.getX(), p.anchor.getZ()));
+        }
+        // 구획끼리 얼마나 붙어 있나 — 각각 반듯해도 맞닿으면 위에서 한 덩어리로 읽힌다.
+        int touching = 0;
+        double minGap = Double.MAX_VALUE;
+        for (int i = 0; i < plots.size(); i++) {
+            for (int j = i + 1; j < plots.size(); j++) {
+                double best = Double.MAX_VALUE;
+                for (long a : plots.get(i).tiles) {
+                    BlockPos pa = BlockPos.of(a);
+                    for (long b : plots.get(j).tiles) {
+                        BlockPos pb = BlockPos.of(b);
+                        double d = Math.hypot(pa.getX() - pb.getX(), pa.getZ() - pb.getZ());
+                        best = Math.min(best, d);
+                    }
+                }
+                if (best < Double.MAX_VALUE) {
+                    minGap = Math.min(minGap, best);
+                    if (best <= 3.0) {
+                        touching++;
+                    }
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 거울쓴구획%d/%d · 고랑오염구획%d",
+                totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBreaks,
+                strays, mirrored, counted, fouled));
+        tell(ctx.getSource(), String.format(
+                "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
+                minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
+        return plots.size();
     }
 
     /** 이 열의 지표 블록 — 길은 지표에 깔리므로 y 를 하이트맵에서 찾는다. */

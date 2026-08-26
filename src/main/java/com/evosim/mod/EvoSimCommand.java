@@ -2302,6 +2302,8 @@ public final class EvoSimCommand {
         int cz = n == 0 ? (int) ctx.getSource().getPosition().z : (int) (sz / n);
 
         StringBuilder out = new StringBuilder();
+        // 모르는 블록은 <b>이름을 적어 둔다</b> — 'o' 로 뭉뚱그리면 그게 뭔지 영영 못 본다.
+        java.util.Map<String, Integer> unknown = new java.util.TreeMap<>();
         out.append(String.format("# center %d %d radius %d day %d%n", cx, cz, radius,
                 com.evosim.mod.entity.SimTime.tick(level) / 24000L));
         int missing = 0;
@@ -2314,10 +2316,23 @@ public final class EvoSimCommand {
                 }
                 int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
                         .MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
-                out.append(codeOf(level.getBlockState(new BlockPos(x, top, z)),
-                        top - 63));
+                // 지표 <b>위</b>도 본다. 스위트베리·꽃은 하이트맵에 안 잡혀 아래 흙만 찍혔다
+                // (실측: 밭 85칸이 전부 흙으로 나왔다).
+                var above = level.getBlockState(new BlockPos(x, top + 1, z));
+                char c = above.isAir() ? codeOf(level.getBlockState(new BlockPos(x, top, z)),
+                        top - 63, unknown) : codeOf(above, top - 63, unknown);
+                if (c == 'o' && !above.isAir()) {
+                    char c2 = codeOf(level.getBlockState(new BlockPos(x, top, z)), top - 63, unknown);
+                    if (c2 != 'o') {
+                        c = c2; // 위가 모르는 장식이면 지표를 쓴다
+                    }
+                }
+                out.append(c);
             }
             out.append('\n');
+        }
+        for (var e : unknown.entrySet()) {
+            out.append(String.format("# unknown %s %d%n", e.getKey(), e.getValue()));
         }
         java.nio.file.Path f = level.getServer().getServerDirectory().toPath()
                 .resolve("evosim-topdown.txt");
@@ -2334,7 +2349,8 @@ public final class EvoSimCommand {
     }
 
     /** 지표 블록 한 글자 코드 — 바깥에서 색을 입힌다. */
-    private static char codeOf(net.minecraft.world.level.block.state.BlockState st, int rel) {
+    private static char codeOf(net.minecraft.world.level.block.state.BlockState st, int rel,
+                               java.util.Map<String, Integer> unknown) {
         var b = st.getBlock();
         if (st.is(Blocks.DIRT_PATH)) {
             return '#';                       // 흙 길
@@ -2386,7 +2402,9 @@ public final class EvoSimCommand {
         if (st.isAir()) {
             return '.';
         }
-        return 'o';                           // 그 밖
+        unknown.merge(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(b).toString(),
+                1, Integer::sum);
+        return 'o';                           // 그 밖 — 이름은 파일 끝에 적힌다
     }
 
     /**

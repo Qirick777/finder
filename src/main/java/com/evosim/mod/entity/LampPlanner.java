@@ -36,6 +36,27 @@ import javax.annotation.Nullable;
  * 두 등 사이 한복판은 수평 7 + 수직 5 = 12칸 떨어져 <b>3</b>이 남는다. 몹 생성 조건이 밝기 0
  * (1.18+)이므로 길 위는 등간 한복판까지 전부 생성 불가로 덮인다 — 더 촘촘히 박을 이유가 없다.
  *
+ * <h3>어디에 세우는가 — <b>"중요한 자리"가 아니라 "어두운 자리"</b></h3>
+ * 자리값 = <b>유형가중 × 어둠</b>이다. 어둠은 {@link #lampDist 길을 따라} 가장 가까운 등까지의
+ * 걸음 수({@link #DARK_CAP} 에서 자름), 유형가중은 교차로 1.5 · 막다른 골목 1.2 · 직선 1.0 이다.
+ *
+ * <p>처음에는 유형만 절대점수로 봤다(교차로 3.0 · 막다른 1.5 · 직선 1.0 + 집 밀도 가산).
+ * 그러면 <b>이미 밝은 교차로가 캄캄한 직선을 언제나 이긴다</b> — 간격 하한은 하드 금지일 뿐
+ * 우선순위에 반영되지 않기 때문이다. 하루 한 기씩 서는데 중심부는 계속 새 교차로를 만들어
+ * 내므로 긴 진입로는 대기열 앞에 영영 오지 못했다(배제가 아니라 굶주림이다).
+ *
+ * <p>실측 근거(D16 관측 런, 등 12기 · 흙길 1742칸): 길을 따라 잰 등까지의 거리가
+ * <b>최대 49칸</b>, 14칸 초과가 33%, 28칸 초과가 11% 였다. 등은 전부 마을 중심에 몰렸고
+ * 남북 진입로 90여 칸에는 한 기도 없었다.
+ *
+ * <p>어둠을 곱하면 저절로 균형이 잡힌다 — 등이 하나 서면 그 주변의 어둠이 즉시 떨어지고
+ * 다음 순번이 다른 곳으로 넘어간다. 그리고 직선 구간은 유형가중이 모두 같으므로 어둠이 가장
+ * 큰 칸, 곧 <b>등과 등 사이의 한복판</b>이 뽑힌다. 집 밀도 가산은 뺐다 — 교차로 가중과
+ * 중복이고, 중심부 편중을 키우는 쪽으로만 작용했다.
+ *
+ * <p>등이 하나도 없을 때는 모든 칸의 어둠이 상한으로 같아 유형가중만 남는다 — 첫 등은
+ * 예전처럼 교차로에 선다(초기 거동에 회귀가 없다).
+ *
  * <h3>누가 세우는가 — 규칙5</h3>
  * 밭을 가진 가구가 <b>여유가 넘칠 때만</b> 제 돈으로 세운다({@link #COST}). 하드코딩된
  * "마을 가로등 수"가 없다. 가난한 마을은 어둡고, 부유해지면 밝아진다 — 밀도가 저절로 정해진다.
@@ -44,6 +65,8 @@ public final class LampPlanner {
 
     /** 등 사이 최소 평면 거리(빛 계산 근거는 클래스 주석). */
     public static final int SPACING = 14;
+    /** 어둠의 상한(길 따라 걸음 수). 이보다 먼 칸은 전부 "가장 어둡다"로 같게 친다. */
+    public static final int DARK_CAP = SPACING * 2;
     /** 한 기 세우는 값 — 저장고에서 즉시 차감한다. */
     public static final double COST = 6.0;
     /** 밑동에서 랜턴까지의 높이 — 보고의 밝기 검산에 쓴다. */
@@ -183,10 +206,10 @@ public final class LampPlanner {
         LampStore lamps = LampStore.get(sl);
         RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
         FarmStore farms = FarmStore.get(sl);
-        List<BlockPos> homes = HomeStore.get(sl).positions();
         java.util.Arrays.fill(REJ, 0);
 
-        // 후보 = 중심선 칸. 점수는 ① 교차로 ② 막다른 골목(대개 문 앞 진입로) ③ 직선 순.
+        // 후보 = 중심선 칸. 자리값 = <b>유형가중 × 어둠</b>(클래스 주석 참조).
+        java.util.Map<Long, Integer> lit = lampDist(roads, lamps);
         List<double[]> cand = new ArrayList<>(); // {−점수, x, z}
         for (int[] c : roads.all()) {
             int x = c[0];
@@ -197,15 +220,11 @@ public final class LampPlanner {
                     deg++;
                 }
             }
-            double score = deg >= 3 ? 3.0 : (deg == 1 ? 1.5 : (deg == 2 ? 1.0 : 0.5));
-            int near = 0;
-            for (BlockPos h : homes) {
-                if (Math.abs(h.getX() - x) <= 12 && Math.abs(h.getZ() - z) <= 12 && ++near >= 6) {
-                    break;
-                }
-            }
-            score += 0.15 * near; // 통행량 대용 — 집이 몰린 곳이 더 밝아진다
-            cand.add(new double[] {-score, x, z});
+            // 유형가중은 <b>납작하다</b>. 예전의 3.0/1.5/1.0 은 교차로가 직선을 세 배로 눌러,
+            // 어둠을 곱해도 중심부가 계속 이겼다. 여기서 유형은 동률을 가르는 정도만 한다.
+            double type = deg >= 3 ? 1.5 : (deg == 1 ? 1.2 : (deg == 2 ? 1.0 : 0.8));
+            double dark = lit.getOrDefault(RoadStore.key(x, z), DARK_CAP);
+            cand.add(new double[] {-(type * dark), x, z});
         }
         cand.sort(Comparator.<double[]>comparingDouble(a -> a[0])
                 .thenComparingDouble(a -> a[1]).thenComparingDouble(a -> a[2]));
@@ -235,6 +254,51 @@ public final class LampPlanner {
             }
         }
         return null;
+    }
+
+    /**
+     * <b>어둠 지도</b> — 중심선 칸마다 "길을 따라 걸어" 가장 가까운 등까지의 걸음 수.
+     *
+     * <p>직선거리가 아니라 <b>도로거리</b>인 것이 핵심이다. 그래야 양끝에 등이 있는 구간에서
+     * 최댓값이 정확히 그 구간의 <b>한복판</b>에 생긴다("먼 길의 중간에도 하나"). 직선거리로
+     * 재면 길과 무관한 들판 건너 등이 가깝다고 잡혀 긴 우회 구간이 밝은 것으로 오판된다.
+     *
+     * <p>등은 중심선에서 2칸 물러나 서므로, 등 주변 5×5 안의 중심선 칸을 거리 0으로 놓는다.
+     * {@link #DARK_CAP} 을 넘어가면 더 볼 것 없이 "가장 어둡다"로 같게 친다 — 그 너머를
+     * 계속 구분하면 등이 도로망 <b>맨 끝</b>부터 박혀 중간이 비는 반대 현상이 생긴다.
+     *
+     * @return 칸 → 걸음 수. 표에 없는 칸은 {@link #DARK_CAP} 이상(=최대 어둠)이다.
+     */
+    public static java.util.Map<Long, Integer> lampDist(RoadStore roads, LampStore lamps) {
+        java.util.Map<Long, Integer> d = new java.util.HashMap<>();
+        java.util.ArrayDeque<Long> q = new java.util.ArrayDeque<>();
+        Set<Long> cells = roads.raw();
+        for (BlockPos b : lamps.all()) {
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    long k = RoadStore.key(b.getX() + dx, b.getZ() + dz);
+                    if (cells.contains(k) && d.putIfAbsent(k, 0) == null) {
+                        q.add(k);
+                    }
+                }
+            }
+        }
+        while (!q.isEmpty()) {
+            long cur = q.poll();
+            int nd = d.get(cur) + 1;
+            if (nd >= DARK_CAP) {
+                continue; // 상한 밖은 전부 같은 어둠 — 더 퍼뜨릴 필요가 없다
+            }
+            int x = RoadStore.keyX(cur);
+            int z = RoadStore.keyZ(cur);
+            for (int[] dd : RoadPlanner.D4) {
+                long n = RoadStore.key(x + dd[0], z + dd[1]);
+                if (cells.contains(n) && d.putIfAbsent(n, nd) == null) {
+                    q.add(n);
+                }
+            }
+        }
+        return d;
     }
 
     /** 기둥 후보 방향 — 길이 뻗은 방향의 <b>수직</b>부터. 폭 3 띠 바로 바깥(거리 2)이다. */

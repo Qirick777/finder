@@ -2770,6 +2770,32 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format(
                 "  밤 밝기 — 길 위 밝기0(몹 생성 가능) %d/%d칸 (%.0f%%)",
                 dark, sampled, sampled == 0 ? 0.0 : 100.0 * dark / sampled));
+        // <b>길을 따라</b> 잰 등까지의 거리 — 배치가 고르게 퍼졌는지의 단일 지표. 직선거리로
+        // 재면 들판 건너 등이 가깝다고 잡혀 긴 우회 구간이 밝은 것으로 오판된다.
+        java.util.Map<Long, Integer> walk = LampPlanner.lampDist(roads, lamps);
+        java.util.List<Integer> ds = new java.util.ArrayList<>(roads.size());
+        for (int[] c : roads.all()) {
+            ds.add(walk.getOrDefault(RoadStore.key(c[0], c[1]), LampPlanner.DARK_CAP));
+        }
+        java.util.Collections.sort(ds);
+        int over1 = 0;
+        int over2 = 0;
+        long sum = 0;
+        for (int v : ds) {
+            sum += v;
+            if (v > LampPlanner.SPACING) {
+                over1++;
+            }
+            if (v >= LampPlanner.DARK_CAP) {
+                over2++;
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  길 따라 등까지 — 최대%d 중앙%d 평균%.1f · %d칸 초과 %d(%.0f%%) · %d칸 이상 %d(%.0f%%)",
+                ds.isEmpty() ? 0 : ds.get(ds.size() - 1), ds.isEmpty() ? 0 : ds.get(ds.size() / 2),
+                ds.isEmpty() ? 0.0 : (double) sum / ds.size(),
+                LampPlanner.SPACING, over1, ds.isEmpty() ? 0.0 : 100.0 * over1 / ds.size(),
+                LampPlanner.DARK_CAP, over2, ds.isEmpty() ? 0.0 : 100.0 * over2 / ds.size()));
         return all.size();
     }
 

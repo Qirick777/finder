@@ -2854,7 +2854,21 @@ public final class EvoSimCommand {
                     continue;
                 }
                 rows.computeIfAbsent(dz / 2, k -> new java.util.ArrayList<>()).add(dc);
-                quad.add((dc < 0 ? 1 : 0) | (dz < 0 ? 2 : 0));
+                // <b>앵커 양쪽에</b> 타일이 있는가 — 이것만이 "흩어졌다"의 정의다.
+                // 부호 조합을 그냥 세면 안 된다: 성장 방향이 음이면 앵커 열(dc=0)이 늘 양수로
+                // 분류되어 멀쩡한 구획도 사분면 2로 찍힌다(실측에서 이 오판을 확인했다).
+                if (dc > 0) {
+                    quad.add(0);
+                }
+                if (dc < 0) {
+                    quad.add(1);
+                }
+                if (dz > 0) {
+                    quad.add(2);
+                }
+                if (dz < 0) {
+                    quad.add(3);
+                }
             }
             int n = p.tiles.length;
             int holes = 0;
@@ -2891,18 +2905,21 @@ public final class EvoSimCommand {
             totRows += rows.size();
             fillSum += fill;
             counted++;
-            if (quad.size() > 1) {
+            // 흩어짐 = x 양쪽 모두 점유, 또는 z 양쪽 모두 점유.
+            boolean spread = (quad.contains(0) && quad.contains(1))
+                    || (quad.contains(2) && quad.contains(3));
+            if (spread) {
                 mirrored++;
             }
             if (foul > 0) {
                 fouled++;
             }
-            String flag = (holes > 0 || breaks > 0 || quad.size() > 1 || foul > 0 || rowGaps > 0)
+            String flag = (holes > 0 || breaks > 0 || spread || foul > 0 || rowGaps > 0)
                     ? "§c" : "§a";
             tell(ctx.getSource(), String.format(
-                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 사분면%d 고랑오염%d§r @%d,%d",
+                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 흩어짐%s 고랑오염%d§r @%d,%d",
                     flag, p.id, n, rows.size(), minLen == Integer.MAX_VALUE ? 0 : minLen, maxLen,
-                    100 * fill, holes, breaks, rowGaps, quad.size(), foul,
+                    100 * fill, holes, breaks, rowGaps, spread ? "예" : "아니오", foul,
                     p.anchor.getX(), p.anchor.getZ()));
         }
         // 구획끼리 얼마나 붙어 있나 — 각각 반듯해도 맞닿으면 위에서 한 덩어리로 읽힌다.
@@ -2928,7 +2945,7 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 거울쓴구획%d/%d · 고랑오염구획%d",
+                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 흩어진구획%d/%d · 고랑오염구획%d",
                 totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBreaks,
                 strays, mirrored, counted, fouled));
         tell(ctx.getSource(), String.format(

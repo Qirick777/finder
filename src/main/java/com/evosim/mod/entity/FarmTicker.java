@@ -291,13 +291,28 @@ public final class FarmTicker {
             if (k <= 0) {
                 continue;
             }
-            var seq = com.evosim.core.FarmLayout.layout(plot.tiles.length + k);
+            // <b>점유 집합</b> 기준으로 이상 수열을 훑는다 — 개수 색인이 아니다.
+            //
+            // 종전에는 {@code layout(tiles.length + k)} 의 <b>i번째</b>부터 놓았다. 그러면 칸
+            // 하나가 막혀 건너뛰는 순간 개수와 실제 배치가 어긋나고, 다음 날은 이미 틀어진 개수를
+            // 기준으로 또 다른 칸을 계산해 구획이 이상 직사각형에서 영구히 표류한다. 게다가 막힌
+            // 칸은 {@code continue} 로 <b>그냥 버려져</b> 그날 밭의 양이 줄었다.
+            //
+            // 이제 이상 수열을 앞에서부터 훑어 <b>아직 우리 것이 아닌</b> 칸만 후보로 삼고,
+            // k개를 채울 때까지 계속 나아간다. 수열은 본래 연결적이라(열 확장 (w,r)은 (w−1,r)에,
+            // 새 줄 (c,k)는 (c,k−1)에 붙는다) 막힌 칸을 건너뛰어도 몸통은 이어진 채 남는다.
+            // SCAN_SLACK 만큼 더 훑으므로 막힌 칸이 있어도 배치 수가 줄지 않는다.
+            var seq = com.evosim.core.FarmLayout.layout(plot.tiles.length + k + SCAN_SLACK);
+            java.util.Set<Long> mine = new java.util.HashSet<>();
+            for (long l : plot.tiles) {
+                mine.add(l);
+            }
             int placed = 0;
-            for (int i = plot.tiles.length; i < seq.size(); i++) {
-                BlockPos gp = adaptiveSpot(level, store, plot.anchor,
-                        seq.get(i)[0], seq.get(i)[1], adults);
+            for (int i = 0; i < seq.size() && placed < k; i++) {
+                BlockPos gp = idealSpot(level, store, plot, seq.get(i)[0], seq.get(i)[1], adults,
+                        mine);
                 if (gp == null) {
-                    continue; // 4방 전부 막힘 — 이 칸 스킵(비용 미지불)
+                    continue; // 이미 우리 칸이거나 막힘 — 수열의 다음 이상 칸으로
                 }
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
@@ -516,11 +531,19 @@ public final class FarmTicker {
             plot.founderId = m.getIndividual().id(); // 원장: 창설자 = 착공 실행자(귀속과 무관)
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
-            for (int[] t : com.evosim.core.FarmLayout.layout(9)) { // 착공 9타일(T1) — 이후는 확장 경로
-                BlockPos gp = adaptiveSpot(level, store, site, t[0], t[1], adults);
-                if (gp == null) {
-                    continue; // 막힌 칸 스킵 — 착공 부지는 findFarmSite가 회피해 대개 전부 성립
+            // 성장 방향을 <b>여기서 한 번</b> 정한다 — 앵커 둘레 네 사분면 중 가장 넓게 트인 쪽.
+            // 그 뒤로는 칸마다 뒤집지 않으므로 구획이 한쪽으로 반듯하게 자란다.
+            plot.dir = pickDir(level, store, site, adults);
+            java.util.Set<Long> mine0 = new java.util.HashSet<>();
+            for (int[] t : com.evosim.core.FarmLayout.layout(9 + SCAN_SLACK)) {
+                if (plot.tiles.length >= 9) {
+                    break; // 9타일 채웠다 — 막힌 칸이 있었으면 수열을 더 훑어 벌충한 뒤 끝
                 }
+                BlockPos gp = idealSpot(level, store, plot, t[0], t[1], adults, mine0);
+                if (gp == null) {
+                    continue; // 막힌 칸 — 수열의 다음 이상 칸으로(버리지 않는다)
+                }
+                mine0.add(gp.asLong());
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
                 level.setBlockAndUpdate(gp,
@@ -706,30 +729,78 @@ public final class FarmTicker {
         return nextFarmBlock(np, permTenants);
     }
 
-    private static BlockPos adaptiveSpot(ServerLevel level, FarmStore store, BlockPos anchor,
-                                         int c, int r, java.util.List<MimicEntity> adults) {
-        for (int[] m : com.evosim.core.FarmLayout.mirrors(c, r)) {
-            BlockPos gp = level.getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    anchor.offset(m[0], 0, m[1] * 2));
-            if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(adults, gp)) {
-                continue; // 거처(천막·입구·모닥불·정원) 위에는 밭을 깔지 않는다
+    /** 막힌 칸을 만났을 때 이상 수열을 더 훑는 여유분 — 이만큼이면 집 하나쯤은 우회한다. */
+    private static final int SCAN_SLACK = 24;
+
+    /**
+     * <b>성장 방향 고르기</b> — 앵커 둘레 네 사분면 중 7×7 격자가 가장 많이 트인 쪽.
+     *
+     * <p>구획당 한 번만 부른다. 칸마다 방향을 뒤집던 종전 방식이 흩어짐의 원인이었으므로,
+     * 그 유연성을 <b>구획 단위</b>로 격하시켜 보존한다 — 막힌 쪽을 피해 자라되 몸통은 하나다.
+     */
+    private static byte pickDir(ServerLevel level, FarmStore store, BlockPos anchor,
+                                java.util.List<MimicEntity> adults) {
+        byte best = 0;
+        int bestFree = -1;
+        for (byte d = 0; d < 4; d++) {
+            int sx = (d & 1) != 0 ? -1 : 1;
+            int sz = (d & 2) != 0 ? -1 : 1;
+            int free = 0;
+            for (int c = 0; c < 7; c++) {
+                for (int r = 0; r < 7; r++) {
+                    BlockPos gp = level.getHeightmapPos(
+                            net.minecraft.world.level.levelgen.Heightmap.Types
+                                    .MOTION_BLOCKING_NO_LEAVES,
+                            anchor.offset(c * sx, 0, r * 2 * sz));
+                    if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(adults, gp)) {
+                        continue;
+                    }
+                    var at = level.getBlockState(gp);
+                    var below = level.getBlockState(gp.below());
+                    if ((at.isAir() || at.canBeReplaced())
+                            && (below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                            || below.is(net.minecraft.world.level.block.Blocks.DIRT)
+                            || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                            || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))) {
+                        free++;
+                    }
+                }
             }
-            var at = level.getBlockState(gp);
-            var below = level.getBlockState(gp.below());
-            boolean natural = at.isAir() || at.canBeReplaced();
-            // 흙길도 개간 대상이다 — <b>밭이 길보다 우선</b>. 빼놓으면 길 위에는 영영 밭을
-            // 못 만들어, "길이 밭 형성을 방해한다"가 실제로 일어난다. 심을 때 아래를 흙으로
-            // 갈아엎으므로(setBlockAndUpdate) 길은 그 자리에서 사라진다 — 확장자가 고치는 것이다.
-            boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
-                    || below.is(net.minecraft.world.level.block.Blocks.DIRT)
-                    || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
-                    || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH);
-            if (natural && ground) {
-                return gp;
+            if (free > bestFree) {
+                bestFree = free;
+                best = d;
             }
         }
-        return null;
+        return best;
+    }
+
+    /**
+     * <b>이상 칸 하나</b>를 그 구획의 성장 방향으로 놓아 본다 — 거울 없이. 못 놓으면 null.
+     *
+     * <p>방향은 {@link FarmStore.Plot#dir} 로 구획마다 <b>한 번</b> 정해져 있다. 칸마다 뒤집던
+     * 종전 방식({@code FarmLayout.mirrors})은 막힌 칸을 앵커 반대편에 놓아 몸통에서 떨어져
+     * 나온 타일을 만들었다.
+     */
+    private static BlockPos idealSpot(ServerLevel level, FarmStore store, FarmStore.Plot plot,
+                                      int c, int r, java.util.List<MimicEntity> adults,
+                                      java.util.Set<Long> mine) {
+        int sx = (plot.dir & 1) != 0 ? -1 : 1;
+        int sz = (plot.dir & 2) != 0 ? -1 : 1;
+        BlockPos gp = level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                plot.anchor.offset(c * sx, 0, r * 2 * sz));
+        if (!level.isLoaded(gp) || mine.contains(gp.asLong()) || store.isFarmTile(gp)
+                || onSomeHome(adults, gp)) {
+            return null;
+        }
+        var at = level.getBlockState(gp);
+        var below = level.getBlockState(gp.below());
+        boolean natural = at.isAir() || at.canBeReplaced();
+        boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                || below.is(net.minecraft.world.level.block.Blocks.DIRT)
+                || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH);
+        return natural && ground ? gp : null;
     }
 
     /**

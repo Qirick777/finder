@@ -30,6 +30,18 @@ public class FarmStore extends SavedData {
         public long[] planted = new long[0];
         public double account = 0.0;
         public int blockedDays = 0; // 자금·노동 있는데 배치 0칸이던 연속 일수 — 1일이면 성숙 간주(공간 포화, 2배속)
+        /**
+         * <b>성장 방향</b> — bit0=+x 대신 −x, bit1=+z 대신 −z. 착공 때 앵커 둘레의 빈 공간을 재서
+         * <b>한 번만</b> 정하고 그 뒤로는 바뀌지 않는다(포화 시 {@code turnDir} 로 한 번 튼다).
+         *
+         * <p>종전에는 방향을 <b>칸마다</b> 뒤집었다({@code FarmLayout.mirrors}). 이상 칸이 막히면
+         * 앵커 반대편에 놓았는데, 폭 7까지 자란 구획에서 c=5 가 막히면 그 타일이 몸통에서 10칸
+         * 떨어진 허공에 박힌다 — "한두 칸이 뚝 떨어져 있는" 모습의 정체다. 방향은 구획의 성질이지
+         * 칸의 성질이 아니다.
+         */
+        public byte dir = 0;
+        /** 이 방향으로 더는 못 자라 방향을 튼 적이 있나 — 무한 회전을 막는다. */
+        public boolean turned = false;
 
         // ── 밭 원장(봉건 집중 P3) — 관측 전용 누계. 시뮬 결정에는 관여하지 않음(땅 문서 GUI 표시원). ──
         public long founderId;         // 최초 개간자 개체 id(상속·선점으로 ownerId가 바뀌어도 고정)
@@ -662,6 +674,8 @@ public class FarmStore extends SavedData {
             p.planted = c.getLongArray("Planted");
             p.account = c.getDouble("Acct");
             p.vacantSince = c.contains("Vacant") ? c.getLong("Vacant") : -1L;
+            p.dir = c.getByte("Dir");
+            p.turned = c.getBoolean("Turned");
             // 밭 원장(P3) — 구세계 로드는 기본값(founder=owner, day=-1, 누계 0).
             p.founderId = c.contains("Founder") ? c.getLong("Founder") : p.ownerId;
             p.foundedDay = c.contains("FDay") ? c.getLong("FDay") : -1L;
@@ -706,6 +720,8 @@ public class FarmStore extends SavedData {
                 c.putLong("Vacant", p.vacantSince);
             }
             // 밭 원장(P3)
+            c.putByte("Dir", p.dir);
+            c.putBoolean("Turned", p.turned);
             c.putLong("Founder", p.founderId);
             c.putLong("FDay", p.foundedDay);
             c.putLong("TByF", p.tilesByFounder);

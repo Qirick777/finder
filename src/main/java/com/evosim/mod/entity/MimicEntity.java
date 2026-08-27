@@ -2460,17 +2460,25 @@ public class MimicEntity extends PathfinderMob {
 
     /** 이 구획의 <b>몸통</b> 열 — 타일과 그 사이 고랑(같은 x 열의 최소 z ~ 최대 z). */
     private static java.util.Set<Long> bodyOf(FarmStore.Plot plot) {
+        // 몸통 = 타일 + 그 사이 고랑. 고랑은 <b>재배줄과 직각</b>으로 나 있으므로, 채우는 축이
+        // 구획의 방향에 딸린다. 재배줄이 동–서면 x 열마다 z 를 채우고, 전치된 구획(dir 비트2)은
+        // z 줄마다 x 를 채운다. 축을 안 맞추면 고랑이 몸통에서 빠져, 줄 사이에 갇힌 길 자국이
+        // tidyFarmRoads 에 영영 안 잡힌다.
+        boolean turnedAxis = (plot.dir & 4) != 0;
         java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>();
         for (long l : plot.tiles) {
             BlockPos t = BlockPos.of(l);
-            span.compute(t.getX(), (k, v) -> v == null
-                    ? new int[] {t.getZ(), t.getZ()}
-                    : new int[] {Math.min(v[0], t.getZ()), Math.max(v[1], t.getZ())});
+            int key = turnedAxis ? t.getZ() : t.getX();
+            int val = turnedAxis ? t.getX() : t.getZ();
+            span.compute(key, (k, v) -> v == null
+                    ? new int[] {val, val}
+                    : new int[] {Math.min(v[0], val), Math.max(v[1], val)});
         }
         java.util.HashSet<Long> out = new java.util.HashSet<>();
         for (var e : span.entrySet()) {
-            for (int z = e.getValue()[0]; z <= e.getValue()[1]; z++) {
-                out.add(RoadStore.key(e.getKey(), z));
+            for (int v = e.getValue()[0]; v <= e.getValue()[1]; v++) {
+                out.add(turnedAxis ? RoadStore.key(v, e.getKey())
+                        : RoadStore.key(e.getKey(), v));
             }
         }
         return out;

@@ -2963,6 +2963,7 @@ public final class EvoSimCommand {
         int mirrored = 0;
         int fouled = 0;
         int strays = 0;
+        int axisZ = 0;
         double fillSum = 0.0;
         // (열, 줄) 격자좌표 한 쌍을 long 하나로 — 음수 열/줄이 있으므로 그냥 곱셈은 못 쓴다.
 
@@ -2977,16 +2978,20 @@ public final class EvoSimCommand {
             java.util.Map<Integer, java.util.List<Integer>> rows = new java.util.TreeMap<>();
             int foul = 0;
             java.util.Set<Long> cells = new java.util.HashSet<>();
+            // 격자 복원은 구획의 <b>축</b>을 따라야 한다(dir 비트2 = 전치). 축을 안 보면 전치된
+            // 구획은 줄 간격이 x 로 벌어져 있는데 z 로 나누게 되어, 타일마다 홀수가 나와
+            // 전부 고랑오염으로 오판된다 — 계측기가 먼저 깨지는 자리다.
+            boolean turnedAxis = (p.dir & 4) != 0;
             for (long l : p.tiles) {
                 BlockPos t = BlockPos.of(l);
-                int dc = t.getX() - p.anchor.getX();
-                int dz = t.getZ() - p.anchor.getZ();
-                if ((dz & 1) != 0) {
+                int along = turnedAxis ? t.getZ() - p.anchor.getZ() : t.getX() - p.anchor.getX();
+                int across = turnedAxis ? t.getX() - p.anchor.getX() : t.getZ() - p.anchor.getZ();
+                if ((across & 1) != 0) {
                     foul++;
                     continue;
                 }
-                rows.computeIfAbsent(dz / 2, k -> new java.util.ArrayList<>()).add(dc);
-                cells.add(cell(dc, dz / 2));
+                rows.computeIfAbsent(across / 2, k -> new java.util.ArrayList<>()).add(along);
+                cells.add(cell(along, across / 2));
             }
             // <b>흩어짐 = 격자 연결성</b>. 앵커 양쪽 점유 여부로 재던 종전 잣대는 못 쓴다:
             // 막힌 구획은 이제 방향을 한 번 트는데, 그러면 앵커 열을 공유한 <b>한 덩어리</b>가
@@ -3029,6 +3034,9 @@ public final class EvoSimCommand {
             totRows += rows.size();
             fillSum += fill;
             counted++;
+            if (turnedAxis) {
+                axisZ++;
+            }
             boolean spread = comp > 1;
             if (spread) {
                 mirrored++;
@@ -3041,7 +3049,8 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), String.format(
                     "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 덩어리%d 고랑오염%d%s§r @%d,%d",
                     flag, p.id, n, rows.size(), minLen == Integer.MAX_VALUE ? 0 : minLen, maxLen,
-                    100 * fill, holes, breaks, rowGaps, comp, foul, p.turned ? " 방향전환" : "",
+                    100 * fill, holes, breaks, rowGaps, comp, foul,
+                    (turnedAxis ? " 줄z축" : " 줄x축") + (p.turned ? "·방향전환" : ""),
                     p.anchor.getX(), p.anchor.getZ()));
         }
         // ── 테두리 검증 ── 덤불 상자 바깥 한 겹이 실제로 흙길인가, 그리고 그것이 남의
@@ -3139,9 +3148,9 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d",
+                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d · 줄방향 x축%d/z축%d",
                 totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBreaks,
-                strays, mirrored, counted, fouled));
+                strays, mirrored, counted, fouled, counted - axisZ, axisZ));
         tell(ctx.getSource(), String.format(
                 "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));

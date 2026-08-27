@@ -888,7 +888,9 @@ public final class FarmTicker {
                                       java.util.List<MimicEntity> adults, byte cur) {
         byte best = cur;
         int bestFree = -1;
-        for (byte d = 0; d < 4; d++) {
+        int off = spin(anchor);
+        for (int i = 0; i < 8; i++) {
+            byte d = (byte) ((i + off) % 8);
             if (d == cur) {
                 continue;
             }
@@ -902,6 +904,21 @@ public final class FarmTicker {
     }
 
     /**
+     * <b>동점을 가르는 시작 방향</b> — 앵커 좌표에서 뽑는다.
+     *
+     * <p>평지에서는 여덟 방향이 전부 같은 점수라, 늘 0번부터 훑으면 첫 번째가 이겨 마을의
+     * 밭이 하나같이 같은 방향으로 눕는다(실측: 9덩어리 전부 x축). 훑는 순서를 구획마다
+     * 돌려 놓으면 개방도가 갈릴 땐 여전히 트인 쪽이 이기고, 엇비슷할 때만 갈린다.
+     *
+     * <p>난수 대신 좌표 해시를 쓰는 이유는 <b>재현</b>이다 — 같은 월드·같은 앵커면 늘 같은
+     * 값이라 A/B 대조 런이 성립한다. {@code level.random} 을 쓰면 런마다 달라져 회귀 판정이
+     * 흐려진다.
+     */
+    private static int spin(BlockPos anchor) {
+        return Math.floorMod(anchor.getX() * 31 + anchor.getZ() * 17, 8);
+    }
+
+    /**
      * <b>성장 방향 고르기</b> — 앵커 둘레 네 사분면 중 7×7 격자가 가장 많이 트인 쪽.
      *
      * <p>구획당 한 번만 부른다. 칸마다 방향을 뒤집던 종전 방식이 흩어짐의 원인이었으므로,
@@ -911,7 +928,9 @@ public final class FarmTicker {
                                 java.util.List<MimicEntity> adults) {
         byte best = 0;
         int bestFree = -1;
-        for (byte d = 0; d < 4; d++) {
+        int off = spin(anchor);
+        for (int i = 0; i < 8; i++) {
+            byte d = (byte) ((i + off) % 8);
             int free = freeIn(level, store, anchor, adults, d);
             if (free > bestFree) {
                 bestFree = free;
@@ -924,15 +943,13 @@ public final class FarmTicker {
     /** 이 방향 7×7 격자에서 실제로 개간 가능한 칸 수. */
     private static int freeIn(ServerLevel level, FarmStore store, BlockPos anchor,
                               java.util.List<MimicEntity> adults, byte d) {
-        int sx = (d & 1) != 0 ? -1 : 1;
-        int sz = (d & 2) != 0 ? -1 : 1;
         int free = 0;
         for (int c = 0; c < 7; c++) {
             for (int r = 0; r < 7; r++) {
                 BlockPos gp = level.getHeightmapPos(
                         net.minecraft.world.level.levelgen.Heightmap.Types
                                 .MOTION_BLOCKING_NO_LEAVES,
-                        anchor.offset(c * sx, 0, r * 2 * sz));
+                        gridOffset(anchor, d, c, r));
                 if (!level.isLoaded(gp) || store.isFarmTile(gp)
                         || nearSomeHome(adults, gp, PLANT_CLEAR)) {
                     continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
@@ -958,14 +975,30 @@ public final class FarmTicker {
      * 종전 방식({@code FarmLayout.mirrors})은 막힌 칸을 앵커 반대편에 놓아 몸통에서 떨어져
      * 나온 타일을 만들었다.
      */
+    /**
+     * <b>격자 좌표 → 월드 위치.</b> 열 c 는 재배줄을 따라, 줄 r 은 고랑을 하나 끼고 나아간다.
+     *
+     * <p>{@link FarmStore.Plot#dir} 의 비트 0·1 은 x·z 부호, <b>비트 2 는 축 전치</b>다.
+     * 전치가 없던 동안에는 부호만 뒤집혀 재배줄이 <b>언제나 동–서</b>였고, 그래서 마을의
+     * 밭이 하나도 빠짐없이 같은 방향으로 누웠다(실측 seed 7 D16: 밭 9덩어리 전부 x축, z축 0).
+     *
+     * <p>이 함수 하나로 배치({@link #idealSpot})와 방향 고르기({@link #freeIn})가 같은 모양을
+     * 보게 묶는다 — 둘이 어긋나면 실제로 못 심을 자리를 트였다고 세게 된다.
+     */
+    private static BlockPos gridOffset(BlockPos anchor, byte dir, int c, int r) {
+        int sx = (dir & 1) != 0 ? -1 : 1;
+        int sz = (dir & 2) != 0 ? -1 : 1;
+        return (dir & 4) != 0
+                ? anchor.offset(r * 2 * sx, 0, c * sz)   // 재배줄 남–북 · 고랑 동–서
+                : anchor.offset(c * sx, 0, r * 2 * sz);  // 재배줄 동–서 · 고랑 남–북
+    }
+
     private static BlockPos idealSpot(ServerLevel level, FarmStore store, FarmStore.Plot plot,
                                       int c, int r, java.util.List<MimicEntity> adults,
                                       java.util.Set<Long> mine) {
-        int sx = (plot.dir & 1) != 0 ? -1 : 1;
-        int sz = (plot.dir & 2) != 0 ? -1 : 1;
         BlockPos gp = level.getHeightmapPos(
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                plot.anchor.offset(c * sx, 0, r * 2 * sz));
+                gridOffset(plot.anchor, plot.dir, c, r));
         if (!level.isLoaded(gp) || mine.contains(gp.asLong()) || store.isFarmTile(gp)
                 || nearSomeHome(adults, gp, PLANT_CLEAR)) {
             return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다

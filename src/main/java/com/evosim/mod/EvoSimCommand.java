@@ -2078,6 +2078,7 @@ public final class EvoSimCommand {
         // 공중 덤프로 눈대중하지 않고 <b>등기부에서 직접</b> 잰다. 정원 열은 뺀다 —
         // 화단 상자는 제 지형 위에 얹혀도 되므로 낙차 판정 대상이 아니다.
         int onWater = 0;
+        int onFluidBase = 0;
         int onCliff = 0;
         int maxSpread = 0;
         for (BlockPos h : all) {
@@ -2129,6 +2130,20 @@ public final class EvoSimCommand {
             if (wet) {
                 onWater++;
             }
+            // <b>물 위에 섰는가</b>는 기초 <b>아래</b>로 판정한다. 발자국 열의 하이트맵은 집이
+            // 서면 지붕을 돌려주므로 그 아래의 물이 보이지 않고, 둘레 한 겹은 "물가에 있다"만
+            // 말해 준다. 둘 다 원래 검증하려던 것을 재지 못한다.
+            int courseW = h.getY() - 1;
+            for (BlockPos col : hb.groundFootprint()) {
+                if (!level.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+                    continue;
+                }
+                if (!level.getBlockState(new BlockPos(col.getX(), courseW - 1, col.getZ()))
+                        .getFluidState().isEmpty()) {
+                    onFluidBase++;
+                    break;
+                }
+            }
             if (hi != Integer.MIN_VALUE) {
                 maxSpread = Math.max(maxSpread, hi - lo);
                 if (hi - lo > 3) {
@@ -2137,8 +2152,8 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "  %s부지(집 둘레 지형) — 물가에 선 집%d · 낙차3 초과%d · 최대낙차%d§r",
-                (onWater + onCliff == 0) ? "§a" : "§c", onWater, onCliff, maxSpread));
+                "  %s부지 — <b>기초 아래가 물인 집%d</b> · 물가에 선 집%d · 낙차3 초과%d · 최대낙차%d§r",
+                onFluidBase == 0 ? "§a" : "§c", onFluidBase, onWater, onCliff, maxSpread));
         // ── 앉음새 ── 평탄화가 충분했는가를 <b>결과로</b> 잰다. 낙차에서 유추하지 않는다.
         //   뜬바닥 = 최하층 블록 <b>아래가 공기</b>인 칸(집이 허공에 떠 있다)
         //   파묻힘 = 최하층 블록 <b>옆 지형이 그보다 높은</b> 칸(벽이 흙에 묻혔다)

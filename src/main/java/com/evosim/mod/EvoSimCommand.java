@@ -2964,6 +2964,8 @@ public final class EvoSimCommand {
         int fouled = 0;
         int strays = 0;
         double fillSum = 0.0;
+        // (열, 줄) 격자좌표 한 쌍을 long 하나로 — 음수 열/줄이 있으므로 그냥 곱셈은 못 쓴다.
+
         int counted = 0;
         tell(ctx.getSource(), String.format("§e[밭형태] 구획%d — 의도: 재배줄+고랑1의 꽉 찬 직사각형",
                 plots.size()));
@@ -2974,7 +2976,7 @@ public final class EvoSimCommand {
             // 격자 복원 — col = x−앵커x, row = (z−앵커z)/2. 나머지가 있으면 고랑 오염이다.
             java.util.Map<Integer, java.util.List<Integer>> rows = new java.util.TreeMap<>();
             int foul = 0;
-            java.util.Set<Integer> quad = new java.util.HashSet<>();
+            java.util.Set<Long> cells = new java.util.HashSet<>();
             for (long l : p.tiles) {
                 BlockPos t = BlockPos.of(l);
                 int dc = t.getX() - p.anchor.getX();
@@ -2984,22 +2986,14 @@ public final class EvoSimCommand {
                     continue;
                 }
                 rows.computeIfAbsent(dz / 2, k -> new java.util.ArrayList<>()).add(dc);
-                // <b>앵커 양쪽에</b> 타일이 있는가 — 이것만이 "흩어졌다"의 정의다.
-                // 부호 조합을 그냥 세면 안 된다: 성장 방향이 음이면 앵커 열(dc=0)이 늘 양수로
-                // 분류되어 멀쩡한 구획도 사분면 2로 찍힌다(실측에서 이 오판을 확인했다).
-                if (dc > 0) {
-                    quad.add(0);
-                }
-                if (dc < 0) {
-                    quad.add(1);
-                }
-                if (dz > 0) {
-                    quad.add(2);
-                }
-                if (dz < 0) {
-                    quad.add(3);
-                }
+                cells.add(cell(dc, dz / 2));
             }
+            // <b>흩어짐 = 격자 연결성</b>. 앵커 양쪽 점유 여부로 재던 종전 잣대는 못 쓴다:
+            // 막힌 구획은 이제 방향을 한 번 트는데, 그러면 앵커 열을 공유한 <b>한 덩어리</b>가
+            // 양쪽에 걸치므로 멀쩡한 구획이 흩어짐으로 찍힌다. 실제로 물어야 할 것은
+            // "몸통이 둘로 갈렸는가"이니, 이웃(열 ±1 같은 줄 / 줄 ±1 같은 열)으로 잇고
+            // 덩어리 수를 센다. 1이면 하나의 밭이다.
+            int comp = components(cells);
             int n = p.tiles.length;
             int holes = 0;
             int breaks = 0;
@@ -3035,9 +3029,7 @@ public final class EvoSimCommand {
             totRows += rows.size();
             fillSum += fill;
             counted++;
-            // 흩어짐 = x 양쪽 모두 점유, 또는 z 양쪽 모두 점유.
-            boolean spread = (quad.contains(0) && quad.contains(1))
-                    || (quad.contains(2) && quad.contains(3));
+            boolean spread = comp > 1;
             if (spread) {
                 mirrored++;
             }
@@ -3047,9 +3039,9 @@ public final class EvoSimCommand {
             String flag = (holes > 0 || breaks > 0 || spread || foul > 0 || rowGaps > 0)
                     ? "§c" : "§a";
             tell(ctx.getSource(), String.format(
-                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 흩어짐%s 고랑오염%d§r @%d,%d",
+                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 덩어리%d 고랑오염%d%s§r @%d,%d",
                     flag, p.id, n, rows.size(), minLen == Integer.MAX_VALUE ? 0 : minLen, maxLen,
-                    100 * fill, holes, breaks, rowGaps, spread ? "예" : "아니오", foul,
+                    100 * fill, holes, breaks, rowGaps, comp, foul, p.turned ? " 방향전환" : "",
                     p.anchor.getX(), p.anchor.getZ()));
         }
         // ── 테두리 검증 ── 덤불 상자 바깥 한 겹이 실제로 흙길인가, 그리고 그것이 남의
@@ -3147,13 +3139,48 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 흩어진구획%d/%d · 고랑오염구획%d",
+                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d",
                 totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBreaks,
                 strays, mirrored, counted, fouled));
         tell(ctx.getSource(), String.format(
                 "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
         return plots.size();
+    }
+
+    /** (열, 줄) 격자좌표를 long 하나로 — 음수가 섞이므로 상위/하위 32비트로 나눠 담는다. */
+    private static long cell(int col, int row) {
+        return ((long) col << 32) ^ (row & 0xffffffffL);
+    }
+
+    /**
+     * 밭 몸통이 몇 덩어리인가 — 격자에서 열 ±1(같은 줄) 또는 줄 ±1(같은 열)이면 이웃이다.
+     *
+     * <p>고랑을 사이에 둔 위아래 줄도 미믹이 건너다니므로 이웃으로 친다(월드 좌표로는 z±2,
+     * 격자로는 줄 ±1). 1이면 하나로 이어진 밭, 2 이상이면 실제로 갈라진 것이다.
+     */
+    private static int components(java.util.Set<Long> cells) {
+        java.util.Set<Long> left = new java.util.HashSet<>(cells);
+        int comp = 0;
+        while (!left.isEmpty()) {
+            comp++;
+            java.util.ArrayDeque<Long> q = new java.util.ArrayDeque<>();
+            long s = left.iterator().next();
+            left.remove(s);
+            q.add(s);
+            while (!q.isEmpty()) {
+                long cur = q.poll();
+                int c = (int) (cur >> 32);
+                int r = (int) cur;
+                long[] nb = {cell(c + 1, r), cell(c - 1, r), cell(c, r + 1), cell(c, r - 1)};
+                for (long n : nb) {
+                    if (left.remove(n)) {
+                        q.add(n);
+                    }
+                }
+            }
+        }
+        return comp;
     }
 
     /** 자연 지형 흙·돌 계열인가 — 집 자재(판자·석재·유리)와 구분해 "파묻힘"을 판정한다. */

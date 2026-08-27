@@ -330,6 +330,27 @@ public final class FarmTicker {
                 redrawBorder(level, store, plot); // 상자가 커졌으면 테두리를 한 겹 물린다
             }
             if (placed == 0) {
+                // <b>막히면 방향을 한 번 튼다.</b> 성장 방향이 집·다른 밭에 막히면 줄이 계단처럼
+                // 짧아지는데(실측: 14구획 중 1개가 줄 길이 9→4→3→2→2, 채움 43%), 거울을 걷어낸
+                // 뒤로는 반대편으로 넘어갈 수단이 없었다.
+                //
+                // 뒤집어도 <b>몸통은 끊기지 않는다</b>. dir 의 x 를 뒤집으면 새 칸은 앵커+(−1,…)
+                // 부터 놓이는데 <b>앵커 열(c=0)은 양쪽이 공유</b>하므로 기존 타일과 맞닿는다.
+                // 칸마다 뒤집던 옛 거울과 달리 구획 단위로 <b>한 번만</b> 트는 것이라, 떨어져
+                // 나온 타일이 생기지 않는다. turned 로 한 번만 허용해 무한 회전을 막는다.
+                if (!plot.turned) {
+                    byte nd = pickDirExcept(level, store, plot.anchor, adults, plot.dir);
+                    if (nd != plot.dir) {
+                        com.evosim.mod.log.SimEvents.note(level, "밭방향", String.format(
+                                "구획 %d 포화 — 성장 방향 %d→%d 로 전환(타일 %d)",
+                                plot.id, plot.dir, nd, plot.tiles.length));
+                        plot.dir = nd;
+                        plot.turned = true;
+                        plot.blockedDays = 0;
+                        store.setDirty();
+                        continue; // 다음 날 새 방향으로 다시 시도한다
+                    }
+                }
                 plot.blockedDays++;
                 store.setDirty();
             } else if (plot.blockedDays != 0) {
@@ -862,6 +883,24 @@ public final class FarmTicker {
     /** 막힌 칸을 만났을 때 이상 수열을 더 훑는 여유분 — 이만큼이면 집 하나쯤은 우회한다. */
     private static final int SCAN_SLACK = 24;
 
+    /** 지금 방향을 뺀 나머지 셋 중 가장 트인 쪽 — 없으면 현재 방향 그대로. */
+    private static byte pickDirExcept(ServerLevel level, FarmStore store, BlockPos anchor,
+                                      java.util.List<MimicEntity> adults, byte cur) {
+        byte best = cur;
+        int bestFree = -1;
+        for (byte d = 0; d < 4; d++) {
+            if (d == cur) {
+                continue;
+            }
+            int free = freeIn(level, store, anchor, adults, d);
+            if (free > bestFree) {
+                bestFree = free;
+                best = d;
+            }
+        }
+        return bestFree <= 0 ? cur : best;
+    }
+
     /**
      * <b>성장 방향 고르기</b> — 앵커 둘레 네 사분면 중 7×7 격자가 가장 많이 트인 쪽.
      *
@@ -873,35 +912,42 @@ public final class FarmTicker {
         byte best = 0;
         int bestFree = -1;
         for (byte d = 0; d < 4; d++) {
-            int sx = (d & 1) != 0 ? -1 : 1;
-            int sz = (d & 2) != 0 ? -1 : 1;
-            int free = 0;
-            for (int c = 0; c < 7; c++) {
-                for (int r = 0; r < 7; r++) {
-                    BlockPos gp = level.getHeightmapPos(
-                            net.minecraft.world.level.levelgen.Heightmap.Types
-                                    .MOTION_BLOCKING_NO_LEAVES,
-                            anchor.offset(c * sx, 0, r * 2 * sz));
-                    if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(adults, gp)) {
-                        continue;
-                    }
-                    var at = level.getBlockState(gp);
-                    var below = level.getBlockState(gp.below());
-                    if ((at.isAir() || at.canBeReplaced())
-                            && (below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
-                            || below.is(net.minecraft.world.level.block.Blocks.DIRT)
-                            || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
-                            || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))) {
-                        free++;
-                    }
-                }
-            }
+            int free = freeIn(level, store, anchor, adults, d);
             if (free > bestFree) {
                 bestFree = free;
                 best = d;
             }
         }
         return best;
+    }
+
+    /** 이 방향 7×7 격자에서 실제로 개간 가능한 칸 수. */
+    private static int freeIn(ServerLevel level, FarmStore store, BlockPos anchor,
+                              java.util.List<MimicEntity> adults, byte d) {
+        int sx = (d & 1) != 0 ? -1 : 1;
+        int sz = (d & 2) != 0 ? -1 : 1;
+        int free = 0;
+        for (int c = 0; c < 7; c++) {
+            for (int r = 0; r < 7; r++) {
+                BlockPos gp = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types
+                                .MOTION_BLOCKING_NO_LEAVES,
+                        anchor.offset(c * sx, 0, r * 2 * sz));
+                if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(adults, gp)) {
+                    continue;
+                }
+                var at = level.getBlockState(gp);
+                var below = level.getBlockState(gp.below());
+                if ((at.isAir() || at.canBeReplaced())
+                        && (below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                        || below.is(net.minecraft.world.level.block.Blocks.DIRT)
+                        || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                        || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))) {
+                    free++;
+                }
+            }
+        }
+        return free;
     }
 
     /**

@@ -2090,18 +2090,37 @@ public final class EvoSimCommand {
             for (BlockPos gc : hb.garden()) {
                 gcol.add(RoadStore.key(gc.getX(), gc.getZ()));
             }
+            // <b>발자국 바깥 한 겹</b>을 본다. 발자국 안쪽은 이미 집이 서 있어 하이트맵이
+            // 지붕을 돌려주므로, 그걸로 낙차를 재면 지형이 아니라 <b>집의 높이 편차</b>를
+            // 재게 된다(이 함정을 실측 직전에 발견했다 — 그 값으로 평탄화 한도를 정할 뻔했다).
+            // 바깥 한 겹은 손대지 않은 땅이라 집이 앉은 경사를 그대로 보여 준다.
+            java.util.Set<Long> foot = new java.util.HashSet<>();
+            for (BlockPos col : hb.groundFootprint()) {
+                foot.add(RoadStore.key(col.getX(), col.getZ()));
+            }
+            java.util.Set<Long> shell = new java.util.HashSet<>();
+            for (BlockPos col : hb.groundFootprint()) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        long k = RoadStore.key(col.getX() + dx, col.getZ() + dz);
+                        if (!foot.contains(k) && !gcol.contains(k)) {
+                            shell.add(k);
+                        }
+                    }
+                }
+            }
             int lo = Integer.MAX_VALUE;
             int hi = Integer.MIN_VALUE;
             boolean wet = false;
-            for (BlockPos col : hb.groundFootprint()) {
-                if (gcol.contains(RoadStore.key(col.getX(), col.getZ()))
-                        || !level.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+            for (long k : shell) {
+                int cxx = RoadStore.keyX(k);
+                int czz = RoadStore.keyZ(k);
+                if (!level.hasChunk(cxx >> 4, czz >> 4)) {
                     continue;
                 }
                 int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
-                        .MOTION_BLOCKING_NO_LEAVES, col.getX(), col.getZ()) - 1;
-                if (!level.getBlockState(new BlockPos(col.getX(), y, col.getZ()))
-                        .getFluidState().isEmpty()) {
+                        .MOTION_BLOCKING_NO_LEAVES, cxx, czz) - 1;
+                if (!level.getBlockState(new BlockPos(cxx, y, czz)).getFluidState().isEmpty()) {
                     wet = true;
                 }
                 lo = Math.min(lo, y);
@@ -2118,7 +2137,7 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "  %s부지 — 물 위에 선 집%d · 낙차3 초과%d · 최대낙차%d§r",
+                "  %s부지(집 둘레 지형) — 물가에 선 집%d · 낙차3 초과%d · 최대낙차%d§r",
                 (onWater + onCliff == 0) ? "§a" : "§c", onWater, onCliff, maxSpread));
         double upkeepDue = 0.0;
         for (BlockPos h : all) {

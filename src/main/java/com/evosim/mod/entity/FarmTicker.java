@@ -381,6 +381,7 @@ public final class FarmTicker {
         // ①c 죽은 타일 정비(A-3) — 블록이 사라진 타일은 무상 재식수, 구조물(천막 등)에 깔려
         //     복구 불능인 타일은 원장에서 소거. 깔린 타일이 원장에 남으면 영구 수확불능인데
         //     부족분 게시(고용 슬롯)만 부풀리는 유령 일자리가 된다(실측: 배정받고 수확 0).
+        java.util.Set<Long> homeCells = homeCells(level);
         for (FarmStore.Plot plot : store.all().values()) {
             // 밭 <b>몸통</b>을 지나는 흙길 정비 — 사라진 덤불을 다시 심는 것과 같은 종류의 일이다.
             //
@@ -396,11 +397,11 @@ public final class FarmTicker {
                 if (!level.isLoaded(pos)) {
                     continue;
                 }
-                // 거처 위에 깔린 타일 소급 정비 — 회피 가드(onSomeHome)는 <b>앞으로</b> 깔리는 것만
+                // 거처 위에 깔린 타일 소급 정비 — 회피 가드(nearSomeHome)는 <b>앞으로</b> 깔리는 것만
                 // 막는다. 이미 남의 천막·입구·모닥불·정원에 박힌 타일은 원장에 남아 계속 재식재되어
                 // 덤불이 되살아나고(귀가·급식 경로 훼손), 부족분 게시만 부풀린다. 블록을 치우고
                 // 원장에서도 소거한다 — 가드 도입 이전에 생성된 월드의 자가 치유 경로.
-                if (onSomeHome(adults, pos)) {
+                if (homeCells.contains(RoadStore.key(pos.getX(), pos.getZ()))) {
                     if (level.getBlockState(pos)
                             .is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)) {
                         level.setBlockAndUpdate(pos,
@@ -1028,11 +1029,41 @@ public final class FarmTicker {
      * dx ±3·dz −2..+3, 정원 폴백은 dx ±4·dz −4..+1이므로 앵커에서 최대 √32 ≈ 5.66이고,
      * 6.5면 어느 facing 이든 전부 덮는다. y 는 지형마다 달라 x·z 평면 거리로만 판정한다.
      */
-    private static boolean onSomeHome(java.util.List<MimicEntity> adults, BlockPos gp) {
-        return nearSomeHome(adults, gp, HOME_CLEAR);
+    /**
+     * <b>거처가 실제로 점유한 칸</b> — 발자국·정원·문앞 계단. 소급 정비는 이것으로 판정한다.
+     *
+     * <p>종전에는 앵커 반경 6.5 로 쟀는데, 발자국·정원이 앵커에서 닿는 최대 거리가 5.66 이라
+     * <b>집 바깥 한 겹까지 덤불을 지웠다</b>. 실측(B런 d7): 집 앵커 (29,−35) 가 서자 그날 밤
+     * 구획 2 의 타일 7칸이 "거처 위"로 소거됐는데, 그중 @25,−30 은 앵커에서 √41 ≈ 6.40 —
+     * <b>집 위가 아니다</b>. 같은 밤 `밭위건축 0`·`부지경고 0` 이었으니 발자국은 겹치지도
+     * 않았다. 근거 없이 밭 면적만 잃던 자리다.
+     *
+     * <p>새로 심는 쪽은 이미 {@link #PLANT_CLEAR} 로 집에서 물러나 있으므로, 정비를 실제
+     * 점유로 좁혀도 덤불이 집으로 기어들지 않는다.
+     */
+    private static java.util.Set<Long> homeCells(ServerLevel level) {
+        java.util.Set<Long> out = new java.util.HashSet<>();
+        HomeStore reg = HomeStore.get(level);
+        for (BlockPos h : reg.positions()) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            for (BlockPos c : bp.groundFootprint()) {
+                out.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.garden()) {
+                out.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.doorSteps()) {
+                out.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+        }
+        return out;
     }
 
-    /** 반경을 골라 쓰는 판정 — 소급 정비는 좁게(HOME_CLEAR), 신규 개간은 넓게(PLANT_CLEAR). */
+    /** 반경 판정 — 앞으로 심을 칸이 어느 거처에 너무 가까운가. 반경은 부르는 쪽이 정한다. */
     private static boolean nearSomeHome(java.util.List<MimicEntity> adults, BlockPos gp,
                                         double clear) {
         for (MimicEntity m : adults) {
@@ -1050,17 +1081,9 @@ public final class FarmTicker {
     }
 
     /**
-     * 거처 회피 반경 — 발자국·정원 폴백이 앵커에서 닿는 최대 거리(√32 ≈ 5.66)의 여유분.
-     *
-     * <p>이 값은 <b>소급 정비 전용</b>으로 남긴다. 넓히면 이미 자란 밭에서 거처 6.5~그 사이의
-     * 타일이 한꺼번에 소거되어 밭 면적이 줄기 때문이다("밭의 양은 줄지 않게").
-     */
-    private static final double HOME_CLEAR = 6.5;
-
-    /**
      * <b>신규 개간 회피 반경</b> — 새로 심는 칸은 여기까지 물러선다.
      *
-     * <p>HOME_CLEAR 6.5 는 <b>앵커 기준</b>인데 발자국·정원이 이미 앵커에서 5.66 까지 뻗는다.
+     * <p>종전 회피 반경 6.5 는 <b>앵커 기준</b>인데 발자국·정원이 이미 앵커에서 5.66 까지 뻗는다.
      * 그래서 집 바깥 칸에서 실효 여유가 0.84 밖에 안 되고, 덤불이 집 벽에 그대로 맞붙었다.
      * 실측(seed 7 D16): 집 22채의 가장 가까운 밭까지 거리 최소 1 · 중앙 6, 거리 2 이하 2채.
      * 그 자리엔 밭 제 테두리(흙길 한 겹)조차 못 깔려 가로등·집과 겹쳐 보였다

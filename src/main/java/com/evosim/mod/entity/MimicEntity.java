@@ -1736,6 +1736,15 @@ public class MimicEntity extends PathfinderMob {
      * 다듬으면 된다.
      */
     private static final int MAX_FLATTEN = 3;
+    /**
+     * <b>메움</b>은 파냄보다 넉넉히 허용한다 — 기초 아래를 채우는 것은 실제 시공에서도 하는
+     * 일(주춧돌·기단)이지만, 언덕을 깎아 내는 것은 사용자가 명시적으로 배제한 "땅 파헤치기"다.
+     *
+     * <p>근거는 실측이다. 최선 후보 선택으로 부지 낙차가 32에서 6~10으로 내려온 뒤에도
+     * 산지에서 <b>뜬바닥 19칸(집 2채)</b>이 남았다 — 기초 아래가 공기인 칸이다. 파냄 한도는
+     * 3으로 두고 메움만 늘려 그 칸들을 받친다.
+     */
+    private static final int MAX_FILL = 6;
     /** 부지가 허용하는 발자국 낙차(최고−최저). 넘으면 절벽으로 보고 다른 자리를 뽑는다. */
     private static final int MAX_SITE_SLOPE = 3;
     private static final net.minecraft.world.level.levelgen.Heightmap.Types SURFACE_MAP =
@@ -1815,7 +1824,7 @@ public class MimicEntity extends PathfinderMob {
             }
             int surface = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
             if (surface < target) {
-                for (int y = Math.max(surface + 1, target - MAX_FLATTEN); y <= target; y++) {
+                for (int y = Math.max(surface + 1, target - MAX_FILL); y <= target; y++) {
                     BlockPos p = new BlockPos(col.getX(), y, col.getZ());
                     if (isFillable(sl.getBlockState(p))) {
                         sl.setBlockAndUpdate(p, Blocks.DIRT.defaultBlockState());

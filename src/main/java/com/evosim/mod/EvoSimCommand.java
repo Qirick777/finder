@@ -2153,6 +2153,10 @@ public final class EvoSimCommand {
             }
             HomeBlueprint hb = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
             int course = h.getY() - 1; // 도면 최하층
+            java.util.Set<Long> foot = new java.util.HashSet<>();
+            for (BlockPos col : hb.groundFootprint()) {
+                foot.add(RoadStore.key(col.getX(), col.getZ()));
+            }
             int fl = 0;
             int bu = 0;
             for (BlockPos col : hb.groundFootprint()) {
@@ -2162,9 +2166,22 @@ public final class EvoSimCommand {
                 if (level.getBlockState(new BlockPos(col.getX(), course - 1, col.getZ())).isAir()) {
                     fl++;
                 }
-                int around = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
-                        .MOTION_BLOCKING_NO_LEAVES, col.getX(), col.getZ()) - 1;
-                if (around > course + 1) {
+                // 파묻힘은 <b>바깥 이웃 땅</b>으로 판정한다. 이 열의 하이트맵을 읽으면 이미 선
+                // 집의 지붕이 잡혀 벽 있는 열이 전부 파묻힘으로 세어진다(실측에서 91칸이
+                // 그렇게 나왔다 — 낙차 지표에서 고친 것과 같은 함정을 반복했다).
+                int high = 0;
+                for (int[] d : com.evosim.mod.entity.RoadPlanner.D4) {
+                    int nx = col.getX() + d[0];
+                    int nz = col.getZ() + d[1];
+                    if (foot.contains(RoadStore.key(nx, nz))
+                            || !level.hasChunk(nx >> 4, nz >> 4)) {
+                        continue;
+                    }
+                    high = Math.max(high, level.getHeight(
+                            net.minecraft.world.level.levelgen.Heightmap.Types
+                                    .MOTION_BLOCKING_NO_LEAVES, nx, nz) - 1);
+                }
+                if (high > course + 1) {
                     bu++;
                 }
             }

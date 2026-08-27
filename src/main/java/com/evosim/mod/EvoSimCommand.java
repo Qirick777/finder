@@ -2204,6 +2204,49 @@ public final class EvoSimCommand {
                 "  %s앉음새 — 뜬바닥 %d칸(집%d) · 파묻힘 %d칸(집%d) / 등기%d§r",
                 (floatCol + buriedCol == 0) ? "§a" : "§c",
                 floatCol, floatHomes, buriedCol, buriedHomes, all.size()));
+        // ── 집–밭 거리 ── 등기부와 밭 원장을 <b>직접</b> 맞대 잰다. 공중격자에서 재던 종전
+        // 방식은 집 정원도 밭과 같은 스위트베리라 둘을 못 가렸고, 정원을 떼어내려 넣은
+        // 어림(작은 덩어리 = 정원)이 이번엔 z축 밭을 잘게 쪼개 먹었다(실측 B런 D16:
+        // 등기 타일 349 인데 격자 추정 316). 추정을 더 손보는 것보다 원본을 보는 것이 맞다.
+        FarmStore fsD = FarmStore.get(level);
+        java.util.List<Integer> gaps = new java.util.ArrayList<>();
+        for (BlockPos h : all) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint bp = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            int best = Integer.MAX_VALUE;
+            for (FarmStore.Plot p : fsD.all().values()) {
+                for (long l : p.tiles) {
+                    BlockPos t = BlockPos.of(l);
+                    for (BlockPos c : bp.groundFootprint()) {
+                        int d = Math.max(Math.abs(t.getX() - c.getX()),
+                                Math.abs(t.getZ() - c.getZ()));
+                        if (d < best) {
+                            best = d;
+                        }
+                    }
+                }
+            }
+            if (best != Integer.MAX_VALUE) {
+                gaps.add(best);
+            }
+        }
+        if (!gaps.isEmpty()) {
+            java.util.Collections.sort(gaps);
+            int tight = 0;
+            for (int g : gaps) {
+                if (g <= 2) {
+                    tight++;
+                }
+            }
+            tell(ctx.getSource(), String.format(
+                    "  %s밭까지 — 최소%d 중앙%d 최대%d · 2칸 이하 %d채 / 집%d§r",
+                    tight == 0 ? "§a" : "§c",
+                    gaps.get(0), gaps.get(gaps.size() / 2), gaps.get(gaps.size() - 1),
+                    tight, gaps.size()));
+        }
         double upkeepDue = 0.0;
         for (BlockPos h : all) {
             upkeepDue += reg.entry(h).upkeepDue();

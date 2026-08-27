@@ -2181,22 +2181,13 @@ public final class EvoSimCommand {
                 if (level.getBlockState(new BlockPos(col.getX(), course - 1, col.getZ())).isAir()) {
                     fl++;
                 }
-                // 파묻힘은 <b>바깥 이웃 땅</b>으로 판정한다. 이 열의 하이트맵을 읽으면 이미 선
-                // 집의 지붕이 잡혀 벽 있는 열이 전부 파묻힘으로 세어진다(실측에서 91칸이
-                // 그렇게 나왔다 — 낙차 지표에서 고친 것과 같은 함정을 반복했다).
-                int high = 0;
-                for (int[] d : com.evosim.mod.entity.RoadPlanner.D4) {
-                    int nx = col.getX() + d[0];
-                    int nz = col.getZ() + d[1];
-                    if (foot.contains(RoadStore.key(nx, nz))
-                            || !level.hasChunk(nx >> 4, nz >> 4)) {
-                        continue;
-                    }
-                    high = Math.max(high, level.getHeight(
-                            net.minecraft.world.level.levelgen.Heightmap.Types
-                                    .MOTION_BLOCKING_NO_LEAVES, nx, nz) - 1);
-                }
-                if (high > course + 1) {
+                // 파묻힘은 <b>높이 비교로 재지 않는다.</b> 하이트맵은 이 열의 지붕을, 이웃
+                // 열의 나무·다른 집·밭 테두리 꼭대기를 돌려주므로 어느 쪽으로 재도 허수가
+                // 나온다(같은 함정을 네 번 밟았다 — 낙차·파묻힘 두 판·물 판정).
+                // 대신 <b>벽 높이에 자연 흙이 박혀 있는가</b>를 직접 본다. 집 자재는 판자·석재라
+                // 헷갈릴 여지가 없고, 지형이 벽을 덮었을 때만 참이 된다.
+                if (isNaturalGround(level.getBlockState(
+                        new BlockPos(col.getX(), course + 1, col.getZ())))) {
                     bu++;
                 }
             }
@@ -3163,6 +3154,16 @@ public final class EvoSimCommand {
                 "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
         return plots.size();
+    }
+
+    /** 자연 지형 흙·돌 계열인가 — 집 자재(판자·석재·유리)와 구분해 "파묻힘"을 판정한다. */
+    private static boolean isNaturalGround(net.minecraft.world.level.block.state.BlockState st) {
+        return st.is(Blocks.DIRT) || st.is(Blocks.GRASS_BLOCK) || st.is(Blocks.COARSE_DIRT)
+                || st.is(Blocks.PODZOL) || st.is(Blocks.ROOTED_DIRT) || st.is(Blocks.STONE)
+                || st.is(Blocks.DEEPSLATE) || st.is(Blocks.TUFF) || st.is(Blocks.ANDESITE)
+                || st.is(Blocks.DIORITE) || st.is(Blocks.GRANITE) || st.is(Blocks.SAND)
+                || st.is(Blocks.GRAVEL) || st.is(Blocks.CLAY) || st.is(Blocks.SNOW_BLOCK)
+                || st.is(Blocks.POWDER_SNOW) || st.is(Blocks.PACKED_ICE) || st.is(Blocks.MOSS_BLOCK);
     }
 
     /** 이 열의 지표 블록 — 길은 지표에 깔리므로 y 를 하이트맵에서 찾는다. */

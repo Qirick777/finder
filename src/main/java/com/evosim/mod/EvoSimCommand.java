@@ -2074,6 +2074,52 @@ public final class EvoSimCommand {
                 minGap == Double.MAX_VALUE ? -1.0 : minGap,
                 MimicEntity.requiredGap(level, com.evosim.mod.entity.HomeTemplate.Tier.SMALL
                         .designs[0]), gapPair));
+        // ── 부지 검증 ── 집이 물 위에 섰는가, 절벽에 박혔는가, 땅을 얼마나 파헤쳤는가.
+        // 공중 덤프로 눈대중하지 않고 <b>등기부에서 직접</b> 잰다. 정원 열은 뺀다 —
+        // 화단 상자는 제 지형 위에 얹혀도 되므로 낙차 판정 대상이 아니다.
+        int onWater = 0;
+        int onCliff = 0;
+        int maxSpread = 0;
+        for (BlockPos h : all) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint hb = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            java.util.Set<Long> gcol = new java.util.HashSet<>();
+            for (BlockPos gc : hb.garden()) {
+                gcol.add(RoadStore.key(gc.getX(), gc.getZ()));
+            }
+            int lo = Integer.MAX_VALUE;
+            int hi = Integer.MIN_VALUE;
+            boolean wet = false;
+            for (BlockPos col : hb.groundFootprint()) {
+                if (gcol.contains(RoadStore.key(col.getX(), col.getZ()))
+                        || !level.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+                    continue;
+                }
+                int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                        .MOTION_BLOCKING_NO_LEAVES, col.getX(), col.getZ()) - 1;
+                if (!level.getBlockState(new BlockPos(col.getX(), y, col.getZ()))
+                        .getFluidState().isEmpty()) {
+                    wet = true;
+                }
+                lo = Math.min(lo, y);
+                hi = Math.max(hi, y);
+            }
+            if (wet) {
+                onWater++;
+            }
+            if (hi != Integer.MIN_VALUE) {
+                maxSpread = Math.max(maxSpread, hi - lo);
+                if (hi - lo > 3) {
+                    onCliff++;
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  %s부지 — 물 위에 선 집%d · 낙차3 초과%d · 최대낙차%d§r",
+                (onWater + onCliff == 0) ? "§a" : "§c", onWater, onCliff, maxSpread));
         double upkeepDue = 0.0;
         for (BlockPos h : all) {
             upkeepDue += reg.entry(h).upkeepDue();

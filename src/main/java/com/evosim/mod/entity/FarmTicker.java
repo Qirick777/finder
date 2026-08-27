@@ -787,11 +787,17 @@ public final class FarmTicker {
         for (long k : ringOf(minX, minZ, maxX, maxZ)) {
             int x = RoadStore.keyX(k);
             int z = RoadStore.keyZ(k);
-            if (ob.blocked(x, z)) {
-                continue; // 집 지면층·문앞 계단·정원·다른 밭 몸통 — 길과 같은 금지 출처
-            }
-            if (store.isFarmTile(new BlockPos(x, 0, z)) || store.isFarmBody(x, z)) {
-                continue; // 남의 밭(또는 내 몸통) 위에는 안 그린다
+            if (ob.blocked(x, z) || store.isFarmTile(new BlockPos(x, 0, z))
+                    || store.isFarmBody(x, z)) {
+                // 집 지면층·문앞 계단·정원·가로등·다른 밭 — 길과 같은 금지 출처.
+                // <b>이미 깔려 있던 테두리는 걷어낸다.</b> 테두리를 그린 뒤에 그 자리에 집이
+                // 서거나 남의 밭이 넓어질 수 있는데(집 부지 판정은 밭 <b>타일</b>만 보므로
+                // 계단 구획의 빈 상자 안에 합법적으로 집이 들어선다 — 실측), 건너뛰기만 하면
+                // 그 아래 흙길이 잔재로 남는다. 등기된 마을 길은 물론 건드리지 않는다.
+                if (!roads.has(x, z)) {
+                    unpaveTo(level, x, z);
+                }
+                continue;
             }
             int y = RoadPlanner.surfaceY(level, x, z);
             if (y == Integer.MIN_VALUE) {

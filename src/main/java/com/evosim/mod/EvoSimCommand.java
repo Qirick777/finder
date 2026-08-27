@@ -2139,6 +2139,48 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format(
                 "  %s부지(집 둘레 지형) — 물가에 선 집%d · 낙차3 초과%d · 최대낙차%d§r",
                 (onWater + onCliff == 0) ? "§a" : "§c", onWater, onCliff, maxSpread));
+        // ── 앉음새 ── 평탄화가 충분했는가를 <b>결과로</b> 잰다. 낙차에서 유추하지 않는다.
+        //   뜬바닥 = 최하층 블록 <b>아래가 공기</b>인 칸(집이 허공에 떠 있다)
+        //   파묻힘 = 최하층 블록 <b>옆 지형이 그보다 높은</b> 칸(벽이 흙에 묻혔다)
+        int floatCol = 0;
+        int buriedCol = 0;
+        int floatHomes = 0;
+        int buriedHomes = 0;
+        for (BlockPos h : all) {
+            HomeStore.Entry e = reg.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint hb = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            int course = h.getY() - 1; // 도면 최하층
+            int fl = 0;
+            int bu = 0;
+            for (BlockPos col : hb.groundFootprint()) {
+                if (!level.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+                    continue;
+                }
+                if (level.getBlockState(new BlockPos(col.getX(), course - 1, col.getZ())).isAir()) {
+                    fl++;
+                }
+                int around = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
+                        .MOTION_BLOCKING_NO_LEAVES, col.getX(), col.getZ()) - 1;
+                if (around > course + 1) {
+                    bu++;
+                }
+            }
+            floatCol += fl;
+            buriedCol += bu;
+            if (fl > 0) {
+                floatHomes++;
+            }
+            if (bu > 0) {
+                buriedHomes++;
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  %s앉음새 — 뜬바닥 %d칸(집%d) · 파묻힘 %d칸(집%d) / 등기%d§r",
+                (floatCol + buriedCol == 0) ? "§a" : "§c",
+                floatCol, floatHomes, buriedCol, buriedHomes, all.size()));
         double upkeepDue = 0.0;
         for (BlockPos h : all) {
             upkeepDue += reg.entry(h).upkeepDue();

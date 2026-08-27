@@ -531,6 +531,44 @@ public class MimicEntity extends PathfinderMob {
      * <p>이제 후보들 중 <b>그나마 가장 평평한 곳</b>을 고른다. 평지에서는 첫 후보가 0점이라
      * 종전과 같고, 산지에서는 근방 최선이 뽑힌다.
      */
+    /** 밭·물처럼 <b>양보할 수 없는</b> 결함의 점수. 절벽은 낙차로 환산되므로 이 값에 안 닿는다. */
+    private static final int HARD_FAULT = 1_000_000;
+
+    /**
+     * <b>부지 후보 중 최선</b> — 밭·물이면 링을 넓혀 다시 뽑는다.
+     *
+     * <p>종전에는 같은 링에서 아홉 번 뽑고 전패해도 마지막 최선을 그대로 수용했다. 이웃이
+     * 온통 밭이면 링 위 어디도 밭이라 <b>전패가 기본</b>이 되고, 집이 밭을 깔고 앉았다.
+     * 실측: d12 "밭 위 — 승격 이사, 후보 중 최선(점수 1000000) 수용" 뒤로 밤마다 정비가
+     * 그 자리 타일을 지워(이 런에서 37칸) 구획 1이 57→33타일로 줄었고, 밭이 자라면 다시
+     * 지워지는 순환이 생겼다. 방향전환까지 이 포화에 딸려 발동했다.
+     *
+     * <p>자리가 없으면 <b>더 걸어 나간다</b> — 지위로 분기하지 않고 거리만 늘리는 해법이다.
+     * 링을 간격의 두 배씩 최대 세 번 넓히고, 치명 결함이 사라지면 즉시 멈춘다. 평지에서
+     * 첫 후보가 0점이면 종전과 완전히 같은 경로다(넓히는 순환에 아예 안 들어간다).
+     */
+    private int[] bestSite(ServerLevel sl, int[] center, int y, int dist, int gap,
+                           List<int[]> existing, DeterministicRng rng,
+                           String design, byte rot, boolean mir) {
+        int[] best = null;
+        int bestScore = Integer.MAX_VALUE;
+        for (int widen = 0; widen < 4; widen++) {
+            int d = dist + widen * gap * 2;
+            for (int attempt = 0; attempt < 9 && bestScore > 0; attempt++) {
+                int[] cand = Settlement.placeHome(center, d, existing, gap, rng);
+                int sc = siteScore(sl, new BlockPos(cand[0], y, cand[1]), design, rot, mir);
+                if (sc < bestScore) {
+                    bestScore = sc;
+                    best = cand;
+                }
+            }
+            if (bestScore < HARD_FAULT) {
+                break; // 밭·물이 아니면 넓힐 이유가 없다 — 낙차는 근방 최선으로 족하다
+            }
+        }
+        return best;
+    }
+
     private static int siteScore(ServerLevel sl, BlockPos site, String design, byte rot,
                                  boolean mir) {
         String f = siteFault(sl, site, design, rot, mir);
@@ -1363,23 +1401,12 @@ public class MimicEntity extends PathfinderMob {
         boolean mir = getRandom().nextBoolean();
         int gap = requiredGap(sl, design);
         int dist = Math.max(plan.distance(), gap); // 링 반경 < 간격이면 첫 링이 통째로 탈락한다
-        int[] pos = Settlement.placeHome(new int[] {anchor[0], anchor[2]}, dist, existing, gap, rng);
-        // A-1 부지 검증 — 밭·물·절벽을 피해 재추첨(최대 8회, 전패 시 마지막 후보 수용·로그).
-        int[] bestPos = pos;
-        int bestScore = siteScore(sl, new BlockPos(pos[0], anchor[1], pos[1]), design, rot, mir);
-        for (int attempt = 0; attempt < 8 && bestScore > 0; attempt++) {
-            int[] cand = Settlement.placeHome(new int[] {anchor[0], anchor[2]},
-                    dist, existing, gap, rng);
-            int sc = siteScore(sl, new BlockPos(cand[0], anchor[1], cand[1]), design, rot, mir);
-            if (sc < bestScore) {
-                bestScore = sc;
-                bestPos = cand;
-            }
-        }
-        pos = bestPos;
+        // A-1 부지 검증 — 밭·물·절벽을 피해 재추첨하고, 밭·물이면 링을 넓혀 더 나간다.
+        int[] pos = bestSite(sl, new int[] {anchor[0], anchor[2]}, anchor[1], dist, gap,
+                existing, rng, design, rot, mir);
         String fault = siteFault(sl, new BlockPos(pos[0], anchor[1], pos[1]), design, rot, mir);
         if (fault != null) {
-            SimEvents.event(this, "부지경고", fault + " — 후보 중 최선(점수 " + bestScore + ") 수용");
+            SimEvents.event(this, "부지경고", fault + " — 링을 넓혀도 못 피함, 수용");
         }
         // 기단 높이 = 발자국 지형 '중앙값'에 맞춤(파묻힘·공중부양 방지). 낮은 칸은 흙으로 메운다.
         BlockPos site = new BlockPos(pos[0], anchor[1], pos[1]);
@@ -3676,26 +3703,14 @@ public class MimicEntity extends PathfinderMob {
             int gap = requiredGap(sl, design);
             List<int[]> existing = collectExistingHomes(sl, oldHome.getX(), oldHome.getZ());
             DeterministicRng rng = new DeterministicRng(getRandom().nextLong());
-            int[] xz = Settlement.placeHome(new int[] {oldHome.getX(), oldHome.getZ()},
-                    gap, existing, gap, rng);
             // 부지 검증은 혼인 신축과 <b>같은 판정</b>을 쓴다 — 밭·물·절벽. 여기만 밭으로
-            // 두면 저택이 호수 위에 서는 길이 그대로 남는다.
-            int[] bu = xz;
-            int bs = siteScore(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
-            for (int attempt = 0; attempt < 8 && bs > 0; attempt++) {
-                int[] cand = Settlement.placeHome(new int[] {oldHome.getX(), oldHome.getZ()},
-                        gap, existing, gap, rng);
-                int sc = siteScore(sl, new BlockPos(cand[0], oldHome.getY(), cand[1]),
-                        design, rot, mir);
-                if (sc < bs) {
-                    bs = sc;
-                    bu = cand;
-                }
-            }
-            xz = bu;
+            // 두면 저택이 호수 위에 서는 길이 그대로 남는다. 승격은 제 밭 한복판에서 일어나
+            // 세 경로 중 밭에 부딪힐 일이 가장 잦다(실측: 이 결함이 나온 자리가 여기다).
+            int[] xz = bestSite(sl, new int[] {oldHome.getX(), oldHome.getZ()}, oldHome.getY(),
+                    gap, gap, existing, rng, design, rot, mir);
             String fu = siteFault(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
             if (fu != null) {
-                SimEvents.event(this, "부지경고", fu + " — 승격 이사, 후보 중 최선(점수 " + bs + ") 수용");
+                SimEvents.event(this, "부지경고", fu + " — 승격 이사, 링을 넓혀도 못 피함, 수용");
             }
             int baseY = terrainBaseY(sl, HomeBlueprint.of(sl,
                     new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir));
@@ -3862,25 +3877,12 @@ public class MimicEntity extends PathfinderMob {
         byte rot = (byte) getRandom().nextInt(4);
         boolean mir = getRandom().nextBoolean();
         int gap = requiredGap(sl, design);
-        int[] xz = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, gap,
-                existingNear, gap, rng);
         // A-1 부지 검증 — 이주 신축도 혼인 신축과 동일 규칙(밭·물·절벽).
-        int[] bm = xz;
-        int bms = siteScore(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
-        for (int attempt = 0; attempt < 8 && bms > 0; attempt++) {
-            int[] cand = Settlement.placeHome(new int[] {dest.getX(), dest.getZ()}, gap,
-                    existingNear, gap, rng);
-            int sc = siteScore(sl, new BlockPos(cand[0], oldHome.getY(), cand[1]),
-                    design, rot, mir);
-            if (sc < bms) {
-                bms = sc;
-                bm = cand;
-            }
-        }
-        xz = bm;
+        int[] xz = bestSite(sl, new int[] {dest.getX(), dest.getZ()}, oldHome.getY(), gap, gap,
+                existingNear, rng, design, rot, mir);
         String fm = siteFault(sl, new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir);
         if (fm != null) {
-            SimEvents.event(this, "부지경고", fm + " — 기근 이주, 후보 중 최선(점수 " + bms + ") 수용");
+            SimEvents.event(this, "부지경고", fm + " — 기근 이주, 링을 넓혀도 못 피함, 수용");
         }
         int baseY = terrainBaseY(sl, HomeBlueprint.of(sl,
                 new BlockPos(xz[0], oldHome.getY(), xz[1]), design, rot, mir));

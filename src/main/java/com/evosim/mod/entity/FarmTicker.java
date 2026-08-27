@@ -368,6 +368,8 @@ public final class FarmTicker {
             // 남아 있었다. 밭은 재배줄 + 고랑 구조라 길이 줄 사이에 갇힐 수 있고, 그 칸은
             // 타일이 아니어서 타일 순회로는 영영 안 잡힌다.
             com.evosim.mod.entity.MimicEntity.tidyFarmRoads(level, plot);
+            // 테두리도 매일 한 번 훑는다 — 그릴 당시 막혔던 칸이 풀리면 그때 메워진다.
+            redrawBorder(level, store, plot);
             for (int i = plot.tiles.length - 1; i >= 0; i--) {
                 BlockPos pos = BlockPos.of(plot.tiles[i]);
                 if (!level.isLoaded(pos)) {
@@ -760,13 +762,11 @@ public final class FarmTicker {
             minZ = Math.min(minZ, t.getZ());
             maxZ = Math.max(maxZ, t.getZ());
         }
-        if (minX == plot.ringMinX && maxX == plot.ringMaxX
-                && minZ == plot.ringMinZ && maxZ == plot.ringMaxZ) {
-            return; // 상자 그대로 — 다시 그릴 것이 없다
-        }
+        boolean grew = minX != plot.ringMinX || maxX != plot.ringMaxX
+                || minZ != plot.ringMinZ || maxZ != plot.ringMaxZ;
         RoadStore roads = RoadStore.get(level);
-        // ① 옛 테두리 중 새 테두리가 아닌 칸만 되돌린다. 넓게 훑어 지우면 마을 길까지 지운다.
-        if (plot.ringMaxX >= plot.ringMinX) {
+        // ① 옛 테두리 철거는 <b>상자가 바뀐 때만</b>. 넓게 훑어 지우면 마을 길까지 지운다.
+        if (grew && plot.ringMaxX >= plot.ringMinX) {
             for (long k : ringOf(plot.ringMinX, plot.ringMinZ, plot.ringMaxX, plot.ringMaxZ)) {
                 int x = RoadStore.keyX(k);
                 int z = RoadStore.keyZ(k);
@@ -779,7 +779,10 @@ public final class FarmTicker {
                 unpaveTo(level, x, z);
             }
         }
-        // ② 새 테두리를 깐다.
+        // ② 새 테두리를 깐다. <b>상자가 그대로여도 매번 훑는다.</b> 그리지 못한 칸이
+        // 생길 수 있기 때문이다 — 그릴 당시 남의 밭 몸통이었다가 그 타일이 죽어 자유로워지는
+        // 경우가 실제로 있었다(실측: D16 에 한 구획 왼쪽 모서리 7칸이 맨흙·잔디로 남았고,
+        // 상자가 안 바뀌어 영영 재시도되지 않았다). 포장은 멱등이라 이미 깔린 칸은 건너뛴다.
         RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(level);
         for (long k : ringOf(minX, minZ, maxX, maxZ)) {
             int x = RoadStore.keyX(k);
@@ -795,6 +798,9 @@ public final class FarmTicker {
                 continue; // 물·용암·미로드 청크
             }
             BlockPos g = new BlockPos(x, y, z);
+            if (level.getBlockState(g).is(net.minecraft.world.level.block.Blocks.DIRT_PATH)) {
+                continue; // 이미 깔려 있다
+            }
             if (!RoadPlanner.pavable(level, g)) {
                 continue; // 모래·자갈·돌 — 길과 같은 한계를 공유한다
             }
@@ -802,11 +808,13 @@ public final class FarmTicker {
                     net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                             | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
         }
-        plot.ringMinX = minX;
-        plot.ringMinZ = minZ;
-        plot.ringMaxX = maxX;
-        plot.ringMaxZ = maxZ;
-        store.setDirty();
+        if (grew) {
+            plot.ringMinX = minX;
+            plot.ringMinZ = minZ;
+            plot.ringMaxX = maxX;
+            plot.ringMaxZ = maxZ;
+            store.setDirty();
+        }
     }
 
     /** 덤불 상자 바깥 한 겹의 칸들(모서리 포함). */

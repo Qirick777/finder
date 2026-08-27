@@ -43,6 +43,19 @@ public class FarmStore extends SavedData {
         /** 이 방향으로 더는 못 자라 방향을 튼 적이 있나 — 무한 회전을 막는다. */
         public boolean turned = false;
 
+        /**
+         * <b>마지막으로 그린 테두리의 덤불 상자</b>(minX, minZ, maxX, maxZ) — 없으면 ringMinX &gt; ringMaxX.
+         *
+         * <p>밭이 자라면 테두리도 한 겹 바깥으로 물러나야 하는데, 옛 테두리를 지우지 않으면
+         * 안쪽에 동심원처럼 겹겹이 남는다. 그렇다고 매번 넓은 범위를 훑어 지우면 <b>마을 길을
+         * 같이 지울</b> 위험이 있다. 그래서 직전 상자를 기억해 두고 <b>옛 테두리 − 새 테두리</b>
+         * 차집합만 정확히 되돌린다.
+         */
+        public int ringMinX = 0;
+        public int ringMinZ = 0;
+        public int ringMaxX = -1; // minX > maxX = "아직 그린 적 없음"
+        public int ringMaxZ = -1;
+
         // ── 밭 원장(봉건 집중 P3) — 관측 전용 누계. 시뮬 결정에는 관여하지 않음(땅 문서 GUI 표시원). ──
         public long founderId;         // 최초 개간자 개체 id(상속·선점으로 ownerId가 바뀌어도 고정)
         public long foundedDay = -1L;  // 개간 게임일(-1=구세계 로드로 불명)
@@ -676,6 +689,15 @@ public class FarmStore extends SavedData {
             p.vacantSince = c.contains("Vacant") ? c.getLong("Vacant") : -1L;
             p.dir = c.getByte("Dir");
             p.turned = c.getBoolean("Turned");
+            if (c.contains("Ring")) {
+                int[] r = c.getIntArray("Ring");
+                if (r.length == 4) {
+                    p.ringMinX = r[0];
+                    p.ringMinZ = r[1];
+                    p.ringMaxX = r[2];
+                    p.ringMaxZ = r[3];
+                }
+            }
             // 밭 원장(P3) — 구세계 로드는 기본값(founder=owner, day=-1, 누계 0).
             p.founderId = c.contains("Founder") ? c.getLong("Founder") : p.ownerId;
             p.foundedDay = c.contains("FDay") ? c.getLong("FDay") : -1L;
@@ -722,6 +744,10 @@ public class FarmStore extends SavedData {
             // 밭 원장(P3)
             c.putByte("Dir", p.dir);
             c.putBoolean("Turned", p.turned);
+            if (p.ringMaxX >= p.ringMinX) {
+                c.putIntArray("Ring",
+                        new int[] {p.ringMinX, p.ringMinZ, p.ringMaxX, p.ringMaxZ});
+            }
             c.putLong("Founder", p.founderId);
             c.putLong("FDay", p.foundedDay);
             c.putLong("TByF", p.tilesByFounder);

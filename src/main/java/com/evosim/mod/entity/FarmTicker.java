@@ -326,6 +326,9 @@ public final class FarmTicker {
             }
             // 공간 포화 감지 — 자금·노동은 있었는데 한 칸도 못 심음. 2일 연속이면 성숙 간주(막힌
             // 밭도 다음 밭을 연다 — 교착 방지). 심었으면 리셋.
+            if (placed > 0) {
+                redrawBorder(level, store, plot); // 상자가 커졌으면 테두리를 한 겹 물린다
+            }
             if (placed == 0) {
                 plot.blockedDays++;
                 store.setDirty();
@@ -552,6 +555,7 @@ public final class FarmTicker {
                 store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
                 com.evosim.mod.entity.MimicEntity.farmTookRoad(level, m, plot, gp);
             }
+            redrawBorder(level, store, plot); // 착공 즉시 경계가 보이게
             larders.set(m.getHomePos(), funds - cost);
             if (familyLord != null) {
                 plot.stewardDebt = cost; // 착공비 상환 채무(영주→마름, 밤 정산 이월)
@@ -727,6 +731,118 @@ public final class FarmTicker {
         int permTenants = level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getTenantFarm() == pid).size();
         return nextFarmBlock(np, permTenants);
+    }
+
+    /**
+     * <b>밭 테두리 다시 그리기</b> — 덤불 상자 바로 바깥 한 겹을 흙길로. 상자가 안 바뀌었으면 무동작.
+     *
+     * <p>테두리는 <b>길이자 경계</b>다. 재배줄은 x 방향으로 빈틈이 없어서 고랑에서 고랑으로 가려면
+     * 줄 끝을 돌아야 하는데, 그 끝이 덤불과 딱 붙어 있으면 지나는 개체가 스위트베리에 <b>피해를
+     * 입고 느려진다</b>. 한 겹 흙길이 그 손해를 없애면서 동시에 "여기까지가 이 밭"을 보여 준다.
+     * 울타리가 아니라 흙길인 이유는 ① 통행을 막지 않아 문이 필요 없고 ② 마을 길과 같은 블록이라
+     * 자연히 이어지며 ③ 이미 있는 포장 판정을 그대로 쓰기 때문이다.
+     *
+     * <p><b>도로망에 등기하지 않는다.</b> 등기하면 밭이 자라 제 테두리를 삼킬 때마다 "밭이 길을
+     * 먹었다"로 잡혀 우회로 로직이 헛돈다. 생김새만 흙길이고 도로망의 일원은 아니다.
+     */
+    static void redrawBorder(ServerLevel level, FarmStore store, FarmStore.Plot plot) {
+        if (plot.tiles.length == 0) {
+            return;
+        }
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (long l : plot.tiles) {
+            BlockPos t = BlockPos.of(l);
+            minX = Math.min(minX, t.getX());
+            maxX = Math.max(maxX, t.getX());
+            minZ = Math.min(minZ, t.getZ());
+            maxZ = Math.max(maxZ, t.getZ());
+        }
+        if (minX == plot.ringMinX && maxX == plot.ringMaxX
+                && minZ == plot.ringMinZ && maxZ == plot.ringMaxZ) {
+            return; // 상자 그대로 — 다시 그릴 것이 없다
+        }
+        RoadStore roads = RoadStore.get(level);
+        // ① 옛 테두리 중 새 테두리가 아닌 칸만 되돌린다. 넓게 훑어 지우면 마을 길까지 지운다.
+        if (plot.ringMaxX >= plot.ringMinX) {
+            for (long k : ringOf(plot.ringMinX, plot.ringMinZ, plot.ringMaxX, plot.ringMaxZ)) {
+                int x = RoadStore.keyX(k);
+                int z = RoadStore.keyZ(k);
+                if (onRing(x, z, minX, minZ, maxX, maxZ)) {
+                    continue; // 새 테두리이기도 하다 — 그대로 둔다
+                }
+                if (roads.has(x, z)) {
+                    continue; // <b>등기된 마을 길은 건드리지 않는다</b>
+                }
+                unpaveTo(level, x, z);
+            }
+        }
+        // ② 새 테두리를 깐다.
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(level);
+        for (long k : ringOf(minX, minZ, maxX, maxZ)) {
+            int x = RoadStore.keyX(k);
+            int z = RoadStore.keyZ(k);
+            if (ob.blocked(x, z)) {
+                continue; // 집 지면층·문앞 계단·정원·다른 밭 몸통 — 길과 같은 금지 출처
+            }
+            if (store.isFarmTile(new BlockPos(x, 0, z)) || store.isFarmBody(x, z)) {
+                continue; // 남의 밭(또는 내 몸통) 위에는 안 그린다
+            }
+            int y = RoadPlanner.surfaceY(level, x, z);
+            if (y == Integer.MIN_VALUE) {
+                continue; // 물·용암·미로드 청크
+            }
+            BlockPos g = new BlockPos(x, y, z);
+            if (!RoadPlanner.pavable(level, g)) {
+                continue; // 모래·자갈·돌 — 길과 같은 한계를 공유한다
+            }
+            level.setBlock(g, net.minecraft.world.level.block.Blocks.DIRT_PATH.defaultBlockState(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        plot.ringMinX = minX;
+        plot.ringMinZ = minZ;
+        plot.ringMaxX = maxX;
+        plot.ringMaxZ = maxZ;
+        store.setDirty();
+    }
+
+    /** 덤불 상자 바깥 한 겹의 칸들(모서리 포함). */
+    private static java.util.List<Long> ringOf(int minX, int minZ, int maxX, int maxZ) {
+        java.util.List<Long> out = new java.util.ArrayList<>();
+        for (int x = minX - 1; x <= maxX + 1; x++) {
+            out.add(RoadStore.key(x, minZ - 1));
+            out.add(RoadStore.key(x, maxZ + 1));
+        }
+        for (int z = minZ; z <= maxZ; z++) {
+            out.add(RoadStore.key(minX - 1, z));
+            out.add(RoadStore.key(maxX + 1, z));
+        }
+        return out;
+    }
+
+    private static boolean onRing(int x, int z, int minX, int minZ, int maxX, int maxZ) {
+        boolean inX = x >= minX - 1 && x <= maxX + 1;
+        boolean inZ = z >= minZ - 1 && z <= maxZ + 1;
+        boolean edge = x == minX - 1 || x == maxX + 1 || z == minZ - 1 || z == maxZ + 1;
+        return inX && inZ && edge;
+    }
+
+    /** 이 열의 흙길을 잔디로 되돌린다(테두리 철거 전용 — 등기된 길은 호출 전에 걸러진다). */
+    private static void unpaveTo(ServerLevel level, int x, int z) {
+        int y = RoadPlanner.surfaceY(level, x, z);
+        if (y == Integer.MIN_VALUE) {
+            return;
+        }
+        BlockPos g = new BlockPos(x, y, z);
+        if (!level.getBlockState(g).is(net.minecraft.world.level.block.Blocks.DIRT_PATH)) {
+            return;
+        }
+        level.setBlock(g, net.minecraft.world.level.block.Blocks.GRASS_BLOCK.defaultBlockState(),
+                net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                        | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
     }
 
     /** 막힌 칸을 만났을 때 이상 수열을 더 훑는 여유분 — 이만큼이면 집 하나쯤은 우회한다. */

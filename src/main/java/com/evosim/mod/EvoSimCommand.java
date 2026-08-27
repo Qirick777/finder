@@ -2922,6 +2922,78 @@ public final class EvoSimCommand {
                     100 * fill, holes, breaks, rowGaps, spread ? "예" : "아니오", foul,
                     p.anchor.getX(), p.anchor.getZ()));
         }
+        // ── 테두리 검증 ── 덤불 상자 바깥 한 겹이 실제로 흙길인가, 그리고 그것이 남의
+        // 것(집 지면·문앞 계단·정원·다른 밭)을 덮지 않았는가. 아울러 옛 테두리가 몸통 안에
+        // 남아 있지는 않은가(밭이 자랄 때 한 겹 물리지 못하면 동심원처럼 겹겹이 남는다).
+        RoadStore roadsB = RoadStore.get(level);
+        RoadPlanner.Obstacles obB = RoadPlanner.Obstacles.of(level);
+        HomeStore regB = HomeStore.get(level);
+        java.util.Set<Long> homeCols = new java.util.HashSet<>();
+        java.util.Set<Long> stepCols = new java.util.HashSet<>();
+        java.util.Set<Long> gardenCols = new java.util.HashSet<>();
+        for (BlockPos h : regB.positions()) {
+            HomeStore.Entry e = regB.entry(h);
+            if (e == null) {
+                continue;
+            }
+            HomeBlueprint hb = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
+            for (BlockPos c : hb.groundFootprint()) {
+                homeCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : hb.doorSteps()) {
+                stepCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : hb.garden()) {
+                gardenCols.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+        }
+        int ringOk = 0;
+        int ringMiss = 0;
+        int ringBad = 0;
+        int ringStale = 0;
+        for (FarmStore.Plot p : plots) {
+            if (p.tiles.length == 0) {
+                continue;
+            }
+            int aX = Integer.MAX_VALUE;
+            int bX = Integer.MIN_VALUE;
+            int aZ = Integer.MAX_VALUE;
+            int bZ = Integer.MIN_VALUE;
+            for (long l : p.tiles) {
+                BlockPos t = BlockPos.of(l);
+                aX = Math.min(aX, t.getX());
+                bX = Math.max(bX, t.getX());
+                aZ = Math.min(aZ, t.getZ());
+                bZ = Math.max(bZ, t.getZ());
+            }
+            for (int x = aX - 1; x <= bX + 1; x++) {
+                for (int z = aZ - 1; z <= bZ + 1; z++) {
+                    boolean edge = x == aX - 1 || x == bX + 1 || z == aZ - 1 || z == bZ + 1;
+                    BlockPos g = surfaceNear(level, x, z);
+                    boolean path = g != null && level.getBlockState(g).is(Blocks.DIRT_PATH);
+                    if (edge) {
+                        if (path) {
+                            ringOk++;
+                            if (homeCols.contains(RoadStore.key(x, z))
+                                    || stepCols.contains(RoadStore.key(x, z))
+                                    || gardenCols.contains(RoadStore.key(x, z))
+                                    || farms.isFarmTile(new BlockPos(x, 0, z))) {
+                                ringBad++;
+                            }
+                        } else if (g != null && RoadPlanner.pavable(level, g)
+                                && !obB.blocked(x, z)) {
+                            ringMiss++; // 깔 수 있는 땅인데 안 깔렸다
+                        }
+                    } else if (path && !roadsB.has(x, z) && farms.isFarmBody(x, z)) {
+                        ringStale++; // 몸통 안에 남은 흙길 — 옛 테두리이거나 못 치운 길
+                    }
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  %s테두리 — 깔린칸%d · 결손%d · 침범%d · 몸통내잔여%d§r",
+                (ringBad + ringStale == 0) ? "§a" : "§c", ringOk, ringMiss, ringBad, ringStale));
+
         // 구획끼리 얼마나 붙어 있나 — 각각 반듯해도 맞닿으면 위에서 한 덩어리로 읽힌다.
         int touching = 0;
         double minGap = Double.MAX_VALUE;

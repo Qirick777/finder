@@ -573,9 +573,42 @@ public class MimicEntity extends PathfinderMob {
                                  boolean mir) {
         String f = siteFault(sl, site, design, rot, mir);
         if (f != null) {
-            return f.startsWith("절벽") ? spreadOf(sl, site, design, rot, mir) : 1_000_000;
+            return f.startsWith("절벽") ? spreadOf(sl, site, design, rot, mir) : HARD_FAULT;
         }
-        return spreadOf(sl, site, design, rot, mir);
+        return spreadOf(sl, site, design, rot, mir) + farmPenalty(sl, site);
+    }
+
+    /** 집이 밭에서 물러설 거리 — 밭 쪽 PLANT_CLEAR(8)와 대칭. 발자국 5.66 + 테두리 1 + 통로 1. */
+    private static final int FARM_CLEAR = 8;
+
+    /** 밭 한 칸을 침범할 때마다 무는 벌점 — 낙차(보통 0~10)를 압도하되 HARD_FAULT 에는 못 미친다. */
+    private static final int FARM_PENALTY = 100;
+
+    /**
+     * <b>밭 근접 벌점</b> — 밭 위가 아니어도 딱 붙으면 감점한다.
+     *
+     * <p>종전 판정은 겹치는지만 물었다. 그래서 밭 가장자리에 벽을 맞대고 짓는 것이 만점이었고,
+     * 그 집이 밭의 성장 방향을 막아 줄이 계단처럼 짧아졌다(실측: 구획 1 이 집에 먹혀 33타일에서
+     * 포화, d13 방향전환). 거부가 아니라 <b>점수</b>로 두는 이유는, 마을이 빽빽해 8칸을 못 띄우는
+     * 상황에서도 집은 지어져야 하기 때문이다 — 그때는 그나마 가장 먼 후보가 뽑힌다.
+     */
+    private static int farmPenalty(ServerLevel sl, BlockPos site) {
+        FarmStore store = FarmStore.get(sl);
+        int near = FARM_CLEAR;
+        for (FarmStore.Plot p : store.all().values()) {
+            for (long l : p.tiles) {
+                BlockPos t = BlockPos.of(l);
+                int d = Math.max(Math.abs(t.getX() - site.getX()),
+                        Math.abs(t.getZ() - site.getZ()));
+                if (d < near) {
+                    near = d;
+                    if (near == 0) {
+                        return FARM_CLEAR * FARM_PENALTY;
+                    }
+                }
+            }
+        }
+        return (FARM_CLEAR - near) * FARM_PENALTY;
     }
 
     /** 발자국(정원 제외) 지표의 최고−최저. 판단 불가면 0. */

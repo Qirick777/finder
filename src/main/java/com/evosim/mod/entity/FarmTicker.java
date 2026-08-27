@@ -933,8 +933,9 @@ public final class FarmTicker {
                         net.minecraft.world.level.levelgen.Heightmap.Types
                                 .MOTION_BLOCKING_NO_LEAVES,
                         anchor.offset(c * sx, 0, r * 2 * sz));
-                if (!level.isLoaded(gp) || store.isFarmTile(gp) || onSomeHome(adults, gp)) {
-                    continue;
+                if (!level.isLoaded(gp) || store.isFarmTile(gp)
+                        || nearSomeHome(adults, gp, PLANT_CLEAR)) {
+                    continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
                 }
                 var at = level.getBlockState(gp);
                 var below = level.getBlockState(gp.below());
@@ -966,8 +967,8 @@ public final class FarmTicker {
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 plot.anchor.offset(c * sx, 0, r * 2 * sz));
         if (!level.isLoaded(gp) || mine.contains(gp.asLong()) || store.isFarmTile(gp)
-                || onSomeHome(adults, gp)) {
-            return null;
+                || nearSomeHome(adults, gp, PLANT_CLEAR)) {
+            return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다
         }
         var at = level.getBlockState(gp);
         var below = level.getBlockState(gp.below());
@@ -995,6 +996,12 @@ public final class FarmTicker {
      * 6.5면 어느 facing 이든 전부 덮는다. y 는 지형마다 달라 x·z 평면 거리로만 판정한다.
      */
     private static boolean onSomeHome(java.util.List<MimicEntity> adults, BlockPos gp) {
+        return nearSomeHome(adults, gp, HOME_CLEAR);
+    }
+
+    /** 반경을 골라 쓰는 판정 — 소급 정비는 좁게(HOME_CLEAR), 신규 개간은 넓게(PLANT_CLEAR). */
+    private static boolean nearSomeHome(java.util.List<MimicEntity> adults, BlockPos gp,
+                                        double clear) {
         for (MimicEntity m : adults) {
             BlockPos h = m.getHomePos();
             if (h == null) {
@@ -1002,15 +1009,35 @@ public final class FarmTicker {
             }
             double dx = h.getX() - gp.getX();
             double dz = h.getZ() - gp.getZ();
-            if (dx * dx + dz * dz < HOME_CLEAR * HOME_CLEAR) {
+            if (dx * dx + dz * dz < clear * clear) {
                 return true;
             }
         }
         return false;
     }
 
-    /** 거처 회피 반경 — 발자국·정원 폴백이 앵커에서 닿는 최대 거리(√32 ≈ 5.66)의 여유분. */
+    /**
+     * 거처 회피 반경 — 발자국·정원 폴백이 앵커에서 닿는 최대 거리(√32 ≈ 5.66)의 여유분.
+     *
+     * <p>이 값은 <b>소급 정비 전용</b>으로 남긴다. 넓히면 이미 자란 밭에서 거처 6.5~그 사이의
+     * 타일이 한꺼번에 소거되어 밭 면적이 줄기 때문이다("밭의 양은 줄지 않게").
+     */
     private static final double HOME_CLEAR = 6.5;
+
+    /**
+     * <b>신규 개간 회피 반경</b> — 새로 심는 칸은 여기까지 물러선다.
+     *
+     * <p>HOME_CLEAR 6.5 는 <b>앵커 기준</b>인데 발자국·정원이 이미 앵커에서 5.66 까지 뻗는다.
+     * 그래서 집 바깥 칸에서 실효 여유가 0.84 밖에 안 되고, 덤불이 집 벽에 그대로 맞붙었다.
+     * 실측(seed 7 D16): 집 22채의 가장 가까운 밭까지 거리 최소 1 · 중앙 6, 거리 2 이하 2채.
+     * 그 자리엔 밭 제 테두리(흙길 한 겹)조차 못 깔려 가로등·집과 겹쳐 보였다
+     * (실측: 밭 (1,0,42) — 가로등 기둥 (3,0,42) 사이 (2,−1,42) 가 잔디).
+     *
+     * <p>5.66(발자국 도달) + 1(밭 테두리) + 1(지나다닐 한 칸) ≈ 7.7 → 8.0.
+     * 막힌 칸은 이상 수열의 다음 칸으로 건너뛰므로(SCAN_SLACK 24) 면적이 아니라
+     * <b>자리만</b> 바깥으로 밀린다.
+     */
+    private static final double PLANT_CLEAR = 8.0;
 
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,

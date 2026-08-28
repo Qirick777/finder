@@ -100,6 +100,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("farmshape").executes(EvoSimCommand::farmShape))
+                .then(Commands.literal("selfcheck").executes(EvoSimCommand::selfCheck))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -3198,6 +3199,39 @@ public final class EvoSimCommand {
                 "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
         return plots.size();
+    }
+
+    /**
+     * <b>성능 변경 자체 점검</b> — 빠른 경로와 옛 기준 구현을 같은 순간에 나란히 돌려 비교한다.
+     *
+     * <p>"미믹의 결과가 안 바뀐다"는 주장을 논증이 아니라 <b>수치</b>로 확인하기 위한 것이다.
+     * 관리 효율 E 는 수확 배분에 직접 곱해지므로, 여기서 한 건이라도 어긋나면 미믹의 벌이가
+     * 달라진다. 전 구획을 비트 단위로 비교해 최대 오차를 보고한다.
+     */
+    private static int selfCheck(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore farms = FarmStore.get(level);
+        int n = 0;
+        int bad = 0;
+        double worst = 0.0;
+        String worstAt = "-";
+        for (FarmStore.Plot p : farms.all().values()) {
+            double fast = farms.plotEfficiency(level, p);
+            double slow = farms.plotEfficiencySlow(level, p);
+            n++;
+            if (Double.compare(fast, slow) != 0) {
+                bad++;
+                double d = Math.abs(fast - slow);
+                if (d > worst) {
+                    worst = d;
+                    worstAt = String.format("구획%d(빠름 %.10f / 기준 %.10f)", p.id, fast, slow);
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "%s[자체점검] 관리효율 E — 구획 %d 중 불일치 %d · 최대오차 %.12f · %s§r",
+                bad == 0 ? "§a" : "§c", n, bad, worst, bad == 0 ? "전부 비트 단위 일치" : worstAt));
+        return n;
     }
 
     /** (열, 줄) 격자좌표를 long 하나로 — 음수가 섞이므로 상위/하위 32비트로 나눠 담는다. */

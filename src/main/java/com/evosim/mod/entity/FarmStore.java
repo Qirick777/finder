@@ -455,19 +455,98 @@ public class FarmStore extends SavedData {
      * 만족. 무마름 밭은 지주의 무마름 타일 합 기준(위임분 제외 — 이중 페널티 방지).
      */
     public double plotEfficiency(ServerLevel level, Plot p) {
+        return plotEfficiency(scanOnce(level), p);
+    }
+
+    /**
+     * <b>한 번의 순회로 모은 인구 색인</b> — 지주·마름 조회와 구획별 소작 수를 한꺼번에 담는다.
+     *
+     * <p>{@link #plotEfficiency}는 수확에 성공할 때마다 불리는데(<code>MimicFarmGoal</code>),
+     * 종전에는 같은 순간의 같은 데이터를 <b>구획 수 + 3</b>번 나눠 읽었다 — 지주 1, 마름 1,
+     * 이 구획 소작 1, 그리고 {@link #workedUnstewarded}가 구획마다 다시 1씩. 구획이 늘수록
+     * 수확 한 번의 비용이 함께 늘어, 밭이 무한히 커진다는 규칙4·5와 정확히 같은 축으로 자랐다.
+     *
+     * <p>읽는 <b>시점과 내용은 그대로</b>다. 캐시가 아니라 한 번에 읽는 것이므로 낡은 값을 쓸
+     * 여지가 없다. 술어도 같고, 구획 id 는 1부터 발급되므로(nextId=1) 소작 미배정(0) 버킷이
+     * 구획 id 와 겹치지 않는다.
+     */
+    private static final class Census {
+        final java.util.HashMap<Long, MimicEntity> byId = new java.util.HashMap<>();
+        final java.util.HashMap<Long, Integer> tenants = new java.util.HashMap<>();
+
+        MimicEntity find(long id) {
+            return id == 0L ? null : byId.get(id);
+        }
+
+        int tenantsOn(long plotId) {
+            return tenants.getOrDefault(plotId, 0);
+        }
+    }
+
+    private Census scanOnce(ServerLevel level) {
+        Census c = new Census();
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            c.byId.putIfAbsent(m.getIndividual().id(), m); // 종전 findEntity 와 같은 "첫 일치"
+            c.tenants.merge(m.getTenantFarm(), 1, Integer::sum);
+        }
+        return c;
+    }
+
+    private double plotEfficiency(Census c, Plot p) {
+        MimicEntity ownerEnt = c.find(p.ownerId);
+        int worked = workedTiles(c, p);
+        if (p.stewardId != 0L) {
+            MimicEntity stw = c.find(p.stewardId);
+            double stewardE = stw != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+                    stw.getIndividual(), worked) : 0.0;
+            double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+                    ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId) + worked) : 0.0;
+            double e = Math.max(stewardE, ownerFloor);
+            return e > 0.0 ? e : 1.0; // 양쪽 미로드 — 무penalty 폴백
+        }
+        return ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+                ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId)) : 1.0;
+    }
+
+    /**
+     * <b>대조용 기준 구현</b> — 단일 순회로 바꾸기 전의 계산을 그대로 남겨 둔 것.
+     *
+     * <p>성능 변경이 미믹의 결과를 바꾸지 않았는지 <b>실제로</b> 확인하려면 논증만으로는 모자란다.
+     * {@code /evosim selfcheck} 가 같은 월드·같은 순간에 이 함수와 {@link #plotEfficiency}를
+     * 나란히 돌려 전 구획의 값을 비교한다. 한 건이라도 어긋나면 그 자리에서 드러난다.
+     * 확인이 끝나면 이 셋(이 함수·{@link #findEntity}·아래 {@code tenantsOn})은 지운다.
+     */
+    public double plotEfficiencySlow(ServerLevel level, Plot p) {
         MimicEntity ownerEnt = findEntity(level, p.ownerId);
-        int worked = workedTiles(level, p);
+        int worked = workedTilesSlow(level, p);
         if (p.stewardId != 0L) {
             MimicEntity stw = findEntity(level, p.stewardId);
             double stewardE = stw != null ? com.evosim.core.FarmEconomy.manageEfficiency(
                     stw.getIndividual(), worked) : 0.0;
             double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                    ownerEnt.getIndividual(), workedUnstewarded(level, p.ownerId) + worked) : 0.0;
+                    ownerEnt.getIndividual(), workedUnstewardedSlow(level, p.ownerId) + worked)
+                    : 0.0;
             double e = Math.max(stewardE, ownerFloor);
-            return e > 0.0 ? e : 1.0; // 양쪽 미로드 — 무penalty 폴백
+            return e > 0.0 ? e : 1.0;
         }
         return ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                ownerEnt.getIndividual(), workedUnstewarded(level, p.ownerId)) : 1.0;
+                ownerEnt.getIndividual(), workedUnstewardedSlow(level, p.ownerId)) : 1.0;
+    }
+
+    private int workedTilesSlow(ServerLevel level, Plot p) {
+        int labor = com.evosim.core.FarmEconomy.C_BASE * (1 + tenantsOn(level, p.id));
+        return Math.min(p.tiles.length, labor);
+    }
+
+    private int workedUnstewardedSlow(ServerLevel level, long ownerId) {
+        int n = 0;
+        for (Plot p : plots.values()) {
+            if (p.ownerId == ownerId && p.stewardId == 0L) {
+                n += workedTilesSlow(level, p);
+            }
+        }
+        return n;
     }
 
     /** 이 구획에 배정된 상시 소작 수 — 실경작 타일 산정 입력. */
@@ -491,17 +570,17 @@ public class FarmStore extends SavedData {
      * 구획별로 마름 용량이 적용돼(max(마름E, 지주E)) 캡을 넘는다 — <b>조직을 키우면 무한히 커진다</b>는
      * 봉건 서사가 그대로 엔진이 된다. 죽어 있던 마름 제도가 여기서 실제 기능을 얻는다.
      */
-    private int workedTiles(ServerLevel level, Plot p) {
-        int labor = com.evosim.core.FarmEconomy.C_BASE * (1 + tenantsOn(level, p.id));
+    private int workedTiles(Census c, Plot p) {
+        int labor = com.evosim.core.FarmEconomy.C_BASE * (1 + c.tenantsOn(p.id));
         return Math.min(p.tiles.length, labor);
     }
 
     /** 무마름 구획들의 실경작 타일 합 — 지주가 직접 지는 관리 부담(위임분 제외). */
-    private int workedUnstewarded(ServerLevel level, long ownerId) {
+    private int workedUnstewarded(Census c, long ownerId) {
         int n = 0;
         for (Plot p : plots.values()) {
             if (p.ownerId == ownerId && p.stewardId == 0L) {
-                n += workedTiles(level, p);
+                n += workedTiles(c, p);
             }
         }
         return n;

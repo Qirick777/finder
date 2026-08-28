@@ -142,6 +142,49 @@ public final class RoadPlanner {
             cache = null;
         }
 
+        /**
+         * <b>집 한 채가 막는 열쇠들</b> — 지면층 발자국 + 문 앞 계단. 집마다 캐시한다.
+         *
+         * <p>{@link #build}는 20틱마다 도는데, 종전에는 집집마다 {@link HomeBlueprint#of}를 불러
+         * <b>도면 전체</b>(배치 목록과 리스트 예닐곱 개, 저택은 수백 블록)를 새로 만들고는
+         * 그중 두 리스트만 읽고 버렸다. 실제로 필요한 것은 여기 담긴 {@code long} 몇십 개뿐이다.
+         *
+         * <p>값이 안 바뀌는 근거: {@code HomeBlueprint.of}는 월드를 읽지 않는다(블록 조회·
+         * 하이트맵·난수 0건). 오직 (위치·도면·회전·반전)으로 결정되므로, 열쇠에 그 넷을 모두
+         * 넣으면 재사용되는 항목은 <b>어차피 내용이 같은</b> 항목뿐이다.
+         *
+         * <p>도면 객체 자체가 아니라 {@code long} 목록만 붙드는 이유는 메모리다 — 도면을 캐시하면
+         * 금방 회수될 쓰레기를 오히려 상주시킨다. 또 등기된 집만 열쇠가 되므로, 부지 후보를
+         * 위치마다 평가하는 경로가 캐시를 오염시키지 않는다.
+         */
+        private static final java.util.HashMap<String, long[]> HOME_KEYS = new java.util.HashMap<>();
+
+        private static long[] homeKeys(ServerLevel sl, BlockPos h, HomeStore.Entry e) {
+            String ck = h.asLong() + "|" + e.design() + '|' + e.rotation() + '|' + e.mirrored();
+            long[] hit = HOME_KEYS.get(ck);
+            if (hit != null) {
+                return hit;
+            }
+            HomeBlueprint bp = HomeBlueprint.of(sl, h, e.design(), e.rotation(), e.mirrored());
+            java.util.LinkedHashSet<Long> keys = new java.util.LinkedHashSet<>();
+            for (BlockPos c : bp.groundFootprint()) {
+                keys.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            for (BlockPos c : bp.doorSteps()) {
+                keys.add(RoadStore.key(c.getX(), c.getZ()));
+            }
+            long[] made = new long[keys.size()];
+            int i = 0;
+            for (long k : keys) {
+                made[i++] = k;
+            }
+            if (HOME_KEYS.size() >= 4096) {
+                HOME_KEYS.clear(); // 이사·재건축이 오래 쌓인 경우에만 — 다음 번에 다시 채워진다
+            }
+            HOME_KEYS.put(ck, made);
+            return made;
+        }
+
         private static Obstacles build(ServerLevel sl) {
             Obstacles ob = new Obstacles();
             HomeStore reg = HomeStore.get(sl);
@@ -150,12 +193,8 @@ public final class RoadPlanner {
                 if (e == null) {
                     continue;
                 }
-                HomeBlueprint bp = HomeBlueprint.of(sl, h, e.design(), e.rotation(), e.mirrored());
-                for (BlockPos c : bp.groundFootprint()) {
-                    ob.hard.add(RoadStore.key(c.getX(), c.getZ()));
-                }
-                for (BlockPos c : bp.doorSteps()) {
-                    ob.hard.add(RoadStore.key(c.getX(), c.getZ()));
+                for (long k : homeKeys(sl, h, e)) {
+                    ob.hard.add(k);
                 }
             }
             // 가로등 기둥 — 울타리라 통행을 막는다. 등은 길 바깥에 서지만, 나중에 나는 길이

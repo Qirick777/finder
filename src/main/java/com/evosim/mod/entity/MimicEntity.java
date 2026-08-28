@@ -571,11 +571,16 @@ public class MimicEntity extends PathfinderMob {
 
     private static int siteScore(ServerLevel sl, BlockPos site, String design, byte rot,
                                  boolean mir) {
-        String f = siteFault(sl, site, design, rot, mir);
+        // 도면과 밭까지의 거리를 <b>한 번만</b> 구해 아래로 넘긴다. 종전에는 후보 하나를 재는 데
+        // 도면을 넷(부지판정 안 2, 낙차 1, 밭벌점 1) 만들고 밭 타일을 두 번 훑었다 — 후보가
+        // 최대 36개이므로 배치 한 번에 도면 144개·전수 훑기 72회였다. 값은 그대로다.
+        HomeBlueprint bp = HomeBlueprint.of(sl, site, design, rot, mir);
+        int gap = farmGap(sl, bp);
+        String f = siteFault(sl, bp, gap);
         if (f != null) {
-            return f.startsWith("절벽") ? spreadOf(sl, site, design, rot, mir) : HARD_FAULT;
+            return f.startsWith("절벽") ? spreadOf(sl, bp) : HARD_FAULT;
         }
-        return spreadOf(sl, site, design, rot, mir) + farmPenalty(sl, site, design, rot, mir);
+        return spreadOf(sl, bp) + (gap >= FARM_CLEAR ? 0 : (FARM_CLEAR - gap) * FARM_PENALTY);
     }
 
     /** 집이 밭에서 물러설 거리 — 밭 쪽 PLANT_CLEAR(8)와 대칭. 발자국 5.66 + 테두리 1 + 통로 1. */
@@ -592,11 +597,6 @@ public class MimicEntity extends PathfinderMob {
      * 포화, d13 방향전환). 거부가 아니라 <b>점수</b>로 두는 이유는, 마을이 빽빽해 8칸을 못 띄우는
      * 상황에서도 집은 지어져야 하기 때문이다 — 그때는 그나마 가장 먼 후보가 뽑힌다.
      */
-    private static int farmPenalty(ServerLevel sl, BlockPos site, String design, byte rot,
-                                   boolean mir) {
-        int near = farmGap(sl, HomeBlueprint.of(sl, site, design, rot, mir));
-        return near >= FARM_CLEAR ? 0 : (FARM_CLEAR - near) * FARM_PENALTY;
-    }
 
     /**
      * <b>발자국에서 가장 가까운 밭 타일까지의 거리</b>(체비셰프). 밭이 없으면 큰 값.
@@ -651,7 +651,10 @@ public class MimicEntity extends PathfinderMob {
     /** 발자국(정원 제외) 지표의 최고−최저. 판단 불가면 0. */
     private static int spreadOf(ServerLevel sl, BlockPos site, String design, byte rot,
                                 boolean mir) {
-        HomeBlueprint bp = HomeBlueprint.of(sl, site, design, rot, mir);
+        return spreadOf(sl, HomeBlueprint.of(sl, site, design, rot, mir));
+    }
+
+    private static int spreadOf(ServerLevel sl, HomeBlueprint bp) {
         java.util.Set<Long> garden = new java.util.HashSet<>();
         for (BlockPos gcell : bp.garden()) {
             garden.add(net.minecraft.core.BlockPos.asLong(gcell.getX(), 0, gcell.getZ()));
@@ -673,11 +676,14 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     private static String siteFault(ServerLevel sl, BlockPos site, String design, byte rot,
                                     boolean mir) {
-        if (homeSiteOnFarm(sl, site, design, rot, mir)) {
+        HomeBlueprint bp = HomeBlueprint.of(sl, site, design, rot, mir);
+        return siteFault(sl, bp, farmGap(sl, bp));
+    }
+
+    private static String siteFault(ServerLevel sl, HomeBlueprint bp, int fg) {
+        if (onFarm(sl, bp)) {
             return "밭 위";
         }
-        HomeBlueprint bp = HomeBlueprint.of(sl, site, design, rot, mir);
-        int fg = farmGap(sl, bp);
         if (fg < MIN_FARM_GAP) {
             return String.format("밭에 붙음(%d칸)", fg);
         }

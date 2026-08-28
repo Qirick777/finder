@@ -200,13 +200,22 @@ public final class RoadPlanner {
             // 가로등 기둥 — 울타리라 통행을 막는다. 등은 길 바깥에 서지만, 나중에 나는 길이
             // 그 칸을 지나면 새 길 한복판에 기둥이 박힌다. 길이 알아서 비껴가게 둔다.
             ob.hard.addAll(LampPlanner.postColumns(sl));
-            for (long l : FarmStore.get(sl).bodyColumns()) {
-                ob.hard.add(l);
+            // 밭 몸통과 그 둘레(NEAR_R)를 부드러운 회피로 표시한다.
+            //
+            // 몸통 칸은 <b>넣지 않는다</b> — 바로 위에서 hard 에 들어갔고 아래 removeAll 로
+            // 어차피 빠진다. 몸통 칸마다 25개씩 넣던 것이 태반 이 경우였다(칸 수백 개면 만
+            // 단위의 Long 박싱). 결과 집합은 그대로다.
+            java.util.Set<Long> body = FarmStore.get(sl).bodyColumns();
+            ob.hard.addAll(body);
+            for (long l : body) {
                 int x = RoadStore.keyX(l);
                 int z = RoadStore.keyZ(l);
                 for (int ax = -NEAR_R; ax <= NEAR_R; ax++) {
                     for (int az = -NEAR_R; az <= NEAR_R; az++) {
-                        ob.soft.add(RoadStore.key(x + ax, z + az));
+                        long k = RoadStore.key(x + ax, z + az);
+                        if (!body.contains(k)) {
+                            ob.soft.add(k);
+                        }
                     }
                 }
             }

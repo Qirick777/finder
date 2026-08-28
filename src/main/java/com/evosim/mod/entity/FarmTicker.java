@@ -1082,20 +1082,85 @@ public final class FarmTicker {
     /** 반경 판정 — 앞으로 심을 칸이 어느 거처에 너무 가까운가. 반경은 부르는 쪽이 정한다. */
     private static boolean nearSomeHome(ServerLevel level, java.util.List<MimicEntity> adults,
                                         BlockPos gp, double margin) {
-        HomeStore reg = HomeStore.get(level);
-        for (MimicEntity m : adults) {
-            BlockPos h = m.getHomePos();
-            if (h == null) {
-                continue;
-            }
-            double clear = Math.max(margin, homeReach(level, reg, h) + PLANT_MARGIN);
-            double dx = h.getX() - gp.getX();
-            double dz = h.getZ() - gp.getZ();
-            if (dx * dx + dz * dz < clear * clear) {
-                return true;
-            }
+        return index(level, adults, margin).near(gp);
+    }
+
+    /**
+     * <b>거처 공간 색인</b> — 회피 판정에서 성인 전원을 훑지 않기 위한 16칸 격자.
+     *
+     * <p>이 판정은 <b>칸마다</b> 불린다. 방향 고르기만 해도 49칸 × 8방향이고 확장 수열까지
+     * 더하면 구획 하나가 하루에 수천 번 부른다. 거기에 성인 수를 곱하면 인구와 구획이 함께
+     * 자랄 때 제곱으로 커진다.
+     *
+     * <p>판정식은 <b>그대로</b>다 — 같은 거리 비교, 같은 반경. 격자는 "명백히 먼 집"을 후보에서
+     * 빼는 것뿐이고, 훑는 격자 범위를 <b>최대 반경</b>으로 잡으므로 걸릴 집을 놓치지 않는다.
+     */
+    private static final int CELL = 16;
+
+    private static Object idxKeyLevel;
+    private static java.util.List<MimicEntity> idxKeyAdults;
+    private static double idxKeyMargin = -1.0;
+    private static HomeIndex idxCache;
+
+    private static HomeIndex index(ServerLevel level, java.util.List<MimicEntity> adults,
+                                   double margin) {
+        // 일일 처리는 성인 명단을 <b>새 리스트</b>로 만들어 넘긴다. 그 동일성으로 한 판(pass)을
+        // 구분하면, 판 안에서는 다시 만들지 않고 판이 바뀌면 반드시 다시 만든다.
+        if (idxCache == null || idxKeyLevel != level || idxKeyAdults != adults
+                || idxKeyMargin != margin) {
+            idxCache = HomeIndex.build(level, adults, margin);
+            idxKeyLevel = level;
+            idxKeyAdults = adults;
+            idxKeyMargin = margin;
         }
-        return false;
+        return idxCache;
+    }
+
+    private static final class HomeIndex {
+        private final java.util.HashMap<Long, java.util.List<double[]>> cells =
+                new java.util.HashMap<>(); // 격자 → [x, z, 반경²]
+        private double maxClear;
+
+        static HomeIndex build(ServerLevel level, java.util.List<MimicEntity> adults,
+                               double margin) {
+            HomeIndex ix = new HomeIndex();
+            HomeStore reg = HomeStore.get(level);
+            for (MimicEntity m : adults) {
+                BlockPos h = m.getHomePos();
+                if (h == null) {
+                    continue;
+                }
+                double clear = Math.max(margin, homeReach(level, reg, h) + PLANT_MARGIN);
+                ix.maxClear = Math.max(ix.maxClear, clear);
+                ix.cells.computeIfAbsent(
+                        RoadStore.key(Math.floorDiv(h.getX(), CELL), Math.floorDiv(h.getZ(), CELL)),
+                        k -> new java.util.ArrayList<>())
+                        .add(new double[] {h.getX(), h.getZ(), clear * clear});
+            }
+            return ix;
+        }
+
+        boolean near(BlockPos gp) {
+            int r = (int) Math.ceil(maxClear / CELL) + 1;
+            int cx = Math.floorDiv(gp.getX(), CELL);
+            int cz = Math.floorDiv(gp.getZ(), CELL);
+            for (int ax = -r; ax <= r; ax++) {
+                for (int az = -r; az <= r; az++) {
+                    var list = cells.get(RoadStore.key(cx + ax, cz + az));
+                    if (list == null) {
+                        continue;
+                    }
+                    for (double[] e : list) {
+                        double dx = e[0] - gp.getX();
+                        double dz = e[1] - gp.getZ();
+                        if (dx * dx + dz * dz < e[2]) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     /**

@@ -957,7 +957,7 @@ public final class FarmTicker {
                 }
                 var at = level.getBlockState(gp);
                 var below = level.getBlockState(gp.below());
-                if ((at.isAir() || at.canBeReplaced())
+                if ((at.isAir() || at.canBeReplaced() || weed(at))
                         && (below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
                         || below.is(net.minecraft.world.level.block.Blocks.DIRT)
                         || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
@@ -986,6 +986,22 @@ public final class FarmTicker {
      * <p>이 함수 하나로 배치({@link #idealSpot})와 방향 고르기({@link #freeIn})가 같은 모양을
      * 보게 묶는다 — 둘이 어긋나면 실제로 못 심을 자리를 트였다고 세게 된다.
      */
+    /**
+     * <b>뽑고 심을 수 있는 잡풀인가</b> — 꽃과 묘목.
+     *
+     * <p>잔디·고사리는 대체 가능 블록이라 그냥 덮이지만 꽃은 아니다. 그래서 민들레 한 송이가
+     * 밭 칸을 <b>영구히</b> 막았다 — 확장은 매일 수열을 처음부터 다시 훑는데 그 칸은 계속
+     * 거부되므로 구멍이 영영 남는다. 실측(C런 D16, 구획 5 @58,−8): `구멍2 줄끊김2` 의 두 칸이
+     * (68,0,−13)·(66,0,−11) 이었고 둘 다 <b>minecraft:dandelion</b> 이었다. 아래는 잔디,
+     * 위는 공기로 겉보기엔 멀쩡해 공중격자에서도 안 보였다.
+     *
+     * <p>묘목도 함께 뽑는다 — 밭 한복판에서 나무로 자라면 그 줄이 통째로 막힌다.
+     */
+    private static boolean weed(net.minecraft.world.level.block.state.BlockState st) {
+        return st.is(net.minecraft.tags.BlockTags.FLOWERS)
+                || st.is(net.minecraft.tags.BlockTags.SAPLINGS);
+    }
+
     private static BlockPos gridOffset(BlockPos anchor, byte dir, int c, int r) {
         int sx = (dir & 1) != 0 ? -1 : 1;
         int sz = (dir & 2) != 0 ? -1 : 1;
@@ -1006,7 +1022,7 @@ public final class FarmTicker {
         }
         var at = level.getBlockState(gp);
         var below = level.getBlockState(gp.below());
-        boolean natural = at.isAir() || at.canBeReplaced();
+        boolean natural = at.isAir() || at.canBeReplaced() || weed(at);
         boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
                 || below.is(net.minecraft.world.level.block.Blocks.DIRT)
                 || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)

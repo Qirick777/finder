@@ -51,19 +51,38 @@ public class AllegianceStore extends SavedData {
     /** 이보다 작아진 간선은 지운다 — 원장이 먼지로 부풀지 않게. */
     private static final double EPSILON = 0.05;
 
-    /** 추종 임계의 바닥. 재산이 0 에 가까워도 이만큼은 받아야 따른다. */
+    /** 추종 임계의 바닥. 가진 땅이 없어도 이만큼은 받아야 따른다. */
     public static final double MIN_BOND = 4.0;
 
-    /** 추종 임계 = max(MIN_BOND, 재산 × 이 비율). 부유할수록 같은 은혜에 덜 묶인다. */
-    public static final double WEALTH_RATIO = 0.5;
+    /**
+     * 추종 임계 = max(MIN_BOND, <b>소유 밭 타일</b> × 이 값). 가진 땅이 많을수록 덜 묶인다.
+     *
+     * <p>처음에는 저장고를 재산으로 썼는데 두 가지가 틀렸다. 저장고 20 에 하루소모 7 이면
+     * 그것은 <b>사흘치 버팀목</b>이지 부가 아니다 — 손에 쥔 것 없이 사는 사람에게 높은 임계를
+     * 매긴 셈이었다. 게다가 저장고는 날마다 출렁여 임계가 흔들린다.
+     *
+     * <p>실측(P2 D16): 채무자당 신세 3.85 인데 저장고 기준 임계는 10 이라 <b>추종 성립 0</b>.
+     *
+     * <p>소유 타일은 내구성 있는 부이고 하루 단위로 흔들리지 않는다. 무토지 소작은 자동으로
+     * 바닥 임계가 되고, 작은 지주가 큰 지주를 추종하는 차상위 계층(P3)도 같은 척도로 표현된다.
+     * 0.2 면 40타일 지주의 임계가 8, 200타일 영주는 40 이라 사실상 아무도 안 따른다.
+     */
+    public static final double TILE_WORTH = 0.2;
 
     // ── 가중치(잠정 — P8 에서 실측으로 확정) ──────────────────────────────
     /** 위급 구휼 1 유닛당. 목숨을 구한 것이라 가장 무겁다. */
     public static final double W_RELIEF = 3.0;
     /** 굶던 자에게 일자리를 준 1회. */
     public static final double W_HIRE = 5.0;
-    /** 상시 소작으로 하루 일한 몫 — 작지만 매일 쌓인다. */
-    public static final double W_TENANCY = 0.3;
+    /**
+     * 상시 소작으로 하루 일한 몫 — 작지만 매일 쌓인다.
+     *
+     * <p>0.3→0.6: 감쇠 0.95 와의 균형점이 0.3/(1−0.95)=6.0 이라 바닥 임계 4 를 겨우 넘고
+     * 거기 닿는 데 수십 일이 걸렸다. 구휼은 좋은 시절에 아예 발동하지 않으므로(실측 P2 D16:
+     * <b>0건</b> — P1 이 식량을 늘려 아무도 위급까지 굶지 않았다) 소작 관계가 예속의 주 경로다.
+     * 0.6 이면 균형점 12, 닷새면 바닥 임계를 넘는다.
+     */
+    public static final double W_TENANCY = 0.6;
 
     /** 한 채무자가 한 은인에게 진 신세. */
     public static final class Bond {
@@ -169,10 +188,10 @@ public class AllegianceStore extends SavedData {
     /**
      * <b>추종 대상</b>(파생) — 신세 합계가 가장 큰 상대. 임계를 못 넘으면 0.
      *
-     * @param wealth 이 개체의 재산(저장고 등) — 임계가 여기에 비례한다.
+     * @param ownedTiles 이 개체가 소유한 밭 타일 수 — 임계가 여기에 비례한다.
      */
-    public long patronOf(long debtorId, double wealth) {
-        double gate = Math.max(MIN_BOND, wealth * WEALTH_RATIO);
+    public long patronOf(long debtorId, int ownedTiles) {
+        double gate = Math.max(MIN_BOND, ownedTiles * TILE_WORTH);
         long best = 0L;
         double bestVal = 0.0;
         for (Bond b : bondsOf(debtorId)) {

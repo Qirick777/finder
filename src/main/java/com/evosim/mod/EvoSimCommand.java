@@ -3216,7 +3216,7 @@ public final class EvoSimCommand {
     private static int allegiance(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         AllegianceStore led = AllegianceStore.get(level);
-        LarderStore larders = LarderStore.get(level);
+        FarmStore farms = FarmStore.get(level);
 
         java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
@@ -3242,8 +3242,7 @@ public final class EvoSimCommand {
             if (m == null) {
                 continue;
             }
-            double wealth = m.getHomePos() == null ? 0.0 : larders.get(m.getHomePos());
-            long p = led.patronOf(debtor, wealth);
+            long p = led.patronOf(debtor, farms.ownedTiles(debtor));
             if (p != 0L) {
                 patron.put(debtor, p);
             }
@@ -3293,7 +3292,7 @@ public final class EvoSimCommand {
         for (int i = 0; i < Math.min(5, top.size()); i++) {
             MimicEntity m = byId.get(top.get(i).getKey());
             sb.append(String.format("#%d(%s)×%d ", top.get(i).getKey(),
-                    m == null ? "?" : FarmStore.get(level).classOf(level, top.get(i).getKey()),
+                    m == null ? "?" : farms.classOf(level, top.get(i).getKey()),
                     top.get(i).getValue()));
         }
         if (sb.length() > 0) {

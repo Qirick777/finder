@@ -287,7 +287,11 @@ public final class FarmTicker {
                 afford += (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
                         / com.evosim.core.FarmEconomy.EXPAND_COST);
             }
-            int k = Math.min(room, afford);
+            // 구획 타일 상한 — 밭은 흔하되 마구 커지지 않는다. 상한은 추종자 수에 비례해
+            // 올라가므로(FarmEconomy.plotTileCap) 사람을 거느린 자만 크게 키울 수 있다.
+            // 추종 원장은 아직 없어 0 을 넘긴다 — 실제 인원 배선은 P3 에서 붙는다.
+            int cap = com.evosim.core.FarmEconomy.plotTileCap(0);
+            int k = Math.min(Math.min(room, afford), Math.max(0, cap - plot.tiles.length));
             if (k <= 0) {
                 continue;
             }

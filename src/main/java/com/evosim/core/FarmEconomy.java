@@ -27,8 +27,33 @@ public final class FarmEconomy {
      *  공통 산식(자금 능력 순)·노동 캡 불변 — 능력 경사 유지. */
     public static final double EXPAND_COST = 1.0;
     /** 신규 밭 기본 비용(food). 30→18: 엘리트 초기 저축률(관측 10~12/일)로 착공 d2(40분) 역산.
-     *  체증 ×1.5 유지(2호 27·3호 40.5 — 축적 폭주 제동). */
-    public static final double NEW_FARM_BASE = 18.0;
+     *  체증 ×1.5 유지(2호 27·3호 40.5 — 축적 폭주 제동).
+     *  18→12(P1): 밭 유무가 더는 권력이 아니게 되므로 여는 문턱을 낮춰 <b>밭을 흔하게</b> 한다.
+     *  권력은 이제 크기(plotTileCap)와 추종자 수가 정한다. 체증 ×1.5 는 그대로 둔다 —
+     *  여러 밭을 쥐는 것은 여전히 비싸야 한다. */
+    public static final double NEW_FARM_BASE = 12.0;
+
+    /**
+     * <b>구획 하나가 자랄 수 있는 타일 상한</b> = 기본 + 추종자 수 × 계수.
+     *
+     * <p>이 한 줄이 세 가지를 동시에 푼다. 밭을 <b>여는 것</b>은 싸져서(NEW_FARM_BASE 18→12)
+     * 흔해지고, <b>키우는 것</b>은 추종자를 거느려야 가능해져 엘리트만 크게 키운다. 일반민은
+     * 밭을 열 수 있으나 키울 수 없다 — "시도하나 능력이 안 됨".
+     *
+     * <p>기본값 40 의 근거: 실측 최대 단일 구획이 58 타일(C런 D16)이고 보통은 20~45 였다.
+     * 40 이면 상위 구획만 걸려 <b>기제가 작동하는지</b>는 보이면서 경제가 무너지지는 않는다.
+     * 조이는 것은 전 단계가 붙은 뒤 실측을 보고 한다(규칙 14).
+     *
+     * <p>추종자 계수는 아직 쓰이지 않는다 — 추종 원장이 없어 호출부가 0 을 넘긴다.
+     * 그 배선은 P3(계층·승계)에서 붙는다.
+     */
+    public static final int PLOT_TILE_BASE = 40;
+
+    public static final int PLOT_TILE_PER_FOLLOWER = 15;
+
+    public static int plotTileCap(int followers) {
+        return PLOT_TILE_BASE + Math.max(0, followers) * PLOT_TILE_PER_FOLLOWER;
+    }
 
     /** 무주지 등록 소거까지(틱, 1.25일) — 선점자가 없으면 야생으로 복원(등록만 소거, 베리는 남음).
      *  60000→30000(2배속 — 대기 반감). */

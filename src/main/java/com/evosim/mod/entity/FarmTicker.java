@@ -386,6 +386,9 @@ public final class FarmTicker {
         //     복구 불능인 타일은 원장에서 소거. 깔린 타일이 원장에 남으면 영구 수확불능인데
         //     부족분 게시(고용 슬롯)만 부풀리는 유령 일자리가 된다(실측: 배정받고 수확 0).
         java.util.Set<Long> homeCells = homeCells(level);
+        // 밭 몸통을 지나는 흙길 정비 — 구획별이 아니라 <b>전체 합집합</b>을 한 번에 훑는다.
+        // 구획마다 제 몸통만 보면 어느 구획도 자기 것이라 여기지 않는 칸이 남는다(실측 P1).
+        com.evosim.mod.entity.MimicEntity.tidyAllFarmRoads(level);
         for (FarmStore.Plot plot : store.all().values()) {
             // 밭 <b>몸통</b>을 지나는 흙길 정비 — 사라진 덤불을 다시 심는 것과 같은 종류의 일이다.
             //
@@ -393,7 +396,6 @@ public final class FarmTicker {
             // 실측: 런1 은 밭이 계속 자라 D14 이후 관통 0 이었지만, D11 에서 멈춘 런2 는 1칸이
             // 남아 있었다. 밭은 재배줄 + 고랑 구조라 길이 줄 사이에 갇힐 수 있고, 그 칸은
             // 타일이 아니어서 타일 순회로는 영영 안 잡힌다.
-            com.evosim.mod.entity.MimicEntity.tidyFarmRoads(level, plot);
             // 테두리도 매일 한 번 훑는다 — 그릴 당시 막혔던 칸이 풀리면 그때 메워진다.
             redrawBorder(level, store, plot);
             for (int i = plot.tiles.length - 1; i >= 0; i--) {

@@ -3125,6 +3125,7 @@ public final class EvoSimCommand {
         int ringMiss = 0;
         int ringBad = 0;
         int ringStale = 0;
+        StringBuilder staleAt = new StringBuilder(); // 남은 칸 좌표 — 원인 추적용
         for (FarmStore.Plot p : plots) {
             if (p.tiles.length == 0) {
                 continue;
@@ -3160,13 +3161,17 @@ public final class EvoSimCommand {
                         }
                     } else if (path && !roadsB.has(x, z) && farms.isFarmBody(x, z)) {
                         ringStale++; // 몸통 안에 남은 흙길 — 옛 테두리이거나 못 치운 길
+                        if (staleAt.length() < 120) {
+                            staleAt.append(String.format("#%d@%d,%d ", p.id, x, z));
+                        }
                     }
                 }
             }
         }
         tell(ctx.getSource(), String.format(
-                "  %s테두리 — 깔린칸%d · 결손%d · 침범%d · 몸통내잔여%d§r",
-                (ringBad + ringStale == 0) ? "§a" : "§c", ringOk, ringMiss, ringBad, ringStale));
+                "  %s테두리 — 깔린칸%d · 결손%d · 침범%d · 몸통내잔여%d%s§r",
+                (ringBad + ringStale == 0) ? "§a" : "§c", ringOk, ringMiss, ringBad, ringStale,
+                staleAt.length() == 0 ? "" : " [" + staleAt.toString().trim() + "]"));
 
         // 구획끼리 얼마나 붙어 있나 — 각각 반듯해도 맞닿으면 위에서 한 덩어리로 읽힌다.
         int touching = 0;

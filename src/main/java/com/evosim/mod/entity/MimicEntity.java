@@ -2486,6 +2486,43 @@ public class MimicEntity extends PathfinderMob {
      * 멈추면 몸통에 갇힌 길 자국이 영영 남는다. 이 패스는 그 구멍을 막는다 — 이미 매일 도는
      * 죽은 타일 정비와 같은 자리에 얹으므로 새 순회 장치가 없다.
      */
+    /**
+     * <b>모든 밭 몸통</b>을 한 번에 훑어 길 자국을 걷어낸다.
+     *
+     * <p>구획마다 제 몸통만 훑던 {@link #tidyFarmRoads} 에는 소유 사각지대가 있었다. 감사는
+     * {@code isFarmBody} 로 <b>전체 합집합</b>을 묻는데 청소는 구획별로 도니, 어느 구획도
+     * 자기 것이라 여기지 않는 칸이 남는다. 구획이 서로 3.6칸까지 붙으면서 드러났다 —
+     * 실측(P1 D16): {@code 몸통내잔여3 [#15@36,-22 #15@36,-21 #15@36,-20]}, z축 구획의
+     * 고랑을 지나던 길 자국이었다.
+     *
+     * <p>계측기와 청소기가 <b>같은 질문</b>을 하게 만든다. 합집합은 이미 캐시되어 있으므로
+     * (bodyColumns) 구획 수만큼 돌던 종전보다 오히려 싸다.
+     */
+    public static void tidyAllFarmRoads(ServerLevel sl) {
+        FarmStore store = FarmStore.get(sl);
+        RoadStore roads = RoadStore.get(sl);
+        java.util.Set<Long> gone = new java.util.HashSet<>();
+        int cleared = 0;
+        for (long l : store.bodyColumns()) {
+            int x = RoadStore.keyX(l);
+            int z = RoadStore.keyZ(l);
+            if (roads.has(x, z)) {
+                gone.add(l);
+            }
+            if (unpaveAt(sl, x, z)) {
+                cleared++;
+            }
+        }
+        if (!gone.isEmpty()) {
+            RoadPlanner.Obstacles.invalidate();
+            roads.removeAll(gone);
+        }
+        if (cleared > 0) {
+            SimEvents.note(sl, "밭정비",
+                    String.format("밭을 지나던 흙길 %d칸 갈아엎음", cleared));
+        }
+    }
+
     public static void tidyFarmRoads(ServerLevel sl, FarmStore.Plot plot) {
         RoadStore roads = RoadStore.get(sl);
         java.util.Set<Long> body = bodyOf(plot);

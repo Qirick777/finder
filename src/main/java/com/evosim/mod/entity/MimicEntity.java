@@ -575,7 +575,7 @@ public class MimicEntity extends PathfinderMob {
         if (f != null) {
             return f.startsWith("절벽") ? spreadOf(sl, site, design, rot, mir) : HARD_FAULT;
         }
-        return spreadOf(sl, site, design, rot, mir) + farmPenalty(sl, site);
+        return spreadOf(sl, site, design, rot, mir) + farmPenalty(sl, site, design, rot, mir);
     }
 
     /** 집이 밭에서 물러설 거리 — 밭 쪽 PLANT_CLEAR(8)와 대칭. 발자국 5.66 + 테두리 1 + 통로 1. */
@@ -592,24 +592,61 @@ public class MimicEntity extends PathfinderMob {
      * 포화, d13 방향전환). 거부가 아니라 <b>점수</b>로 두는 이유는, 마을이 빽빽해 8칸을 못 띄우는
      * 상황에서도 집은 지어져야 하기 때문이다 — 그때는 그나마 가장 먼 후보가 뽑힌다.
      */
-    private static int farmPenalty(ServerLevel sl, BlockPos site) {
-        FarmStore store = FarmStore.get(sl);
-        int near = FARM_CLEAR;
-        for (FarmStore.Plot p : store.all().values()) {
+    private static int farmPenalty(ServerLevel sl, BlockPos site, String design, byte rot,
+                                   boolean mir) {
+        int near = farmGap(sl, HomeBlueprint.of(sl, site, design, rot, mir));
+        return near >= FARM_CLEAR ? 0 : (FARM_CLEAR - near) * FARM_PENALTY;
+    }
+
+    /**
+     * <b>발자국에서 가장 가까운 밭 타일까지의 거리</b>(체비셰프). 밭이 없으면 큰 값.
+     *
+     * <p>발자국 칸마다 전 타일을 훑으면 후보 하나당 수만 번이 된다. 체비셰프 거리는 점과
+     * 축정렬 상자 사이를 닫힌 식으로 구할 수 있으므로, 발자국을 상자로 줄여 타일 수에
+     * 비례하는 계산으로 <b>같은 답</b>을 낸다.
+     */
+    private static int farmGap(ServerLevel sl, HomeBlueprint bp) {
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (BlockPos c : bp.groundFootprint()) {
+            minX = Math.min(minX, c.getX());
+            maxX = Math.max(maxX, c.getX());
+            minZ = Math.min(minZ, c.getZ());
+            maxZ = Math.max(maxZ, c.getZ());
+        }
+        if (minX == Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        int near = Integer.MAX_VALUE;
+        for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
             for (long l : p.tiles) {
                 BlockPos t = BlockPos.of(l);
-                int d = Math.max(Math.abs(t.getX() - site.getX()),
-                        Math.abs(t.getZ() - site.getZ()));
+                int dx = Math.max(Math.max(minX - t.getX(), t.getX() - maxX), 0);
+                int dz = Math.max(Math.max(minZ - t.getZ(), t.getZ() - maxZ), 0);
+                int d = Math.max(dx, dz);
                 if (d < near) {
                     near = d;
                     if (near == 0) {
-                        return FARM_CLEAR * FARM_PENALTY;
+                        return 0;
                     }
                 }
             }
         }
-        return (FARM_CLEAR - near) * FARM_PENALTY;
+        return near;
     }
+
+    /**
+     * 집이 밭에서 반드시 띄워야 하는 최소 거리 — 테두리 1 + 통로 1 + 여유 1.
+     *
+     * <p>{@link #FARM_CLEAR} 8 은 <b>바람</b>이고 이것은 <b>선</b>이다. 8 을 못 지키는 것은
+     * 마을 밀도 탓이지 배치 탓이 아니다 — 실측(B런 D16): 집 23채의 밭까지 거리 중앙값이 7 이라
+     * 사실상 모든 후보가 8 안에 든다. 그래서 8 을 거부선으로 삼으면 벌점이 전부 걸려 무력해지고,
+     * 실제로 최소거리 1 까지 내려갔다. 3 은 밀도와 무관하게 지킬 수 있고, 밭이 제 테두리를
+     * 깔 자리를 보장한다는 <b>기능적</b> 근거가 있다.
+     */
+    private static final int MIN_FARM_GAP = 3;
 
     /** 발자국(정원 제외) 지표의 최고−최저. 판단 불가면 0. */
     private static int spreadOf(ServerLevel sl, BlockPos site, String design, byte rot,
@@ -640,30 +677,56 @@ public class MimicEntity extends PathfinderMob {
             return "밭 위";
         }
         HomeBlueprint bp = HomeBlueprint.of(sl, site, design, rot, mir);
+        int fg = farmGap(sl, bp);
+        if (fg < MIN_FARM_GAP) {
+            return String.format("밭에 붙음(%d칸)", fg);
+        }
         java.util.Set<Long> garden = new java.util.HashSet<>();
         for (BlockPos gcell : bp.garden()) {
             garden.add(net.minecraft.core.BlockPos.asLong(gcell.getX(), 0, gcell.getZ()));
         }
-        int lo = Integer.MAX_VALUE;
-        int hi = Integer.MIN_VALUE;
-        int wet = 0;
-        for (BlockPos col : bp.groundFootprint()) {
-            if (garden.contains(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()))) {
-                continue;
+        // 물 판정 — 발자국·정원에 <b>바깥 한 겹</b>까지 더해서 본다.
+        //
+        // 종전에는 정원 칸을 건너뛰고 발자국만 봤다. 낙차는 그래도 되지만("정원은 건물과 같은
+        // 높이가 아니어도 됨") 물은 다르다. 실측(B런 D16): 벽은 마른 땅에 서고 정원 덤불만
+        // 물가에 걸친 집이 이 틈으로 통과해 "물가에 선 집 1"로 잡혔다 — 공중사진에서는
+        // 정원 덤불이 밭과 같은 스위트베리라 "밭이 물과 겹친 것"으로 보인다.
+        // 한 겹을 더 보는 것은 벽이 수면에 딱 붙는 것까지 막기 위해서다.
+        java.util.Set<Long> probe = new java.util.HashSet<>();
+        java.util.List<BlockPos> seedCols = new java.util.ArrayList<>(bp.groundFootprint());
+        seedCols.addAll(bp.garden());
+        for (BlockPos col : seedCols) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    probe.add(RoadStore.key(col.getX() + dx, col.getZ() + dz));
+                }
             }
-            if (!sl.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+        }
+        int wet = 0;
+        for (long k : probe) {
+            int px = RoadStore.keyX(k);
+            int pz = RoadStore.keyZ(k);
+            if (!sl.hasChunk(px >> 4, pz >> 4)) {
                 continue; // 아직 안 열린 청크는 판단을 미룬다(없는 것으로 치면 부지가 말라붙는다)
             }
-            int y = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
-            if (!sl.getBlockState(new BlockPos(col.getX(), y, col.getZ()))
-                    .getFluidState().isEmpty()) {
+            int y = sl.getHeight(SURFACE_MAP, px, pz) - 1;
+            if (!sl.getBlockState(new BlockPos(px, y, pz)).getFluidState().isEmpty()) {
                 wet++;
             }
-            lo = Math.min(lo, y);
-            hi = Math.max(hi, y);
         }
         if (wet > 0) {
             return String.format("물·용암 위(%d칸)", wet);
+        }
+        int lo = Integer.MAX_VALUE;
+        int hi = Integer.MIN_VALUE;
+        for (BlockPos col : bp.groundFootprint()) {
+            if (garden.contains(net.minecraft.core.BlockPos.asLong(col.getX(), 0, col.getZ()))
+                    || !sl.hasChunk(col.getX() >> 4, col.getZ() >> 4)) {
+                continue;
+            }
+            int y = sl.getHeight(SURFACE_MAP, col.getX(), col.getZ()) - 1;
+            lo = Math.min(lo, y);
+            hi = Math.max(hi, y);
         }
         if (hi != Integer.MIN_VALUE && hi - lo > MAX_SITE_SLOPE) {
             return String.format("절벽(낙차 %d > %d)", hi - lo, MAX_SITE_SLOPE);

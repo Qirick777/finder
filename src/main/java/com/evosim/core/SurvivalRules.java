@@ -64,7 +64,9 @@ public final class SurvivalRules {
     public static double moveSpeedFactor(LifeStage stage) {
         return switch (stage) {
             case INFANT -> 0.05;
-            case BOY -> 0.6;
+            // 소년은 학교를 매일 왕복한다(채집 시간에 등교, 종료 시 귀가). 0.6 이면 하루가
+            // 통근으로 끝나 배울 시간이 남지 않는다. 성인의 8할이면 오갈 수 있다.
+            case BOY -> 0.8;
             case ADULT -> 1.0;
             case ELDER -> Elder.SPEED_MULT; // 0.8
         };

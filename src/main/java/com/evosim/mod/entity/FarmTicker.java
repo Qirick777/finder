@@ -197,6 +197,29 @@ public final class FarmTicker {
                 m -> m.isAlive() && m.getIndividual() != null
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
                                 || m.getStage() == com.evosim.core.LifeStage.ELDER)));
+        // ── 신세 원장(P2) — 이미 흐르는 관계를 기록만 한다. 행동은 아무것도 바꾸지 않는다.
+        //    상시 소작은 작지만 <b>매일</b> 쌓인다(구휼·긴급고용은 그 사건 지점에서 기록).
+        //    감쇠는 하루 한 번, 살아 있는 개체 집합을 넘겨 죽은 자의 간선을 함께 정리한다.
+        {
+            AllegianceStore ledger = AllegianceStore.get(level);
+            java.util.Set<Long> alive = new java.util.HashSet<>();
+            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null)) {
+                alive.add(m.getIndividual().id());
+            }
+            for (MimicEntity m : adults) {
+                long pid = m.getTenantFarm();
+                if (pid == 0L) {
+                    continue;
+                }
+                FarmStore.Plot p = store.get(pid);
+                if (p != null) {
+                    ledger.record(m.getIndividual().id(), p.ownerId,
+                            AllegianceStore.W_TENANCY, 0.0, day);
+                }
+            }
+            ledger.decayDaily(day, alive);
+        }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
         // ① 확장 — 최신(직영) 구획 우선 순회(회차 26): 구 구획이 저장고 여유를 먼저 흡수하면
@@ -1573,6 +1596,10 @@ public final class FarmTicker {
                 com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.AID, aid);
                 com.evosim.mod.log.SimEvents.event(m, "구휼", String.format(
                         "영주 저장고 %d 나눔 — H %.2f (구획 %d)", units, m.getHolding(), plot.id));
+                // 신세 — 위급할 때 무상으로 받은 것. 갚을 필요는 없지만 추종 점수는 된다.
+                AllegianceStore.get(level).record(m.getIndividual().id(), plot.ownerId,
+                        units * AllegianceStore.W_RELIEF, 0.0,
+                        com.evosim.mod.entity.SimTime.tick(level) / 24000L);
             } else {
                 m.setTenant(0L, 0);
                 com.evosim.mod.log.SimEvents.event(m, "소작해제", "영주 구휼 불이행(몰락) — 관계 소멸");
@@ -1675,6 +1702,10 @@ public final class FarmTicker {
             FarmStore.Plot best = open != null ? open : any;
             if (best != null) {
                 ASSIGNED.put(m.getId(), best.id);
+                // 신세 — 굶던 자에게 일자리를 준 것. 1회성이지만 무겁다.
+                AllegianceStore.get(level).record(m.getIndividual().id(), best.ownerId,
+                        AllegianceStore.W_HIRE, 0.0,
+                        com.evosim.mod.entity.SimTime.tick(level) / 24000L);
                 com.evosim.mod.log.SimEvents.event(m, "긴급고용", String.format(
                         "위급(H %.2f) — 구획 %d 즉시 배정(%d타일 · 오늘 %d명 · %.0f블록%s)",
                         m.getHolding(), best.id, best.tiles.length, assignedToPlot(best.id),

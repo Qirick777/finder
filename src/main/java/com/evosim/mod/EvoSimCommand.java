@@ -11,6 +11,7 @@ import com.evosim.core.ParentingClass;
 import com.evosim.core.Sex;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
+import com.evosim.mod.entity.AllegianceStore;
 import com.evosim.mod.entity.LampPlanner;
 import com.evosim.mod.entity.LampStore;
 import com.evosim.mod.entity.LarderStore;
@@ -100,6 +101,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("farmshape").executes(EvoSimCommand::farmShape))
+                .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -3203,6 +3205,101 @@ public final class EvoSimCommand {
                 "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
         return plots.size();
+    }
+
+    /**
+     * <b>신세·추종 보고</b> — 원장이 실제로 쌓이는지, 추종이 성립하는지, 몇 명에게 몰리는지.
+     *
+     * <p>P2 는 행동을 바꾸지 않으므로, 이 보고에 숫자가 생기고 <b>다른 모든 지표는 그대로</b>인
+     * 것이 합격 조건이다.
+     */
+    private static int allegiance(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        AllegianceStore led = AllegianceStore.get(level);
+        LarderStore larders = LarderStore.get(level);
+
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+
+        int edges = 0;
+        double totForgiven = 0.0;
+        double totOwed = 0.0;
+        for (var e : led.all().entrySet()) {
+            for (AllegianceStore.Bond b : e.getValue()) {
+                edges++;
+                totForgiven += b.forgiven;
+                totOwed += b.owed;
+            }
+        }
+
+        // 추종 판정 — 임계는 자기 재산에 비례한다. 재산은 거처 저장고로 본다.
+        java.util.Map<Long, Long> patron = new java.util.HashMap<>();
+        for (long debtor : led.all().keySet()) {
+            MimicEntity m = byId.get(debtor);
+            if (m == null) {
+                continue;
+            }
+            double wealth = m.getHomePos() == null ? 0.0 : larders.get(m.getHomePos());
+            long p = led.patronOf(debtor, wealth);
+            if (p != 0L) {
+                patron.put(debtor, p);
+            }
+        }
+
+        java.util.Map<Long, Integer> direct = new java.util.HashMap<>();
+        for (long p : patron.values()) {
+            direct.merge(p, 1, Integer::sum);
+        }
+
+        // 순환·깊이 — 추종은 DAG 여야 한다(A→B→C→A 가 생기면 계층이 성립하지 않는다).
+        int cycles = 0;
+        int maxDepth = 0;
+        for (long start : patron.keySet()) {
+            java.util.Set<Long> seen = new java.util.HashSet<>();
+            long cur = start;
+            int d = 0;
+            while (patron.containsKey(cur)) {
+                if (!seen.add(cur)) {
+                    cycles++;
+                    break;
+                }
+                cur = patron.get(cur);
+                d++;
+                if (d > 64) {
+                    cycles++;
+                    break;
+                }
+            }
+            maxDepth = Math.max(maxDepth, d);
+        }
+
+        tell(ctx.getSource(), String.format(
+                "§e[신세] 간선%d · 채무자%d · 탕감분합%.0f · 상환분합%.0f",
+                edges, led.all().size(), totForgiven, totOwed));
+        tell(ctx.getSource(), String.format(
+                "  %s추종 성립%d/%d명 · 주인%d명 · 최대세력%d · 사슬깊이%d · 순환%d§r",
+                cycles == 0 ? "§a" : "§c",
+                patron.size(), byId.size(), direct.size(),
+                direct.values().stream().mapToInt(Integer::intValue).max().orElse(0),
+                maxDepth, cycles));
+
+        java.util.List<java.util.Map.Entry<Long, Integer>> top =
+                new java.util.ArrayList<>(direct.entrySet());
+        top.sort((a, b) -> b.getValue() - a.getValue());
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Math.min(5, top.size()); i++) {
+            MimicEntity m = byId.get(top.get(i).getKey());
+            sb.append(String.format("#%d(%s)×%d ", top.get(i).getKey(),
+                    m == null ? "?" : FarmStore.get(level).classOf(level, top.get(i).getKey()),
+                    top.get(i).getValue()));
+        }
+        if (sb.length() > 0) {
+            tell(ctx.getSource(), "  세력 상위 — " + sb.toString().trim());
+        }
+        return edges;
     }
 
     /** (열, 줄) 격자좌표를 long 하나로 — 음수가 섞이므로 상위/하위 32비트로 나눠 담는다. */

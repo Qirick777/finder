@@ -952,7 +952,7 @@ public final class FarmTicker {
                                 .MOTION_BLOCKING_NO_LEAVES,
                         gridOffset(anchor, d, c, r));
                 if (!level.isLoaded(gp) || store.isFarmTile(gp)
-                        || nearSomeHome(adults, gp, PLANT_CLEAR)) {
+                        || nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
                     continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
                 }
                 var at = level.getBlockState(gp);
@@ -1017,7 +1017,7 @@ public final class FarmTicker {
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 gridOffset(plot.anchor, plot.dir, c, r));
         if (!level.isLoaded(gp) || mine.contains(gp.asLong()) || store.isFarmTile(gp)
-                || nearSomeHome(adults, gp, PLANT_CLEAR)) {
+                || nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
             return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다
         }
         var at = level.getBlockState(gp);
@@ -1080,13 +1080,15 @@ public final class FarmTicker {
     }
 
     /** 반경 판정 — 앞으로 심을 칸이 어느 거처에 너무 가까운가. 반경은 부르는 쪽이 정한다. */
-    private static boolean nearSomeHome(java.util.List<MimicEntity> adults, BlockPos gp,
-                                        double clear) {
+    private static boolean nearSomeHome(ServerLevel level, java.util.List<MimicEntity> adults,
+                                        BlockPos gp, double margin) {
+        HomeStore reg = HomeStore.get(level);
         for (MimicEntity m : adults) {
             BlockPos h = m.getHomePos();
             if (h == null) {
                 continue;
             }
+            double clear = Math.max(margin, homeReach(level, reg, h) + PLANT_MARGIN);
             double dx = h.getX() - gp.getX();
             double dz = h.getZ() - gp.getZ();
             if (dx * dx + dz * dz < clear * clear) {
@@ -1094,6 +1096,27 @@ public final class FarmTicker {
             }
         }
         return false;
+    }
+
+    /**
+     * <b>이 거처가 앵커에서 뻗는 최대 평면 거리</b> — 도면마다 다르다.
+     *
+     * <p>회전·좌우반전과 무관하므로(회전은 x·z 를 맞바꾸고 반전은 부호만 뒤집는다) 도면 이름만
+     * 열쇠로 삼아 기억한다. 도면 수는 아홉이라 표가 커지지 않고, {@code HomeBlueprint.reachOf}
+     * 는 도면을 통째로 만들므로 칸마다 부르면 안 된다.
+     */
+    private static final java.util.HashMap<String, Double> REACH = new java.util.HashMap<>();
+
+    private static double homeReach(ServerLevel level, HomeStore reg, BlockPos home) {
+        HomeStore.Entry e = reg.entry(home);
+        String design = e == null ? HomeStore.TENT : e.design();
+        Double hit = REACH.get(design);
+        if (hit != null) {
+            return hit;
+        }
+        double r = HomeBlueprint.reachOf(level, design);
+        REACH.put(design, r);
+        return r;
     }
 
     /**
@@ -1108,8 +1131,20 @@ public final class FarmTicker {
      * <p>5.66(발자국 도달) + 1(밭 테두리) + 1(지나다닐 한 칸) ≈ 7.7 → 8.0.
      * 막힌 칸은 이상 수열의 다음 칸으로 건너뛰므로(SCAN_SLACK 24) 면적이 아니라
      * <b>자리만</b> 바깥으로 밀린다.
+     *
+     * <p><b>이 값은 바닥일 뿐이다.</b> 5.66 은 <b>소형 도면</b>의 도달 거리이고, 중·대형과
+     * 저택은 훨씬 멀리 뻗는다. 그래서 앵커에서 8칸을 띄워도 저택 벽에서는 한 칸까지 붙었다 —
+     * 실측(D26, 소28·중4·대8·저택4): {@code 밭까지 최소1 · 2칸 이하 4채}, 그런데
+     * {@code 부지경고 0 · 밭 위 0} 이었다. 집이 밭으로 간 게 아니라 <b>밭이 집으로 자란</b>
+     * 것이다. D16 검증에서 안 걸린 이유도 분명하다 — 그때는 대형이 한 채뿐이었다.
+     *
+     * <p>이제 거처마다 제 도면의 도달 거리 + {@link #PLANT_MARGIN} 을 쓰고, 이 상수는 그
+     * 아래로 내려가지 않게 하는 하한으로만 남는다(소형은 종전과 같고 큰 집만 더 물러난다).
      */
     private static final double PLANT_CLEAR = 8.0;
+
+    /** 발자국 바깥에 남겨야 할 여유 — 밭 테두리 한 겹 + 지나다닐 한 칸. */
+    private static final double PLANT_MARGIN = 2.0;
 
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,

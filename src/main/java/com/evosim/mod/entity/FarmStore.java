@@ -243,10 +243,42 @@ public class FarmStore extends SavedData {
 
     /** 이 x/z 열에 밭 타일이 있는가(y 무시) — 신축 부지 검증용(천막 발자국은 y가 제각각). */
     /**
+     * <b>구획 하나의 몸통</b> — 이 클래스가 정본이다.
+     *
+     * <p>종전에는 같은 알고리즘이 여기와 {@code MimicEntity.bodyOf} 두 곳에 복사돼 있었고,
+     * 축 대응을 한쪽에만 넣은 탓에 전치 구획의 고랑이 도로 장애물에서 빠졌다. 복사본을 없애
+     * 같은 실수가 다시 나지 않게 한다.
+     */
+    public static java.util.Set<Long> bodyOf(Plot p) {
+        boolean turnedAxis = (p.dir & 4) != 0;
+        java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>(); // 줄 → [최소, 최대]
+        for (long l : p.tiles) {
+            BlockPos t = BlockPos.of(l);
+            int key = turnedAxis ? t.getZ() : t.getX();
+            int val = turnedAxis ? t.getX() : t.getZ();
+            span.compute(key, (k, v) -> v == null
+                    ? new int[] {val, val}
+                    : new int[] {Math.min(v[0], val), Math.max(v[1], val)});
+        }
+        java.util.HashSet<Long> out = new java.util.HashSet<>();
+        for (var e : span.entrySet()) {
+            for (int v = e.getValue()[0]; v <= e.getValue()[1]; v++) {
+                out.add(turnedAxis ? RoadStore.key(v, e.getKey())
+                        : RoadStore.key(e.getKey(), v));
+            }
+        }
+        return out;
+    }
+
+    /**
      * <b>밭 몸통</b> 열 전체 — 타일과 <b>그 사이 고랑</b>. 길·신축 부지 판정의 단일 출처.
      *
-     * <p>구획마다 같은 x 열에서 최소 z ~ 최대 z 를 메운다. 경계 상자로 메우면 성긴 구획이
-     * 주변 빈 땅까지 통째로 삼키므로(실측: 타일 44개인데 상자는 299칸) 열 단위로만 채운다.
+     * <p>구획마다 재배줄을 따라 최소~최대를 메운다. 경계 상자로 메우면 성긴 구획이 주변 빈
+     * 땅까지 통째로 삼키므로(실측: 타일 44개인데 상자는 299칸) 줄 단위로만 채운다.
+     *
+     * <p>메우는 축은 구획의 방향에 딸린다({@link Plot#dir} 비트2 = 전치). 재배줄이 동–서면
+     * x 열마다 z 를 채우고, 전치된 구획은 z 줄마다 x 를 채운다. 축을 안 맞추면 전치 구획의
+     * <b>고랑이 몸통에서 빠져</b> 길이 밭 한복판을 관통할 수 있다.
      */
     public java.util.Set<Long> bodyColumns() {
         if (bodyCache != null) {
@@ -254,18 +286,7 @@ public class FarmStore extends SavedData {
         }
         java.util.HashSet<Long> out = new java.util.HashSet<>();
         for (Plot p : plots.values()) {
-            java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>(); // x → [minZ, maxZ]
-            for (long l : p.tiles) {
-                BlockPos t = BlockPos.of(l);
-                span.compute(t.getX(), (k, v) -> v == null
-                        ? new int[] {t.getZ(), t.getZ()}
-                        : new int[] {Math.min(v[0], t.getZ()), Math.max(v[1], t.getZ())});
-            }
-            for (var e : span.entrySet()) {
-                for (int z = e.getValue()[0]; z <= e.getValue()[1]; z++) {
-                    out.add(RoadStore.key(e.getKey(), z));
-                }
-            }
+            out.addAll(bodyOf(p));
         }
         bodyCache = out;
         return out;
@@ -436,16 +457,6 @@ public class FarmStore extends SavedData {
         });
     }
 
-    private MimicEntity findEntity(ServerLevel level, long id) {
-        if (id == 0L) {
-            return null;
-        }
-        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == id)) {
-            return m;
-        }
-        return null;
-    }
 
     /**
      * 구획 관리 효율 E (회차 S2 — 관리 바닥값). 마름 밭은 <b>max(마름 E, 지주 재흡수 E)</b>:
@@ -509,55 +520,6 @@ public class FarmStore extends SavedData {
                 ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId)) : 1.0;
     }
 
-    /**
-     * <b>대조용 기준 구현</b> — 단일 순회로 바꾸기 전의 계산을 그대로 남겨 둔 것.
-     *
-     * <p>성능 변경이 미믹의 결과를 바꾸지 않았는지 <b>실제로</b> 확인하려면 논증만으로는 모자란다.
-     * {@code /evosim selfcheck} 가 같은 월드·같은 순간에 이 함수와 {@link #plotEfficiency}를
-     * 나란히 돌려 전 구획의 값을 비교한다. 한 건이라도 어긋나면 그 자리에서 드러난다.
-     * 확인이 끝나면 이 셋(이 함수·{@link #findEntity}·아래 {@code tenantsOn})은 지운다.
-     */
-    public double plotEfficiencySlow(ServerLevel level, Plot p) {
-        MimicEntity ownerEnt = findEntity(level, p.ownerId);
-        int worked = workedTilesSlow(level, p);
-        if (p.stewardId != 0L) {
-            MimicEntity stw = findEntity(level, p.stewardId);
-            double stewardE = stw != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                    stw.getIndividual(), worked) : 0.0;
-            double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                    ownerEnt.getIndividual(), workedUnstewardedSlow(level, p.ownerId) + worked)
-                    : 0.0;
-            double e = Math.max(stewardE, ownerFloor);
-            return e > 0.0 ? e : 1.0;
-        }
-        return ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                ownerEnt.getIndividual(), workedUnstewardedSlow(level, p.ownerId)) : 1.0;
-    }
-
-    private int workedTilesSlow(ServerLevel level, Plot p) {
-        int labor = com.evosim.core.FarmEconomy.C_BASE * (1 + tenantsOn(level, p.id));
-        return Math.min(p.tiles.length, labor);
-    }
-
-    private int workedUnstewardedSlow(ServerLevel level, long ownerId) {
-        int n = 0;
-        for (Plot p : plots.values()) {
-            if (p.ownerId == ownerId && p.stewardId == 0L) {
-                n += workedTilesSlow(level, p);
-            }
-        }
-        return n;
-    }
-
-    /** 이 구획에 배정된 상시 소작 수 — 실경작 타일 산정 입력. */
-    private int tenantsOn(ServerLevel level, long plotId) {
-        int n = 0;
-        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() == plotId)) {
-            n++;
-        }
-        return n;
-    }
 
     /**
      * 실제로 <b>경작되는</b> 타일 = min(등록 타일, 하루 수확 용량 합). E 의 분모를 소유 타일에서

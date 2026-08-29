@@ -203,6 +203,128 @@ public class AllegianceStore extends SavedData {
         return bestVal >= gate ? best : 0L;
     }
 
+    /**
+     * <b>승계</b> — 죽은 자의 채권과 채무를 상속인에게 넘긴다. 밭 승계와 같은 단계에서 부른다.
+     *
+     * <ul>
+     *   <li><b>채권</b>(남들이 죽은 자에게 진 신세) → 상속인에게 재배선. 아버지의 추종자들이
+     *       아들을 따르게 된다 = 왕조.</li>
+     *   <li><b>채무</b>(죽은 자가 남에게 진 신세) → 상속인에게 이전(기존 것과 합산).
+     *       아버지의 예속이 아들에게 = 농노 세습.</li>
+     * </ul>
+     *
+     * <p>상속인이 없으면 옮기지 않는다 — 그러면 다음 감쇠에서 정리된다(세력이 흩어진다).
+     * 자기 자신에게 진 신세가 되는 간선은 버린다.
+     */
+    public void succeed(long deadId, long heirId) {
+        if (deadId == 0L) {
+            return;
+        }
+        if (heirId == 0L || deadId == heirId) {
+            bonds.remove(deadId);
+            for (List<Bond> list : bonds.values()) {
+                list.removeIf(b -> b.patronId == deadId);
+            }
+            setDirty();
+            return;
+        }
+        // ① 채권 — 남들의 간선이 상속인을 가리키게 한다.
+        for (var e : bonds.entrySet()) {
+            long debtor = e.getKey();
+            List<Bond> list = e.getValue();
+            Bond from = null;
+            for (Bond b : list) {
+                if (b.patronId == deadId) {
+                    from = b;
+                    break;
+                }
+            }
+            if (from == null) {
+                continue;
+            }
+            list.remove(from);
+            if (debtor == heirId) {
+                continue; // 상속인이 아버지에게 진 신세 — 자기 자신이 되므로 버린다
+            }
+            Bond to = null;
+            for (Bond b : list) {
+                if (b.patronId == heirId) {
+                    to = b;
+                    break;
+                }
+            }
+            if (to == null) {
+                to = new Bond(heirId, from.lastDay);
+                list.add(to);
+            }
+            to.forgiven += from.forgiven;
+            to.owed += from.owed;
+            trim(list);
+        }
+        // ② 채무 — 죽은 자의 목록을 상속인 목록에 합친다.
+        List<Bond> mine = bonds.remove(deadId);
+        if (mine != null && !mine.isEmpty()) {
+            List<Bond> heirList = bonds.computeIfAbsent(heirId, k -> new ArrayList<>());
+            for (Bond b : mine) {
+                if (b.patronId == heirId) {
+                    continue; // 아버지가 아들에게 진 신세 — 자기 자신
+                }
+                Bond to = null;
+                for (Bond h : heirList) {
+                    if (h.patronId == b.patronId) {
+                        to = h;
+                        break;
+                    }
+                }
+                if (to == null) {
+                    to = new Bond(b.patronId, b.lastDay);
+                    heirList.add(to);
+                }
+                to.forgiven += b.forgiven;
+                to.owed += b.owed;
+            }
+            trim(heirList);
+        }
+        setDirty();
+    }
+
+    /**
+     * <b>태생적 추종</b> — 갓 난 아이는 부모가 따르는 주인을 그대로 따른다(목표 8).
+     *
+     * <p>부모의 가장 큰 간선을 같은 값으로 복사한다. 값을 깎지 않는 이유: 아이는 그 집
+     * 사람으로 <b>태어난</b> 것이지 스스로 은혜를 입은 것이 아니다. 아이가 자라 제 힘으로
+     * 땅을 가지면 임계가 올라가 저절로 풀린다.
+     */
+    public void inheritAtBirth(long childId, long parentId, long day) {
+        double best = 0.0;
+        long patron = 0L;
+        for (Bond b : bondsOf(parentId)) {
+            if (b.total() > best) {
+                best = b.total();
+                patron = b.patronId;
+            }
+        }
+        if (patron != 0L && patron != childId && best > 0.0) {
+            record(childId, patron, best, 0.0, day);
+        }
+    }
+
+    /**
+     * 모든 개체의 추종 대상을 한 번에 구한다 — 세력 크기·계층 판정의 단일 출처.
+     *
+     * @param ownedTiles 개체 id → 소유 밭 타일 수
+     */
+    public Map<Long, Long> patronMap(java.util.function.LongUnaryOperator ownedTiles) {
+        Map<Long, Long> out = new HashMap<>();
+        for (long debtor : bonds.keySet()) {
+            long p = patronOf(debtor, (int) ownedTiles.applyAsLong(debtor));
+            if (p != 0L) {
+                out.put(debtor, p);
+            }
+        }
+        return out;
+    }
+
     /** 원장 전체(읽기 전용) — 보고용. */
     public Map<Long, List<Bond>> all() {
         return bonds;

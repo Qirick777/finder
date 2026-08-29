@@ -3285,6 +3285,48 @@ public final class EvoSimCommand {
                 direct.values().stream().mapToInt(Integer::intValue).max().orElse(0),
                 maxDepth, cycles));
 
+        // ── 신분(파생) ── 저장하지 않는다. 추종 그래프와 원장에서 매번 다시 읽는다.
+        //   왕     — 추종자가 있고 그 안에 <b>주인이 또 있다</b>(간접 지배). 자신은 아무도 안 따름
+        //   차상위 — 추종자가 있으면서 자신도 누군가를 따름
+        //   천민   — 상환분이 상환능력을 넘음 (P4 에서 대출·세금이 붙기 전까지는 0 명)
+        //   일반   — 나머지
+        int kings = 0;
+        int barons = 0;
+        int commons = 0;
+        int lowborn = 0;
+        for (long id : byId.keySet()) {
+            double owed = 0.0;
+            for (AllegianceStore.Bond b : led.bondsOf(id)) {
+                owed += b.owed;
+            }
+            int tiles = farms.ownedTiles(id);
+            boolean hasFollowers = direct.containsKey(id);
+            boolean follows = patron.containsKey(id);
+            if (owed > Math.max(AllegianceStore.MIN_BOND, tiles * AllegianceStore.TILE_WORTH)) {
+                lowborn++;
+            } else if (hasFollowers && !follows) {
+                boolean indirect = false;
+                for (var e : patron.entrySet()) {
+                    if (e.getValue() == id && direct.containsKey(e.getKey())) {
+                        indirect = true;
+                        break;
+                    }
+                }
+                if (indirect) {
+                    kings++;
+                } else {
+                    barons++;
+                }
+            } else if (hasFollowers) {
+                barons++;
+            } else {
+                commons++;
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  신분 — 왕%d · 차상위%d · 일반%d · 천민%d (천민은 상환분이 붙는 P4 부터)",
+                kings, barons, commons, lowborn));
+
         java.util.List<java.util.Map.Entry<Long, Integer>> top =
                 new java.util.ArrayList<>(direct.entrySet());
         top.sort((a, b) -> b.getValue() - a.getValue());

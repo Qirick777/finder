@@ -3093,6 +3093,12 @@ public class MimicEntity extends PathfinderMob {
             FamilyLedger.get(sld).markDead(individual.id(), com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
             // 밭 상속(M6·P3) — 사전 포착 상속인(야망가 마름 자식→장남→장녀→배우자)에게. 소유 없으면 즉시 반환.
             FarmStore.get(sld).inheritTo(sld, preHeir, individual.id());
+            // 신세 승계(P3) — 밭과 <b>같은 단계</b>다. 채권(남들이 진 신세)은 상속인을 가리키게
+            // 재배선되어 아버지의 추종자들이 아들을 따르고(왕조), 채무는 상속인에게 옮겨져
+            // 아버지의 예속이 아들에게 간다(농노 세습). 상속인이 없으면 세력은 흩어진다.
+            AllegianceStore.get(sld).succeed(individual.id(),
+                    preHeir == null || preHeir.getIndividual() == null
+                            ? 0L : preHeir.getIndividual().id());
             // 마름 사망(v1.1) — 맡던 구획은 같은 틱 승계(후계 없으면 공석 — 차기 채용자 즉시 임명).
             FarmStore.get(sld).stewardGone(sld, individual.id(), "마름 사망");
         }
@@ -4708,6 +4714,16 @@ public class MimicEntity extends PathfinderMob {
         // 표시 결함. 번식 판정(birthLimit)은 어머니의 childrenBorn만 쓰므로 로직 무영향.
         StageObserver.record(this.getId(), "birth");
         com.evosim.mod.log.SimAudit.recordBirth(); // AUDIT 일일 출산 집계
+        // 태생적 추종(P3, 목표 8) — 아이는 부모가 따르는 주인을 그대로 따른다. 아버지 쪽을
+        // 먼저 보고 없으면 어미 쪽. 아이가 자라 제 힘으로 땅을 가지면 임계가 올라 저절로 풀린다.
+        {
+            long today = com.evosim.mod.entity.SimTime.tick(sl) / 24000L;
+            AllegianceStore led = AllegianceStore.get(sl);
+            led.inheritAtBirth(childId, father.getIndividual().id(), today);
+            if (led.bondsOf(childId).isEmpty()) {
+                led.inheritAtBirth(childId, individual.id(), today);
+            }
+        }
         // 신생아 변수를 정확히 기록: 성별·세대·발현 특성·부모 — 유전 흐름 검증의 근거.
         SimEvents.event(this, "출산", String.format(
                 "자식 #%d(%s) 세대%d 특성[%s] · 부친 #%d 모친 #%d (누적 %d)",

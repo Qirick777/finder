@@ -219,6 +219,12 @@ public final class FarmTicker {
                 }
             }
             ledger.decayDaily(day, alive);
+            // 세력 크기 — 밭 상한이 여기에 연동된다(목표 1·2·9 를 한 장치로).
+            // 추종 판정은 소유 타일에 비례한 임계를 쓰므로 원장에서 한 번에 구한다.
+            FOLLOWERS.clear();
+            for (long p : ledger.patronMap(id -> store.ownedTiles(id)).values()) {
+                FOLLOWERS.merge(p, 1, Integer::sum);
+            }
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
@@ -310,10 +316,11 @@ public final class FarmTicker {
                 afford += (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
                         / com.evosim.core.FarmEconomy.EXPAND_COST);
             }
-            // 구획 타일 상한 — 밭은 흔하되 마구 커지지 않는다. 상한은 추종자 수에 비례해
-            // 올라가므로(FarmEconomy.plotTileCap) 사람을 거느린 자만 크게 키울 수 있다.
-            // 추종 원장은 아직 없어 0 을 넘긴다 — 실제 인원 배선은 P3 에서 붙는다.
-            int cap = com.evosim.core.FarmEconomy.plotTileCap(0);
+            // 구획 타일 상한 — 밭은 흔하되 마구 커지지 않는다. 상한이 추종자 수에 비례해
+            // 올라가므로 <b>사람을 거느린 자만</b> 크게 키운다. 일반민은 밭을 열 수는 있으나
+            // 키울 수 없다(목표 9: 시도하나 능력이 안 됨).
+            int cap = com.evosim.core.FarmEconomy.plotTileCap(
+                    FOLLOWERS.getOrDefault(plot.ownerId, 0));
             int k = Math.min(Math.min(room, afford), Math.max(0, cap - plot.tiles.length));
             if (k <= 0) {
                 continue;
@@ -909,6 +916,9 @@ public final class FarmTicker {
                 net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                         | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
     }
+
+    /** 주인별 추종자 수 — 일일 패스 첫머리에 한 번 채우고 그날 내내 쓴다(밭 상한 입력). */
+    private static final java.util.Map<Long, Integer> FOLLOWERS = new java.util.HashMap<>();
 
     /** 막힌 칸을 만났을 때 이상 수열을 더 훑는 여유분 — 이만큼이면 집 하나쯤은 우회한다. */
     private static final int SCAN_SLACK = 24;

@@ -3427,10 +3427,23 @@ public final class EvoSimCommand {
                 e -> e.isAlive() && e.getIndividual() != null)) {
             byId.putIfAbsent(m.getIndividual().id(), m);
         }
+        // 0 채일 때 <b>왜</b> 0 인지를 보고가 스스로 말하게 한다 — 자격자가 없어서인지,
+        // 있는데 돈이 없어서인지, 판정이 아예 안 돌아서인지. 실측 P5a D14 에서 최대세력 13 인
+        // 마을이 0채였는데 사건 로그도 0건이라, 어느 쪽인지 보고만으로는 가릴 수 없었다.
+        int qualified = 0;
+        int topPower = 0;
+        for (long id : byId.keySet()) {
+            int f = FarmTicker.followersOf(id);
+            topPower = Math.max(topPower, f);
+            if (f >= Facilities.SCHOOL_MIN_FOLLOWERS) {
+                qualified++;
+            }
+        }
         if (reg.all().isEmpty()) {
             tell(ctx.getSource(), String.format(
-                    "§e[시설]§r 0채 — 문턱: 추종자%d명 · 건축비%.0f (사건 로그의 '학교' 줄이 사유를 말한다)",
-                    Facilities.SCHOOL_MIN_FOLLOWERS, Facilities.SCHOOL_COST));
+                    "§e[시설]§r 0채 — 자격자%d명(최대세력%d · 문턱 추종자%d) · 건축비%.0f"
+                            + " (자격자가 있는데 0채면 사건 로그의 '학교' 줄이 사유를 말한다)",
+                    qualified, topPower, Facilities.SCHOOL_MIN_FOLLOWERS, Facilities.SCHOOL_COST));
             return 0;
         }
         double standSum = 0.0;
@@ -3465,11 +3478,12 @@ public final class EvoSimCommand {
                     e.earned, e.spent, e.net()));
         }
         tell(ctx.getSource(), String.format(
-                "§e[시설]§r %d채(학교%d 교회%d) · 구조평균%.0f%% · %s무너짐%d§r · 주인사망%d",
+                "§e[시설]§r %d채(학교%d 교회%d) · 구조평균%.0f%% · %s무너짐%d§r · 주인사망%d"
+                        + " · 자격자%d명(최대세력%d)",
                 reg.all().size(), reg.countOf(FacilityTemplate.Kind.SCHOOL),
                 reg.countOf(FacilityTemplate.Kind.CHURCH),
                 standSum / reg.all().size() * 100.0,
-                broken == 0 ? "§a" : "§c", broken, orphan));
+                broken == 0 ? "§a" : "§c", broken, orphan, qualified, topPower));
         tell(ctx.getSource(), "  " + sb.toString().trim());
         return reg.all().size();
     }

@@ -2696,17 +2696,33 @@ public class MimicEntity extends PathfinderMob {
      *
      * @return 건축비를 낸 뒤의 저장고
      */
-    private double considerFacility(ServerLevel sl, double larder, double adultNeed,
-                                    boolean newDay) {
-        if (!newDay || fastSettle || homePos == null || building || individual == null
-                || lampSite != null || !paveTodo.isEmpty()) {
+    private double considerFacility(ServerLevel sl, List<MimicEntity> fam, double larder,
+                                    double adultNeed, boolean newDay) {
+        if (!newDay || fastSettle || homePos == null) {
             return larder;
         }
-        long id = individual.id();
-        int followers = FarmTicker.followersOf(id);
-        if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
+        // <b>자격은 가구 단위로 본다.</b> 처음에는 정산 대표(this)의 추종자만 봤는데, 대표는
+        // {@code settleLeader} 가 UUID 최소로 뽑아 사실상 무작위다 — 영주의 배우자가 대표로
+        // 걸리면 그 가구는 영영 자격이 없다. 실측(P5a D14): 최대세력 13 인 마을에서 학교 사건이
+        // <b>0건</b>이었다. 문턱에 걸린 것이 아니라 문턱까지 가지도 못한 것이다.
+        // 가로등이 밭 보유 판정에서 이미 겪고 고친 함정이고, 저장고가 가구 공동이니 자격도
+        // 가구 것으로 봐야 앞뒤가 맞는다.
+        MimicEntity founder = null;
+        int followers = -1;
+        for (MimicEntity m : fam) {
+            if (m.getIndividual() == null || !homePos.equals(m.getHomePos())) {
+                continue;
+            }
+            int f = FarmTicker.followersOf(m.getIndividual().id());
+            if (f > followers) {
+                followers = f;
+                founder = m;
+            }
+        }
+        if (founder == null || followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;
         }
+        long id = founder.getIndividual().id();
         FacilityStore reg = FacilityStore.get(sl);
         if (reg.countOf(id, FacilityTemplate.Kind.SCHOOL) >= 1) {
             return larder; // 한 사람이 학교를 여럿 갖지 않는다 — 이용자가 갈릴 뿐이다
@@ -2716,7 +2732,7 @@ public class MimicEntity extends PathfinderMob {
         if (larder < gate) {
             // 자격은 되는데 왜 안 세웠나를 남긴다 — 0채인 이유가 가난인지 판정 결함인지
             // 로그만으로 갈리게(가로등에서 같은 이유로 넣었던 줄).
-            SimEvents.event(this, "학교", String.format(
+            SimEvents.event(founder, "학교", String.format(
                     "보류 — 추종자%d · 저장고 %.0f < 문턱 %.0f", followers, larder, gate));
             return larder;
         }
@@ -2729,7 +2745,7 @@ public class MimicEntity extends PathfinderMob {
         }
         BlockPos site = facilitySite(sl, homePos, tpl.get());
         if (site == null) {
-            SimEvents.event(this, "학교", String.format(
+            SimEvents.event(founder, "학교", String.format(
                     "자리 없음 — 추종자%d · 저장고 %.0f (반경 %d 안에 %.0f칸 폭의 빈 땅이 없다)",
                     followers, larder, Facilities.SEARCH_RADIUS, tpl.get().reach() * 2));
             return larder;
@@ -2738,7 +2754,7 @@ public class MimicEntity extends PathfinderMob {
         reg.register(site, FacilityTemplate.Kind.SCHOOL, rot, mir, id, today(),
                 Facilities.SCHOOL_COST);
         RoadPlanner.Obstacles.invalidate(); // 건물이 길의 장애물로 즉시 잡히게
-        SimEvents.event(this, "학교", String.format(
+        SimEvents.event(founder, "학교", String.format(
                 "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d",
                 site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers,
                 Facilities.SCHOOL_COST, larder, larder - Facilities.SCHOOL_COST,
@@ -3874,7 +3890,7 @@ public class MimicEntity extends PathfinderMob {
         if (homePos != null) {
             larder = payUpkeep(sl, larder, newHomeDay);
             larder = considerLamp(sl, fam, larder, adultNeed, newHomeDay);
-            larder = considerFacility(sl, larder, adultNeed, newHomeDay);
+            larder = considerFacility(sl, fam, larder, adultNeed, newHomeDay);
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,

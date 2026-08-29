@@ -2683,6 +2683,196 @@ public class MimicEntity extends PathfinderMob {
      *
      * @return 등값을 낸 뒤의 저장고
      */
+    /**
+     * <b>학교를 세울 것인가</b> — 하루 1회, 가구 정산에서 묻는다. 가로등과 같은 자리·같은 문법이다.
+     *
+     * <p>규칙5 그대로 조건은 둘뿐이다. <b>거느린 자가 있는가</b>, 그리고 여유금을 남기고도
+     * 건축비를 낼 수 있는가. 신분을 묻지 않는다 — 다만 이용자가 곧 수입이므로(계획서 1.5)
+     * 세력이 없는 자가 지으면 급여만 나가는 적자다. 문턱이 <b>추종자 수</b>인 이유가 그것이다.
+     *
+     * <p>건물은 <b>즉시 선다.</b> 거처는 부부 둘이 한 칸씩 놓지만 학교는 1,336칸이라 같은 박자로
+     * 지으면 성인 둘이 나흘 반을 밭과 채집에서 빠진다 — 그 자체가 마을을 굶긴다. 대신 건축비를
+     * <b>실제로</b> 저장고에서 뺀다(인부를 산 값). 수지 검증은 비용을 물리므로 성립한다.
+     *
+     * @return 건축비를 낸 뒤의 저장고
+     */
+    private double considerFacility(ServerLevel sl, double larder, double adultNeed,
+                                    boolean newDay) {
+        if (!newDay || fastSettle || homePos == null || building || individual == null
+                || lampSite != null || !paveTodo.isEmpty()) {
+            return larder;
+        }
+        long id = individual.id();
+        int followers = FarmTicker.followersOf(id);
+        if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
+            return larder;
+        }
+        FacilityStore reg = FacilityStore.get(sl);
+        if (reg.countOf(id, FacilityTemplate.Kind.SCHOOL) >= 1) {
+            return larder; // 한 사람이 학교를 여럿 갖지 않는다 — 이용자가 갈릴 뿐이다
+        }
+        double gate = Facilities.SCHOOL_COST
+                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (larder < gate) {
+            // 자격은 되는데 왜 안 세웠나를 남긴다 — 0채인 이유가 가난인지 판정 결함인지
+            // 로그만으로 갈리게(가로등에서 같은 이유로 넣었던 줄).
+            SimEvents.event(this, "학교", String.format(
+                    "보류 — 추종자%d · 저장고 %.0f < 문턱 %.0f", followers, larder, gate));
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.SCHOOL, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos site = facilitySite(sl, homePos, tpl.get());
+        if (site == null) {
+            SimEvents.event(this, "학교", String.format(
+                    "자리 없음 — 추종자%d · 저장고 %.0f (반경 %d 안에 %.0f칸 폭의 빈 땅이 없다)",
+                    followers, larder, Facilities.SEARCH_RADIUS, tpl.get().reach() * 2));
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.SCHOOL, rot, mir, id, today(),
+                Facilities.SCHOOL_COST);
+        RoadPlanner.Obstacles.invalidate(); // 건물이 길의 장애물로 즉시 잡히게
+        SimEvents.event(this, "학교", String.format(
+                "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers,
+                Facilities.SCHOOL_COST, larder, larder - Facilities.SCHOOL_COST,
+                tpl.get().seats().size()));
+        return larder - Facilities.SCHOOL_COST;
+    }
+
+    /**
+     * 시설 부지 — 세운 자의 집에서 바깥으로 고리를 넓히며 처음 걸리는 <b>깨끗한</b> 자리.
+     *
+     * <p>깨끗함의 조건: 점유 열이 밭 몸통·등기된 거처의 여유·물에 닿지 않고, 지형 낙차가
+     * 메움 한도 안일 것. 거처 신축의 {@code siteFault} 와 같은 종류의 검사지만 도면이
+     * {@link HomeBlueprint} 가 아니라 목록을 직접 본다.
+     */
+    @Nullable
+    private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl) {
+        HomeStore homes = HomeStore.get(sl);
+        FarmStore farms = FarmStore.get(sl);
+        double myReach = tpl.reach();
+        double nbReach = HomeBlueprint.reachOf(sl, HomeStore.TENT);
+        for (BlockPos h : homes.positions()) {
+            HomeStore.Entry e = homes.entry(h);
+            if (e != null) {
+                nbReach = Math.max(nbReach, HomeBlueprint.reachOf(sl, e.design()));
+            }
+        }
+        double need = myReach + nbReach + Facilities.HOME_MARGIN;
+        for (int r = Facilities.MIN_RADIUS; r <= Facilities.SEARCH_RADIUS; r += 4) {
+            for (int a = 0; a < 16; a++) {
+                double ang = a * Math.PI / 8.0;
+                int cx = from.getX() + (int) Math.round(Math.cos(ang) * r);
+                int cz = from.getZ() + (int) Math.round(Math.sin(ang) * r);
+                boolean bad = false;
+                for (BlockPos h : homes.positions()) {
+                    double dx = h.getX() - cx;
+                    double dz = h.getZ() - cz;
+                    if (Math.sqrt(dx * dx + dz * dz) < need) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (bad) {
+                    continue;
+                }
+                int lo = Integer.MAX_VALUE;
+                int hi = Integer.MIN_VALUE;
+                for (BlockPos col : tpl.groundCols()) {
+                    int x = cx + col.getX();
+                    int z = cz + col.getZ();
+                    if (farms.isFarmBody(x, z)) {
+                        bad = true;
+                        break;
+                    }
+                    int y = sl.getHeight(SURFACE_MAP, x, z) - 1;
+                    var st = sl.getBlockState(new BlockPos(x, y, z));
+                    if (st.getFluidState().isSource() || !st.getFluidState().isEmpty()) {
+                        bad = true;
+                        break;
+                    }
+                    lo = Math.min(lo, y);
+                    hi = Math.max(hi, y);
+                }
+                if (bad || hi - lo > Facilities.MAX_SPREAD) {
+                    continue;
+                }
+                return new BlockPos(cx, medianSurface(sl, tpl, cx, cz) + BASE_LIFT, cz);
+            }
+        }
+        return null;
+    }
+
+    /** 시설 점유 열의 지표 중앙값 — 기단을 여기에 맞춘다(거처의 {@code terrainBaseY} 와 같은 규칙). */
+    private static int medianSurface(ServerLevel sl, FacilityTemplate tpl, int cx, int cz) {
+        List<Integer> surf = new ArrayList<>();
+        for (BlockPos col : tpl.groundCols()) {
+            surf.add(sl.getHeight(SURFACE_MAP, cx + col.getX(), cz + col.getZ()) - 1);
+        }
+        java.util.Collections.sort(surf);
+        return surf.get(surf.size() / 2);
+    }
+
+    /** 시설을 세운다 — 평탄화 → 비우기 → 배치 → 모양 정착. 거처 건축과 <b>같은 순서</b>다. */
+    private static void raiseFacility(ServerLevel sl, BlockPos site, FacilityTemplate tpl) {
+        int target = site.getY() - BASE_LIFT;
+        int course = site.getY() - 1;
+        java.util.Set<Long> floored = new java.util.HashSet<>();
+        for (FacilityTemplate.Placement p : tpl.plan()) {
+            if (p.rel().getY() == course - site.getY()) {
+                floored.add(BlockPos.asLong(p.rel().getX(), 0, p.rel().getZ()));
+            }
+        }
+        for (BlockPos col : tpl.groundCols()) {
+            if (!floored.contains(BlockPos.asLong(col.getX(), 0, col.getZ()))) {
+                continue; // 처마 밑 여백 — 손대지 않는다(건물 둘레에 해자가 생기지 않게)
+            }
+            int x = site.getX() + col.getX();
+            int z = site.getZ() + col.getZ();
+            int surface = sl.getHeight(SURFACE_MAP, x, z) - 1;
+            if (surface < target) {
+                for (int y = Math.max(surface + 1, target - MAX_FILL); y <= target; y++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    if (isFillable(sl.getBlockState(p))) {
+                        sl.setBlockAndUpdate(p, Blocks.DIRT.defaultBlockState());
+                    }
+                }
+            } else if (surface > target) {
+                for (int y = target + 1; y <= Math.min(surface, target + 1 + MAX_FLATTEN); y++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    if (isDiggable(sl.getBlockState(p))) {
+                        sl.destroyBlock(p, false);
+                    }
+                }
+            }
+        }
+        for (BlockPos c : tpl.carve()) {
+            BlockPos p = site.offset(c);
+            var st = sl.getBlockState(p);
+            if (!st.isAir() && isDiggable(st)) {
+                sl.setBlock(p, Blocks.AIR.defaultBlockState(),
+                        net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                                | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+            }
+        }
+        List<BlockPos> cells = new ArrayList<>(tpl.plan().size());
+        for (FacilityTemplate.Placement p : tpl.plan()) {
+            BlockPos w = site.offset(p.rel());
+            sl.setBlock(w, p.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+            cells.add(w);
+        }
+        HomeTemplate.settleShapes(sl, cells); // 계단·울타리 모양 재도출(거처와 같은 마무리)
+    }
+
     private double considerLamp(ServerLevel sl, List<MimicEntity> fam, double larder,
                                 double adultNeed, boolean newDay) {
         if (!newDay || fastSettle || homePos == null || building || lampSite != null
@@ -3102,6 +3292,11 @@ public class MimicEntity extends PathfinderMob {
             // 재배선되어 아버지의 추종자들이 아들을 따르고(왕조), 채무는 상속인에게 옮겨져
             // 아버지의 예속이 아들에게 간다(농노 세습). 상속인이 없으면 세력은 흩어진다.
             AllegianceStore.get(sld).succeed(individual.id(),
+                    preHeir == null || preHeir.getIndividual() == null
+                            ? 0L : preHeir.getIndividual().id());
+            // 시설 승계(P5) — 밭·채권과 <b>같은 단계</b>다. 학교가 아버지와 함께 사라지면
+            // 왕조의 물적 기반이 한 세대마다 초기화되고, 시설 수지도 세대를 넘겨 볼 수 없다.
+            FacilityStore.get(sld).inheritTo(individual.id(),
                     preHeir == null || preHeir.getIndividual() == null
                             ? 0L : preHeir.getIndividual().id());
             // 마름 사망(v1.1) — 맡던 구획은 같은 틱 승계(후계 없으면 공석 — 차기 채용자 즉시 임명).
@@ -3679,6 +3874,7 @@ public class MimicEntity extends PathfinderMob {
         if (homePos != null) {
             larder = payUpkeep(sl, larder, newHomeDay);
             larder = considerLamp(sl, fam, larder, adultNeed, newHomeDay);
+            larder = considerFacility(sl, larder, adultNeed, newHomeDay);
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,

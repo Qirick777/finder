@@ -27,6 +27,9 @@ import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.HomeTemplate;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.entity.MimicVisitGoal;
+import com.evosim.mod.entity.Facilities;
+import com.evosim.mod.entity.FacilityStore;
+import com.evosim.mod.entity.FacilityTemplate;
 import com.evosim.mod.entity.SocialRank;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
@@ -104,6 +107,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmshape").executes(EvoSimCommand::farmShape))
                 .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
                 .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
+                .then(Commands.literal("facilities").executes(EvoSimCommand::facilities))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -3406,6 +3410,68 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  세력 상위 — " + sb.toString().trim());
         }
         return edges;
+    }
+
+    /**
+     * <b>시설 보고</b> — 학교·교회가 섰는가, 도면대로 섰는가, 장부가 어떤가.
+     *
+     * <p>"섰는가"만 세면 안 된다. 구조 일치율을 함께 재지 않으면 <b>반쯤 파묻힌 학교</b>도
+     * 1채로 잡힌다 — 거처에서 승격 이사 직후를 붕괴로 오독했던 것과 같은 종류의 실수를
+     * 반대 방향으로 저지르는 셈이다.
+     */
+    private static int facilities(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FacilityStore reg = FacilityStore.get(level);
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        if (reg.all().isEmpty()) {
+            tell(ctx.getSource(), String.format(
+                    "§e[시설]§r 0채 — 문턱: 추종자%d명 · 건축비%.0f (사건 로그의 '학교' 줄이 사유를 말한다)",
+                    Facilities.SCHOOL_MIN_FOLLOWERS, Facilities.SCHOOL_COST));
+            return 0;
+        }
+        double standSum = 0.0;
+        int broken = 0;
+        int orphan = 0;
+        StringBuilder sb = new StringBuilder();
+        for (FacilityStore.Entry e : reg.all()) {
+            var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
+            double stand = 1.0;
+            if (tpl.isPresent()) {
+                int ok = 0;
+                for (FacilityTemplate.Placement p : tpl.get().plan()) {
+                    if (level.getBlockState(e.pos.offset(p.rel())).getBlock()
+                            == p.state().getBlock()) {
+                        ok++;
+                    }
+                }
+                stand = tpl.get().plan().isEmpty() ? 1.0
+                        : (double) ok / tpl.get().plan().size();
+            }
+            standSum += stand;
+            if (stand < MimicEntity.STANDING_RATIO) {
+                broken++;
+            }
+            boolean alive = byId.containsKey(e.ownerId);
+            if (!alive) {
+                orphan++;
+            }
+            sb.append(String.format("%s@%d,%d(주인#%d%s 추종자%d · 일치%.0f%% · 벌이%.1f/쓴것%.1f=순%.1f) ",
+                    e.kind.label, e.pos.getX(), e.pos.getZ(), e.ownerId, alive ? "" : "·사망",
+                    FarmTicker.followersOf(e.ownerId), stand * 100.0,
+                    e.earned, e.spent, e.net()));
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[시설]§r %d채(학교%d 교회%d) · 구조평균%.0f%% · %s무너짐%d§r · 주인사망%d",
+                reg.all().size(), reg.countOf(FacilityTemplate.Kind.SCHOOL),
+                reg.countOf(FacilityTemplate.Kind.CHURCH),
+                standSum / reg.all().size() * 100.0,
+                broken == 0 ? "§a" : "§c", broken, orphan));
+        tell(ctx.getSource(), "  " + sb.toString().trim());
+        return reg.all().size();
     }
 
     /**

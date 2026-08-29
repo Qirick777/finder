@@ -953,6 +953,11 @@ public final class FarmTicker {
     /** 주인별 추종자 수 — 일일 패스 첫머리에 한 번 채우고 그날 내내 쓴다(밭 상한 입력). */
     private static final java.util.Map<Long, Integer> FOLLOWERS = new java.util.HashMap<>();
 
+    /** 이 개체를 따르는 자가 몇인가 — 시설 착공 자격(이용자가 곧 수입)의 입력. */
+    public static int followersOf(long id) {
+        return FOLLOWERS.getOrDefault(id, 0);
+    }
+
     // ── 당일 봉건 수지(P4) — 보고 전용. 매일 새벽에 지워지고 다시 채워진다. ──────────
     /** 개체가 오늘 <b>받은</b> 것 — 추종자 세금 + 아래에서 올라온 상납. */
     private static final java.util.Map<Long, Double> TAX_IN = new java.util.HashMap<>();

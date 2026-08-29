@@ -434,7 +434,7 @@ public final class HomeTemplate {
      * {@code filterBlocks(pos, settings, block)} 는 <b>지정한 블록만</b> 돌려준다
      * (전체를 받는 공개 경로가 없다). 건축 계획은 전체 블록이 필요하므로 원본을 직접 읽는다.
      */
-    private static Optional<CompoundTag> readNbt(ServerLevel level, String design) {
+    static Optional<CompoundTag> readNbt(ServerLevel level, String design) {
         ResourceLocation rl = new ResourceLocation(EvoSimMod.MODID,
                 "structures/" + design + ".nbt");
         var res = level.getServer().getResourceManager().getResource(rl);
@@ -541,7 +541,7 @@ public final class HomeTemplate {
      * <p>실측이 이 진단과 정확히 일치했다: 회전만 건 20배치는 보정 0칸, 반전을 건 20배치는
      * 20/20 전부 보정 발생(small3 4칸·middle2 4·big2 6·mansion 19). 회전 경로는 무결했다.
      */
-    private static BlockState fixStairMirror(BlockState st, Mirror mirror) {
+    static BlockState fixStairMirror(BlockState st, Mirror mirror) {
         if (mirror != Mirror.FRONT_BACK
                 || !(st.getBlock() instanceof net.minecraft.world.level.block.StairBlock)
                 || st.getValue(net.minecraft.world.level.block.StairBlock.FACING).getAxis()
@@ -568,7 +568,7 @@ public final class HomeTemplate {
      * 좌표 변환 — 바닐라 {@code StructureTemplate.transform} 과 같은 식(피벗 원점).
      * <b>대칭을 먼저, 회전을 나중에</b> 적용한다(블록 상태 변환 순서와 동일해야 문·계단이 맞는다).
      */
-    private static BlockPos transform(int x, int y, int z, Rotation rot, Mirror mir) {
+    static BlockPos transform(int x, int y, int z, Rotation rot, Mirror mir) {
         if (mir == Mirror.LEFT_RIGHT) {
             z = -z;
         } else if (mir == Mirror.FRONT_BACK) {

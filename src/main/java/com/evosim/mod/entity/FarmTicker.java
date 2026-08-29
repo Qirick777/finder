@@ -1229,9 +1229,20 @@ public final class FarmTicker {
                         }
                     }
                 }
-                if (!headFollows) {
-                    SCHOOL_MISS[anyFollows ? 0 : 1]++;
+                // <b>자격은 가구가 갖는다</b>(계획서 1.5: "추종 가구의 소년"). 처음에는 가구
+                // 대표(밭 최다 보유자)가 따르는지만 봤는데, 어머니가 따르고 아버지가 안 따르는
+                // 집이 통째로 빠졌다 — 실측(D20): 대표만안따름 5건. 시설 착공 자격에서 이미
+                // 같은 함정을 밟았고(대표는 UUID 최소로 뽑혀 사실상 무작위), 저장고가 가구
+                // 공동이니 자격도 가구 것으로 봐야 앞뒤가 맞는다.
+                //
+                // 다만 <b>신세를 지는 자</b>는 여전히 대표다 — 지주의 아들이 다니면 지주가
+                // 빚져야 지주 간 사슬이 생긴다.
+                if (!anyFollows) {
+                    SCHOOL_MISS[1]++;
                     continue;
+                }
+                if (!headFollows) {
+                    SCHOOL_MISS[0]++; // 계측만 — 이제 자격은 준다
                 }
                 if (b.getHomePos().distSqr(sc.pos)
                         > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {

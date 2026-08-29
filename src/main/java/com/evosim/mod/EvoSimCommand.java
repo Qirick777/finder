@@ -3068,7 +3068,10 @@ public final class EvoSimCommand {
             int n = p.tiles.length;
             int holes = 0;
             int breaks = 0;
-            int blocked = 0; // 영구 구조물(집·시설·가로등)에 막혀 <b>채울 수 없는</b> 칸
+            // 회피 규칙이나 구조물 때문에 <b>채울 수 없는</b> 칸. 구멍과 <b>같은 단위(칸)</b>다 —
+            // 종전에는 끊긴 구간 단위로 세어 "구멍4(막힘2)" 처럼 넷 중 둘만 설명된 것처럼
+            // 읽혔다. 실제로는 네 칸 전부 설명됐는데 구간이 둘이었을 뿐이다.
+            int blocked = 0;
             int minLen = Integer.MAX_VALUE;
             int maxLen = 0;
             for (var re : rows.entrySet()) {
@@ -3077,7 +3080,6 @@ public final class EvoSimCommand {
                 int gapCells = (v.get(v.size() - 1) - v.get(0) + 1) - v.size();
                 for (int i = 1; i < v.size(); i++) {
                     if (v.get(i) - v.get(i - 1) > 1) {
-                        boolean allBlocked = true;
                         // <b>빠진 칸의 월드 좌표</b>를 남긴다. 개수만 세면 무엇이 막고 있는지
                         // 영영 못 본다 — 이번 세션에서 무너진 집도, 이 구멍도 좌표를 붙이고
                         // 나서야 원인이 잡혔다. 격자 복원의 역변환이라 정확하다.
@@ -3096,17 +3098,15 @@ public final class EvoSimCommand {
                             // 두 벌이 갈라진다 — 블록 종류만 보고 분류했을 때 집 여유 안의
                             // 맨 잔디 칸이 진짜 구멍으로 잡혔던 것이 그 실수였다.
                             String why = FarmTicker.plantBlockReason(level, wp);
-                            allBlocked &= why != null;
+                            if (why != null) {
+                                blocked++; // <b>칸</b> 단위로 센다 — 구멍과 같은 단위여야 한다
+                            }
                             if (holeAt.length() < 220) {
                                 holeAt.append(String.format("#%d@%d,%d=%s ",
                                         p.id, wx, wz, why == null ? "빈칸" : why));
                             }
                         }
-                        if (allBlocked) {
-                            blocked++;
-                        } else {
-                            breaks++;
-                        }
+                        breaks++;
                     }
                 }
                 holes += gapCells;
@@ -3479,7 +3479,7 @@ public final class EvoSimCommand {
         }
         if (reg.all().isEmpty()) {
             tell(ctx.getSource(), String.format(
-                    "§e[시설]§r 0채 — 자격자%d명(최대세력%d · 문턱 추종자%d) · 건축비%.0f"
+                    "§e[시설]§r 0채 — 자격자%d명(최대세력%d·새벽기준 · 문턱 추종자%d) · 건축비%.0f"
                             + " (자격자가 있는데 0채면 사건 로그의 '학교' 줄이 사유를 말한다)",
                     qualified, topPower, Facilities.SCHOOL_MIN_FOLLOWERS, Facilities.SCHOOL_COST));
             return 0;
@@ -3517,7 +3517,7 @@ public final class EvoSimCommand {
         }
         tell(ctx.getSource(), String.format(
                 "§e[시설]§r %d채(학교%d 교회%d) · 구조평균%.0f%% · %s무너짐%d§r · 주인사망%d"
-                        + " · 자격자%d명(최대세력%d)",
+                        + " · 자격자%d명(최대세력%d·새벽기준)",
                 reg.all().size(), reg.countOf(FacilityTemplate.Kind.SCHOOL),
                 reg.countOf(FacilityTemplate.Kind.CHURCH),
                 standSum / reg.all().size() * 100.0,

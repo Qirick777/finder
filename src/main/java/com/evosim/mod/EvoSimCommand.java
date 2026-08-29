@@ -1995,6 +1995,10 @@ public final class EvoSimCommand {
         int conflict = 0;   // 등기는 빈집인데 실거주자가 있다 = 남의 집에 입주할 위험
         int stale = 0;      // 실거주자가 있는데 등기가 없다 = 겹쳐 지을 위험
         StringBuilder vac = new StringBuilder();
+        // 무너진 집의 <b>좌표</b> — 개수만으로는 "같은 집이 계속 무너져 있다"(결함)와 "매일 다른
+        // 집이 잠시 그렇다"(개축 중)를 가를 수 없다. 종전에는 빈집일 때만 좌표가 찍혀, 사람이
+        // 사는 집이 무너진 경우를 추적할 방법이 아예 없었다.
+        StringBuilder broke = new StringBuilder();
         for (BlockPos h : all) {
             HomeStore.Entry e = reg.entry(h);
             // 구조물이 실제로 서 있는가 — 도면 대비 일치 비율로 잰다(모닥불 폐지 후의 관측 경로).
@@ -2003,6 +2007,12 @@ public final class EvoSimCommand {
             boolean standing = stand >= MimicEntity.STANDING_RATIO;
             if (!standing) {
                 ghost++;
+                if (broke.length() < 400) {
+                    broke.append(String.format("%d,%d(%s r%d%s %.0f%% 거주%d) ",
+                            h.getX(), h.getZ(), e.design(), e.rotation(),
+                            e.mirrored() ? "m" : "", stand * 100.0,
+                            residents.getOrDefault(h.asLong(), 0)));
+                }
             }
             standSum += stand;
             int res = residents.getOrDefault(h.asLong(), 0);
@@ -2260,6 +2270,9 @@ public final class EvoSimCommand {
                 upkeepDue));
         if (vac.length() > 0) {
             tell(ctx.getSource(), "빈집: " + vac);
+        }
+        if (broke.length() > 0) {
+            tell(ctx.getSource(), "무너짐: " + broke);
         }
         return all.size();
     }

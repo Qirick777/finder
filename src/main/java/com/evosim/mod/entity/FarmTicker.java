@@ -1182,7 +1182,8 @@ public final class FarmTicker {
                                 .MOTION_BLOCKING_NO_LEAVES,
                         gridOffset(anchor, d, c, r));
                 if (!level.isLoaded(gp) || store.isFarmTile(gp)
-                        || nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
+                        || nearSomeHome(level, adults, gp, PLANT_CLEAR)
+                        || nearFacility(level, gp)) {
                     continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
                 }
                 var at = level.getBlockState(gp);
@@ -1247,7 +1248,8 @@ public final class FarmTicker {
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 gridOffset(plot.anchor, plot.dir, c, r));
         if (!level.isLoaded(gp) || mine.contains(gp.asLong()) || store.isFarmTile(gp)
-                || nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
+                || nearSomeHome(level, adults, gp, PLANT_CLEAR)
+                || nearFacility(level, gp)) {
             return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다
         }
         // <b>몸통과 맞닿을 것</b> — 연결을 구성적으로 보장한다.
@@ -1337,6 +1339,32 @@ public final class FarmTicker {
     private static boolean nearSomeHome(ServerLevel level, java.util.List<MimicEntity> adults,
                                         BlockPos gp, double margin) {
         return index(level, adults, margin).near(gp);
+    }
+
+    /**
+     * <b>시설을 피한다</b>(P5a) — 학교·교회의 점유 반경 안이면 밭을 놓지 않는다.
+     *
+     * <p>거처 회피와 <b>별도</b>인 이유: 시설은 21×18 로 거처보다 훨씬 커서 {@code PLANT_CLEAR}
+     * 같은 고정 여유로는 못 덮는다. 도면이 스스로 아는 반경({@code reach})에 심는 여유를 더한다.
+     *
+     * <p>이 검사가 없으면 밭이 학교 위로 자라도 막을 것이 없었다. 첫 학교가 밭에서 멀리 선 것은
+     * <b>운</b>이지 안전이 아니다 — 집·가로등과 밭이 겹치던 것과 같은 종류의 빈틈이다.
+     * 시설은 많아야 서너 채라 선형 순회로 충분하다.
+     */
+    private static boolean nearFacility(ServerLevel level, BlockPos gp) {
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
+            if (tpl.isEmpty()) {
+                continue;
+            }
+            double need = tpl.get().reach() + PLANT_MARGIN;
+            double dx = e.pos.getX() - gp.getX();
+            double dz = e.pos.getZ() - gp.getZ();
+            if (dx * dx + dz * dz < need * need) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

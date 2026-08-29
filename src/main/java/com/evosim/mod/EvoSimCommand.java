@@ -3032,6 +3032,7 @@ public final class EvoSimCommand {
         // (열, 줄) 격자좌표 한 쌍을 long 하나로 — 음수 열/줄이 있으므로 그냥 곱셈은 못 쓴다.
 
         int counted = 0;
+        StringBuilder holeAt = new StringBuilder();
         tell(ctx.getSource(), String.format("§e[밭형태] 구획%d — 의도: 재배줄+고랑1의 꽉 찬 직사각형",
                 plots.size()));
         for (FarmStore.Plot p : plots) {
@@ -3068,12 +3069,22 @@ public final class EvoSimCommand {
             int breaks = 0;
             int minLen = Integer.MAX_VALUE;
             int maxLen = 0;
-            for (java.util.List<Integer> v : rows.values()) {
+            for (var re : rows.entrySet()) {
+                java.util.List<Integer> v = re.getValue();
                 java.util.Collections.sort(v);
                 holes += (v.get(v.size() - 1) - v.get(0) + 1) - v.size();
                 for (int i = 1; i < v.size(); i++) {
                     if (v.get(i) - v.get(i - 1) > 1) {
                         breaks++;
+                        // <b>빠진 칸의 월드 좌표</b>를 남긴다. 개수만 세면 무엇이 막고 있는지
+                        // 영영 못 본다 — 이번 세션에서 무너진 집도, 이 구멍도 좌표를 붙이고
+                        // 나서야 원인이 잡혔다. 격자 복원의 역변환이라 정확하다.
+                        for (int c = v.get(i - 1) + 1; c < v.get(i) && holeAt.length() < 160; c++) {
+                            int across = re.getKey() * 2;
+                            int wx = turnedAxis ? p.anchor.getX() + across : p.anchor.getX() + c;
+                            int wz = turnedAxis ? p.anchor.getZ() + c : p.anchor.getZ() + across;
+                            holeAt.append(String.format("#%d@%d,%d ", p.id, wx, wz));
+                        }
                     }
                 }
                 minLen = Math.min(minLen, v.size());
@@ -3220,6 +3231,9 @@ public final class EvoSimCommand {
                 "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d · 줄방향 x축%d/z축%d",
                 totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBreaks,
                 strays, mirrored, counted, fouled, counted - axisZ, axisZ));
+        if (holeAt.length() > 0) {
+            tell(ctx.getSource(), "  빠진칸: " + holeAt.toString().trim());
+        }
         tell(ctx.getSource(), String.format(
                 "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));

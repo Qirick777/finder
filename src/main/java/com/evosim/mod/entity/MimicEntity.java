@@ -684,6 +684,21 @@ public class MimicEntity extends PathfinderMob {
         if (onFarm(sl, bp)) {
             return "밭 위";
         }
+        // 시설 위·바싹 붙음(P5a) — 학교·교회는 21×18 이라 거처 간격 규칙으로는 안 덮인다.
+        // 이 검사가 없으면 학교 위에 집을 지을 수 있었다. 밭 회피와 <b>같은 반경</b>을 쓴다.
+        for (FacilityStore.Entry fe : FacilityStore.get(sl).all()) {
+            var ft = FacilityTemplate.of(sl, fe.kind, fe.rotation, fe.mirrored);
+            if (ft.isEmpty()) {
+                continue;
+            }
+            double need = ft.get().reach() + HomeBlueprint.reachOf(sl, bp.design())
+                    + Facilities.HOME_MARGIN;
+            double dx = fe.pos.getX() - bp.home().getX();
+            double dz = fe.pos.getZ() - bp.home().getZ();
+            if (dx * dx + dz * dz < need * need) {
+                return "시설에 붙음";
+            }
+        }
         if (fg < MIN_FARM_GAP) {
             return String.format("밭에 붙음(%d칸)", fg);
         }

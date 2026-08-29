@@ -1342,6 +1342,48 @@ public final class FarmTicker {
     }
 
     /**
+     * <b>이 칸에 밭을 놓을 수 없는 이유</b> — 놓을 수 있으면 null. 보고 전용(느려도 된다).
+     *
+     * <p>존재 이유는 하나다: <b>보고가 배치와 같은 코드에 물어야 한다.</b> 밭형태 보고의
+     * "구멍"을 블록 종류만 보고 분류했더니, 집 여유 반경 안이라 밭이 <b>옳게</b> 비켜 간 맨
+     * 잔디 칸이 진짜 구멍으로 잡혔다(실측 #2@-12,-10 = air/grass_block). 판정 규칙을 보고
+     * 쪽에 베껴 쓰면 밭 격자 재구성 때처럼 두 벌이 갈라진다.
+     *
+     * <p>{@link #idealSpot} 의 관문을 <b>같은 순서로</b> 다시 묻는다. 인접 조건은 뺀다 —
+     * 그것은 "놓을 수 있는가"가 아니라 "지금 이어 붙일 차례인가"라서, 이미 몸통 사이에 낀
+     * 칸에는 해당하지 않는다.
+     */
+    @javax.annotation.Nullable
+    public static String plantBlockReason(ServerLevel level, BlockPos gp) {
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
+                com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null
+                        && (m.getStage() == com.evosim.core.LifeStage.ADULT
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER)));
+        if (nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
+            return "집여유";
+        }
+        if (nearFacility(level, gp)) {
+            return "시설여유";
+        }
+        var at = level.getBlockState(gp);
+        var below = level.getBlockState(gp.below());
+        if (!(at.isAir() || at.canBeReplaced() || weed(at))) {
+            return net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .getKey(at.getBlock()).getPath();
+        }
+        boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                || below.is(net.minecraft.world.level.block.Blocks.DIRT)
+                || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH);
+        if (!ground) {
+            return "땅아님:" + net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .getKey(below.getBlock()).getPath();
+        }
+        return null;
+    }
+
+    /**
      * <b>시설을 피한다</b>(P5a) — 학교·교회의 점유 반경 안이면 밭을 놓지 않는다.
      *
      * <p>거처 회피와 <b>별도</b>인 이유: 시설은 21×18 로 거처보다 훨씬 커서 {@code PLANT_CLEAR}

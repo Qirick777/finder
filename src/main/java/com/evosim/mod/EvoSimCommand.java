@@ -3022,6 +3022,7 @@ public final class EvoSimCommand {
         plots.sort((a, b) -> Integer.compare(b.tiles.length, a.tiles.length));
         int totTiles = 0;
         int totHoles = 0;
+        int totBlocked = 0;
         int totBreaks = 0;
         int totRows = 0;
         int mirrored = 0;
@@ -3067,19 +3068,20 @@ public final class EvoSimCommand {
             int n = p.tiles.length;
             int holes = 0;
             int breaks = 0;
+            int blocked = 0; // 영구 구조물(집·시설·가로등)에 막혀 <b>채울 수 없는</b> 칸
             int minLen = Integer.MAX_VALUE;
             int maxLen = 0;
             for (var re : rows.entrySet()) {
                 java.util.List<Integer> v = re.getValue();
                 java.util.Collections.sort(v);
-                holes += (v.get(v.size() - 1) - v.get(0) + 1) - v.size();
+                int gapCells = (v.get(v.size() - 1) - v.get(0) + 1) - v.size();
                 for (int i = 1; i < v.size(); i++) {
                     if (v.get(i) - v.get(i - 1) > 1) {
-                        breaks++;
+                        boolean allBlocked = true;
                         // <b>빠진 칸의 월드 좌표</b>를 남긴다. 개수만 세면 무엇이 막고 있는지
                         // 영영 못 본다 — 이번 세션에서 무너진 집도, 이 구멍도 좌표를 붙이고
                         // 나서야 원인이 잡혔다. 격자 복원의 역변환이라 정확하다.
-                        for (int c = v.get(i - 1) + 1; c < v.get(i) && holeAt.length() < 220; c++) {
+                        for (int c = v.get(i - 1) + 1; c < v.get(i); c++) {
                             int across = re.getKey() * 2;
                             int wx = turnedAxis ? p.anchor.getX() + across : p.anchor.getX() + c;
                             int wz = turnedAxis ? p.anchor.getZ() + c : p.anchor.getZ() + across;
@@ -3090,15 +3092,24 @@ public final class EvoSimCommand {
                                     net.minecraft.world.level.levelgen.Heightmap.Types
                                             .MOTION_BLOCKING_NO_LEAVES,
                                     new BlockPos(wx, 0, wz));
-                            String what = net.minecraft.core.registries.BuiltInRegistries.BLOCK
-                                    .getKey(level.getBlockState(wp).getBlock()).getPath();
-                            String under = net.minecraft.core.registries.BuiltInRegistries.BLOCK
-                                    .getKey(level.getBlockState(wp.below()).getBlock()).getPath();
-                            holeAt.append(String.format("#%d@%d,%d,y%d=%s/%s ",
-                                    p.id, wx, wz, wp.getY(), what, under));
+                            // <b>배치와 같은 코드에 묻는다.</b> 규칙을 보고 쪽에 베껴 쓰면
+                            // 두 벌이 갈라진다 — 블록 종류만 보고 분류했을 때 집 여유 안의
+                            // 맨 잔디 칸이 진짜 구멍으로 잡혔던 것이 그 실수였다.
+                            String why = FarmTicker.plantBlockReason(level, wp);
+                            allBlocked &= why != null;
+                            if (holeAt.length() < 220) {
+                                holeAt.append(String.format("#%d@%d,%d=%s ",
+                                        p.id, wx, wz, why == null ? "빈칸" : why));
+                            }
+                        }
+                        if (allBlocked) {
+                            blocked++;
+                        } else {
+                            breaks++;
                         }
                     }
                 }
+                holes += gapCells;
                 minLen = Math.min(minLen, v.size());
                 maxLen = Math.max(maxLen, v.size());
                 if (v.size() == 1) {
@@ -3117,6 +3128,7 @@ public final class EvoSimCommand {
             double fill = rows.isEmpty() ? 0.0 : (double) n / (rows.size() * Math.max(1, maxLen));
             totTiles += n;
             totHoles += holes;
+            totBlocked += blocked;
             totBreaks += breaks;
             totRows += rows.size();
             fillSum += fill;
@@ -3131,12 +3143,12 @@ public final class EvoSimCommand {
             if (foul > 0) {
                 fouled++;
             }
-            String flag = (holes > 0 || breaks > 0 || spread || foul > 0 || rowGaps > 0)
-                    ? "§c" : "§a";
+            // 막힘만 있는 구획은 <b>결함이 아니다</b> — 밭이 구조물을 옳게 비켜 간 것이다.
+            String flag = (breaks > 0 || spread || foul > 0 || rowGaps > 0) ? "§c" : "§a";
             tell(ctx.getSource(), String.format(
-                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d 줄끊김%d 빈줄%d 덩어리%d 고랑오염%d%s§r @%d,%d",
+                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d(막힘%d) 줄끊김%d 빈줄%d 덩어리%d 고랑오염%d%s§r @%d,%d",
                     flag, p.id, n, rows.size(), minLen == Integer.MAX_VALUE ? 0 : minLen, maxLen,
-                    100 * fill, holes, breaks, rowGaps, comp, foul,
+                    100 * fill, holes, blocked, breaks, rowGaps, comp, foul,
                     (turnedAxis ? " 줄z축" : " 줄x축") + (p.turned ? "·방향전환" : ""),
                     p.anchor.getX(), p.anchor.getZ()));
         }
@@ -3240,8 +3252,8 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), String.format(
-                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d · 줄방향 x축%d/z축%d",
-                totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBreaks,
+                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d(막힘%d) · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d · 줄방향 x축%d/z축%d",
+                totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBlocked, totBreaks,
                 strays, mirrored, counted, fouled, counted - axisZ, axisZ));
         if (holeAt.length() > 0) {
             tell(ctx.getSource(), "  빠진칸: " + holeAt.toString().trim());

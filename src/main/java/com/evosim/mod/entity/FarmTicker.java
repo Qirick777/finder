@@ -1059,6 +1059,30 @@ public final class FarmTicker {
                 || nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
             return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다
         }
+        // <b>몸통과 맞닿을 것</b> — 연결을 구성적으로 보장한다.
+        //
+        // 종전에는 이상 수열이 연결적이라는 데 기댔다((w,r)은 (w−1,r)에, (c,k)는 (c,k−1)에
+        // 붙는다). 그런데 <b>붙을 앞 칸이 막히면</b> 그 논거가 무너진다 — 한 열이 통째로 막히면
+        // 다음 열은 허공에 놓인다. 빈집까지 회피 대상에 넣자 실제로 조각이 났다
+        // (실측 P3b D14: 몸통갈린구획 1/12, 종전 0).
+        //
+        // 수열이 원래 그렇게 생겼으므로 정상적인 경우에는 아무것도 바뀌지 않는다. 앞 칸이
+        // 막혔을 때만 걸린다. 첫 칸은 붙을 데가 없으므로 예외다.
+        if (!mine.isEmpty()) {
+            boolean touches = false;
+            for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                BlockPos nb = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        gridOffset(plot.anchor, plot.dir, c + d[0], r + d[1]));
+                if (mine.contains(nb.asLong())) {
+                    touches = true;
+                    break;
+                }
+            }
+            if (!touches) {
+                return null;
+            }
+        }
         var at = level.getBlockState(gp);
         var below = level.getBlockState(gp.below());
         boolean natural = at.isAir() || at.canBeReplaced() || weed(at);
@@ -1265,8 +1289,15 @@ public final class FarmTicker {
      */
     private static final double PLANT_CLEAR = 8.0;
 
-    /** 발자국 바깥에 남겨야 할 여유 — 밭 테두리 한 겹 + 지나다닐 한 칸. */
-    private static final double PLANT_MARGIN = 2.0;
+    /**
+     * 발자국 바깥에 남겨야 할 여유 — 밭 테두리 한 겹 + 지나다닐 한 칸.
+     *
+     * <p>2.0→3.0. 2 로 두면 <b>테두리만 들어가고 통로가 없다</b>. 실측(P3b D14)에서 그 모양이
+     * 그대로 나왔다 — 밭 → 흙길 한 칸 → 집 벽이 맞붙어 집–밭 거리 2 가 됐다. 도달 거리는
+     * 앵커에서 발자국까지이므로, 그 바깥으로 두 칸을 더 띄워야 테두리와 통로가 <b>둘 다</b>
+     * 들어간다.
+     */
+    private static final double PLANT_MARGIN = 3.0;
 
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,

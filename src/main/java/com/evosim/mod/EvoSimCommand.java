@@ -3523,6 +3523,31 @@ public final class EvoSimCommand {
                 standSum / reg.all().size() * 100.0,
                 broken == 0 ? "§a" : "§c", broken, orphan, qualified, topPower));
         tell(ctx.getSource(), "  " + sb.toString().trim());
+        // ── 학교 운영(P5b) ── 등교율의 분모는 <b>마을 전체 소년</b>이다. 등록자만 세면
+        //    "등교율 100%" 같은 무의미한 수가 나온다.
+        double[] ss = FarmTicker.schoolSums();
+        java.util.List<Double> trip = new java.util.ArrayList<>();
+        int boys = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getStage() == com.evosim.core.LifeStage.BOY)) {
+            boys++;
+            BlockPos sp = FarmTicker.schoolOf(m);
+            if (sp != null && m.getHomePos() != null) {
+                trip.add(Math.sqrt(m.getHomePos().distSqr(sp)));
+            }
+        }
+        java.util.Collections.sort(trip);
+        tell(ctx.getSource(), String.format(
+                "  학교 — 등교%.0f/소년%d(%.0f%%) · 수업료%.1f · 미납%.1f · 급여%.1f · 당일수지%+.1f",
+                ss[0], boys, boys == 0 ? 0.0 : 100.0 * ss[0] / boys,
+                ss[2], ss[3], ss[4], ss[2] - ss[4]));
+        if (!trip.isEmpty()) {
+            tell(ctx.getSource(), String.format(
+                    "  통학거리 — 최소%.0f 중앙%.0f 최대%.0f (한계%.0f)",
+                    trip.get(0), trip.get(trip.size() / 2), trip.get(trip.size() - 1),
+                    Facilities.COMMUTE_RANGE));
+        }
         return reg.all().size();
     }
 

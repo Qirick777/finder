@@ -258,6 +258,7 @@ public final class FarmTicker {
                                 && !FOLLOWERS.containsKey(id));
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
+            runSchools(level, ledger, larders, adults, everyone, patrons, day);
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
@@ -1097,6 +1098,184 @@ public final class FarmTicker {
             TAX_IN.merge(up, send, Double::sum);
             TAX_SUM[2] += send;
         }
+    }
+
+    /** 학교별 등록 학생 — 하루 한 번 새로 짠다. 등하교 goal 과 보고가 이것을 읽는다. */
+    private static final java.util.Map<Long, java.util.List<Integer>> ENROLLED =
+            new java.util.HashMap<>();
+    /** 학생 개체 id → 다닐 학교 좌표. 등하교 goal 의 목적지. */
+    private static final java.util.Map<Integer, BlockPos> SCHOOL_OF = new java.util.HashMap<>();
+    /** [등교, 대상 소년, 수업료 수입, 미납, 급여] — 한 줄 보고용. */
+    private static final double[] SCHOOL_SUM = new double[5];
+
+    /** 이 소년이 오늘 다닐 학교 — 없으면 null. 등하교 goal 의 단일 출처. */
+    @javax.annotation.Nullable
+    public static BlockPos schoolOf(MimicEntity boy) {
+        return SCHOOL_OF.get(boy.getId());
+    }
+
+    public static double[] schoolSums() {
+        return SCHOOL_SUM.clone();
+    }
+
+    /**
+     * <b>학교 운영</b>(P5b) — 교사 급여 · 등록 · 수업료 · 신세.
+     *
+     * <p>이 단계가 P4 에서 드러난 결핍을 메운다. 원장에 간선을 만드는 셋(소작·구휼·긴급고용)은
+     * 전부 <b>가난한 쪽이 받는 것</b>이라 지주는 어느 것도 받지 않고, 그래서 지주 간 신세가
+     * 하루 5% 씩 옅어지기만 해 <b>지배 계층이 생겼다 사라졌다</b> 했다(실측 D18 지배1·깊이2 →
+     * D20~22 지배0·깊이1). 학교는 사슬을 새로 만드는 장치가 아니라 <b>이미 생긴 사슬을 고정하는
+     * 못</b>이다 — 밭을 가진 자도 신세가 임계를 넘으면 주인을 갖는데, 그 지주의 아들이 주인의
+     * 학교에 다니면 매일 신세가 채워져 감쇠를 이긴다.
+     *
+     * <p><b>대상은 추종 가구의 소년</b>(계획서 1.5)이다. 아무나 다닐 수 있게 하면 학교가
+     * 예속의 도구가 아니라 공공재가 되어 버린다.
+     *
+     * <p>수업료와 신세를 <b>둘 다</b> 매기는 것은 이중 부과가 아니다. 소액 수업료가 교육의 값을
+     * 다 치르지 못하고 그 차액이 은혜로 남는 것이 후원의 실체다 — 소작이 임금을 받으면서도
+     * 신세를 쌓는 것({@link AllegianceStore#W_TENANCY})과 같은 구조이고 선례가 이미 있다.
+     */
+    private static void runSchools(ServerLevel level, AllegianceStore ledger, LarderStore larders,
+                                   java.util.List<MimicEntity> adults,
+                                   java.util.List<MimicEntity> everyone,
+                                   java.util.Map<Long, Long> patrons, long day) {
+        ENROLLED.clear();
+        SCHOOL_OF.clear();
+        java.util.Arrays.fill(SCHOOL_SUM, 0.0);
+        FacilityStore reg = FacilityStore.get(level);
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : everyone) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        java.util.List<FacilityStore.Entry> schools = new java.util.ArrayList<>();
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind == FacilityTemplate.Kind.SCHOOL) {
+                schools.add(e);
+            }
+        }
+        // 소년 전수 — 대상 수를 먼저 세야 등교율의 분모가 정직해진다.
+        java.util.List<MimicEntity> boys = new java.util.ArrayList<>();
+        for (MimicEntity m : everyone) {
+            if (m.getStage() == com.evosim.core.LifeStage.BOY && m.getHomePos() != null) {
+                boys.add(m);
+            }
+        }
+        SCHOOL_SUM[1] = boys.size();
+        if (schools.isEmpty() || boys.isEmpty()) {
+            return;
+        }
+        boys.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id()));
+
+        for (FacilityStore.Entry sc : schools) {
+            MimicEntity owner = byId.get(sc.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                continue; // 주인이 죽고 상속인도 없다 — 다음 승계까지 문을 닫는다
+            }
+            var tpl = FacilityTemplate.of(level, sc.kind, sc.rotation, sc.mirrored);
+            int seats = tpl.map(t -> t.seats().size()).orElse(0);
+            if (seats <= 0) {
+                continue;
+            }
+            // ── 교사 — 이 주인을 따르는 <b>무토지 성년</b>(계획서 1.7: 종사자는 일반 계층).
+            //    급여를 받고 세금도 낸다. 죽었거나 자격을 잃으면 다시 뽑는다.
+            MimicEntity teacher = byId.get(sc.staffId);
+            if (teacher == null || !Long.valueOf(sc.ownerId).equals(patrons.get(sc.staffId))
+                    || FarmStore.get(level).ownedTiles(sc.staffId) > 0) {
+                teacher = null;
+                for (MimicEntity m : adults) {
+                    long id = m.getIndividual().id();
+                    if (id != sc.ownerId && Long.valueOf(sc.ownerId).equals(patrons.get(id))
+                            && FarmStore.get(level).ownedTiles(id) == 0
+                            && m.getHomePos() != null && !m.getHomePos().equals(owner.getHomePos())) {
+                        teacher = m;
+                        break;
+                    }
+                }
+                sc.staffId = teacher == null ? 0L : teacher.getIndividual().id();
+                reg.setDirty();
+            }
+            // ── 등록 — 이 주인을 따르는 가구의 소년, 통학 한계 안, 자리 수만큼. 가까운 순.
+            java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
+            for (MimicEntity b : boys) {
+                if (SCHOOL_OF.containsKey(b.getId())) {
+                    continue; // 한 아이는 한 학교만
+                }
+                if (!Long.valueOf(sc.ownerId).equals(patrons.get(householdPatronKey(b, adults)))) {
+                    continue;
+                }
+                if (b.getHomePos().distSqr(sc.pos)
+                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    continue;
+                }
+                pick.add(b);
+            }
+            pick.sort(java.util.Comparator.comparingDouble(
+                    (MimicEntity b) -> b.getHomePos().distSqr(sc.pos))
+                    .thenComparingLong(b -> b.getIndividual().id()));
+            java.util.List<Integer> roll = new java.util.ArrayList<>();
+            for (MimicEntity b : pick) {
+                if (roll.size() >= seats) {
+                    break;
+                }
+                net.minecraft.core.BlockPos home = b.getHomePos();
+                double larder = larders.get(home);
+                double pay = Math.min(Facilities.TUITION_PER_DAY,
+                        com.evosim.core.Tribute.payable(larder, familyDailyNeed(level, b, adults)));
+                double unpaid = Facilities.TUITION_PER_DAY - pay;
+                if (pay > 0.0) {
+                    larders.set(home, larder - pay);
+                    larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + pay);
+                    reg.earn(sc, pay);
+                    SCHOOL_SUM[2] += pay;
+                }
+                // 미납은 <b>가구의 어른</b>이 진다 — 아이에게 빚을 지우면 그 아이가 자라
+                // 제 땅을 가져도 갚을 것이 남의 것이 된다. 세대 간 예속은 승계가 담당한다.
+                long debtor = householdPatronKey(b, adults);
+                if (unpaid > 0.0) {
+                    ledger.record(debtor, sc.ownerId, 0.0, unpaid, day);
+                    SCHOOL_SUM[3] += unpaid;
+                }
+                // 신세 — 교육의 값과 수업료의 차액. 이것이 사슬을 붙잡는 못이다.
+                ledger.record(debtor, sc.ownerId, Facilities.W_SCHOOLING, 0.0, day);
+                roll.add(b.getId());
+                SCHOOL_OF.put(b.getId(), sc.pos);
+                SCHOOL_SUM[0]++;
+            }
+            ENROLLED.put(sc.pos.asLong(), roll);
+            // ── 급여 — 학생이 하나라도 있어야 수업이 있고, 수업이 있어야 급여다.
+            if (teacher != null && !roll.isEmpty() && teacher.getHomePos() != null) {
+                double have = larders.get(owner.getHomePos());
+                double wage = Math.min(Facilities.TEACHER_WAGE_PER_DAY, have);
+                if (wage > 0.0) {
+                    larders.set(owner.getHomePos(), have - wage);
+                    larders.set(teacher.getHomePos(), larders.get(teacher.getHomePos()) + wage);
+                    reg.spend(sc, wage);
+                    SCHOOL_SUM[4] += wage;
+                }
+            }
+        }
+    }
+
+    /**
+     * 이 아이의 <b>가구를 대표해 신세를 지는 자</b> — 같은 집 성년 중 소유 밭이 가장 많은 자.
+     *
+     * <p>지주의 아들이 다니면 <b>지주</b>가 신세를 져야 지주 간 사슬이 생긴다. 아이 본인에게
+     * 달면 아이는 이미 태생적 추종자라 아무것도 바뀌지 않는다. 성년이 없으면 아이 자신이다.
+     */
+    private static long householdPatronKey(MimicEntity boy, java.util.List<MimicEntity> adults) {
+        long best = boy.getIndividual().id();
+        int bestTiles = -1;
+        for (MimicEntity a : adults) {
+            if (a.getHomePos() != null && a.getHomePos().equals(boy.getHomePos())
+                    && a.getIndividual() != null) {
+                int t = FarmStore.get((ServerLevel) a.level()).ownedTiles(a.getIndividual().id());
+                if (t > bestTiles) {
+                    bestTiles = t;
+                    best = a.getIndividual().id();
+                }
+            }
+        }
+        return best;
     }
 
     /** 이 개체 위로 주인이 몇 단이나 있는가 — 상납 순서(깊은 쪽 먼저)를 정한다. */

@@ -48,6 +48,19 @@ public class AllegianceStore extends SavedData {
      */
     public static final double DECAY_PER_DAY = 0.95;
 
+    /**
+     * 상환분에 하루마다 붙는 이자.
+     *
+     * <p><b>탕감분은 옅어지고 상환분은 불어난다.</b> 종전 {@link #decayDaily} 는 둘 다
+     * {@link #DECAY_PER_DAY} 로 깎았다 — 상환분이 P4 이전에는 항상 0 이라 무해했지만,
+     * 세금 미납이 빚으로 쌓이기 시작하는 순간 <b>빚이 저절로 하루 5%씩 사라지는</b> 셈이었다.
+     * 은혜는 잊혀도 빚은 잊히지 않는다는 설계와 정반대라 여기서 바로잡는다.
+     *
+     * <p>0.05 는 감쇠와 대칭이다. 갚지 않으면 약 14일에 두 배 — 수명(13일)과 같은 눈금이라,
+     * 한 세대를 버티지 못한 빚은 자식에게 두 배가 되어 넘어간다(농노 세습의 산술).
+     */
+    public static final double INTEREST_PER_DAY = 0.05;
+
     /** 이보다 작아진 간선은 지운다 — 원장이 먼지로 부풀지 않게. */
     private static final double EPSILON = 0.05;
 
@@ -193,8 +206,8 @@ public class AllegianceStore extends SavedData {
             List<Bond> list = e.getValue();
             list.removeIf(b -> !aliveIds.contains(b.patronId));
             for (Bond b : list) {
-                b.forgiven *= DECAY_PER_DAY;
-                b.owed *= DECAY_PER_DAY;
+                b.forgiven *= DECAY_PER_DAY;      // 은혜는 옅어진다
+                b.owed *= 1.0 + INTEREST_PER_DAY; // 빚은 불어난다
             }
             list.removeIf(b -> b.total() < EPSILON);
             if (list.isEmpty()) {
@@ -247,6 +260,40 @@ public class AllegianceStore extends SavedData {
     /** 연속 예속 일수 — 천민 판정의 주 척도. */
     public int boundDays(long id) {
         return bound.getOrDefault(id, 0);
+    }
+
+    /**
+     * <b>상환</b> — 갚은 만큼 빚을 지운다. 빚이 큰 간선부터 갚는다(이자가 가장 빨리 부는 쪽).
+     *
+     * <p>탕감분은 건드리지 않는다. 갚아서 없앨 수 있는 것은 빚이지 은혜가 아니다 — 빚을 다
+     * 갚아도 <b>추종은 남는다</b>. 벗어나는 길은 여전히 스스로 올라서는 것뿐이다.
+     *
+     * @return 실제로 갚은 양
+     */
+    public double repay(long debtorId, double amount) {
+        if (amount <= 0.0) {
+            return 0.0;
+        }
+        List<Bond> list = bonds.get(debtorId);
+        if (list == null || list.isEmpty()) {
+            return 0.0;
+        }
+        List<Bond> order = new ArrayList<>(list);
+        order.sort((a, b) -> Double.compare(b.owed, a.owed));
+        double left = amount;
+        for (Bond b : order) {
+            if (left <= 0.0) {
+                break;
+            }
+            double cut = Math.min(b.owed, left);
+            b.owed -= cut;
+            left -= cut;
+        }
+        double paid = amount - left;
+        if (paid > 0.0) {
+            setDirty();
+        }
+        return paid;
     }
 
     /** 이 개체가 진 상환분 합 — 천민 판정의 나머지 척도. */

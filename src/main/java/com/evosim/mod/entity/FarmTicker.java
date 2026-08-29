@@ -257,6 +257,7 @@ public final class FarmTicker {
                         patrons.containsKey(id) && store.ownedTiles(id) == 0
                                 && !FOLLOWERS.containsKey(id));
             }
+            collectTribute(level, ledger, larders, adults, everyone, patrons, day);
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
@@ -951,6 +952,159 @@ public final class FarmTicker {
 
     /** 주인별 추종자 수 — 일일 패스 첫머리에 한 번 채우고 그날 내내 쓴다(밭 상한 입력). */
     private static final java.util.Map<Long, Integer> FOLLOWERS = new java.util.HashMap<>();
+
+    // ── 당일 봉건 수지(P4) — 보고 전용. 매일 새벽에 지워지고 다시 채워진다. ──────────
+    /** 개체가 오늘 <b>받은</b> 것 — 추종자 세금 + 아래에서 올라온 상납. */
+    private static final java.util.Map<Long, Double> TAX_IN = new java.util.HashMap<>();
+    /** 개체가 오늘 <b>낸</b> 것 — 제 세금 + 제 빚 상환 + 위로 올린 상납. */
+    private static final java.util.Map<Long, Double> TAX_OUT = new java.util.HashMap<>();
+    /** [징수, 미납, 상납, 상환] 총액과 [납부자, 미납자] 수 — 한 줄 보고용. */
+    private static final double[] TAX_SUM = new double[4];
+    private static final int[] TAX_CNT = new int[2];
+
+    public static java.util.Map<Long, Double> taxIn() {
+        return TAX_IN;
+    }
+
+    public static java.util.Map<Long, Double> taxOut() {
+        return TAX_OUT;
+    }
+
+    public static double[] taxSums() {
+        return TAX_SUM.clone();
+    }
+
+    public static int[] taxCounts() {
+        return TAX_CNT.clone();
+    }
+
+    /**
+     * <b>세금·상납·상환</b>(P4) — 추종이 성립한 성년이 매일 주인에게 낸다.
+     *
+     * <p>여기서 처음으로 추종이 <b>물건을 움직인다.</b> P2~P3.5 까지 추종은 장부에만 있는
+     * 관계였고 주인이 얻는 것이 하나도 없었다. 목표 4("지배자는 손해가 아니라 이익을 본다")는
+     * 이 이전이 있어야만 수치로 성립한다.
+     *
+     * <p>세 갈래가 <b>한 순회</b>에서 일어난다.
+     * <ul>
+     *   <li><b>세금</b> — 정액. 가구 예비를 남기고 낼 수 있는 만큼만 낸다.</li>
+     *   <li><b>미납</b> — 못 낸 몫은 빚(상환분)이 된다. 이자가 붙고 갚아야 한다. 이것이
+     *       천민으로 가는 두 번째 경로다(첫째는 예속 지속).</li>
+     *   <li><b>상환</b> — 세금을 다 내고도 남은 여유의 일부로 빚을 던다.</li>
+     * </ul>
+     *
+     * <p>성년만 낸다. 아이는 일하지 않고, 태생적 추종까지 과세하면 세 부담이 출산 수에
+     * 비례해 불어나 가구를 무너뜨린다 — 세금이 인구를 잡아먹으면 지배자도 손해다.
+     *
+     * <p>순회는 <b>개체 id 순</b>이다. 같은 가구에 추종자가 여럿이면 저장고가 순서대로 줄어드는데,
+     * 그 순서가 런마다 달라지면 누가 미납자가 되는지가 운으로 갈린다.
+     */
+    private static void collectTribute(ServerLevel level, AllegianceStore ledger,
+                                       LarderStore larders,
+                                       java.util.List<MimicEntity> adults,
+                                       java.util.List<MimicEntity> everyone,
+                                       java.util.Map<Long, Long> patrons, long day) {
+        TAX_IN.clear();
+        TAX_OUT.clear();
+        java.util.Arrays.fill(TAX_SUM, 0.0);
+        java.util.Arrays.fill(TAX_CNT, 0);
+
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : everyone) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        java.util.List<MimicEntity> payers = new java.util.ArrayList<>(adults);
+        payers.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id()));
+
+        for (MimicEntity m : payers) {
+            long id = m.getIndividual().id();
+            Long patronId = patrons.get(id);
+            if (patronId == null) {
+                continue;
+            }
+            net.minecraft.core.BlockPos home = m.getHomePos();
+            MimicEntity lord = byId.get(patronId);
+            // 주인이 거처를 잃었으면 걷지 않는다 — 받을 곳간이 없는 세금은 식량을 증발시킨다.
+            if (home == null || lord == null || lord.getHomePos() == null
+                    || home.equals(lord.getHomePos())) {
+                continue;
+            }
+            double larder = larders.get(home);
+            double spare = com.evosim.core.Tribute.payable(
+                    larder, familyDailyNeed(level, m, adults));
+            double due = com.evosim.core.Tribute.due(true);
+            double pay = Math.min(due, spare);
+            spare -= pay;
+            double arrears = due - pay;
+            double repayCut = com.evosim.core.Tribute.repayment(spare, ledger.owedOf(id));
+            double moved = pay + repayCut;
+
+            if (moved > 0.0) {
+                larders.set(home, larder - moved);
+                larders.set(lord.getHomePos(), larders.get(lord.getHomePos()) + moved);
+                TAX_OUT.merge(id, moved, Double::sum);
+                TAX_IN.merge(patronId, moved, Double::sum);
+            }
+            if (repayCut > 0.0) {
+                ledger.repay(id, repayCut);
+                TAX_SUM[3] += repayCut;
+            }
+            if (arrears > 0.0) {
+                // 못 낸 세금은 빚이 된다 — 추종 점수도 함께 오른다(더 깊이 묶인다).
+                ledger.record(id, patronId, 0.0, arrears, day);
+                TAX_SUM[1] += arrears;
+                TAX_CNT[1]++;
+            }
+            if (pay > 0.0) {
+                TAX_SUM[0] += pay;
+                TAX_CNT[0]++;
+            }
+        }
+
+        // ── 상납 — 걷은 자가 스스로 누군가를 따르면 그 몫의 일부를 위로 올린다.
+        //    말단부터가 아니라 <b>사슬이 깊은 자부터</b> 올려야 한 번의 순회로 왕까지 닿는다.
+        //    받는 자는 전부 주인이므로 후보는 <b>주인 전체</b>다. TAX_IN 의 키만 쓰면, 직속
+        //    추종자가 오늘 한 푼도 못 낸 중간 지배자가 아래에서 올라온 상납을 그대로 깔고 앉는다.
+        java.util.List<Long> lords = new java.util.ArrayList<>(
+                new java.util.HashSet<>(patrons.values()));
+        lords.sort(java.util.Comparator
+                .comparingInt((Long id) -> -chainDepth(patrons, id))
+                .thenComparingLong(id -> id));
+        for (long id : lords) {
+            Long up = patrons.get(id);
+            if (up == null) {
+                continue;
+            }
+            MimicEntity me = byId.get(id);
+            MimicEntity boss = byId.get(up);
+            if (me == null || boss == null || me.getHomePos() == null
+                    || boss.getHomePos() == null || me.getHomePos().equals(boss.getHomePos())) {
+                continue;
+            }
+            double send = com.evosim.core.Tribute.tributeUp(TAX_IN.getOrDefault(id, 0.0));
+            send = Math.min(send, larders.get(me.getHomePos()));
+            if (send <= 0.0) {
+                continue;
+            }
+            larders.set(me.getHomePos(), larders.get(me.getHomePos()) - send);
+            larders.set(boss.getHomePos(), larders.get(boss.getHomePos()) + send);
+            TAX_OUT.merge(id, send, Double::sum);
+            TAX_IN.merge(up, send, Double::sum);
+            TAX_SUM[2] += send;
+        }
+    }
+
+    /** 이 개체 위로 주인이 몇 단이나 있는가 — 상납 순서(깊은 쪽 먼저)를 정한다. */
+    private static int chainDepth(java.util.Map<Long, Long> patrons, long id) {
+        int d = 0;
+        long cur = id;
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        while (patrons.containsKey(cur) && seen.add(cur) && d < 64) {
+            cur = patrons.get(cur);
+            d++;
+        }
+        return d;
+    }
 
     /** 막힌 칸을 만났을 때 이상 수열을 더 훑는 여유분 — 이만큼이면 집 하나쯤은 우회한다. */
     private static final int SCAN_SLACK = 24;

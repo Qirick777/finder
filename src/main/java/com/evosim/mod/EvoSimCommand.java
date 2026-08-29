@@ -3355,6 +3355,38 @@ public final class EvoSimCommand {
                 "  척도 — 예속 최장%d일 · %d일이상%d명(문턱%d) · 궁핍 오늘%d명 최장%d일 · 상환분합%.0f",
                 boundMax, SocialRank.BOUND_DAYS, boundReady, SocialRank.BOUND_DAYS,
                 poorNow, poorMax, totOwed));
+
+        // ── 봉건 수지(P4) ── 목표 4 의 판정 근거. "지배자는 손해가 아니라 이익을 본다"를
+        //    주장이 아니라 뺄셈으로 보인다. 순수지 = 받은 것 − 낸 것.
+        double[] ts = FarmTicker.taxSums();
+        int[] tc = FarmTicker.taxCounts();
+        java.util.Map<Long, Double> in = FarmTicker.taxIn();
+        java.util.Map<Long, Double> out = FarmTicker.taxOut();
+        tell(ctx.getSource(), String.format(
+                "  세수 — 징수%.1f(%d명) · 미납%.1f(%d명) · 상납%.1f · 상환%.1f",
+                ts[0], tc[0], ts[1], tc[1], ts[2], ts[3]));
+        // 계층별 순수지 — 지배·상위가 +, 평민·천민이 − 여야 지배가 성립한 것이다.
+        java.util.Map<SocialRank, double[]> net = new java.util.EnumMap<>(SocialRank.class);
+        for (SocialRank r : SocialRank.values()) {
+            net.put(r, new double[2]); // [순수지 합, 인원]
+        }
+        for (var e : ranks.entrySet()) {
+            double[] n = net.get(e.getValue());
+            n[0] += in.getOrDefault(e.getKey(), 0.0) - out.getOrDefault(e.getKey(), 0.0);
+            n[1]++;
+        }
+        StringBuilder ns = new StringBuilder();
+        for (SocialRank r : SocialRank.values()) {
+            double[] n = net.get(r);
+            if (n[1] == 0) {
+                continue;
+            }
+            ns.append(ns.length() > 0 ? " · " : "")
+                    .append(String.format("%s %+.2f", r.label(), n[0] / n[1]));
+        }
+        if (ns.length() > 0) {
+            tell(ctx.getSource(), "  계층별 1인 순수지 — " + ns);
+        }
         // 라벨만 갈라 놓으면 의미가 없다. 계층별 평균으로 <b>실제 수치가 갈리는지</b>를 본다.
         // 살림은 가구 저장고라 한 지붕 아래 사람에게 같은 값이 잡힌다(개인 재산이 아님).
         tell(ctx.getSource(), "  계층별 평균 — " + detail);

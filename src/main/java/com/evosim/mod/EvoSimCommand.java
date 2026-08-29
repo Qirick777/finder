@@ -103,6 +103,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("farmshape").executes(EvoSimCommand::farmShape))
                 .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
+                .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -3405,6 +3406,55 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  세력 상위 — " + sb.toString().trim());
         }
         return edges;
+    }
+
+    /**
+     * <b>상납 경로 시험대</b> — 세력 2위가 1위에게 신세를 지도록 인위적으로 심는다.
+     *
+     * <p>왜 필요한가: 원장에 간선을 만드는 경로는 소작·구휼·긴급고용 셋뿐인데 <b>셋 다 가난한
+     * 쪽이 받는 것</b>이다. 지주는 남의 밭에서 소작하지 않고, 굶지 않고, 고용되지 않는다.
+     * 그래서 지주가 다른 지주에게 신세를 질 길이 없고, 사슬 깊이는 사실상 1 에서 멈춘다
+     * (실측 P4 D19: 주인 3명 · 사슬깊이 1 · 상납 0.0). 지주를 채무자로 만드는 항목 — 시설
+     * 사용료·혼인 주선비·보호 — 은 전부 P5~P7 에 있다.
+     *
+     * <p>그렇다고 상납 코드를 "P5 에서 흐를 것"이라 적어 두고 넘어가면, 한 번도 실행되지 않은
+     * 경로를 검증했다고 말하는 셈이 된다. 여기서 간선 하나를 심어 <b>지금</b> 확인한다.
+     *
+     * <p>심는 값은 1위의 추종 임계({@code max(MIN_BOND, 소유타일 × TILE_WORTH)})를 넘도록
+     * 계산한다 — 임계를 모르고 큰 수를 때려 넣으면 "충분히 컸다"는 것만 알 뿐 경계가 맞는지는
+     * 모른다. <b>시험 전용이며 자연 경로가 아니다.</b>
+     */
+    private static int bondTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        AllegianceStore led = AllegianceStore.get(level);
+        FarmStore farms = FarmStore.get(level);
+
+        java.util.Map<Long, Long> patron =
+                led.patronMap(id -> farms.ownedTiles(id));
+        java.util.Map<Long, Integer> direct = new java.util.HashMap<>();
+        for (long p : patron.values()) {
+            direct.merge(p, 1, Integer::sum);
+        }
+        java.util.List<java.util.Map.Entry<Long, Integer>> top =
+                new java.util.ArrayList<>(direct.entrySet());
+        top.sort((a, b) -> b.getValue() - a.getValue());
+        if (top.size() < 2) {
+            tell(ctx.getSource(), "주인이 둘 미만이라 시험할 수 없다 — 세력이 더 자란 뒤에.");
+            return 0;
+        }
+        long lord = top.get(0).getKey();
+        long vassal = top.get(1).getKey();
+        double gate = Math.max(AllegianceStore.MIN_BOND,
+                farms.ownedTiles(vassal) * AllegianceStore.TILE_WORTH);
+        double plant = gate * 1.2 + 1.0; // 임계를 확실히 넘되 과하지 않게
+        led.record(vassal, lord, plant, 0.0,
+                com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+        long now = led.patronOf(vassal, farms.ownedTiles(vassal));
+        tell(ctx.getSource(), String.format(
+                "시험 신세 심음 — #%d(추종자%d) → #%d(추종자%d) · 임계%.1f 심은값%.1f · 추종 성립 %s",
+                vassal, top.get(1).getValue(), lord, top.get(0).getValue(), gate, plant,
+                now == lord ? "○ (다음 새벽에 상납이 흘러야 한다)" : "× — 임계를 못 넘었다"));
+        return now == lord ? 1 : 0;
     }
 
     /** (열, 줄) 격자좌표를 long 하나로 — 음수가 섞이므로 상위/하위 32비트로 나눠 담는다. */

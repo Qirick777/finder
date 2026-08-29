@@ -202,9 +202,11 @@ public final class FarmTicker {
         //    감쇠는 하루 한 번, 살아 있는 개체 집합을 넘겨 죽은 자의 간선을 함께 정리한다.
         {
             AllegianceStore ledger = AllegianceStore.get(level);
+            java.util.List<MimicEntity> everyone = new java.util.ArrayList<>(
+                    level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                            e -> e.isAlive() && e.getIndividual() != null));
             java.util.Set<Long> alive = new java.util.HashSet<>();
-            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                    e -> e.isAlive() && e.getIndividual() != null)) {
+            for (MimicEntity m : everyone) {
                 alive.add(m.getIndividual().id());
             }
             for (MimicEntity m : adults) {
@@ -219,6 +221,25 @@ public final class FarmTicker {
                 }
             }
             ledger.decayDaily(day, alive);
+            // ── 연속 궁핍 일수(P3.5) — 천민 판정의 두 척도 중 <b>지금 존재하는</b> 쪽.
+            //    "가구 저장고가 가구 하루소모에 못 미치는가"를 새벽에 한 번 적는다. 상환분은
+            //    대출·세금이 붙는 P4 전까지 구조적으로 0 이라, 그것만으로는 천민이 영원히
+            //    도달 불가능한 죽은 분기였다. 가구 단위이므로 한 지붕 아래 사람은 함께 적힌다
+            //    — 궁핍은 개인이 아니라 살림의 상태다. 아이도 포함한다(예속 가구의 아이는
+            //    그 가구의 형편으로 산다). <b>기록만 하고 어떤 행동도 이 값으로 갈리지 않는다.</b>
+            java.util.Map<net.minecraft.core.BlockPos, Boolean> poorHome = new java.util.HashMap<>();
+            for (MimicEntity m : adults) {
+                net.minecraft.core.BlockPos h = m.getHomePos();
+                if (h == null || poorHome.containsKey(h)) {
+                    continue;
+                }
+                poorHome.put(h, larders.get(h) < familyDailyNeed(level, m, adults));
+            }
+            for (MimicEntity m : everyone) {
+                net.minecraft.core.BlockPos h = m.getHomePos();
+                ledger.noteDestitution(m.getIndividual().id(),
+                        h != null && Boolean.TRUE.equals(poorHome.get(h)));
+            }
             // 세력 크기 — 밭 상한이 여기에 연동된다(목표 1·2·9 를 한 장치로).
             // 추종 판정은 소유 타일에 비례한 임계를 쓰므로 원장에서 한 번에 구한다.
             FOLLOWERS.clear();

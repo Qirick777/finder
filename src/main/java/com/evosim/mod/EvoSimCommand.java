@@ -27,6 +27,7 @@ import com.evosim.mod.entity.HomeStructure;
 import com.evosim.mod.entity.HomeTemplate;
 import com.evosim.mod.entity.MimicEntity;
 import com.evosim.mod.entity.MimicVisitGoal;
+import com.evosim.mod.entity.SocialRank;
 import com.evosim.mod.gui.StatsSnapshot;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.net.ModNetwork;
@@ -3285,47 +3286,43 @@ public final class EvoSimCommand {
                 direct.values().stream().mapToInt(Integer::intValue).max().orElse(0),
                 maxDepth, cycles));
 
-        // ── 신분(파생) ── 저장하지 않는다. 추종 그래프와 원장에서 매번 다시 읽는다.
-        //   왕     — 추종자가 있고 그 안에 <b>주인이 또 있다</b>(간접 지배). 자신은 아무도 안 따름
-        //   차상위 — 추종자가 있으면서 자신도 누군가를 따름
-        //   천민   — 상환분이 상환능력을 넘음 (P4 에서 대출·세금이 붙기 전까지는 0 명)
-        //   일반   — 나머지
-        int kings = 0;
-        int barons = 0;
-        int commons = 0;
-        int lowborn = 0;
-        for (long id : byId.keySet()) {
-            double owed = 0.0;
-            for (AllegianceStore.Bond b : led.bondsOf(id)) {
-                owed += b.owed;
-            }
-            int tiles = farms.ownedTiles(id);
-            boolean hasFollowers = direct.containsKey(id);
-            boolean follows = patron.containsKey(id);
-            if (owed > Math.max(AllegianceStore.MIN_BOND, tiles * AllegianceStore.TILE_WORTH)) {
-                lowborn++;
-            } else if (hasFollowers && !follows) {
-                boolean indirect = false;
-                for (var e : patron.entrySet()) {
-                    if (e.getValue() == id && direct.containsKey(e.getKey())) {
-                        indirect = true;
-                        break;
-                    }
-                }
-                if (indirect) {
-                    kings++;
-                } else {
-                    barons++;
-                }
-            } else if (hasFollowers) {
-                barons++;
-            } else {
-                commons++;
-            }
+        // ── 신분(파생) ── 판정식은 SocialRank 한 곳에만 있다. 여기서는 부르고 세기만 한다.
+        java.util.Map<Long, SocialRank> ranks = SocialRank.derive(
+                byId.keySet(), patron, farms::ownedTiles, led::owedOf, led::destituteDays);
+
+        java.util.Map<SocialRank, int[]> tally = new java.util.EnumMap<>(SocialRank.class);
+        java.util.Map<SocialRank, double[]> sums = new java.util.EnumMap<>(SocialRank.class);
+        for (SocialRank r : SocialRank.values()) {
+            tally.put(r, new int[] {0});
+            sums.put(r, new double[3]); // 소유타일 · 저장고 · 추종자
         }
-        tell(ctx.getSource(), String.format(
-                "  신분 — 왕%d · 차상위%d · 일반%d · 천민%d (천민은 상환분이 붙는 P4 부터)",
-                kings, barons, commons, lowborn));
+        LarderStore larders = LarderStore.get(level);
+        for (var e : ranks.entrySet()) {
+            SocialRank r = e.getValue();
+            MimicEntity m = byId.get(e.getKey());
+            tally.get(r)[0]++;
+            double[] s = sums.get(r);
+            s[0] += farms.ownedTiles(e.getKey());
+            s[1] += m == null || m.getHomePos() == null ? 0.0 : larders.get(m.getHomePos());
+            s[2] += direct.getOrDefault(e.getKey(), 0);
+        }
+        StringBuilder line = new StringBuilder();
+        StringBuilder detail = new StringBuilder();
+        for (SocialRank r : SocialRank.values()) {
+            int n = tally.get(r)[0];
+            line.append(line.length() > 0 ? " · " : "").append(r.label()).append(n);
+            if (n == 0) {
+                continue;
+            }
+            double[] s = sums.get(r);
+            detail.append(detail.length() > 0 ? " · " : "")
+                    .append(String.format("%s 밭%.0f/살림%.0f/추종자%.1f",
+                            r.label(), s[0] / n, s[1] / n, s[2] / n));
+        }
+        tell(ctx.getSource(), "  신분 — " + line + "  (지배=간접지배 성립 · 천민=매인 무토지 자활불능)");
+        // 라벨만 갈라 놓으면 의미가 없다. 계층별 평균으로 <b>실제 수치가 갈리는지</b>를 본다.
+        // 살림은 가구 저장고라 한 지붕 아래 사람에게 같은 값이 잡힌다(개인 재산이 아님).
+        tell(ctx.getSource(), "  계층별 평균 — " + detail);
 
         java.util.List<java.util.Map.Entry<Long, Integer>> top =
                 new java.util.ArrayList<>(direct.entrySet());

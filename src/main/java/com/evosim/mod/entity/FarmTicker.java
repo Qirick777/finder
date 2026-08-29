@@ -1125,6 +1125,28 @@ public final class FarmTicker {
     }
 
     /**
+     * 회피 대상 거처 좌표 — <b>등기된 모든 집</b>이다. 사는 사람이 있든 없든.
+     *
+     * <p>종전에는 성인·노년 명단의 {@code getHomePos()} 만 봤다. 그래서 <b>빈집이 회피에서
+     * 통째로 빠졌고</b>, 밭이 그 벽까지 자랐다. 그런데 감사({@code /evosim homes} 의 "밭까지")는
+     * 등기된 집 전부를 재므로, 계측기와 회피기가 서로 다른 질문을 하고 있었다 —
+     * 실측(P3 D26, 빈집 21채): 밭까지 최소 1 · 2칸 이하 3채.
+     *
+     * <p>빈집도 재사용 대상이고 철거되지 않으므로, 피하는 것이 맞다.
+     */
+    private static java.util.List<BlockPos> avoidHomes(ServerLevel level,
+                                                       java.util.List<MimicEntity> adults) {
+        java.util.LinkedHashSet<BlockPos> out = new java.util.LinkedHashSet<>(
+                HomeStore.get(level).positions());
+        for (MimicEntity m : adults) {
+            if (m.getHomePos() != null) {
+                out.add(m.getHomePos()); // 아직 등기 전인 신축 — 명단 쪽이 더 이르다
+            }
+        }
+        return new java.util.ArrayList<>(out);
+    }
+
+    /**
      * <b>거처 공간 색인</b> — 회피 판정에서 성인 전원을 훑지 않기 위한 16칸 격자.
      *
      * <p>이 판정은 <b>칸마다</b> 불린다. 방향 고르기만 해도 49칸 × 8방향이고 확장 수열까지
@@ -1164,11 +1186,7 @@ public final class FarmTicker {
                                double margin) {
             HomeIndex ix = new HomeIndex();
             HomeStore reg = HomeStore.get(level);
-            for (MimicEntity m : adults) {
-                BlockPos h = m.getHomePos();
-                if (h == null) {
-                    continue;
-                }
+            for (BlockPos h : avoidHomes(level, adults)) {
                 double clear = Math.max(margin, homeReach(level, reg, h) + PLANT_MARGIN);
                 ix.maxClear = Math.max(ix.maxClear, clear);
                 ix.cells.computeIfAbsent(

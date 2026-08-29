@@ -2339,10 +2339,15 @@ public class MimicEntity extends PathfinderMob {
      */
     private int paveCell(ServerLevel sl, BlockPos center) {
         RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
-        if (ob.blocked(center.getX(), center.getZ())) {
+        FarmStore farms = FarmStore.get(sl);
+        // 장애물 집합은 20틱 캐시라 <b>갓 자란 밭</b>이 아직 안 들어 있다. 그 창 사이에 중심선이
+        // 밭 몸통을 그대로 지나가 흙길이 밭 한복판에 깔렸다 — 다음날 정비가 치우므로 좌표가
+        // 매번 달라졌다(실측: D25 [#22@-81,-20 …] · D26 [#23@-76,20 …] 로 구획도 자리도 바뀜).
+        // 옆칸은 이미 farms.nearBody 로 실시간 확인하는데 중심선만 캐시에 기대고 있었다.
+        if (ob.blocked(center.getX(), center.getZ())
+                || farms.isFarmBody(center.getX(), center.getZ())) {
             return 0; // 계획한 뒤 밭·집이 들어섰다 — 그 칸은 조용히 포기한다
         }
-        FarmStore farms = FarmStore.get(sl);
         int laid = 0;
         for (BlockPos c : RoadPlanner.band(sl, center, ob, farms)) {
             BlockPos ground = groundUnder(sl, c);

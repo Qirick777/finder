@@ -3288,7 +3288,7 @@ public final class EvoSimCommand {
 
         // ── 신분(파생) ── 판정식은 SocialRank 한 곳에만 있다. 여기서는 부르고 세기만 한다.
         java.util.Map<Long, SocialRank> ranks = SocialRank.derive(
-                byId.keySet(), patron, farms::ownedTiles, led::owedOf, led::destituteDays);
+                byId.keySet(), patron, farms::ownedTiles, led::owedOf, led::boundDays);
 
         java.util.Map<SocialRank, int[]> tally = new java.util.EnumMap<>(SocialRank.class);
         java.util.Map<SocialRank, double[]> sums = new java.util.EnumMap<>(SocialRank.class);
@@ -3320,6 +3320,28 @@ public final class EvoSimCommand {
                             r.label(), s[0] / n, s[1] / n, s[2] / n));
         }
         tell(ctx.getSource(), "  신분 — " + line + "  (지배=간접지배 성립 · 천민=매인 무토지 자활불능)");
+        // 척도 자체를 드러낸다 — 천민이 0 일 때 그것이 "조건이 죽어서"인지 "정말 아무도 해당
+        // 없어서"인지 구분할 수 없으면 0 은 보고가 아니다. 궁핍은 계측 전용(행동·판정 무관).
+        int poorNow = 0;
+        int poorMax = 0;
+        int boundMax = 0;
+        int boundReady = 0;
+        for (long id : byId.keySet()) {
+            int pd = led.destituteDays(id);
+            int bd = led.boundDays(id);
+            if (pd > 0) {
+                poorNow++;
+            }
+            poorMax = Math.max(poorMax, pd);
+            boundMax = Math.max(boundMax, bd);
+            if (bd >= SocialRank.BOUND_DAYS) {
+                boundReady++;
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  척도 — 예속 최장%d일 · %d일이상%d명(문턱%d) · 궁핍 오늘%d명 최장%d일 · 상환분합%.0f",
+                boundMax, SocialRank.BOUND_DAYS, boundReady, SocialRank.BOUND_DAYS,
+                poorNow, poorMax, totOwed));
         // 라벨만 갈라 놓으면 의미가 없다. 계층별 평균으로 <b>실제 수치가 갈리는지</b>를 본다.
         // 살림은 가구 저장고라 한 지붕 아래 사람에게 같은 값이 잡힌다(개인 재산이 아님).
         tell(ctx.getSource(), "  계층별 평균 — " + detail);

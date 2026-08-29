@@ -221,12 +221,13 @@ public final class FarmTicker {
                 }
             }
             ledger.decayDaily(day, alive);
-            // ── 연속 궁핍 일수(P3.5) — 천민 판정의 두 척도 중 <b>지금 존재하는</b> 쪽.
-            //    "가구 저장고가 가구 하루소모에 못 미치는가"를 새벽에 한 번 적는다. 상환분은
-            //    대출·세금이 붙는 P4 전까지 구조적으로 0 이라, 그것만으로는 천민이 영원히
-            //    도달 불가능한 죽은 분기였다. 가구 단위이므로 한 지붕 아래 사람은 함께 적힌다
-            //    — 궁핍은 개인이 아니라 살림의 상태다. 아이도 포함한다(예속 가구의 아이는
-            //    그 가구의 형편으로 산다). <b>기록만 하고 어떤 행동도 이 값으로 갈리지 않는다.</b>
+            // ── 연속 궁핍 일수(P3.5) — <b>계측 전용</b>. "가구 저장고가 가구 하루소모에 못
+            //    미치는가"를 새벽에 한 번 적는다. 처음에는 이것으로 천민을 재려 했는데 측정에서
+            //    0 이 나왔다(D14: 계층별 평균 살림 20 · 재산 최소 10 — 가장 가난한 가구조차
+            //    하루치가 있다). "굶는가"는 "벗어나지 못하는가"와 다른 질문이라 척도를 예속
+            //    지속으로 바꿨고, 이 수는 <b>아무도 굶지 않는다</b>는 사실을 계속 보이기 위해
+            //    남긴다. 가구 단위라 한 지붕 아래 사람은 아이까지 함께 적힌다.
+            //    <b>기록만 하고 어떤 행동도 이 값으로 갈리지 않는다.</b>
             java.util.Map<net.minecraft.core.BlockPos, Boolean> poorHome = new java.util.HashMap<>();
             for (MimicEntity m : adults) {
                 net.minecraft.core.BlockPos h = m.getHomePos();
@@ -242,9 +243,19 @@ public final class FarmTicker {
             }
             // 세력 크기 — 밭 상한이 여기에 연동된다(목표 1·2·9 를 한 장치로).
             // 추종 판정은 소유 타일에 비례한 임계를 쓰므로 원장에서 한 번에 구한다.
+            java.util.Map<Long, Long> patrons = ledger.patronMap(id -> store.ownedTiles(id));
             FOLLOWERS.clear();
-            for (long p : ledger.patronMap(id -> store.ownedTiles(id)).values()) {
+            for (long p : patrons.values()) {
                 FOLLOWERS.merge(p, 1, Integer::sum);
+            }
+            // ── 연속 예속 일수(P3.5) — 천민 판정의 주 척도. 주인이 있고 제 땅이 없는 상태가
+            //    오늘도 이어졌는가. 벗어나는 길은 이미 있다 — 땅을 갖거나 스스로 추종자를
+            //    얻으면 조건이 깨져 0 으로 돌아간다. 이 역시 <b>기록만 한다.</b>
+            for (MimicEntity m : everyone) {
+                long id = m.getIndividual().id();
+                ledger.noteBondage(id,
+                        patrons.containsKey(id) && store.ownedTiles(id) == 0
+                                && !FOLLOWERS.containsKey(id));
             }
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).

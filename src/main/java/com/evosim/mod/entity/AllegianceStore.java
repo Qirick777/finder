@@ -111,6 +111,19 @@ public class AllegianceStore extends SavedData {
      * 한 번이라도 제힘으로 하루를 넘기면 0 으로 되돌아간다 — 벗어난 자를 붙잡아 두지 않는다.
      */
     private final Map<Long, Integer> destitute = new HashMap<>();
+
+    /**
+     * 개체별 <b>연속 예속 일수</b> — 주인이 있고 제 땅이 없는 상태가 며칠 연달았는가.
+     *
+     * <p>천민 판정({@link SocialRank#LOW})의 주 척도. 처음에는 궁핍(가구가 하루를 못 넘김)으로
+     * 재려 했는데 <b>측정에서 0 이 나왔다</b>(P3.5 D14: 계층별 평균 살림 20, 재산 최소 10 —
+     * 가장 가난한 가구조차 하루치가 있다). 그것은 "굶는가"를 묻는 척도인데 천민의 정의는
+     * "벗어나지 못하는가"다. 다른 질문을 재고 있었다.
+     *
+     * <p>그래서 예속 그 자체를 잰다. 벗어나는 길은 이미 정해져 있다 — 제 땅을 갖거나 스스로
+     * 추종자를 얻으면 조건이 깨져 0 으로 돌아간다.
+     */
+    private final Map<Long, Integer> bound = new HashMap<>();
     private long decayedDay = Long.MIN_VALUE;
 
     public static AllegianceStore get(ServerLevel level) {
@@ -168,7 +181,8 @@ public class AllegianceStore extends SavedData {
             return;
         }
         decayedDay = day;
-        destitute.keySet().retainAll(aliveIds); // 죽은 자의 궁핍 기록은 남기지 않는다
+        destitute.keySet().retainAll(aliveIds); // 죽은 자의 기록은 남기지 않는다
+        bound.keySet().retainAll(aliveIds);
         var it = bonds.entrySet().iterator();
         while (it.hasNext()) {
             var e = it.next();
@@ -208,9 +222,31 @@ public class AllegianceStore extends SavedData {
         setDirty();
     }
 
-    /** 연속 궁핍 일수 — 천민 판정의 두 척도 중 하나. */
+    /** 연속 궁핍 일수 — 계측용(아무도 굶지 않는다는 것을 숫자로 남긴다). */
     public int destituteDays(long id) {
         return destitute.getOrDefault(id, 0);
+    }
+
+    /**
+     * 오늘 이 개체가 예속 상태였는가를 적는다 — 연달았으면 +1, 벗어났으면 0.
+     *
+     * <p>{@link #noteDestitution} 과 같이 <b>기록만 한다.</b>
+     */
+    public void noteBondage(long id, boolean boundToday) {
+        if (id == 0L) {
+            return;
+        }
+        if (boundToday) {
+            bound.merge(id, 1, Integer::sum);
+        } else if (bound.remove(id) == null) {
+            return;
+        }
+        setDirty();
+    }
+
+    /** 연속 예속 일수 — 천민 판정의 주 척도. */
+    public int boundDays(long id) {
+        return bound.getOrDefault(id, 0);
     }
 
     /** 이 개체가 진 상환분 합 — 천민 판정의 나머지 척도. */
@@ -388,6 +424,11 @@ public class AllegianceStore extends SavedData {
             CompoundTag t = poor.getCompound(i);
             s.destitute.put(t.getLong("D"), t.getInt("N"));
         }
+        ListTag bnd = tag.getList("Bound", Tag.TAG_COMPOUND);
+        for (int i = 0; i < bnd.size(); i++) {
+            CompoundTag t = bnd.getCompound(i);
+            s.bound.put(t.getLong("D"), t.getInt("N"));
+        }
         s.decayedDay = tag.getLong("DecayedDay");
         return s;
     }
@@ -415,6 +456,14 @@ public class AllegianceStore extends SavedData {
             poor.add(t);
         }
         tag.put("Destitute", poor);
+        ListTag bnd = new ListTag();
+        for (var e : bound.entrySet()) {
+            CompoundTag t = new CompoundTag();
+            t.putLong("D", e.getKey());
+            t.putInt("N", e.getValue());
+            bnd.add(t);
+        }
+        tag.put("Bound", bnd);
         tag.putLong("DecayedDay", decayedDay);
         return tag;
     }

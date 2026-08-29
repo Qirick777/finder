@@ -37,9 +37,12 @@ public enum SocialRank {
      * <b>천민</b> — 거느리는 자 없고, 주인에게 매였고, 제 땅이 없고, 그 상태를 <b>스스로
      * 벗어나지 못하는</b> 자.
      *
-     * <p>"벗어나지 못함"의 척도가 둘이다. 상환분이 상환능력을 넘거나(빚), 가구가 하루를 못
-     * 넘기는 날이 {@link #DESTITUTE_DAYS} 일 연달았거나(궁핍). 앞의 것은 대출·세금이 붙는
-     * P4 부터 0 이 아니게 되고, 뒤의 것은 <b>지금 이미 존재하는 수</b>다. 둘 중 하나면 된다.
+     * <p>"벗어나지 못함"의 척도는 <b>예속의 지속</b>이다 — 그 상태로 {@link #BOUND_DAYS} 일을
+     * 넘겼는가. 상환분이 상환능력을 넘는 경우(P4 의 빚)도 같은 자리에 들어온다.
+     *
+     * <p>처음에는 <b>궁핍</b>(가구가 하루를 못 넘김)으로 재려 했고 측정에서 0 이 나왔다.
+     * 그것은 "굶는가"를 묻는 척도인데 천민의 정의는 "벗어나지 못하는가"였다 — 다른 질문을
+     * 재고 있었다. 궁핍은 계측으로만 남긴다.
      */
     LOW("천민");
 
@@ -55,30 +58,29 @@ public enum SocialRank {
     }
 
     /**
-     * 천민 판정의 궁핍 쪽 문턱 — 가구 저장고가 가구 하루소모에 못 미치는 날이 이만큼 연달으면
-     * 자활 불능으로 본다.
+     * 천민 판정의 문턱 — 매인 무토지 상태가 이만큼 연달으면 스스로 벗어나지 못하는 것으로 본다.
      *
-     * <p>3 인 이유: 하루는 사고이고 이틀은 불운이지만 사흘이면 추세다. 저장고는 날마다
-     * 출렁이므로({@link AllegianceStore#TILE_WORTH} 주석의 그 이유) 하루치 스냅숏으로
-     * 신분을 매기면 계층이 매일 뒤집힌다. <b>측정 뒤에 확정할 값</b>이다.
+     * <p>5 인 이유: 성년기가 8일이므로 그 절반을 넘게 남에게 매여 있었다는 뜻이다. 하루 이틀의
+     * 소작은 품팔이지만 닷새면 처지다. 짧게 잡으면 소작 한 번에 계층이 뒤집히고, 길게 잡으면
+     * 수명 안에 도달하지 못한다. <b>측정 뒤에 확정할 값</b>이다.
      */
-    public static final int DESTITUTE_DAYS = 3;
+    public static final int BOUND_DAYS = 5;
 
     /**
      * 모두의 계층을 한 번에 판정한다.
      *
-     * @param people        살아 있는 개체 id 전부
-     * @param patron        추종자 id → 주인 id ({@link AllegianceStore#patronMap} 의 결과)
-     * @param ownedTiles    id → 소유 밭 타일 수
-     * @param owed          id → 상환분 합
-     * @param destituteDays id → 연속 궁핍 일수
+     * @param people     살아 있는 개체 id 전부
+     * @param patron     추종자 id → 주인 id ({@link AllegianceStore#patronMap} 의 결과)
+     * @param ownedTiles id → 소유 밭 타일 수
+     * @param owed       id → 상환분 합
+     * @param boundDays  id → 연속 예속 일수
      */
     public static Map<Long, SocialRank> derive(
             Collection<Long> people,
             Map<Long, Long> patron,
             LongUnaryOperator ownedTiles,
             LongToDoubleFunction owed,
-            LongUnaryOperator destituteDays) {
+            LongUnaryOperator boundDays) {
 
         // 직속 추종자 수 — 주인 쪽에서 센다.
         Map<Long, Integer> direct = new HashMap<>();
@@ -101,8 +103,8 @@ public enum SocialRank {
             boolean bound = myPatron != 0L && tiles == 0;
             boolean insolvent = owed.applyAsDouble(id)
                     > Math.max(AllegianceStore.MIN_BOND, tiles * AllegianceStore.TILE_WORTH);
-            boolean destitute = destituteDays.applyAsLong(id) >= DESTITUTE_DAYS;
-            out.put(id, bound && (insolvent || destitute) ? LOW : COMMON);
+            boolean stuck = boundDays.applyAsLong(id) >= BOUND_DAYS;
+            out.put(id, bound && (insolvent || stuck) ? LOW : COMMON);
         }
         return out;
     }

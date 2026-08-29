@@ -3079,11 +3079,23 @@ public final class EvoSimCommand {
                         // <b>빠진 칸의 월드 좌표</b>를 남긴다. 개수만 세면 무엇이 막고 있는지
                         // 영영 못 본다 — 이번 세션에서 무너진 집도, 이 구멍도 좌표를 붙이고
                         // 나서야 원인이 잡혔다. 격자 복원의 역변환이라 정확하다.
-                        for (int c = v.get(i - 1) + 1; c < v.get(i) && holeAt.length() < 160; c++) {
+                        for (int c = v.get(i - 1) + 1; c < v.get(i) && holeAt.length() < 220; c++) {
                             int across = re.getKey() * 2;
                             int wx = turnedAxis ? p.anchor.getX() + across : p.anchor.getX() + c;
                             int wz = turnedAxis ? p.anchor.getZ() + c : p.anchor.getZ() + across;
-                            holeAt.append(String.format("#%d@%d,%d ", p.id, wx, wz));
+                            // <b>무엇이 막고 있는지</b>를 서버가 직접 말하게 한다. 좌표만 찍고
+                            // 공중 격자를 눈으로 읽으면 격자 색인이 틀렸을 때 엉뚱한 칸을
+                            // 들여다보게 된다 — 실제로 그렇게 한 번 헛짚었다.
+                            BlockPos wp = level.getHeightmapPos(
+                                    net.minecraft.world.level.levelgen.Heightmap.Types
+                                            .MOTION_BLOCKING_NO_LEAVES,
+                                    new BlockPos(wx, 0, wz));
+                            String what = net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                                    .getKey(level.getBlockState(wp).getBlock()).getPath();
+                            String under = net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                                    .getKey(level.getBlockState(wp.below()).getBlock()).getPath();
+                            holeAt.append(String.format("#%d@%d,%d,y%d=%s/%s ",
+                                    p.id, wx, wz, wp.getY(), what, under));
                         }
                     }
                 }

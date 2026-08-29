@@ -1108,6 +1108,20 @@ public final class FarmTicker {
     /** [등교, 대상 소년, 수업료 수입, 미납, 급여] — 한 줄 보고용. */
     private static final double[] SCHOOL_SUM = new double[5];
 
+    /**
+     * <b>등교하지 못한 사유</b> — [가구대표가 주인을 안 따름, 가구의 누구도 안 따름, 멀다, 자리없음].
+     *
+     * <p>등교 0 이 나왔을 때 <b>왜</b> 0 인지 보고가 스스로 말하게 한다. 이 세션에서 궁핍 0 ·
+     * 학교 0채 · 밭 구멍이 전부 같은 이유로 헛돌았다 — 세면서 사유를 안 남기면 원인을 추측하게
+     * 된다. 특히 앞의 두 칸은 서로 다른 가설을 가른다: 대표만 못 따르는 것인지(내 판정이
+     * 좁은 것), 가구 전체가 안 따르는 것인지(정말 대상이 아닌 것).
+     */
+    private static final int[] SCHOOL_MISS = new int[4];
+
+    public static int[] schoolMiss() {
+        return SCHOOL_MISS.clone();
+    }
+
     /** 이 소년이 오늘 다닐 학교 — 없으면 null. 등하교 goal 의 단일 출처. */
     @javax.annotation.Nullable
     public static BlockPos schoolOf(MimicEntity boy) {
@@ -1142,6 +1156,7 @@ public final class FarmTicker {
         ENROLLED.clear();
         SCHOOL_OF.clear();
         java.util.Arrays.fill(SCHOOL_SUM, 0.0);
+        java.util.Arrays.fill(SCHOOL_MISS, 0);
         FacilityStore reg = FacilityStore.get(level);
         java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
         for (MimicEntity m : everyone) {
@@ -1200,11 +1215,27 @@ public final class FarmTicker {
                 if (SCHOOL_OF.containsKey(b.getId())) {
                     continue; // 한 아이는 한 학교만
                 }
-                if (!Long.valueOf(sc.ownerId).equals(patrons.get(householdPatronKey(b, adults)))) {
+                boolean headFollows = Long.valueOf(sc.ownerId)
+                        .equals(patrons.get(householdPatronKey(b, adults)));
+                boolean anyFollows = headFollows;
+                if (!anyFollows) {
+                    for (MimicEntity a : adults) {
+                        if (a.getIndividual() != null && a.getHomePos() != null
+                                && a.getHomePos().equals(b.getHomePos())
+                                && Long.valueOf(sc.ownerId)
+                                        .equals(patrons.get(a.getIndividual().id()))) {
+                            anyFollows = true;
+                            break;
+                        }
+                    }
+                }
+                if (!headFollows) {
+                    SCHOOL_MISS[anyFollows ? 0 : 1]++;
                     continue;
                 }
                 if (b.getHomePos().distSqr(sc.pos)
                         > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    SCHOOL_MISS[2]++;
                     continue;
                 }
                 pick.add(b);
@@ -1215,7 +1246,8 @@ public final class FarmTicker {
             java.util.List<Integer> roll = new java.util.ArrayList<>();
             for (MimicEntity b : pick) {
                 if (roll.size() >= seats) {
-                    break;
+                    SCHOOL_MISS[3]++;
+                    continue;
                 }
                 net.minecraft.core.BlockPos home = b.getHomePos();
                 double larder = larders.get(home);

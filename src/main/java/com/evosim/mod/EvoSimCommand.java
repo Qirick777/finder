@@ -3542,6 +3542,14 @@ public final class EvoSimCommand {
                 "  학교 — 등교%.0f/소년%d(%.0f%%) · 수업료%.1f · 미납%.1f · 급여%.1f · 당일수지%+.1f",
                 ss[0], boys, boys == 0 ? 0.0 : 100.0 * ss[0] / boys,
                 ss[2], ss[3], ss[4], ss[2] - ss[4]));
+        int[] miss = FarmTicker.schoolMiss();
+        if (ss[0] < boys) {
+            // 등교가 대상에 못 미치면 <b>왜</b>인지 말한다. 앞의 두 수가 서로 다른 가설을
+            // 가른다 — 대표만 못 따르는가(판정이 좁은가), 가구 전체가 안 따르는가.
+            tell(ctx.getSource(), String.format(
+                    "  못 간 사유 — 대표만안따름%d · 가구전체안따름%d · 통학초과%d · 자리없음%d",
+                    miss[0], miss[1], miss[2], miss[3]));
+        }
         if (!trip.isEmpty()) {
             tell(ctx.getSource(), String.format(
                     "  통학거리 — 최소%.0f 중앙%.0f 최대%.0f (한계%.0f)",

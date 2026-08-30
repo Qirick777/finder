@@ -2993,11 +2993,16 @@ public class MimicEntity extends PathfinderMob {
                 // 자리 수를 찍는다 — 0 인 도면을 세우고 나중에야 알아채는 일이 없게
                 // ({@code FacilityTemplate.seats()} 문서의 목적). 실제로 교회 두 도면이
                 // 자리 0 이었던 것을 이 줄이 없어서 못 보고 있었다.
+                // <b>중심 좌표를 함께 찍는다.</b> 거리만 찍었더니 "중심에서 87블록" 이 나왔는데,
+                // 탐색은 중심에서 반경 {@code SEARCH_RADIUS}(64) 고리만 훑으므로 나올 수 없는
+                // 값이다. 좌표가 없어 두 번이나 추측으로 넘겼다 — 학교 사건에는 있는 줄을
+                // 교회 사건에 빠뜨린 탓이다.
                 "착공 %s @%d,%d 회전%d%s — 추종자%d · 주변%d명(상한%d) · 자리%d · 건축비 %.0f"
-                        + " (저장고 %.0f→%.0f) · 중심에서 %.0f블록",
+                        + " (저장고 %.0f→%.0f) · 중심 @%d,%d 에서 %.0f블록",
                 kind.label, site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers, nearby,
                 big ? Facilities.CHURCH_CAP : Facilities.SMALL_CHURCH_CAP,
                 tpl.get().seats().size(), cost, larder, larder - cost,
+                centre.getX(), centre.getZ(),
                 Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
         return larder - cost;
     }

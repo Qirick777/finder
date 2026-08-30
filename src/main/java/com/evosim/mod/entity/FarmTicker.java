@@ -220,7 +220,17 @@ public final class FarmTicker {
                             AllegianceStore.W_TENANCY, 0.0, day);
                 }
             }
-            ledger.decayDaily(day, alive);
+            // <b>교회 주인은 감쇠 완화를 받는다</b>(P6, 계획서 1.5). 이것이 상납 사슬을
+            // 붙잡는 못이다 — 원장에 간선을 만드는 셋(소작·구휼·긴급고용)은 전부 가난한 쪽이
+            // 받는 것이라 지주가 지주에게 신세 질 길이 없었고, 그래서 사슬이 깊이 1 에
+            // 머물렀다. 교회는 추종에 매이지 않아 지주도 방문하고, 그 주인의 신세는 덜 옅어진다.
+            java.util.Set<Long> churchOwners = new java.util.HashSet<>();
+            for (FacilityStore.Entry fe : FacilityStore.get(level).all()) {
+                if (fe.kind.group == FacilityTemplate.Group.CHURCH) {
+                    churchOwners.add(fe.ownerId);
+                }
+            }
+            ledger.decayDaily(day, alive, churchOwners);
             // ── 연속 궁핍 일수(P3.5) — <b>계측 전용</b>. "가구 저장고가 가구 하루소모에 못
             //    미치는가"를 새벽에 한 번 적는다. 처음에는 이것으로 천민을 재려 했는데 측정에서
             //    0 이 나왔다(D14: 계층별 평균 살림 20 · 재산 최소 10 — 가장 가난한 가구조차

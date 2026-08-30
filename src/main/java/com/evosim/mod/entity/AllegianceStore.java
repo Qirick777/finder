@@ -189,7 +189,35 @@ public class AllegianceStore extends SavedData {
      * <p>승계(P3)가 붙기 전까지는 은인이 죽으면 그 신세가 사라진다. P3 에서 장남이 채권을
      * 물려받으면 이 소거 대신 이전이 된다.
      */
+    /**
+     * <b>교회 주인의 감쇠 완화</b>(P6) — 이 사람들에게 진 신세는 하루 {@value} 로 옅어진다.
+     *
+     * <p>0.95 대신 0.98 이다. 균형점이 {@code W/(1−r)} 이므로 하루 유입 W 에 대해 0.95 는
+     * 20배, 0.98 은 <b>50배</b>에서 멈춘다 — 같은 유입으로 두 배 반 깊은 사슬이 유지된다.
+     *
+     * <p><b>왜 "그날 감쇠를 건너뛴다" 가 아닌가</b>: 방문은 확률적이라 며칠 거르는 날이 반드시
+     * 생기고, 건너뛰기 방식은 그런 날마다 사슬이 툭 끊긴다. P4·P5a 에서 지배 계층이 D18 에
+     * 생겼다 D20~22 에 사라진 것이 정확히 그 모양이었고, 계획서가 "한 시점 관측은 무효 ·
+     * <b>여러 날 연속</b> 유지" 를 판정 기준으로 못 박은 것도 같은 이유다. 감쇠율을 낮추면
+     * 방문이 끊겨도 천천히 줄어 사슬이 버틴다.
+     *
+     * <p>대가로 한 번 생긴 사슬이 잘 안 풀린다. 그것은 목표 1·7("엘리트가 최상위 계층이 되고,
+     * 죽어도 추종이 사라지지 않고 승계·축적된다")에 오히려 부합한다.
+     */
+    public static final double DECAY_RELIEVED = 0.98;
+
     public void decayDaily(long day, java.util.Set<Long> aliveIds) {
+        decayDaily(day, aliveIds, java.util.Set.of());
+    }
+
+    /**
+     * 하루 정산 — {@code relievedPatrons} 에게 진 신세만 {@link #DECAY_RELIEVED} 로 옅어진다.
+     *
+     * <p>완화를 받는 것은 <b>채권자</b>다(교회 주인). 그가 베푼 은혜가 남들 기억에서 덜 지워지는
+     * 것이지, 그가 남에게 진 빚이 가벼워지는 것이 아니다.
+     */
+    public void decayDaily(long day, java.util.Set<Long> aliveIds,
+                           java.util.Set<Long> relievedPatrons) {
         if (day == decayedDay) {
             return;
         }
@@ -206,7 +234,9 @@ public class AllegianceStore extends SavedData {
             List<Bond> list = e.getValue();
             list.removeIf(b -> !aliveIds.contains(b.patronId));
             for (Bond b : list) {
-                b.forgiven *= DECAY_PER_DAY;      // 은혜는 옅어진다
+                // 교회 주인에게 진 신세는 덜 옅어진다(P6) — 그것이 지주 간 사슬을 붙잡는 못이다.
+                b.forgiven *= relievedPatrons.contains(b.patronId)
+                        ? DECAY_RELIEVED : DECAY_PER_DAY;
                 b.owed *= 1.0 + INTEREST_PER_DAY; // 빚은 불어난다
             }
             list.removeIf(b -> b.total() < EPSILON);

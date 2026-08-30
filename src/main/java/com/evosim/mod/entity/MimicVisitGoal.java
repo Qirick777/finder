@@ -202,6 +202,17 @@ public class MimicVisitGoal extends Goal {
 
     @Override
     public void stop() {
+        // <b>도착 못 하고 물러나면 예약을 반납한다.</b> start 에서 자리를 하나 잡아 두는데
+        // stop 이 그것을 놓지 않으면, 상위 우선순위 goal 에 선점될 때마다 예약만 쌓인다.
+        // 그러면 두 가지가 한꺼번에 망가진다: (1) 유령 예약으로 정원이 차서 남이 못 오고,
+        // (2) 다시 설 때마다 {@code pickDest} 가 <b>다른 자리</b>를 잡아 표적이 계속 바뀐다 —
+        // 아이가 어디 못 가고 움찔거리는 모양이 된다.
+        //
+        // 도착한 뒤(began)에는 반납하지 않는다 — 그 자리는 실제로 쓰인 것이다.
+        if (!began && dest != null) {
+            long key = atChurch && churchPos != null ? churchPos.asLong() : dest.asLong();
+            SEATS.computeIfPresent(key, (k, v) -> v <= 1 ? null : v - 1);
+        }
         dest = null;
         began = false;
         atChurch = false;

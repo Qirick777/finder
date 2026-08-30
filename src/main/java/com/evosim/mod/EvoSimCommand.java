@@ -3728,6 +3728,36 @@ public final class EvoSimCommand {
                     "  교회 — 정산방문%.0f · 오늘방문%d명 · 헌금%.2f · 미납%.2f · 급여%.2f"
                             + " · 당일수지%+.2f · 누적방문자%d명(최다%d회)",
                     cs[0], visited, cs[1], cs[2], cs[3], cs[1] - cs[3], everVisited, visitMax));
+            // <b>방문 0 이면 왜 0 인지</b>를 보고가 스스로 말하게 한다. 이 세션에서 학교가
+            // 같은 이유로 여러 날 헛돌았다 — 사유 없는 0 은 원인을 추측하게 만든다.
+            int adultN = 0;
+            int inReach = 0;
+            int onCooldown = 0;
+            long nowDay = today;
+            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                            && e.getStage() == com.evosim.core.LifeStage.ADULT)) {
+                adultN++;
+                boolean reachable = false;
+                for (FacilityStore.Entry fe : reg.all()) {
+                    if (fe.kind.group == FacilityTemplate.Group.CHURCH
+                            && fe.pos.distSqr(m.getHomePos())
+                                    <= Facilities.CHURCH_REACH * Facilities.CHURCH_REACH) {
+                        reachable = true;
+                        break;
+                    }
+                }
+                if (reachable) {
+                    inReach++;
+                }
+                if (nowDay - m.lastVisitDay() < 2) {
+                    onCooldown++;
+                }
+            }
+            tell(ctx.getSource(), String.format(
+                    "  교회 접근 — 성년%d명 중 반경%.0f 안 %d명 · 오늘 쿨다운%d명"
+                            + " (둘 다 통과해야 갈 수 있다)",
+                    adultN, Facilities.CHURCH_REACH, inReach, onCooldown));
         }
         tell(ctx.getSource(), String.format(
                 "  성년 이상 학력자 %d/%d명(%.0f%%) — 교육이 값을 하는 구간",

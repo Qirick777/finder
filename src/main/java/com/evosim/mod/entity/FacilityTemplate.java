@@ -112,7 +112,10 @@ public final class FacilityTemplate {
         return groundCols;
     }
 
-    /** 문 바깥 한 칸 — 등하교·방문의 목적지. */
+    /**
+     * <b>건물 밖 첫 칸</b> — 문에서 바깥으로 나가다 점유 열을 처음 벗어나는 자리. 길이 여기서
+     * 끝난다(앞마당이 있는 도면이면 앞마당 바깥 끝이다 — {@code parse} 의 주석 참조).
+     */
     public List<BlockPos> doorSteps() {
         return doorSteps;
     }
@@ -245,7 +248,18 @@ public final class FacilityTemplate {
         }
         pl.sort(java.util.Comparator.comparingInt(q -> q.rel().getY()));
 
-        // 문 바깥 한 칸 — 문에서 건물 중심의 <b>반대 방향</b>으로 한 칸.
+        // 문 바깥 — 문에서 건물 중심의 <b>반대 방향</b>으로, <b>점유 열을 벗어날 때까지</b> 나간다.
+        //
+        // 한 칸만 나가던 것이 학교에 길이 안 닿던 원인이었다. 거처는 문이 바깥벽에 붙어 있어
+        // 한 칸이면 건물 밖이지만, 학교는 문(z −6) 앞에 제 앞마당이 z −10 까지 깔려 있다.
+        // 그래서 "문 앞 한 칸"(z −7)은 <b>앞마당 한복판</b>이고 네 이웃이 모두 건물 제 바닥이라,
+        // 길 찾기가 첫 칸도 못 떼고 매번 "경로 없음 — 고립 부지"로 끝났다(실측: 도면 기준
+        // 진입칸 (0,−7) 의 이웃 열림 0/4). 부지를 어디에 잡든 결과가 같았으므로 이것은
+        // 자리 문제가 아니라 <b>도면 해석의 문제</b>였다.
+        //
+        // 벗어날 때까지 나가면 길은 앞마당 <b>끝</b>에서 시작한다 — 건물이 제 앞마당을 갖고,
+        // 마을 길이 그 앞마당에 와서 닿는 모양이다. 거처의 진입 칸 규칙과 뜻이 같고
+        // (건물 밖 첫 칸), 다만 앞마당이 있는 도면에서도 성립하도록 일반화한 것뿐이다.
         List<BlockPos> steps = new ArrayList<>();
         for (BlockPos d : doors) {
             BlockPos rel = d.subtract(anchor);
@@ -260,7 +274,20 @@ public final class FacilityTemplate {
             } else {
                 sx = 0;
             }
-            steps.add(new BlockPos(rel.getX() + sx, 0, rel.getZ() + sz));
+            // 상한은 도면 반경 + 2 — 도면이 아무리 커도 그 밖은 반드시 빈 열이라 반드시 끝난다.
+            int cap = Math.max(Math.abs(rel.getX()), Math.abs(rel.getZ())) + (int) Math.max(hx, hz)
+                    + 2;
+            BlockPos step = null;
+            for (int k = 1; k <= cap; k++) {
+                BlockPos cand = new BlockPos(rel.getX() + sx * k, 0, rel.getZ() + sz * k);
+                if (!cols.contains(cand)) {
+                    step = cand;
+                    break;
+                }
+            }
+            if (step != null) {
+                steps.add(step);
+            }
         }
 
         // 자리 — 독서대 앞(학교). 교회는 독서대가 없으므로 문간 안쪽을 자리로 본다.

@@ -345,7 +345,11 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(6, new MimicSchoolGoal(this));
         this.goalSelector.addGoal(7, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
         this.goalSelector.addGoal(8, new MimicPlayGoal(this));      // 배회 생활: 자녀 놀아주기(궁핍 채집이 항상 우선)
-        this.goalSelector.addGoal(9, new MimicVisitGoal(this));     // 배회 생활: 이웃 마실·잡담(조우 관문 경유)
+        // 마실·교회를 <b>채집 위</b>로 올린다(9 → 6). 9 에서는 배회 시간에 채집(7)·놀이(8)에
+        // 언제나 밀려 goal 자체가 돌지 않았다 — 실측: 교회 반경 안 29명·쿨다운 0명인데 방문
+        // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
+        // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
+        this.goalSelector.addGoal(6, new MimicVisitGoal(this));     // 이웃 마실·교회 예배(조우 관문 경유)
         this.goalSelector.addGoal(10, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
         this.goalSelector.addGoal(11, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(12, new RandomLookAroundGoal(this));

@@ -108,6 +108,20 @@ public class MimicVisitGoal extends Goal {
                 != Schedule.Phase.WANDER) {
             return false;
         }
+        // <b>여유가 있어야 마실·예배를 간다.</b>
+        //
+        // 이 줄과 우선순위 상향은 <b>한 쌍</b>이다. 방문은 9번이라 배회 시간에 채집(7)·놀이(8)에
+        // 언제나 밀렸다 — 명석·경쟁 특성자는 배회에도 일하고, 부모는 놀아주고, 가난한 자는
+        // 채집한다. 실측: 성년 53명 중 29명이 교회 반경 안이고 쿨다운도 0명인데 <b>방문이
+        // 0건</b>이었고, 이웃집 마실까지 0 이었다(goal 자체가 안 돈 것이지 교회 코드 문제가
+        // 아니었다).
+        //
+        // 그래서 우선순위를 채집 위로 올리는데, 그것만 하면 <b>배고픈 개체가 채집 대신 예배를
+        // 가서 굶는다</b>. 여유 조건을 함께 걸어야 "먹을 것이 없으면 일하고, 남으면 나선다"가
+        // 되어 순서가 뒤집히지 않는다.
+        if (!mob.larderComfortable()) {
+            return false;
+        }
         long gameDay = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
         if (gameDay - mob.lastVisitDay() < VISIT_COOLDOWN_DAYS) {
             return false; // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변

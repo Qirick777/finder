@@ -30,6 +30,17 @@ public class MimicSchoolGoal extends Goal {
      */
     private static final double ARRIVE_SQ = 1.0;
 
+    /**
+     * 이 거리제곱 안에서는 길찾기를 놓고 <b>이동 제어로 직접</b> 민다(4.0 = 두 칸).
+     *
+     * <p>길찾기는 "목표에서 한 칸 이내"를 도착으로 쳐서 대각선 이웃(거리제곱 2)에 아이를
+     * 놓아 버리는데, 착석 판정은 {@link #ARRIVE_SQ} 1.0 이라 그 칸이 인정되지 않는다.
+     * 그 틈에 갇힌 아이가 200틱 무진전으로 포기했다. 판정을 2.0 으로 넓히는 대신 —
+     * 그 눈금은 벽 밖에 선 아이를 착석으로 세던 4.0 을 좁히며 정한 값이다 — 남은 칸을
+     * 실제로 걷게 한다. 두 칸이면 도면상 자리 둘레의 트인 범위 안이라 길을 찾을 것이 없다.
+     */
+    private static final double NUDGE_SQ = 4.0;
+
     /** 표적 무진전이 이 틱 지속되면 오늘 등교를 포기한다(막힌 자리에서 하루를 버리지 않게). */
     private static final int STUCK_GIVE_UP = 200;
 
@@ -151,6 +162,22 @@ public class MimicSchoolGoal extends Goal {
         // 앵커를 <b>매 틱 다시 세운다</b>(밭일과 같다) — 다른 goal 이 중간에 지우고 가더라도
         // 등교가 도는 동안에는 리시가 학교 쪽을 보게 유지된다.
         mob.setWorkAnchor(seat);
+        // <b>마지막 두 칸은 이동 제어로 직접 민다.</b>
+        //
+        // 길찾기에 더 매달리지 않는 이유: 정확도 0 으로 경로를 새로 내 봐도 아이는 그대로
+        // 서 있었다(실측: "경로도달가능 · 네비끝남" 인데 무진전 200틱). 경로는 만들어지는데
+        // {@code moveTo(Path,속도)} 가 그 경로를 받아주지 않는 것이라, 같은 API 를 다시
+        // 부르는 방식으로는 빠져나올 수 없다.
+        //
+        // 여기는 <b>실내의 트인 두 칸</b>이다(도면 실측: 자리 둘레 직교 3방향 열림). 길을
+        // 찾을 것이 없으므로 이동 제어에 목표를 직접 주는 편이 맞다 — 장애물 회피가 필요한
+        // 구간은 이미 길찾기가 데려다 준 뒤다.
+        if (d <= NUDGE_SQ) {
+            mob.getNavigation().stop(); // 끝난 경로가 이동 제어와 다투지 않게
+            mob.getMoveControl().setWantedPosition(seat.getX() + 0.5, seat.getY(),
+                    seat.getZ() + 0.5, 1.0);
+            return;
+        }
         if (mob.getNavigation().isDone()) {
             // <b>정확도 0</b> — 자리 칸에 실제로 올라서게 한다.
             //

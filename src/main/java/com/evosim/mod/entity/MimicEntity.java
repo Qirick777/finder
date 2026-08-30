@@ -2803,6 +2803,21 @@ public class MimicEntity extends PathfinderMob {
         }
         BlockPos centre = studentCentre(sl, id, homePos);
         BlockPos site = facilitySite(sl, centre, tpl.get());
+        // <b>학교끼리 거리</b> — 반경이 겹치면 같은 아이를 나눠 가져 둘 다 정원을 못 채우고,
+        // 교사 급여는 각각 나가 둘 다 적자가 된다. 수요 판정(빈자리 있는 학교가 닿는가)이
+        // 대개 막지만 그것은 그날의 등록 수를 보므로 아이가 자라 빠지는 날에 구멍이 생긴다.
+        if (site != null) {
+            for (FacilityStore.Entry other : reg.all()) {
+                if (other.kind == FacilityTemplate.Kind.SCHOOL
+                        && Math.sqrt(other.pos.distSqr(site)) < Facilities.SCHOOL_MIN_GAP) {
+                    SimEvents.event(founder, "학교", String.format(
+                            "보류 — 기존 학교와 %.0f블록 (최소 %.0f) @%d,%d",
+                            Math.sqrt(other.pos.distSqr(site)), Facilities.SCHOOL_MIN_GAP,
+                            other.pos.getX(), other.pos.getZ()));
+                    return larder;
+                }
+            }
+        }
         if (site == null) {
             SimEvents.event(founder, "학교", String.format(
                     "자리 없음 — 추종자%d · 저장고 %.0f (반경 %d 안에 %.0f칸 폭의 빈 땅이 없다)",
@@ -2813,6 +2828,7 @@ public class MimicEntity extends PathfinderMob {
         reg.register(site, FacilityTemplate.Kind.SCHOOL, rot, mir, id, today(),
                 Facilities.SCHOOL_COST);
         RoadPlanner.Obstacles.invalidate(); // 건물이 길의 장애물로 즉시 잡히게
+        assignFacilityRoad(sl, site, tpl.get());
         SimEvents.event(founder, "학교", String.format(
                 "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d"
                         + " · 이용자중심 @%d,%d 에서 %.0f블록 · 못닿던학생" + unserved,
@@ -2928,6 +2944,48 @@ public class MimicEntity extends PathfinderMob {
         }
         java.util.Collections.sort(surf);
         return surf.get(surf.size() / 2);
+    }
+
+    /**
+     * <b>학교에 길을 낸다</b> — 세운 사람이 제 손으로 깐다(거처 신축의 {@code assignRoad} 와
+     * 같은 장치·같은 박자).
+     *
+     * <p>이것이 없어 학교가 도로망 밖에 덩그러니 서 있었다. 집은 지을 때마다 문 앞에서
+     * 도로망까지 길을 이었는데 시설만 그 경로를 안 탔다 — 공중사진에서 학교만 길에서
+     * 떨어져 있는 것으로 드러났다.
+     *
+     * <p>진입 칸은 도면이 이미 안다({@link FacilityTemplate#doorSteps}) — 문에서 건물 중심의
+     * 반대쪽으로 한 칸 나간 자리다. 거처처럼 계단 방향을 따로 물을 필요가 없다.
+     */
+    private void assignFacilityRoad(ServerLevel sl, BlockPos site, FacilityTemplate tpl) {
+        if (!paveTodo.isEmpty()) {
+            return; // 이미 깔 것이 있다 — 다음 정산에서 다시 잡힌다
+        }
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
+        List<BlockPos> starts = new ArrayList<>();
+        for (BlockPos d : tpl.doorSteps()) {
+            int ex = site.getX() + d.getX();
+            int ez = site.getZ() + d.getZ();
+            int ey = RoadPlanner.surfaceY(sl, ex, ez);
+            if (ey != Integer.MIN_VALUE && !ob.blocked(ex, ez)) {
+                starts.add(new BlockPos(ex, ey, ez));
+            }
+        }
+        if (starts.isEmpty()) {
+            SimEvents.event(this, "길놓기", "학교 진입 칸이 막혀 포기 @"
+                    + site.getX() + "," + site.getZ());
+            return;
+        }
+        List<BlockPos> path = RoadPlanner.planSpur(sl, starts, RoadStore.get(sl), ob);
+        if (path.isEmpty()) {
+            SimEvents.event(this, "길놓기", "학교 경로 없음 — 고립 부지 @"
+                    + site.getX() + "," + site.getZ());
+            return;
+        }
+        paveTodo.addAll(path);
+        SimEvents.event(this, "길놓기", String.format("학교 %d칸 @%d,%d → @%d,%d",
+                path.size(), path.get(0).getX(), path.get(0).getZ(),
+                path.get(path.size() - 1).getX(), path.get(path.size() - 1).getZ()));
     }
 
     /** 시설을 세운다 — 평탄화 → 비우기 → 배치 → 모양 정착. 거처 건축과 <b>같은 순서</b>다. */

@@ -110,4 +110,17 @@ public final class Facilities {
      * 자라도 학교가 따라간다.
      */
     public static final int UNSERVED_TO_BUILD = 3;
+
+    /**
+     * 학교끼리의 최소 간격(블록).
+     *
+     * <p>통학 한계({@link #COMMUTE_RANGE} 32)의 <b>두 배</b>다. 두 학교의 반경 32 원이 서로
+     * 겹치지 않는 최소 거리이고, 겹치면 같은 아이를 두 학교가 나눠 가지며 둘 다 정원을 못
+     * 채운다 — 교사 급여는 각각 나가므로 둘 다 적자가 된다.
+     *
+     * <p>수요 판정(빈자리 있는 학교가 닿는가)만으로도 대개 막히지만, 그것은 <b>그날의</b>
+     * 등록 수를 보므로 아이가 자라 빠지는 날에 구멍이 생긴다. 거리는 그런 흔들림과 무관한
+     * 하한이다.
+     */
+    public static final double SCHOOL_MIN_GAP = 64.0;
 }

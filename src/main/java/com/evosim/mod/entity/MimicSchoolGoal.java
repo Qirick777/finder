@@ -21,8 +21,14 @@ import java.util.EnumSet;
  */
 public class MimicSchoolGoal extends Goal {
 
-    /** 이 거리 안에 들면 도착 — 자리 한 칸에 정확히 서지 않아도 수업으로 친다. */
-    private static final double ARRIVE_SQ = 4.0;
+    /**
+     * 이 거리 안에 들면 도착 — 자리 한 칸에 정확히 서지 않아도 수업으로 친다.
+     *
+     * <p><b>1.0(한 칸)이다.</b> 처음에 4.0(두 칸)을 썼는데, 자리는 실내이고 벽 두께가 한 칸이라
+     * <b>벽 바깥에 붙어 선 아이가 착석으로 잡힐 수 있었다</b> — "학교에 들어가긴 하는가"를
+     * 재는 지표가 정작 안팎을 구분하지 못했다. 한 칸이면 그 칸에 실제로 서야 한다.
+     */
+    private static final double ARRIVE_SQ = 1.0;
 
     /** 표적 무진전이 이 틱 지속되면 오늘 등교를 포기한다(막힌 자리에서 하루를 버리지 않게). */
     private static final int STUCK_GIVE_UP = 200;
@@ -32,6 +38,7 @@ public class MimicSchoolGoal extends Goal {
     private BlockPos lastPos;
     private int stuckTicks;
     private long gaveUpDay = Long.MIN_VALUE;
+    private boolean announced;
 
     public MimicSchoolGoal(MimicEntity mob) {
         this.mob = mob;
@@ -70,6 +77,7 @@ public class MimicSchoolGoal extends Goal {
     public void start() {
         lastPos = mob.blockPosition();
         stuckTicks = 0;
+        announced = false;
     }
 
     @Override
@@ -96,6 +104,13 @@ public class MimicSchoolGoal extends Goal {
             mob.getLookControl().setLookAt(seat.getX() + 0.5, seat.getY() + 1.0,
                     seat.getZ() + 0.5);
             mob.creditSchoolDay(SimTime.tick(mob.level()) / 24000L); // 하루 한 번만
+            if (!announced) {
+                announced = true;
+                com.evosim.mod.log.SimEvents.event(mob, "등교", String.format(
+                        "착석 @%d,%d (집에서 %.0f블록)", seat.getX(), seat.getZ(),
+                        mob.getHomePos() == null ? -1.0
+                                : Math.sqrt(mob.getHomePos().distSqr(seat))));
+            }
             stuckTicks = 0;
             return;
         }

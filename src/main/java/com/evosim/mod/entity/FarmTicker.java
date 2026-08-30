@@ -987,12 +987,23 @@ public final class FarmTicker {
      */
     public static int unservedStudents(ServerLevel level, long ownerId) {
         FacilityStore reg = FacilityStore.get(level);
-        java.util.List<BlockPos> mine = new java.util.ArrayList<>();
+        // <b>내 학교만 세면 안 된다.</b> 남이 세운 학교라도 그 아이가 다닐 수 있으면 수요는
+        // 이미 채워진 것이고, 그걸 무시하면 같은 자리에 학교가 겹쳐 선다. 게다가 <b>빈자리가
+        // 남은 학교</b>가 근처에 있으면 새로 지을 이유가 없다 — 정원이 찬 학교만 "못 받는"
+        // 것으로 본다.
+        java.util.List<BlockPos> reachable = new java.util.ArrayList<>();
         for (FacilityStore.Entry e : reg.all()) {
-            if (e.ownerId == ownerId && e.kind == FacilityTemplate.Kind.SCHOOL) {
-                mine.add(e.pos);
+            if (e.kind != FacilityTemplate.Kind.SCHOOL) {
+                continue;
+            }
+            int seats = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored)
+                    .map(t -> t.seats().size()).orElse(0);
+            int taken = ENROLLED.getOrDefault(e.pos.asLong(), java.util.List.of()).size();
+            if (taken < seats) {
+                reachable.add(e.pos); // 아직 받을 수 있는 학교
             }
         }
+        java.util.List<BlockPos> mine = reachable;
         int n = 0;
         for (MimicEntity b : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 m -> m.isAlive() && m.getIndividual() != null && m.getHomePos() != null

@@ -197,6 +197,26 @@ public final class RoadPlanner {
                     ob.hard.add(k);
                 }
             }
+            // <b>시설 몸통</b>(학교·교회) — 길이 건물을 관통하지 않게. 거처·밭·가로등은 이미
+            // 넣고 있었는데 시설만 빠져 있었다. 문 앞 칸({@code doorSteps})은 <b>빼지 않는다</b> —
+            // 거기가 길의 종점이라야 학교에 길이 닿는다.
+            FacilityStore fr = FacilityStore.get(sl);
+            for (FacilityStore.Entry fe : fr.all()) {
+                var ft = FacilityTemplate.of(sl, fe.kind, fe.rotation, fe.mirrored);
+                if (ft.isEmpty()) {
+                    continue;
+                }
+                java.util.Set<Long> steps = new java.util.HashSet<>();
+                for (BlockPos d : ft.get().doorSteps()) {
+                    steps.add(RoadStore.key(fe.pos.getX() + d.getX(), fe.pos.getZ() + d.getZ()));
+                }
+                for (BlockPos c : ft.get().groundCols()) {
+                    long k = RoadStore.key(fe.pos.getX() + c.getX(), fe.pos.getZ() + c.getZ());
+                    if (!steps.contains(k)) {
+                        ob.hard.add(k);
+                    }
+                }
+            }
             // 가로등 기둥 — 울타리라 통행을 막는다. 등은 길 바깥에 서지만, 나중에 나는 길이
             // 그 칸을 지나면 새 길 한복판에 기둥이 박힌다. 길이 알아서 비껴가게 둔다.
             ob.hard.addAll(LampPlanner.postColumns(sl));

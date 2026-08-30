@@ -159,9 +159,17 @@ public class MimicSchoolGoal extends Goal {
         if (now.equals(lastPos)) {
             if (++stuckTicks >= STUCK_GIVE_UP) {
                 gaveUpDay = SimTime.tick(mob.level()) / 24000L;
+                // <b>왜</b> 못 갔는지까지 남긴다 — "1블록 앞에서 멈췄다"만으로는 자리가 막힌
+                // 것인지, 길이 안 나는 것인지, 높이가 어긋난 것인지 구분할 수 없다. 이 세션에서
+                // 원인을 추측했다가 틀린 적이 여러 번이라, 포기 사건이 스스로 사유를 말하게 한다.
+                var path = mob.getNavigation().createPath(seat, 0);
                 com.evosim.mod.log.SimEvents.event(mob, "등교", String.format(
-                        "포기 — %d틱 무진전 (자리 @%d,%d 까지 %.0f블록)",
-                        stuckTicks, seat.getX(), seat.getZ(), Math.sqrt(d)));
+                        "포기 — %d틱 무진전 (자리 @%d,%d 까지 %.0f블록) · 내y%.1f 자리y%d"
+                                + " · 경로%s · 네비%s",
+                        stuckTicks, seat.getX(), seat.getZ(), Math.sqrt(d),
+                        mob.getY(), seat.getY(),
+                        path == null ? "없음" : (path.canReach() ? "도달가능" : "부분"),
+                        mob.getNavigation().isDone() ? "끝남" : "진행중"));
                 seat = null;
                 mob.setWorkAnchor(null); // 포기했으면 리시도 놓아준다 — 집으로 돌아갈 수 있게
             }

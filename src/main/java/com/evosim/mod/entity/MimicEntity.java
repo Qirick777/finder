@@ -2802,7 +2802,8 @@ public class MimicEntity extends PathfinderMob {
             return larder;
         }
         BlockPos centre = studentCentre(sl, id, homePos);
-        BlockPos site = facilitySite(sl, centre, tpl.get());
+        BlockPos site = facilitySite(sl, centre, tpl.get(),
+                FarmTicker.studentHomesOf(sl, id));
         // <b>학교끼리 거리</b> — 반경이 겹치면 같은 아이를 나눠 가져 둘 다 정원을 못 채우고,
         // 교사 급여는 각각 나가 둘 다 적자가 된다. 수요 판정(빈자리 있는 학교가 닿는가)이
         // 대개 막지만 그것은 그날의 등록 수를 보므로 아이가 자라 빠지는 날에 구멍이 생긴다.
@@ -2905,7 +2906,15 @@ public class MimicEntity extends PathfinderMob {
 
     @Nullable
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl) {
+        return facilitySite(sl, from, tpl, List.of());
+    }
+
+    @Nullable
+    private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl,
+                                         List<BlockPos> students) {
         java.util.Arrays.fill(SITE_REJECT, 0);
+        BlockPos best = null;
+        int bestCover = -1;
         HomeStore homes = HomeStore.get(sl);
         FarmStore farms = FarmStore.get(sl);
         // 이웃 반경은 <b>집마다 제 것</b>을 쓴다. 마을 최대 반경(저택)을 모든 집에 적용하면
@@ -2974,10 +2983,29 @@ public class MimicEntity extends PathfinderMob {
                     SITE_REJECT[why]++;
                     continue;
                 }
-                return new BlockPos(cx, medianSurface(sl, tpl, cx, cz) + BASE_LIFT, cz);
+                // <b>덮는 학생 수로 고른다</b> — 첫 깨끗한 자리를 잡으면 그 자리가 학생을
+                // 몇 명 덮는지는 보지 않게 된다. 21×21 건물은 집 간격(15~19)보다 넓어
+                // 마을 안에는 못 들어가고 어차피 가장자리에 서므로, <b>가장 많이 덮는</b>
+                // 가장자리를 골라야 한다. 동점이면 중심에 가까운 쪽.
+                int covered = 0;
+                for (BlockPos sh : students) {
+                    double dx = sh.getX() - cx;
+                    double dz = sh.getZ() - cz;
+                    if (dx * dx + dz * dz
+                            <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                        covered++;
+                    }
+                }
+                if (covered > bestCover) {
+                    bestCover = covered;
+                    best = new BlockPos(cx, medianSurface(sl, tpl, cx, cz) + BASE_LIFT, cz);
+                    if (covered == students.size() && covered > 0) {
+                        return best; // 전원을 덮었다 — 더 볼 것이 없다
+                    }
+                }
             }
         }
-        return null;
+        return best;
     }
 
     /** 시설 점유 열의 지표 중앙값 — 기단을 여기에 맞춘다(거처의 {@code terrainBaseY} 와 같은 규칙). */

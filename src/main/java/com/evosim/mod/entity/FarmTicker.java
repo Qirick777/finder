@@ -1033,6 +1033,29 @@ public final class FarmTicker {
         return n;
     }
 
+    /**
+     * 이 주인을 따르는 가구의 <b>소년들이 사는 집</b> — 부지 고르기의 점수 입력.
+     *
+     * <p>부지를 "중심에서 가까운 첫 깨끗한 자리"로 고르면 그 자리가 학생을 몇 명 덮는지는
+     * 보지 않는다. 21×21 건물은 집 간격(15~19)보다 넓어 마을 <b>안</b>에는 못 들어가므로,
+     * 어차피 가장자리에 설 수밖에 없다 — 그렇다면 <b>가장 많이 덮는</b> 가장자리를 골라야 한다.
+     */
+    public static java.util.List<BlockPos> studentHomesOf(ServerLevel level, long ownerId) {
+        java.util.List<BlockPos> out = new java.util.ArrayList<>();
+        java.util.List<BlockPos> homes = FOLLOWER_HOMES.getOrDefault(ownerId, java.util.List.of());
+        if (homes.isEmpty()) {
+            return out;
+        }
+        for (MimicEntity b : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null && m.getHomePos() != null
+                        && m.getStage() == com.evosim.core.LifeStage.BOY)) {
+            if (homes.contains(b.getHomePos())) {
+                out.add(b.getHomePos());
+            }
+        }
+        return out;
+    }
+
     /** 주인별 추종자 <b>거처</b> — 시설 부지를 이용자 쪽으로 당기는 입력(통학거리). */
     private static final java.util.Map<Long, java.util.List<BlockPos>> FOLLOWER_HOMES =
             new java.util.HashMap<>();

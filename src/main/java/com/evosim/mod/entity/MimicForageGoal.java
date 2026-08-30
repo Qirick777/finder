@@ -187,7 +187,10 @@ public class MimicForageGoal extends Goal {
                 if (!huntTarget.isAlive()) {
                     double sexM = ind.sex() == Sex.MALE
                             ? FoodEconomy.MALE_FORAGE : FoodEconomy.FEMALE_FORAGE;
-                    double food = HUNT_FOOD * Multipliers.hunt(ind) * sexM * stageMult();
+                    // 획득 교육이 흘러드는 두 자리 중 하나(다른 하나는 채집). 엔티티에서만
+                    // 알 수 있는 값이라 여기서 넘긴다 — Individual 에 실으면 세습이 된다.
+                    double food = HUNT_FOOD
+                            * Multipliers.hunt(ind, mob.getSchoolDays()) * sexM * stageMult();
                     mob.addHarvest(food);
                     com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.HUNT, food);
                     SimEvents.event(mob, "사냥", String.format("동물 처치 → 식량 +%.2f", food));
@@ -247,7 +250,8 @@ public class MimicForageGoal extends Goal {
                         return;
                     }
                 } else if (mob.level().destroyBlock(gatherTarget, false)) {
-                    double food = GATHER_FOOD * FoodEconomy.forageYieldMult(ind) * stageMult();
+                    double food = GATHER_FOOD
+                            * FoodEconomy.forageYieldMult(ind, mob.getSchoolDays()) * stageMult();
                     mob.addHarvest(food);
                     com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.GRASS, food);
                     SimEvents.event(mob, "채집", String.format("+%.2f", food));

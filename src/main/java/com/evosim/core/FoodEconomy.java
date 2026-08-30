@@ -80,8 +80,19 @@ public final class FoodEconomy {
      * 약초학자·손재주 등 보정특성 포함). 보정특성이 잉여↑ → 자식↑로 이어진다.
      */
     public static double forageYieldMult(Individual ind) {
+        return forageYieldMult(ind, 0);
+    }
+
+    /**
+     * 채집 수확 배율 + <b>획득 교육</b>({@link Schooling}) — 교육수준을 아는 호출부가 쓴다.
+     *
+     * <p>교육을 <b>실제 채집·사냥에만</b> 흘린다. 밭 산출에는 붙이지 않는다: 밭은 지주의
+     * 것이라 거기에 교육을 얹으면 학교가 부의 증폭기가 되어 계층 고착을 가속한다. 채집은
+     * 가난한 쪽의 일이므로 같은 크기의 보너스라도 뜻이 정반대다.
+     */
+    public static double forageYieldMult(Individual ind, int schoolLevel) {
         double sexM = ind.sex() == Sex.MALE ? MALE_FORAGE : FEMALE_FORAGE;
-        return sexM * Multipliers.gather(ind);
+        return sexM * Multipliers.gather(ind, schoolLevel);
     }
 
     /** 1트립 기대 수확 = 기본 수확 × 채집 수확 배율. */

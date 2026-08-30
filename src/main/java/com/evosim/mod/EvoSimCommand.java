@@ -3599,6 +3599,28 @@ public final class EvoSimCommand {
                 idleN++;
             }
         }
+        // ── 능력 격차 — <b>성년까지 센다</b>. 위 순회는 소년만 보는데, 아이가 자라 성년이 되면
+        //    그 학력이 보고에서 통째로 사라진다. 정작 교육이 값을 하는 시점이 성년이라
+        //    (채집·사냥 배율은 성년이 되어야 제 몫으로 쓰인다) 재는 자리가 틀렸었다.
+        //    학력별 실제 채집 배율을 나란히 찍어 "격차가 있는가"를 눈으로 확인한다.
+        int[] eduN = new int[com.evosim.core.Schooling.MAX_LEVEL + 1];
+        double[] eduYield = new double[com.evosim.core.Schooling.MAX_LEVEL + 1];
+        int grownLearned = 0;
+        int grownTotal = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getStage() != com.evosim.core.LifeStage.INFANT)) {
+            int lv = com.evosim.core.Schooling.level(m.getSchoolDays());
+            eduN[lv]++;
+            eduYield[lv] += com.evosim.core.FoodEconomy.forageYieldMult(m.getIndividual(),
+                    m.getSchoolDays());
+            if (m.getStage() != com.evosim.core.LifeStage.BOY) {
+                grownTotal++;
+                if (lv > 0) {
+                    grownLearned++;
+                }
+            }
+        }
         java.util.Collections.sort(trip);
         // <b>부지가 좋은가</b>는 등록된 아이만 봐서는 알 수 없다 — 등록이 0 이면 통학거리 줄이
         // 통째로 사라져 배치가 나아졌는지 나빠졌는지 볼 수단이 없어진다(실측: 등록0/소년8).
@@ -3626,9 +3648,21 @@ public final class EvoSimCommand {
         // 등록과 착석을 나눠 찍는 이유: 길이 막혀 못 간 아이도 수업료는 낸다. 두 수가 벌어지면
         // 그 차이가 곧 통학 결함의 크기다.
         tell(ctx.getSource(), String.format(
-                "  획득 — 등교경험%d명(평균%.1f일) · 무경험%d명 · 최다%d일",
+                "  획득(소년) — 등교경험%d명(평균%.1f일) · 무경험%d명 · 최다%d일",
                 learnedN, learnedN == 0 ? 0.0 : (double) learnedSum / learnedN, idleN,
                 learnedMax));
+        StringBuilder edu = new StringBuilder();
+        for (int lv = 0; lv <= com.evosim.core.Schooling.MAX_LEVEL; lv++) {
+            edu.append(lv == 0 ? "" : " · ").append(com.evosim.core.Schooling.name(lv))
+                    .append(eduN[lv]).append("명");
+            if (eduN[lv] > 0) {
+                edu.append(String.format("(채집%.3f)", eduYield[lv] / eduN[lv]));
+            }
+        }
+        tell(ctx.getSource(), "  §b능력 격차§r(유아 제외 전원) — " + edu);
+        tell(ctx.getSource(), String.format(
+                "  성년 이상 학력자 %d/%d명(%.0f%%) — 교육이 값을 하는 구간",
+                grownLearned, grownTotal, grownTotal == 0 ? 0.0 : 100.0 * grownLearned / grownTotal));
         int[] miss = FarmTicker.schoolMiss();
         if (ss[0] < boys) {
             // 등교가 대상에 못 미치면 <b>왜</b>인지 말한다. 앞의 두 수가 서로 다른 가설을

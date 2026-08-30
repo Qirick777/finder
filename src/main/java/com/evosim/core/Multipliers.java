@@ -21,6 +21,18 @@ public final class Multipliers {
      *  ×1.25(멍청 ×0.8), 기본 가산은 ±0.2→±0.1 하향. "같은 재능도 명석한 자가 더 크게 쓴다" —
      *  단독 명석은 미미, 능력자와 결합 시 발화(4종 콤보 아키타입). 음의 능력·성향 항은 비증폭. */
     public static double gather(Individual ind) {
+        return gather(ind, 0);
+    }
+
+    /**
+     * 채집 배율 + <b>획득 교육</b>({@link Schooling}) — 교육수준을 아는 호출부가 쓴다.
+     *
+     * <p>교육수준을 {@link Individual} 이 아니라 <b>인자로</b> 받는 이유: 등교 일수는 유전되면
+     * 안 되는 획득값이라 엔티티에만 둔다({@code MimicEntity.schoolDays}). Individual 에 실으면
+     * 언젠가 상속 코드가 함께 옮겨 "획득"이 "세습"이 된다. 기존 {@link #gather(Individual)} 는
+     * 교육 0 으로 위임하므로 종전 호출부·테스트의 값은 바뀌지 않는다.
+     */
+    public static double gather(Individual ind, int schoolLevel) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double amp = abilityAmp(t);
         double m = 1.0;
@@ -38,6 +50,8 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.HUNTER, -0.1);          // 사냥꾼 채집딜레이
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        // 획득 교육 — 유전 기본교육(+0.1)의 아래에 둔다. 증폭기를 탄다(명석이 더 크게 쓴다).
+        m += amp * Schooling.PER_LEVEL * Schooling.level(schoolLevel);
         if (t.contains(Trait.GATHERER) && t.contains(Trait.DEXTEROUS)) {
             m += 0.1; // 시너지: 숙련 채집조(채집꾼×손재주 동시 발현)
         }
@@ -62,6 +76,11 @@ public final class Multipliers {
     /** 사냥 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤).
      *  명석 증폭기는 채집과 동일 규칙(양의 능력 축만 ×1.25/×0.8, 기본 ±0.1). */
     public static double hunt(Individual ind) {
+        return hunt(ind, 0);
+    }
+
+    /** 사냥 배율 + <b>획득 교육</b> — 채집과 같은 규칙({@link #gather(Individual, int)} 참조). */
+    public static double hunt(Individual ind, int schoolLevel) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double amp = abilityAmp(t);
         double m = 1.0;
@@ -80,6 +99,8 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.COMPETITIVE, 0.2);      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
+        // 획득 교육 — 채집과 같은 눈금·같은 증폭기.
+        m += amp * Schooling.PER_LEVEL * Schooling.level(schoolLevel);
         return Math.max(0.0, m);
     }
 

@@ -3553,6 +3553,13 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), "  " + sb.toString().trim());
         // ── 학교 운영(P5b) ── 등교율의 분모는 <b>마을 전체 소년</b>이다. 등록자만 세면
         //    "등교율 100%" 같은 무의미한 수가 나온다.
+        //
+        // <b>분자와 분모의 시점을 맞춘다.</b> 등록·미납 사유는 새벽 정산이 남긴 수이고,
+        // 아래 순회는 <b>지금</b> 살아 있는 소년을 센다. 둘을 나누면 시점이 어긋난 비율이
+        // 나온다 — 실측(D19): "등록0/소년10" 인데 새벽에는 소년이 5명이었고 사유도
+        // 가구전체안따름3 · 통학초과2 로 <b>5명이 전부 설명</b>됐다. 성장으로 소년이 하루에
+        // 배로 느는 구간이라 어긋남이 컸다. 새벽 소년 수는 정산이 이미 세어 두었으므로
+        // ({@code SCHOOL_SUM[1]}) 비율은 그것으로 내고, 지금 수는 따로 이름 붙여 함께 찍는다.
         double[] ss = FarmTicker.schoolSums();
         java.util.List<Double> trip = new java.util.ArrayList<>();
         int boys = 0;
@@ -3612,9 +3619,9 @@ public final class EvoSimCommand {
         }
         java.util.Collections.sort(near);
         tell(ctx.getSource(), String.format(
-                "  학교 — 등록%.0f/소년%d(%.0f%%) · §b실제착석%d§r · 수업료%.1f · 미납%.1f"
-                        + " · 급여%.1f · 당일수지%+.1f",
-                ss[0], boys, boys == 0 ? 0.0 : 100.0 * ss[0] / boys, sat,
+                "  학교 — 등록%.0f/새벽소년%.0f(%.0f%%) · §b실제착석%d§r · 지금소년%d"
+                        + " · 수업료%.1f · 미납%.1f · 급여%.1f · 당일수지%+.1f",
+                ss[0], ss[1], ss[1] == 0 ? 0.0 : 100.0 * ss[0] / ss[1], sat, boys,
                 ss[2], ss[3], ss[4], ss[2] - ss[4]));
         // 등록과 착석을 나눠 찍는 이유: 길이 막혀 못 간 아이도 수업료는 낸다. 두 수가 벌어지면
         // 그 차이가 곧 통학 결함의 크기다.

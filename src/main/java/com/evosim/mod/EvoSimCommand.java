@@ -3544,10 +3544,12 @@ public final class EvoSimCommand {
                     e.earned, e.spent, e.net()));
         }
         tell(ctx.getSource(), String.format(
-                "§e[시설]§r %d채(학교%d 교회%d) · 구조평균%.0f%% · %s무너짐%d§r · 주인사망%d"
-                        + " · 자격자%d명(최대세력%d·새벽기준)",
+                "§e[시설]§r %d채(학교%d 교회%d[큰%d 작은%d]) · 구조평균%.0f%% · %s무너짐%d§r"
+                        + " · 주인사망%d · 자격자%d명(최대세력%d·새벽기준)",
                 reg.all().size(), reg.countOf(FacilityTemplate.Kind.SCHOOL),
+                reg.countOf(FacilityTemplate.Group.CHURCH),
                 reg.countOf(FacilityTemplate.Kind.CHURCH),
+                reg.countOf(FacilityTemplate.Kind.SMALL_CHURCH),
                 standSum / reg.all().size() * 100.0,
                 broken == 0 ? "§a" : "§c", broken, orphan, qualified, topPower));
         tell(ctx.getSource(), "  " + sb.toString().trim());

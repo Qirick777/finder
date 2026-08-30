@@ -88,6 +88,33 @@ public class FacilityStore extends SavedData {
         return n;
     }
 
+    /**
+     * 이 <b>갈래</b>의 시설을 이 주인이 몇 채 갖고 있나 — 크기를 가리지 않는다.
+     *
+     * <p>교회는 큰 것과 작은 것이 용량만 다르고 하는 일은 같다. 종류로 세면 한 사람이
+     * 큰 교회와 작은 교회를 나란히 지어 두 채가 되므로, 중복 판정은 갈래로 해야 한다.
+     */
+    public int countOf(long ownerId, FacilityTemplate.Group group) {
+        int n = 0;
+        for (Entry e : all) {
+            if (e.ownerId == ownerId && e.kind.group == group) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 이 갈래 시설의 전체 채수 — 보고용. */
+    public int countOf(FacilityTemplate.Group group) {
+        int n = 0;
+        for (Entry e : all) {
+            if (e.kind.group == group) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /** 이 좌표에서 가장 가까운 해당 종류 시설 — 없으면 null. */
     public Entry nearest(BlockPos from, FacilityTemplate.Kind kind) {
         Entry best = null;

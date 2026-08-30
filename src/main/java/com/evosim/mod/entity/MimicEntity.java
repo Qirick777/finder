@@ -2768,7 +2768,15 @@ public class MimicEntity extends PathfinderMob {
                 founder = m;
             }
         }
-        if (founder == null || followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
+        if (founder == null) {
+            return larder;
+        }
+        // 교회를 <b>먼저</b> 본다 — 자격 문턱이 낮아(추종자 4) 학교보다 이른 세력에서 성립하고,
+        // 학교 문턱에서 되돌아가면 교회까지 함께 막히기 때문이다.
+        if (followers >= Facilities.CHURCH_MIN_FOLLOWERS) {
+            larder = considerChurch(sl, founder, followers, larder, adultNeed);
+        }
+        if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;
         }
         long id = founder.getIndividual().id();
@@ -2853,6 +2861,93 @@ public class MimicEntity extends PathfinderMob {
      * <p>종전에는 주인의 집만 봤다. 그래서 학교가 주인 옆에 서고 학생은 흩어진 채로 남았다 —
      * 실측(D24): 통학거리 중앙 47 로 한계 48 에 걸치고, 통학초과로 못 간 소년이 8명이었다.
      */
+    /**
+     * <b>교회 착공</b>(P6) — 학교와 같은 배관을 쓰되 세 가지가 다르다.
+     *
+     * <ul>
+     *   <li><b>대상이 추종자가 아니다.</b> 계획서 1.5 의 교회는 "확률적 방문" 이라 누구나 온다.
+     *       그래서 크기를 정할 때 세는 것도 추종자가 아니라 <b>반경 안의 성년 전부</b>다.
+     *       이것이 P6 의 핵심이기도 하다 — 원장에 간선을 만드는 셋(소작·구휼·긴급고용)은 전부
+     *       가난한 쪽이 받는 것이라 지주가 지주에게 신세 질 길이 없었고, 그래서 상납 사슬이
+     *       깊이 1 에 머물렀다. 추종에 매이지 않은 시설만 그 고리를 만든다.</li>
+     *   <li><b>크기를 착공 시에 정한다.</b> 승격 기계를 두지 않는다 — 승격은 옛 건물을 빈 채로
+     *       남기고(거처가 그렇게 해서 빈집이 최대 46%까지 나왔다), 큰 도면은 필요 이격이 커서
+     *       제자리 확장이 실패할 수 있다. 대신 채울 수 있는 크기로 짓고, 모자라면 기존 규칙대로
+     *       <b>한 채 더</b> 짓는다.</li>
+     *   <li><b>중복·간격 판정은 갈래로 한다.</b> 큰 교회와 작은 교회는 용량만 다르므로
+     *       {@link FacilityTemplate.Group} 으로 세지 않으면 한 사람이 둘을 나란히 짓는다.</li>
+     * </ul>
+     */
+    private double considerChurch(ServerLevel sl, MimicEntity founder, int followers,
+                                  double larder, double adultNeed) {
+        long id = founder.getIndividual().id();
+        FacilityStore reg = FacilityStore.get(sl);
+        if (reg.countOf(id, FacilityTemplate.Group.CHURCH) >= 1) {
+            return larder; // 한 사람이 교회 하나 — 확장은 다른 주인이 맡는다
+        }
+        // <b>주변에서 쓸 수 있는 사람</b> — 추종 여부를 보지 않는다. 이 수가 곧 이 자리에서
+        // 받을 수 있는 최대 인원이고, 크기는 여기서 나온다.
+        int nearby = 0;
+        for (MimicEntity m : sl.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && e.getStage() != LifeStage.INFANT)) {
+            if (m.getHomePos().distSqr(homePos)
+                    <= Facilities.CHURCH_REACH * Facilities.CHURCH_REACH) {
+                nearby++;
+            }
+        }
+        boolean big = nearby >= Facilities.CHURCH_CAP;
+        FacilityTemplate.Kind kind = big
+                ? FacilityTemplate.Kind.CHURCH : FacilityTemplate.Kind.SMALL_CHURCH;
+        double cost = big ? Facilities.CHURCH_COST : Facilities.SMALL_CHURCH_COST;
+        double gate = cost + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (larder < gate) {
+            SimEvents.event(founder, "교회", String.format(
+                    "보류 — 추종자%d · 주변%d명(%s) · 저장고 %.0f < 문턱 %.0f",
+                    followers, nearby, kind.label, larder, gate));
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl = FacilityTemplate.of(sl, kind, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos centre = studentCentre(sl, id, homePos);
+        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id));
+        if (site != null) {
+            for (FacilityStore.Entry other : reg.all()) {
+                if (other.kind.group == FacilityTemplate.Group.CHURCH
+                        && Math.sqrt(other.pos.distSqr(site)) < Facilities.CHURCH_MIN_GAP) {
+                    SimEvents.event(founder, "교회", String.format(
+                            "보류 — 기존 교회와 %.0f블록 (최소 %.0f) @%d,%d",
+                            Math.sqrt(other.pos.distSqr(site)), Facilities.CHURCH_MIN_GAP,
+                            other.pos.getX(), other.pos.getZ()));
+                    return larder;
+                }
+            }
+        }
+        if (site == null) {
+            SimEvents.event(founder, "교회", String.format(
+                    "자리 없음 — %s · 주변%d명 · 거부 집%d 밭%d 물%d 낙차%d",
+                    kind.label, nearby, SITE_REJECT[0], SITE_REJECT[1],
+                    SITE_REJECT[2], SITE_REJECT[3]));
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, kind, rot, mir, id, today(), cost);
+        RoadPlanner.Obstacles.invalidate();
+        assignFacilityRoad(sl, site, tpl.get());
+        SimEvents.event(founder, "교회", String.format(
+                "착공 %s @%d,%d 회전%d%s — 추종자%d · 주변%d명(상한%d) · 건축비 %.0f"
+                        + " (저장고 %.0f→%.0f) · 중심에서 %.0f블록",
+                kind.label, site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers, nearby,
+                big ? Facilities.CHURCH_CAP : Facilities.SMALL_CHURCH_CAP, cost, larder,
+                larder - cost,
+                Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
+        return larder - cost;
+    }
+
     private static BlockPos studentCentre(ServerLevel sl, long ownerId, BlockPos ownerHome) {
         long sx = ownerHome.getX();
         long sz = ownerHome.getZ();

@@ -43,16 +43,37 @@ import java.util.Optional;
 public final class FacilityTemplate {
 
     /** 시설 종류 — 도면 이름과 규모의 단일 출처. */
+    /**
+     * 시설의 <b>갈래</b> — 크기가 달라도 같은 갈래면 같은 취급을 받는다.
+     *
+     * <p>교회는 큰 것과 작은 것이 있는데, 둘은 <b>용량만 다르고 하는 일은 같다</b>. 그래서
+     * "이미 갖고 있는가"·"기존 것과 너무 가까운가" 같은 판정은 크기가 아니라 갈래로 해야
+     * 한다 — 안 그러면 한 사람이 큰 교회와 작은 교회를 나란히 지을 수 있다.
+     */
+    public enum Group {
+        SCHOOL("학교"),
+        CHURCH("교회");
+
+        public final String label;
+
+        Group(String label) {
+            this.label = label;
+        }
+    }
+
     public enum Kind {
-        SCHOOL("school", "학교"),
-        CHURCH("church", "교회");
+        SCHOOL("school", "학교", Group.SCHOOL),
+        CHURCH("church", "큰교회", Group.CHURCH),
+        SMALL_CHURCH("small_church", "작은교회", Group.CHURCH);
 
         public final String design;
         public final String label;
+        public final Group group;
 
-        Kind(String design, String label) {
+        Kind(String design, String label, Group group) {
             this.design = design;
             this.label = label;
+            this.group = group;
         }
 
         public static Kind of(String design) {

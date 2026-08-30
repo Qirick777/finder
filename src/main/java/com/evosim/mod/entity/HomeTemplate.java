@@ -60,7 +60,10 @@ public final class HomeTemplate {
         SMALL(4, 0.0, 0.05, "small1", "small2", "small3"),
         MIDDLE(6, 12.0, 0.15, "middle1", "middle2"),
         BIG(9, 30.0, 0.4, "big1", "big2"),
-        MANSION(12, 70.0, 1.0, "mansion");
+        // 저택 도면이 둘 — 같은 부지(19×15, 점유열 242)에 배치만 90.5% 다르다. 다른 등급이
+        // 이미 도면을 여럿 갖고 무작위로 고르므로(소형 3 · 중형 2 · 대형 2), 저택만 하나였던
+        // 것을 맞춘다. 부지 판정·건축비·수용 인원은 그대로다.
+        MANSION(12, 70.0, 1.0, "mansion", "mansion2");
 
         /** 수용 인원 — 이 수를 넘으면 "협소"로 상위 등급 이사 트리거. */
         public final int capacity;

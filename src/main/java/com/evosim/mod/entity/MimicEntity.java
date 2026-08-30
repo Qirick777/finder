@@ -133,6 +133,18 @@ public class MimicEntity extends PathfinderMob {
     private boolean homeMirror = false;         // 좌우반전 배치인가(스키메틱 전용)
     private boolean building = false;           // 거처 건축 중(부부 공통) — 분담·리더는 buildTick 이 결정
     /**
+     * <b>획득 능력치</b>(P5b) — 학교에 실제로 <b>앉은</b> 날 수. 유전되지 않는다.
+     *
+     * <p>개체 필드에 두는 것이 곧 "유전 안 됨"의 구현이다 — {@link com.evosim.core.Individual}
+     * 은 부모에게서 물려받는 것들의 그릇이라, 거기 넣으면 상속 경로에 끼어들 자리가 생긴다.
+     * 새로 태어난 개체는 0 에서 시작한다.
+     *
+     * <p><b>등록이 아니라 도착으로 센다.</b> 장부에 이름이 올라도 길이 막혀 못 가면 배운 것이
+     * 없다 — 수업료는 내고 능력은 안 오르는 것이 오히려 정직하고, 그 격차가 통학 문제를 드러낸다.
+     */
+    private int schoolDays = 0;
+    private long schoolCreditedDay = Long.MIN_VALUE;
+    /**
      * <b>깔아야 할 길</b>(중심선, 진입 칸 → 도로망 순). 집을 다 지은 미믹이 삽을 들고
      * 앞에서부터 한 칸씩 지운다. 건축의 <b>다음 단계</b>일 뿐 새 goal 이 아니다 —
      * 새 goal 을 만들면 우선순위 1에 넣어 집짓기와 다투거나, 낮게 넣어 채집·밭일에 밀려
@@ -327,6 +339,10 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
         this.goalSelector.addGoal(6, new MimicFarmGoal(this)); // 자기 밭 우선 — 채집(7)보다 엄격히 높아 실행 중 채집 선점
+        // 등하교(P5b) — 성년의 밭일과 <b>같은 층</b>이다. 소년에게 학교는 어른의 밭에 해당한다.
+        // 채집(7)보다 앞: 등록된 소년은 학교에 가고, 못 간 소년만 채집·놀이로 내려간다
+        // (계획서 1.8 "학교에 못 가는 소년은 기존대로 놀이 → 눈으로 구분된다").
+        this.goalSelector.addGoal(6, new MimicSchoolGoal(this));
         this.goalSelector.addGoal(7, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
         this.goalSelector.addGoal(8, new MimicPlayGoal(this));      // 배회 생활: 자녀 놀아주기(궁핍 채집이 항상 우선)
         this.goalSelector.addGoal(9, new MimicVisitGoal(this));     // 배회 생활: 이웃 마실·잡담(조우 관문 경유)
@@ -923,6 +939,24 @@ public class MimicEntity extends PathfinderMob {
     public boolean isSpouseWith(MimicEntity other) {
         return (individual != null && other.spouseId == individual.id())
                 || (other.getIndividual() != null && spouseId == other.getIndividual().id());
+    }
+
+    /** 학교에 앉은 날 수 — 획득 능력치. 유전되지 않는다. */
+    public int getSchoolDays() {
+        return schoolDays;
+    }
+
+    /** 오늘 학교에 앉았다 — 하루 한 번만 셈한다. */
+    public void creditSchoolDay(long day) {
+        if (day != schoolCreditedDay) {
+            schoolCreditedDay = day;
+            schoolDays++;
+        }
+    }
+
+    /** 오늘 이미 앉았는가 — 보고의 "실제 착석" 집계. */
+    public boolean satInSchoolToday(long day) {
+        return day == schoolCreditedDay;
     }
 
     public boolean isBuilding() {
@@ -2758,7 +2792,7 @@ public class MimicEntity extends PathfinderMob {
         if (tpl.isEmpty()) {
             return larder;
         }
-        BlockPos site = facilitySite(sl, homePos, tpl.get());
+        BlockPos site = facilitySite(sl, studentCentre(sl, id, homePos), tpl.get());
         if (site == null) {
             SimEvents.event(founder, "학교", String.format(
                     "자리 없음 — 추종자%d · 저장고 %.0f (반경 %d 안에 %.0f칸 폭의 빈 땅이 없다)",
@@ -2778,7 +2812,29 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 시설 부지 — 세운 자의 집에서 바깥으로 고리를 넓히며 처음 걸리는 <b>깨끗한</b> 자리.
+     * <b>이용자의 무게중심</b> — 시설을 여기서부터 찾는다.
+     *
+     * <p>추종자들의 거처와 주인의 거처를 함께 평균한다. 주인을 넣는 이유는 학교가 주인의
+     * 영역 안에 있어야 하기 때문이고(급여·장부가 주인 곳간에서 나간다), 추종자를 넣는 이유는
+     * 학교가 주인의 과시물이 아니라 <b>이용자가 오는 곳</b>이기 때문이다.
+     *
+     * <p>종전에는 주인의 집만 봤다. 그래서 학교가 주인 옆에 서고 학생은 흩어진 채로 남았다 —
+     * 실측(D24): 통학거리 중앙 47 로 한계 48 에 걸치고, 통학초과로 못 간 소년이 8명이었다.
+     */
+    private static BlockPos studentCentre(ServerLevel sl, long ownerId, BlockPos ownerHome) {
+        long sx = ownerHome.getX();
+        long sz = ownerHome.getZ();
+        int n = 1;
+        for (BlockPos h : FarmTicker.followerHomesOf(ownerId)) {
+            sx += h.getX();
+            sz += h.getZ();
+            n++;
+        }
+        return new BlockPos((int) (sx / n), ownerHome.getY(), (int) (sz / n));
+    }
+
+    /**
+     * 시설 부지 — 이용자 무게중심에서 바깥으로 고리를 넓히며 처음 걸리는 <b>깨끗한</b> 자리.
      *
      * <p>깨끗함의 조건: 점유 열이 밭 몸통·등기된 거처의 여유·물에 닿지 않고, 지형 낙차가
      * 메움 한도 안일 것. 거처 신축의 {@code siteFault} 와 같은 종류의 검사지만 도면이
@@ -5670,6 +5726,8 @@ public class MimicEntity extends PathfinderMob {
         tag.putString("HomeDesign", homeDesign);
         tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
+        tag.putInt("SchoolDays", schoolDays);
+        tag.putLong("SchoolDay", schoolCreditedDay);
         if (!paveTodo.isEmpty()) {
             long[] pv = new long[paveTodo.size()];
             for (int i = 0; i < pv.length; i++) {
@@ -5745,6 +5803,8 @@ public class MimicEntity extends PathfinderMob {
         adoptDesign(tag.contains("HomeDesign") ? tag.getString("HomeDesign") : HomeStore.TENT,
                 homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
+        schoolDays = tag.getInt("SchoolDays");
+        schoolCreditedDay = tag.contains("SchoolDay") ? tag.getLong("SchoolDay") : Long.MIN_VALUE;
         paveTodo.clear();
         for (long l : tag.getLongArray("PaveTodo")) {
             paveTodo.add(BlockPos.of(l));

@@ -3528,6 +3528,12 @@ public final class EvoSimCommand {
         double[] ss = FarmTicker.schoolSums();
         java.util.List<Double> trip = new java.util.ArrayList<>();
         int boys = 0;
+        int sat = 0;
+        long today = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        int learnedSum = 0;
+        int learnedN = 0;
+        int idleN = 0;
+        int learnedMax = 0;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null
                         && e.getStage() == com.evosim.core.LifeStage.BOY)) {
@@ -3536,12 +3542,30 @@ public final class EvoSimCommand {
             if (sp != null && m.getHomePos() != null) {
                 trip.add(Math.sqrt(m.getHomePos().distSqr(sp)));
             }
+            if (m.satInSchoolToday(today)) {
+                sat++;
+            }
+            // 능력 격차 — 한 번이라도 앉아 본 소년과 아예 못 가 본 소년을 나눠 센다.
+            if (m.getSchoolDays() > 0) {
+                learnedSum += m.getSchoolDays();
+                learnedMax = Math.max(learnedMax, m.getSchoolDays());
+                learnedN++;
+            } else {
+                idleN++;
+            }
         }
         java.util.Collections.sort(trip);
         tell(ctx.getSource(), String.format(
-                "  학교 — 등교%.0f/소년%d(%.0f%%) · 수업료%.1f · 미납%.1f · 급여%.1f · 당일수지%+.1f",
-                ss[0], boys, boys == 0 ? 0.0 : 100.0 * ss[0] / boys,
+                "  학교 — 등록%.0f/소년%d(%.0f%%) · §b실제착석%d§r · 수업료%.1f · 미납%.1f"
+                        + " · 급여%.1f · 당일수지%+.1f",
+                ss[0], boys, boys == 0 ? 0.0 : 100.0 * ss[0] / boys, sat,
                 ss[2], ss[3], ss[4], ss[2] - ss[4]));
+        // 등록과 착석을 나눠 찍는 이유: 길이 막혀 못 간 아이도 수업료는 낸다. 두 수가 벌어지면
+        // 그 차이가 곧 통학 결함의 크기다.
+        tell(ctx.getSource(), String.format(
+                "  획득 — 등교경험%d명(평균%.1f일) · 무경험%d명 · 최다%d일",
+                learnedN, learnedN == 0 ? 0.0 : (double) learnedSum / learnedN, idleN,
+                learnedMax));
         int[] miss = FarmTicker.schoolMiss();
         if (ss[0] < boys) {
             // 등교가 대상에 못 미치면 <b>왜</b>인지 말한다. 앞의 두 수가 서로 다른 가설을

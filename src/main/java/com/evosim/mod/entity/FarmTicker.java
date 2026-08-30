@@ -245,8 +245,22 @@ public final class FarmTicker {
             // 추종 판정은 소유 타일에 비례한 임계를 쓰므로 원장에서 한 번에 구한다.
             java.util.Map<Long, Long> patrons = ledger.patronMap(id -> store.ownedTiles(id));
             FOLLOWERS.clear();
+            FOLLOWER_HOMES.clear();
             for (long p : patrons.values()) {
                 FOLLOWERS.merge(p, 1, Integer::sum);
+            }
+            for (var pe : patrons.entrySet()) {
+                MimicEntity f = null;
+                for (MimicEntity m : everyone) {
+                    if (m.getIndividual().id() == pe.getKey()) {
+                        f = m;
+                        break;
+                    }
+                }
+                if (f != null && f.getHomePos() != null) {
+                    FOLLOWER_HOMES.computeIfAbsent(pe.getValue(),
+                            k -> new java.util.ArrayList<>()).add(f.getHomePos());
+                }
             }
             // ── 연속 예속 일수(P3.5) — 천민 판정의 주 척도. 주인이 있고 제 땅이 없는 상태가
             //    오늘도 이어졌는가. 벗어나는 길은 이미 있다 — 땅을 갖거나 스스로 추종자를
@@ -959,6 +973,21 @@ public final class FarmTicker {
         return FOLLOWERS.getOrDefault(id, 0);
     }
 
+    /** 주인별 추종자 <b>거처</b> — 시설 부지를 이용자 쪽으로 당기는 입력(통학거리). */
+    private static final java.util.Map<Long, java.util.List<BlockPos>> FOLLOWER_HOMES =
+            new java.util.HashMap<>();
+
+    /**
+     * 이 주인을 따르는 자들의 거처 목록 — 시설을 <b>이용자가 모인 곳</b>에 세우기 위한 것.
+     *
+     * <p>종전에는 부지를 주인의 집 기준으로만 골랐다. 그러면 학교가 주인 옆에 서고 학생은
+     * 멀리 흩어진 채로 남는다 — 실측(D24): 통학거리 중앙 47 · 한계 48 에 걸치고, 통학초과로
+     * 못 간 소년이 8명이었다. 학교는 주인의 과시물이 아니라 <b>이용자가 오는 곳</b>이다.
+     */
+    public static java.util.List<BlockPos> followerHomesOf(long id) {
+        return FOLLOWER_HOMES.getOrDefault(id, java.util.List.of());
+    }
+
     // ── 당일 봉건 수지(P4) — 보고 전용. 매일 새벽에 지워지고 다시 채워진다. ──────────
     /** 개체가 오늘 <b>받은</b> 것 — 추종자 세금 + 아래에서 올라온 상납. */
     private static final java.util.Map<Long, Double> TAX_IN = new java.util.HashMap<>();
@@ -1103,8 +1132,16 @@ public final class FarmTicker {
     /** 학교별 등록 학생 — 하루 한 번 새로 짠다. 등하교 goal 과 보고가 이것을 읽는다. */
     private static final java.util.Map<Long, java.util.List<Integer>> ENROLLED =
             new java.util.HashMap<>();
-    /** 학생 개체 id → 다닐 학교 좌표. 등하교 goal 의 목적지. */
+    /** 학생 개체 id → 다닐 학교 좌표. 통학거리 보고의 입력. */
     private static final java.util.Map<Integer, BlockPos> SCHOOL_OF = new java.util.HashMap<>();
+    /**
+     * 학생 개체 id → <b>제 자리</b>(월드 좌표). 등하교 goal 의 목적지.
+     *
+     * <p>학교 앵커 하나로 보내면 스무 명이 한 칸에 뭉쳐 밀치기만 한다. 도면의 독서대 앞
+     * 자리({@link FacilityTemplate#seats})를 한 명씩 나눠 주면 저절로 흩어져 앉는다 —
+     * 자리 수가 곧 정원이므로 배정과 수용이 <b>같은 수</b>에서 나온다.
+     */
+    private static final java.util.Map<Integer, BlockPos> SEAT_OF = new java.util.HashMap<>();
     /** [등교, 대상 소년, 수업료 수입, 미납, 급여] — 한 줄 보고용. */
     private static final double[] SCHOOL_SUM = new double[5];
 
@@ -1122,10 +1159,16 @@ public final class FarmTicker {
         return SCHOOL_MISS.clone();
     }
 
-    /** 이 소년이 오늘 다닐 학교 — 없으면 null. 등하교 goal 의 단일 출처. */
+    /** 이 소년이 오늘 다닐 학교 — 없으면 null. 통학거리 보고의 단일 출처. */
     @javax.annotation.Nullable
     public static BlockPos schoolOf(MimicEntity boy) {
         return SCHOOL_OF.get(boy.getId());
+    }
+
+    /** 이 소년의 오늘 자리 — 없으면 null. 등하교 goal 의 단일 출처. */
+    @javax.annotation.Nullable
+    public static BlockPos seatOf(MimicEntity boy) {
+        return SEAT_OF.get(boy.getId());
     }
 
     public static double[] schoolSums() {
@@ -1155,6 +1198,7 @@ public final class FarmTicker {
                                    java.util.Map<Long, Long> patrons, long day) {
         ENROLLED.clear();
         SCHOOL_OF.clear();
+        SEAT_OF.clear();
         java.util.Arrays.fill(SCHOOL_SUM, 0.0);
         java.util.Arrays.fill(SCHOOL_MISS, 0);
         FacilityStore reg = FacilityStore.get(level);
@@ -1280,8 +1324,9 @@ public final class FarmTicker {
                 }
                 // 신세 — 교육의 값과 수업료의 차액. 이것이 사슬을 붙잡는 못이다.
                 ledger.record(debtor, sc.ownerId, Facilities.W_SCHOOLING, 0.0, day);
-                roll.add(b.getId());
                 SCHOOL_OF.put(b.getId(), sc.pos);
+                SEAT_OF.put(b.getId(), sc.pos.offset(tpl.get().seats().get(roll.size())));
+                roll.add(b.getId()); // 자리 색인은 <b>넣기 전</b>의 크기다(0..seats-1)
                 SCHOOL_SUM[0]++;
             }
             ENROLLED.put(sc.pos.asLong(), roll);

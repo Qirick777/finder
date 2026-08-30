@@ -2880,6 +2880,29 @@ public class MimicEntity extends PathfinderMob {
      */
     private static final int[] SITE_REJECT = new int[4];
 
+    /**
+     * <b>부지 탐색 시험대</b> — 지정 좌표에서 학교 자리를 찾아 보고, 무엇이 막았는지 돌려준다.
+     *
+     * <p>이 문제에서 회피 여유·원 근사·이웃 반경·이용자 중심을 차례로 고쳤는데, 매번 25분짜리
+     * 런을 돌려 학교가 설 때까지 기다려야 결과를 봤다. 한 번의 시도가 25분이면 추측으로
+     * 다음 후보를 고르게 된다 — 실제로 그랬다. 이 명령은 저장된 월드에서 <b>즉시</b> 같은
+     * 판정을 돌려, 고치고 재는 주기를 초 단위로 줄인다. 시험 전용이며 아무것도 바꾸지 않는다.
+     */
+    public static String probeFacilitySite(ServerLevel sl, BlockPos from) {
+        var tpl = FacilityTemplate.of(sl, FacilityTemplate.Kind.SCHOOL, (byte) 0, false);
+        if (tpl.isEmpty()) {
+            return "도면을 읽을 수 없다";
+        }
+        BlockPos site = facilitySite(sl, from, tpl.get());
+        String where = site == null ? "자리 없음"
+                : String.format("@%d,%d (%.0f블록)", site.getX(), site.getZ(),
+                        Math.sqrt(from.distSqr(new BlockPos(site.getX(), from.getY(),
+                                site.getZ()))));
+        return String.format("중심 @%d,%d → %s · 거부 집%d 밭%d 물%d 낙차%d · 반폭 x%.1f z%.1f",
+                from.getX(), from.getZ(), where, SITE_REJECT[0], SITE_REJECT[1],
+                SITE_REJECT[2], SITE_REJECT[3], tpl.get().halfX(), tpl.get().halfZ());
+    }
+
     @Nullable
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl) {
         java.util.Arrays.fill(SITE_REJECT, 0);

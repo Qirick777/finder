@@ -108,6 +108,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
                 .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
                 .then(Commands.literal("facilities").executes(EvoSimCommand::facilities))
+                .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -3448,6 +3449,33 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  세력 상위 — " + sb.toString().trim());
         }
         return edges;
+    }
+
+    /**
+     * <b>부지 탐색 시험</b> — 마을 무게중심에서 학교 자리를 찾아 보고 거부 사유를 찍는다.
+     *
+     * <p>저장된 월드에서 <b>즉시</b> 돌릴 수 있어, 고치고 재는 주기가 초 단위가 된다.
+     * 이 문제에서 25분짜리 런을 여섯 번 돌리며 매번 추측으로 다음 후보를 골랐다.
+     */
+    private static int siteTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        HomeStore homes = HomeStore.get(level);
+        if (homes.positions().isEmpty()) {
+            tell(ctx.getSource(), "집이 없다 — 시험할 중심이 없다");
+            return 0;
+        }
+        long sx = 0;
+        long sz = 0;
+        for (BlockPos h : homes.positions()) {
+            sx += h.getX();
+            sz += h.getZ();
+        }
+        int n = homes.positions().size();
+        BlockPos centre = new BlockPos((int) (sx / n), homes.positions().get(0).getY(),
+                (int) (sz / n));
+        tell(ctx.getSource(), "§e[부지시험]§r 집" + n + "채 · "
+                + MimicEntity.probeFacilitySite(level, centre));
+        return 1;
     }
 
     /**

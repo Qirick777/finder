@@ -5742,7 +5742,15 @@ public class MimicEntity extends PathfinderMob {
     private void growthTick() {
         LifeStage stage = getStage();
         growthTicks++;
-        // 단계별 임계(2배속 압축판): 유아 0.75일·소년 1.25일 · 청년 11일 · 노년 3일±특성.
+        // 단계별 임계(2배속 압축판): 유아 0.75일 · 소년 3일 · 청년 11일 · 노년 3일±특성.
+        //
+        // 소년기 1.25일 → 3일. 학교가 붙으면서 그 길이가 기능을 굶겼다 — 소년으로 사는 날이
+        // 하루 남짓이면 등교할 수 있는 날도 하루뿐이라, 획득 능력치가 쌓일 수 없고 "등교/비등교
+        // 능력 격차"(계획서 P5 검증표)를 잴 수도 없다. 실측에서 등교경험 2명이 다음 날 0명이
+        // 된 것도 그 아이들이 성년이 되어 소년 집단에서 빠진 것이었다.
+        //
+        // 인구에 영향을 준다: 유년기가 길어지면 먹기만 하는 기간이 늘고 성년 충원이 늦어진다.
+        // 인구 곡선을 함께 봐야 한다.
         // 성장 시계는 밤 스킵 delta를 가산(addGrowthTicks — SimTime 정합, P2)해 설계 일수가
         // 시뮬 일수와 일치한다(종전엔 실틱 기준이라 실효 ~1.7배 지연 — 런6 실측 노년 d15).
         int threshold;
@@ -5750,7 +5758,7 @@ public class MimicEntity extends PathfinderMob {
             case INFANT -> threshold = fastGrowth ? 40
                     : (int) (18000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case BOY -> threshold = fastGrowth ? 40
-                    : (int) (30000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+                    : (int) (72000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case ADULT -> threshold = fastGrowth ? 40 : Elder.ADULT_DAYS * 24000;
             case ELDER -> threshold = fastGrowth ? 40
                     : (individual != null ? Elder.elderDays(individual) : Elder.ELDER_BASE_DAYS) * 24000;

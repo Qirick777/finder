@@ -283,6 +283,7 @@ public final class FarmTicker {
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
             runSchools(level, ledger, larders, adults, everyone, patrons, day);
+            runChurches(level, ledger, larders, everyone, patrons, day);
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
         java.util.Map<Integer, Integer> grownToday = new java.util.HashMap<>();
@@ -1432,6 +1433,109 @@ public final class FarmTicker {
                     larders.set(teacher.getHomePos(), larders.get(teacher.getHomePos()) + wage);
                     reg.spend(sc, wage);
                     SCHOOL_SUM[4] += wage;
+                }
+            }
+        }
+    }
+
+    /** [방문, 헌금 수입, 미납, 성직자 급여] — 한 줄 보고용. */
+    private static final double[] CHURCH_SUM = new double[4];
+
+    public static double[] churchSums() {
+        return CHURCH_SUM.clone();
+    }
+
+    /**
+     * <b>교회 운영</b>(P6) — 헌금 · 신세 · 성직자 급여.
+     *
+     * <p>어제(또는 그 뒤) 다녀온 방문을 여기서 한 번에 정산한다. 방문 goal 은 "왔다" 는 사실만
+     * 적는다 — 저장고를 goal 과 정산 두 곳에서 만지면 같은 곳간을 동시에 고치게 된다.
+     *
+     * <p><b>이것이 상납 사슬을 붙잡는 못이다.</b> 원장에 간선을 만드는 셋(소작·구휼·긴급고용)은
+     * 전부 가난한 쪽이 받는 것이라 지주가 지주에게 신세 질 길이 없었고, 그래서 사슬이 이번
+     * 세션 내내 깊이 1 에 머물렀다. 교회는 추종에 매이지 않아 <b>지주도 방문한다</b>.
+     */
+    private static void runChurches(ServerLevel level, AllegianceStore ledger,
+                                    LarderStore larders,
+                                    java.util.List<MimicEntity> everyone,
+                                    java.util.Map<Long, Long> patrons, long day) {
+        java.util.Arrays.fill(CHURCH_SUM, 0.0);
+        FacilityStore reg = FacilityStore.get(level);
+        java.util.Map<Long, FacilityStore.Entry> byPos = new java.util.HashMap<>();
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.CHURCH) {
+                byPos.put(e.pos.asLong(), e);
+            }
+        }
+        if (byPos.isEmpty()) {
+            return;
+        }
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : everyone) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        java.util.Set<Long> paidClergy = new java.util.HashSet<>();
+        for (MimicEntity m : everyone) {
+            BlockPos cp = m.pendingChurch();
+            if (cp == null || m.getHomePos() == null) {
+                continue;
+            }
+            FacilityStore.Entry ch = byPos.get(cp.asLong());
+            m.clearPendingChurch(); // 같은 방문을 두 번 물리지 않는다
+            if (ch == null || ch.ownerId == m.getIndividual().id()) {
+                continue; // 헐린 교회이거나 제 교회 — 자기에게 신세 질 수는 없다
+            }
+            MimicEntity owner = byId.get(ch.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                continue;
+            }
+            CHURCH_SUM[0]++;
+            double have = larders.get(m.getHomePos());
+            double pay = Math.min(Facilities.TITHE_PER_VISIT, Math.max(0.0, have));
+            double unpaid = Facilities.TITHE_PER_VISIT - pay;
+            if (pay > 0.0) {
+                larders.set(m.getHomePos(), have - pay);
+                larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + pay);
+                reg.earn(ch, pay);
+                CHURCH_SUM[1] += pay;
+            }
+            if (unpaid > 0.0) {
+                CHURCH_SUM[2] += unpaid;
+            }
+            // 헌금과 신세를 <b>둘 다</b> 매기는 것은 이중 부과가 아니다 — 소액 헌금이 위안의
+            // 값을 다 치르지 못하고 그 차액이 은혜로 남는 것이 후원의 실체다(학교와 같은 구조).
+            ledger.record(m.getIndividual().id(), ch.ownerId, Facilities.W_CHURCH, unpaid, day);
+            // ── 성직자 급여 — 방문이 있어야 예배가 있고, 예배가 있어야 급여다(학교와 같다).
+            if (paidClergy.add(ch.pos.asLong())) {
+                MimicEntity clergy = byId.get(ch.staffId);
+                if (clergy == null
+                        || !Long.valueOf(ch.ownerId).equals(patrons.get(ch.staffId))
+                        || FarmStore.get(level).ownedTiles(ch.staffId) > 0) {
+                    clergy = null;
+                    for (MimicEntity a : everyone) {
+                        long aid = a.getIndividual().id();
+                        if (aid != ch.ownerId && a.getStage() == com.evosim.core.LifeStage.ADULT
+                                && Long.valueOf(ch.ownerId).equals(patrons.get(aid))
+                                && FarmStore.get(level).ownedTiles(aid) == 0
+                                && a.getHomePos() != null
+                                && !a.getHomePos().equals(owner.getHomePos())) {
+                            clergy = a;
+                            break;
+                        }
+                    }
+                    ch.staffId = clergy == null ? 0L : clergy.getIndividual().id();
+                    reg.setDirty();
+                }
+                if (clergy != null && clergy.getHomePos() != null) {
+                    double purse = larders.get(owner.getHomePos());
+                    double wage = Math.min(Facilities.CLERGY_WAGE_PER_DAY, purse);
+                    if (wage > 0.0) {
+                        larders.set(owner.getHomePos(), purse - wage);
+                        larders.set(clergy.getHomePos(),
+                                larders.get(clergy.getHomePos()) + wage);
+                        reg.spend(ch, wage);
+                        CHURCH_SUM[3] += wage;
+                    }
                 }
             }
         }

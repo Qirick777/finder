@@ -3671,6 +3671,27 @@ public final class EvoSimCommand {
             }
         }
         tell(ctx.getSource(), "  §b능력 격차§r(유아 제외 전원 · 각자 무학 대비) — " + edu);
+        // ── 교회 운영(P6) — 방문 분포가 몰리지 않는지, 수지가 흑자인지.
+        double[] cs = FarmTicker.churchSums();
+        int visited = 0;
+        int everVisited = 0;
+        int visitMax = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            if (m.visitedChurchToday(today)) {
+                visited++;
+            }
+            if (m.getChurchVisits() > 0) {
+                everVisited++;
+                visitMax = Math.max(visitMax, m.getChurchVisits());
+            }
+        }
+        if (reg.countOf(FacilityTemplate.Group.CHURCH) > 0) {
+            tell(ctx.getSource(), String.format(
+                    "  교회 — 정산방문%.0f · 오늘방문%d명 · 헌금%.2f · 미납%.2f · 급여%.2f"
+                            + " · 당일수지%+.2f · 누적방문자%d명(최다%d회)",
+                    cs[0], visited, cs[1], cs[2], cs[3], cs[1] - cs[3], everVisited, visitMax));
+        }
         tell(ctx.getSource(), String.format(
                 "  성년 이상 학력자 %d/%d명(%.0f%%) — 교육이 값을 하는 구간",
                 grownLearned, grownTotal, grownTotal == 0 ? 0.0 : 100.0 * grownLearned / grownTotal));

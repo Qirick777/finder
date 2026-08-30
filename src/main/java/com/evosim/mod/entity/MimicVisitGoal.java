@@ -39,6 +39,8 @@ public class MimicVisitGoal extends Goal {
 
     private final MimicEntity mob;
     private BlockPos dest;
+    private boolean atChurch;          // 이번 목적지가 교회인가 — 도착 처리가 갈린다
+    private BlockPos churchPos;        // 그 교회의 등기 좌표(자리가 아니라 앵커)
     private int chatLeft;
     private boolean began;
 
@@ -137,7 +139,12 @@ public class MimicVisitGoal extends Goal {
         chatLeft = CHAT_TICKS;
         if (dest != null) {
             // 좌석 선점(선착) + 리시 협조 앵커 — 활동반경 밖 이웃도 리시가 끌고 간다.
-            SEATS.merge(dest.asLong(), 1, Integer::sum);
+            //
+            // <b>교회는 앵커로 센다.</b> 마실은 목적지(모닥불)가 곧 정원의 단위지만, 교회는
+            // 목적지가 <b>건물 안의 한 자리</b>라 자리 좌표로 세면 한 자리에 한 명씩 세는 꼴이
+            // 되어 건물 상한({@link Facilities#CHURCH_CAP})이 영영 차지 않는다 —
+            // {@code pickChurch} 가 앵커로 확인하므로 세는 쪽도 앵커여야 한다.
+            SEATS.merge(atChurch ? churchPos.asLong() : dest.asLong(), 1, Integer::sum);
             mob.setVisitAnchor(dest);
         }
     }
@@ -154,10 +161,27 @@ public class MimicVisitGoal extends Goal {
             }
             return;
         }
+        long today = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
+        if (atChurch) {
+            // 교회 도착 — <b>왔다는 사실만</b> 적는다. 헌금·신세·급여는 새벽 정산이 한 번에
+            // 처리한다(저장고를 여러 곳에서 만지지 않게). 대화 상대를 찾지 않는 이유는
+            // 교회가 만남의 자리가 아니라 <b>주인에게 신세를 지는 자리</b>이기 때문이다.
+            if (!began) {
+                began = true;
+                mob.setLastVisitDay(today);
+                mob.noteChurchVisit(churchPos, today);
+                com.evosim.mod.log.SimEvents.event(mob, "교회", String.format(
+                        "방문 @%d,%d (집에서 %.0f블록)", churchPos.getX(), churchPos.getZ(),
+                        Math.sqrt(mob.getHomePos().distSqr(churchPos))));
+            }
+            chatLeft--;
+            mob.getLookControl().setLookAt(dest.getX() + 0.5, dest.getY() + 1.0, dest.getZ() + 0.5);
+            return;
+        }
         MimicEntity partner = nearestAdultAt(dest);
         if (!began) {
             began = true;
-            mob.setLastVisitDay(com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L); // 도착 = 방문 성립
+            mob.setLastVisitDay(today); // 도착 = 방문 성립
             if (mob.level() instanceof ServerLevel sl) {
                 Encounter.begin(sl, mob, partner, EncounterContext.Place.HEARTH,
                         EncounterContext.Occasion.VISIT, CHAT_TICKS);
@@ -180,6 +204,8 @@ public class MimicVisitGoal extends Goal {
     public void stop() {
         dest = null;
         began = false;
+        atChurch = false;
+        churchPos = null;
         mob.setVisitAnchor(null);
     }
 
@@ -189,6 +215,21 @@ public class MimicVisitGoal extends Goal {
         if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return null;
         }
+        // <b>교회를 먼저 본다</b>(P6) — 있으면 그날은 교회로 간다.
+        //
+        // 계획서 1.5 의 교회는 "확률적 방문" 이고, 이 goal 자체가 이미 확률적이다: 개체마다
+        // 쿨다운 2일, 자리 상한, (id+날) 결정론 선택. 그래서 <b>따로 확률을 두지 않는다</b> —
+        // 새 난수를 얹으면 몰림을 막는 장치가 둘이 되어 어느 쪽이 듣는지 못 가린다.
+        //
+        // 교회를 우선하는 이유: 마실 후보(이웃 집)는 수십 채라, 교회를 같은 통에 섞으면
+        // 뽑힐 확률이 수십 분의 일이 되어 P6 를 관측할 만큼 방문이 쌓이지 않는다. 자리 상한이
+        // 몰림을 막으므로 우선해도 한 곳에 몰리지 않는다.
+        BlockPos church = pickChurch(sl, day);
+        if (church != null) {
+            atChurch = true;
+            return church;
+        }
+        atChurch = false;
         for (long h : MimicEntity.occupiedHomes(sl)) {
             BlockPos p = BlockPos.of(h);
             if (p.equals(mob.getHomePos())) {
@@ -213,6 +254,46 @@ public class MimicVisitGoal extends Goal {
             }
         }
         return null; // 전부 만석 — 오늘은 마실 없음
+    }
+
+    /**
+     * 갈 만한 교회의 <b>빈 자리</b> — 없으면 null.
+     *
+     * <p>목적지를 교회 앵커가 아니라 <b>자리</b>로 잡는다. 앵커 하나로 보내면 방문자가 한 칸에
+     * 뭉쳐 밀치기만 한다 — 학생 자리를 한 명씩 나눠 준 것과 같은 이유이고, 그때 실측으로
+     * 확인한 문제다. 자리 수가 아니라 크기별 상한({@link Facilities#CHURCH_CAP} ·
+     * {@link Facilities#SMALL_CHURCH_CAP})이 하루 정원이다.
+     */
+    private BlockPos pickChurch(net.minecraft.server.level.ServerLevel sl, long day) {
+        List<FacilityStore.Entry> open = new ArrayList<>();
+        for (FacilityStore.Entry e : FacilityStore.get(sl).all()) {
+            if (e.kind.group != FacilityTemplate.Group.CHURCH) {
+                continue;
+            }
+            if (e.pos.distSqr(mob.getHomePos())
+                    > Facilities.CHURCH_REACH * Facilities.CHURCH_REACH) {
+                continue;
+            }
+            int cap = e.kind == FacilityTemplate.Kind.CHURCH
+                    ? Facilities.CHURCH_CAP : Facilities.SMALL_CHURCH_CAP;
+            if (SEATS.getOrDefault(e.pos.asLong(), 0) < cap) {
+                open.add(e);
+            }
+        }
+        if (open.isEmpty()) {
+            return null;
+        }
+        open.sort((a, b) -> Long.compare(a.pos.asLong(), b.pos.asLong())); // 결정론 순서
+        FacilityStore.Entry pick = open.get(
+                (int) Math.floorMod(mob.getIndividual().id() + day, open.size()));
+        var tpl = FacilityTemplate.of(sl, pick.kind, pick.rotation, pick.mirrored);
+        if (tpl.isEmpty() || tpl.get().seats().isEmpty()) {
+            return null; // 자리 없는 도면 — 갈 곳이 없다(착공 사건의 "자리N" 이 이것을 보여준다)
+        }
+        List<BlockPos> seats = tpl.get().seats();
+        int taken = SEATS.getOrDefault(pick.pos.asLong(), 0);
+        churchPos = pick.pos;
+        return pick.pos.offset(seats.get(taken % seats.size()));
     }
 
     /** 모닥불(거처) 5블록 내 다른 성년 — 집주인 또는 동석 방문자. */

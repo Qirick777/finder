@@ -959,6 +959,51 @@ public class MimicEntity extends PathfinderMob {
         return day == schoolCreditedDay;
     }
 
+    // ── 교회 방문(P6) ──────────────────────────────────────────────────────
+    /**
+     * 아직 정산되지 않은 방문 — 교회 좌표(없으면 null)와 그 날.
+     *
+     * <p><b>돈은 여기서 만지지 않는다.</b> 방문 goal 은 "왔다" 는 사실만 적고, 헌금·신세·급여는
+     * 새벽 정산({@code FarmTicker.runChurches})이 한 번에 처리한다. 학교가 그렇게 하고 있고
+     * (goal 은 걷기만, 장부는 정산에서), 저장고를 여러 곳에서 만지면 같은 곳간을 두 코드가
+     * 동시에 고치는 경쟁이 생긴다.
+     */
+    private BlockPos pendingChurch = null;
+    private long pendingChurchDay = Long.MIN_VALUE;
+    /** 다녀온 교회 방문 누계 — 구애 우위의 입력(획득값, 유전되지 않는다). */
+    private int churchVisits = 0;
+
+    public void noteChurchVisit(BlockPos church, long day) {
+        if (day == pendingChurchDay) {
+            return; // 하루 한 번만
+        }
+        pendingChurchDay = day;
+        pendingChurch = church;
+        churchVisits++;
+    }
+
+    @javax.annotation.Nullable
+    public BlockPos pendingChurch() {
+        return pendingChurch;
+    }
+
+    public long pendingChurchDay() {
+        return pendingChurchDay;
+    }
+
+    /** 정산이 끝났다 — 같은 방문을 두 번 물리지 않게 지운다. */
+    public void clearPendingChurch() {
+        pendingChurch = null;
+    }
+
+    public int getChurchVisits() {
+        return churchVisits;
+    }
+
+    public boolean visitedChurchToday(long day) {
+        return day == pendingChurchDay;
+    }
+
     public boolean isBuilding() {
         return building || !paveTodo.isEmpty() || lampSite != null;
     }
@@ -5992,6 +6037,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
         tag.putInt("SchoolDays", schoolDays);
+        tag.putInt("ChurchVisits", churchVisits); // 획득값 — 구애 우위의 입력이라 살아남아야 한다
         tag.putLong("SchoolDay", schoolCreditedDay);
         if (!paveTodo.isEmpty()) {
             long[] pv = new long[paveTodo.size()];
@@ -6069,6 +6115,7 @@ public class MimicEntity extends PathfinderMob {
                 homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
         schoolDays = tag.getInt("SchoolDays");
+        churchVisits = tag.getInt("ChurchVisits");
         schoolCreditedDay = tag.contains("SchoolDay") ? tag.getLong("SchoolDay") : Long.MIN_VALUE;
         paveTodo.clear();
         for (long l : tag.getLongArray("PaveTodo")) {

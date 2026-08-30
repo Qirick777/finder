@@ -3612,8 +3612,17 @@ public final class EvoSimCommand {
                         && e.getStage() != com.evosim.core.LifeStage.INFANT)) {
             int lv = com.evosim.core.Schooling.level(m.getSchoolDays());
             eduN[lv]++;
-            eduYield[lv] += com.evosim.core.FoodEconomy.forageYieldMult(m.getIndividual(),
+            // <b>자기 자신을 대조군으로</b> — 같은 개체가 무학이었을 때 대비 몇 배인가.
+            //
+            // 집단 평균을 그냥 견주면 안 된다. 채집 배율에는 성별 배수(남 1.5 · 여 0.5)와
+            // 유전 특성이 통째로 섞여 있어, 학력자 표본이 작으면 그 사람의 성별·특성이
+            // 교육 효과를 완전히 덮는다 — 첫 측정에서 실제로 "무학 1.457 vs 초급 0.950" 이
+            // 나왔고, 이는 교육이 해로운 것이 아니라 <b>지표가 교란된 것</b>이었다.
+            // 같은 개체의 전후 비를 쓰면 성별·특성이 분자·분모에서 약분된다.
+            double withEdu = com.evosim.core.FoodEconomy.forageYieldMult(m.getIndividual(),
                     m.getSchoolDays());
+            double without = com.evosim.core.FoodEconomy.forageYieldMult(m.getIndividual(), 0);
+            eduYield[lv] += without <= 0.0 ? 1.0 : withEdu / without;
             if (m.getStage() != com.evosim.core.LifeStage.BOY) {
                 grownTotal++;
                 if (lv > 0) {
@@ -3656,10 +3665,10 @@ public final class EvoSimCommand {
             edu.append(lv == 0 ? "" : " · ").append(com.evosim.core.Schooling.name(lv))
                     .append(eduN[lv]).append("명");
             if (eduN[lv] > 0) {
-                edu.append(String.format("(채집%.3f)", eduYield[lv] / eduN[lv]));
+                edu.append(String.format("(채집%+.1f%%)", 100.0 * (eduYield[lv] / eduN[lv] - 1.0)));
             }
         }
-        tell(ctx.getSource(), "  §b능력 격차§r(유아 제외 전원) — " + edu);
+        tell(ctx.getSource(), "  §b능력 격차§r(유아 제외 전원 · 각자 무학 대비) — " + edu);
         tell(ctx.getSource(), String.format(
                 "  성년 이상 학력자 %d/%d명(%.0f%%) — 교육이 값을 하는 구간",
                 grownLearned, grownTotal, grownTotal == 0 ? 0.0 : 100.0 * grownLearned / grownTotal));

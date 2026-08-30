@@ -44,6 +44,14 @@ minecraft {
         }
         client {
             property 'forge.enabledGameTestNamespaces', mod_id
+            // 스크린샷 촬영용 자동 접속 — -PquickJoin=<주소:포트> 를 줄 때만 붙는다.
+            // 평소 개발 실행에는 아무 영향이 없다.
+            if (project.hasProperty('quickJoin')) {
+                args '--quickPlayMultiplayer', project.property('quickJoin')
+            }
+            if (project.hasProperty('winW')) {
+                args '--width', project.property('winW'), '--height', project.property('winH')
+            }
         }
         server {
             property 'forge.enabledGameTestNamespaces', mod_id

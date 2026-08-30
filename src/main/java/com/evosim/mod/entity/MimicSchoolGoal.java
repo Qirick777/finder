@@ -60,7 +60,16 @@ public class MimicSchoolGoal extends Goal {
             return false; // 오늘은 이미 못 갔다 — 놀이 goal 에 넘긴다
         }
         seat = FarmTicker.seatOf(mob);
-        return seat != null;
+        if (seat == null) {
+            return idle();
+        }
+        return true;
+    }
+
+    /** 등교 자연 종료 — 출근 앵커 해제 후 비활성(리시 앵커가 거처로 복원). 밭일의 idle 과 같다. */
+    private boolean idle() {
+        mob.setWorkAnchor(null);
+        return false;
     }
 
     @Override
@@ -99,8 +108,15 @@ public class MimicSchoolGoal extends Goal {
 
     @Override
     public void stop() {
+        // <b>여기서 workAnchor 를 지우면 안 된다.</b> 리시(2)가 등교를 인수하는 순간 이 goal 이
+        // 선점 정지되며 stop 이 불리는데, 그때 앵커를 지우면 앵커가 거처로 돌아가 리시가 아이를
+        // 집으로 되끌고, 그러면 다시 이 goal 이 서고… 자기파괴 루프가 된다. 밭일 goal 의 stop 에
+        // 같은 경고가 붙어 있는데(실측: act=복귀 진동) 내가 그대로 밟았다 — 리시를 호위자로
+        // 바꾸려던 수정이, 호위가 시작되는 바로 그 순간 앵커를 걷어차고 있었다.
+        //
+        // 해제는 자연 종료 지점({@link #idle} — 등록이 풀린 날)·포기·노동시간 종료
+        // ({@link MimicEntity#roamAnchor} 의 WORK 게이트)가 맡는다.
         seat = null;
-        mob.setWorkAnchor(null); // 리시 앵커 원복(거처)
         mob.getNavigation().stop();
     }
 
@@ -132,6 +148,9 @@ public class MimicSchoolGoal extends Goal {
             stuckTicks = 0;
             return;
         }
+        // 앵커를 <b>매 틱 다시 세운다</b>(밭일과 같다) — 다른 goal 이 중간에 지우고 가더라도
+        // 등교가 도는 동안에는 리시가 학교 쪽을 보게 유지된다.
+        mob.setWorkAnchor(seat);
         if (mob.getNavigation().isDone()) {
             mob.getNavigation().moveTo(seat.getX() + 0.5, seat.getY(), seat.getZ() + 0.5, 1.0);
         }

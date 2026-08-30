@@ -220,6 +220,20 @@ public final class RoadPlanner {
             // 가로등 기둥 — 울타리라 통행을 막는다. 등은 길 바깥에 서지만, 나중에 나는 길이
             // 그 칸을 지나면 새 길 한복판에 기둥이 박힌다. 길이 알아서 비껴가게 둔다.
             ob.hard.addAll(LampPlanner.postColumns(sl));
+            // 가로수 밑동과 분수 몸통 — 가로등 기둥과 같은 이유로 막는다. 등기해 두지 않으면
+            // 나중에 나는 길이 나무를 관통하거나 분수 한복판을 지난다. 나뭇잎은 머리 위라
+            // 통행을 막지 않으므로 <b>밑동 한 칸</b>만 넣는다(기둥과 같은 취급).
+            StreetStore street = StreetStore.get(sl);
+            for (BlockPos t : street.all(false)) {
+                ob.hard.add(RoadStore.key(t.getX(), t.getZ()));
+            }
+            for (BlockPos f : street.all(true)) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    for (int dz = -2; dz <= 2; dz++) {
+                        ob.hard.add(RoadStore.key(f.getX() + dx, f.getZ() + dz));
+                    }
+                }
+            }
             // 밭 몸통과 그 둘레(NEAR_R)를 부드러운 회피로 표시한다.
             //
             // 몸통 칸은 <b>넣지 않는다</b> — 바로 위에서 hard 에 들어갔고 아래 removeAll 로

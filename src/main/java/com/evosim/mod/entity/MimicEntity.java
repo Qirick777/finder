@@ -3317,6 +3317,46 @@ public class MimicEntity extends PathfinderMob {
         return larder - LampPlanner.COST;
     }
 
+    /**
+     * <b>가로수·분수</b> — 길가의 꾸밈. 가로등과 같은 자격(밭을 가진 가구)·같은 방식이다.
+     *
+     * <p>가로등과 달리 <b>즉시 완성</b>한다. 가로등은 기둥을 한 칸씩 쌓는 시공 과정을 눈에
+     * 보이게 두었지만, 나무는 바닐라 피처가 한 번에 자라고 분수는 5×5×4 로 작아 단계를 나눌
+     * 이유가 없다. 대신 등기를 먼저 해서 같은 날 다른 지주가 같은 자리를 집는 것을 막는다.
+     *
+     * <p>분수를 먼저 본다 — 값이 훨씬 비싸(45 대 2) 문턱을 못 넘으면 어차피 나무로 내려온다.
+     * 순서를 반대로 두면 나무를 세우느라 곳간이 깎여 분수가 영영 안 선다.
+     */
+    private double considerStreet(ServerLevel sl, double larder, double adultNeed) {
+        if (individual == null || FarmStore.get(sl).ownedTiles(individual.id()) <= 0) {
+            return larder; // 밭을 가진 가구만 — 가로등과 같은 자격
+        }
+        double reserve = HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        for (boolean fountain : new boolean[] {true, false}) {
+            double cost = fountain ? StreetPlanner.FOUNTAIN_COST : StreetPlanner.TREE_COST;
+            if (larder < cost + reserve) {
+                continue;
+            }
+            BlockPos site = StreetPlanner.pickSite(sl, fountain);
+            if (site == null) {
+                continue; // 자리가 없으면 조용히 넘어간다 — 나무는 매일 후보를 훑으므로
+            }
+            StreetStore.get(sl).add(site, fountain);
+            RoadPlanner.Obstacles.invalidate(); // 몸통이 길의 장애물로 즉시 잡히게
+            boolean built = fountain
+                    ? StreetPlanner.raiseFountain(sl, site)
+                    : StreetPlanner.raiseTree(sl, site);
+            if (!built) {
+                continue;
+            }
+            SimEvents.event(this, fountain ? "분수" : "가로수", String.format(
+                    "착공 @%d,%d (값 %.0f, 저장고 %.0f→%.0f)",
+                    site.getX(), site.getZ(), cost, larder, larder - cost));
+            return larder - cost; // 하루 하나 — 마을이 하룻밤에 숲이 되지 않게
+        }
+        return larder;
+    }
+
     /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */
     @Nullable
     private HomeBlueprint.Placement stickyOrNearest(ServerLevel sl, List<HomeBlueprint.Placement> plan,
@@ -4269,6 +4309,9 @@ public class MimicEntity extends PathfinderMob {
             larder = payUpkeep(sl, larder, newHomeDay);
             larder = considerLamp(sl, fam, larder, adultNeed, newHomeDay);
             larder = considerFacility(sl, fam, larder, adultNeed, newHomeDay);
+            if (newHomeDay && !fastSettle && homePos != null) {
+                larder = considerStreet(sl, larder, adultNeed); // 꾸밈은 마지막 — 필수가 아니다
+            }
             store.set(homePos, larder);
             // 가계 시계열(≈1분/가구): 저장고·구성·소지합·하루소모·이번 입출금 — 밸런싱 근거의 근간.
             SimEvents.household(sl, homePos, larder, adults, boys, infants, elders, holdSum, need,

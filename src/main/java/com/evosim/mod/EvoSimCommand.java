@@ -2963,6 +2963,43 @@ public final class EvoSimCommand {
                 "  %s침범 — 길위%d 집지면%d 문앞계단%d 정원%d 밭몸통%d 간격위반%d§r · 길가(2칸)%d/%d",
                 clean ? "§a" : "§c", vRoad, vHome, vStep, vGarden, vFarm, tooClose,
                 nearRoad, all.size()));
+        // ── 가로수·분수 — 간격이 지켜지는지와 길 위에 서지 않았는지.
+        var street = com.evosim.mod.entity.StreetStore.get(level);
+        for (boolean fnt : new boolean[] {false, true}) {
+            var items = street.all(fnt);
+            if (items.isEmpty()) {
+                continue;
+            }
+            double mn = Double.MAX_VALUE;
+            double sum = 0.0;
+            int pairs = 0;
+            int onRoad = 0;
+            for (BlockPos a : items) {
+                if (roads.has(a.getX(), a.getZ())) {
+                    onRoad++;
+                }
+                double best = Double.MAX_VALUE;
+                for (BlockPos b : items) {
+                    if (a.equals(b)) {
+                        continue;
+                    }
+                    best = Math.min(best, Math.sqrt(a.distSqr(
+                            new BlockPos(b.getX(), a.getY(), b.getZ()))));
+                }
+                if (best < Double.MAX_VALUE) {
+                    mn = Math.min(mn, best);
+                    sum += best;
+                    pairs++;
+                }
+            }
+            int want = fnt ? com.evosim.mod.entity.StreetPlanner.FOUNTAIN_SPACING
+                    : com.evosim.mod.entity.StreetPlanner.TREE_SPACING;
+            tell(ctx.getSource(), String.format(
+                    "  §e[%s]§r %d개 · 최근접 최소%.1f 평균%.1f (하한 %d) · %s길위%d§r",
+                    fnt ? "분수" : "가로수", items.size(),
+                    pairs == 0 ? 0.0 : mn, pairs == 0 ? 0.0 : sum / pairs, want,
+                    onRoad == 0 ? "§a" : "§c", onRoad));
+        }
         tell(ctx.getSource(), String.format(
                 "  밤 밝기 — 길 위 밝기0(몹 생성 가능) %d/%d칸 (%.0f%%)",
                 dark, sampled, sampled == 0 ? 0.0 : 100.0 * dark / sampled));

@@ -152,7 +152,30 @@ public class MimicSchoolGoal extends Goal {
         // 등교가 도는 동안에는 리시가 학교 쪽을 보게 유지된다.
         mob.setWorkAnchor(seat);
         if (mob.getNavigation().isDone()) {
-            mob.getNavigation().moveTo(seat.getX() + 0.5, seat.getY(), seat.getZ() + 0.5, 1.0);
+            // <b>정확도 0</b> — 자리 칸에 실제로 올라서게 한다.
+            //
+            // {@code moveTo(x, y, z, 속도)} 는 내부에서 정확도 1 로 경로를 만든다("목표에서 한 칸
+            // 이내면 도착"). 그래서 길찾기는 <b>대각선 이웃</b>에서 스스로 끝났다고 놓아 버리는데,
+            // 착석 판정은 {@link #ARRIVE_SQ} 1.0 이라 직교 이웃(거리제곱 1)만 인정하고 대각선(2)은
+            // 탈락이다. 두 기준이 어긋나 아이는 길찾기가 놓아준 칸에 서고 goal 은 계속 기다리다
+            // 200틱 뒤 포기했다 — 그러고도 길이 막힌 것이 아니라 <b>움직이지 않은 것</b>이라
+            // 원인이 안 보였다.
+            //
+            // 계측이 이걸 한 줄로 갈랐다: "내y1.0 자리y1 · <b>경로도달가능</b> · <b>네비끝남</b>"
+            // — 높이도 맞고 길도 있는데 길찾기만 끝나 있었다. 같은 자리가 날에 따라 되기도 안
+            // 되기도 한 것은 접근 방향에 따라 경로 종점이 직교냐 대각이냐로 갈렸기 때문이다.
+            //
+            // 판정을 2.0 으로 <b>느슨하게 풀지 않는다</b> — 그 눈금은 벽 바깥에 붙어 선 아이를
+            // 착석으로 세던 값(4.0)을 좁히며 정한 것이라, 되돌리면 "학교에 들어갔는가"를 재는
+            // 지표가 다시 안팎을 흐린다. 대신 아이를 제 칸까지 보낸다.
+            var path = mob.getNavigation().createPath(seat, 0);
+            if (path != null) {
+                mob.getNavigation().moveTo(path, 1.0);
+            } else {
+                // 그 칸으로 길이 안 나면(누가 서 있거나 막혔거나) 종전대로 근처까지라도 간다 —
+                // 무진전 감시가 받아 포기 사건으로 남기고, 그 사건이 사유를 말한다.
+                mob.getNavigation().moveTo(seat.getX() + 0.5, seat.getY(), seat.getZ() + 0.5, 1.0);
+            }
         }
         // 무진전 감시 — 길이 막혔는데 하루 종일 벽에 붙어 있으면 그 아이는 굶지도 놀지도 못한다.
         BlockPos now = mob.blockPosition();

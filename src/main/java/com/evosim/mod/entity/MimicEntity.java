@@ -2918,8 +2918,10 @@ public class MimicEntity extends PathfinderMob {
             HomeStore.Entry e = homes.entry(h);
             near[hn][0] = h.getX();
             near[hn][1] = h.getZ();
-            near[hn][2] = e == null ? HomeBlueprint.reachOf(sl, HomeStore.TENT)
-                    : HomeBlueprint.reachOf(sl, e.design());
+            // 집도 <b>축별 반폭</b>으로 잰다 — 학교에서 이미 고친 과대평가가 집 쪽에 남아
+            // 있었다. 실측: 후보 700개 중 611개를 집이 막았고 밭은 15, 물·낙차는 0 이었다.
+            near[hn][2] = HomeBlueprint.halfExtentsOf(sl,
+                    e == null ? HomeStore.TENT : e.design())[0];
             hn++;
         }
         // <b>축별 반폭</b>으로 본다 — 21×18 을 원으로 근사하면 반경 13.8 이라 집마다 3~5블록의

@@ -171,6 +171,30 @@ public final class HomeBlueprint {
     }
 
     /**
+     * 이 도면의 <b>축별 반폭</b> {x, z} — 회피 판정이 {@link #reachOf}(대각선) 대신 쓴다.
+     *
+     * <p>대각선 반경은 사각형을 원으로 부풀린 값이라 축 방향으로 <b>헛여유</b>가 붙는다.
+     * 시설 부지 탐색에서 이 과대평가가 실제로 자리를 없앴다 — 실측(집 24채 월드): 후보
+     * 약 700개 중 <b>611개를 집이 막았고</b> 밭은 15, 물·낙차는 0 이었다. 학교 반폭 10 +
+     * 집 대각반경 6 + 여유 2 = 17 을 모든 집에서 띄워야 하는데, 집끼리의 간격 자체가
+     * 15~19 라 마을 안에 그만한 구멍이 없다.
+     *
+     * <p>도면은 회전해도 x·z 가 맞바뀔 뿐이라 <b>둘 중 큰 쪽</b>을 양축에 쓴다 — 회전을
+     * 몰라도 안전하고, 회전별로 캐시를 나눌 필요가 없다.
+     */
+    public static double[] halfExtentsOf(ServerLevel sl, String design) {
+        HomeBlueprint bp = of(sl, BlockPos.ZERO, design, (byte) 0, false);
+        double hx = 0.0;
+        double hz = 0.0;
+        for (BlockPos c : bp.footprint()) {
+            hx = Math.max(hx, Math.abs(c.getX()));
+            hz = Math.max(hz, Math.abs(c.getZ()));
+        }
+        double m = Math.max(hx, hz);
+        return new double[] {m, m};
+    }
+
+    /**
      * 도면 대비 <b>실제로 서 있는 비율</b>(0~1) — "이 집이 아직 있는가"의 관측값.
      *
      * <p>종전에는 모닥불 블록의 존재로 이 질문에 답했다. 모닥불이 사라진 지금은 도면 자체가

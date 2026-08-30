@@ -2857,8 +2857,11 @@ public class MimicEntity extends PathfinderMob {
         }
         double need = myReach + nbReach + Facilities.HOME_MARGIN;
         for (int r = Facilities.MIN_RADIUS; r <= Facilities.SEARCH_RADIUS; r += 4) {
-            for (int a = 0; a < 16; a++) {
-                double ang = a * Math.PI / 8.0;
+            // 각도 수를 반지름에 맞춘다 — 고정 16각이면 r=64 에서 표본 간격이 25블록이라
+            // 좁은 빈터를 통째로 건너뛴다. 호 길이 약 4블록마다 한 번 보게 한다.
+            int steps = Math.max(16, (int) (2.0 * Math.PI * r / 4.0));
+            for (int a = 0; a < steps; a++) {
+                double ang = a * 2.0 * Math.PI / steps;
                 int cx = from.getX() + (int) Math.round(Math.cos(ang) * r);
                 int cz = from.getZ() + (int) Math.round(Math.sin(ang) * r);
                 boolean bad = false;

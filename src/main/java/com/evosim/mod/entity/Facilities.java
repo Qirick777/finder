@@ -36,8 +36,19 @@ public final class Facilities {
     public static final int MIN_RADIUS = 12;
     public static final int SEARCH_RADIUS = 64;
 
-    /** 거처와의 여유 — 시설 반경 + 이웃 거처 반경에 이만큼 더 띄운다(사람이 지나갈 길). */
-    public static final int HOME_MARGIN = 4;
+    /**
+     * 거처와의 여유 — 시설 반경 + 이웃 거처 반경에 이만큼 더 띄운다(사람이 지나갈 길).
+     *
+     * <p><b>집끼리의 규칙과 같은 2 다.</b> 처음에 4 를 쓴 것은 근거 없는 값이었고, 학교 반경이
+     * 약 14 라 집마다 26블록 이상 떨어져야 했다 — 집 35채가 모인 마을 한복판에는 그런 구멍이
+     * 없다. 실측(D19~21): 이용자 무게중심 반경 64 안에서 이틀 연속 "자리 없음", 사흘째에
+     * 탐색 반경의 <b>맨 바깥</b>인 64블록에 세워졌고, 그 결과 소년 최근접거리 중앙이 49 로
+     * 통학 한계 48 을 넘었다.
+     *
+     * <p>학교는 마을 <b>안에</b> 있어야 하는 건물이다. 겹치지 않게 하는 것은 반경의 합이
+     * 이미 보장하므로, 그 위의 여유는 집끼리와 같은 눈금이면 족하다.
+     */
+    public static final int HOME_MARGIN = 2;
 
     /** 부지 지형 낙차 상한 — 이보다 울퉁불퉁하면 메움·파냄이 지형을 헤집는다. */
     public static final int MAX_SPREAD = 4;

@@ -2820,8 +2820,9 @@ public class MimicEntity extends PathfinderMob {
         }
         if (site == null) {
             SimEvents.event(founder, "학교", String.format(
-                    "자리 없음 — 추종자%d · 저장고 %.0f (반경 %d 안에 %.0f칸 폭의 빈 땅이 없다)",
-                    followers, larder, Facilities.SEARCH_RADIUS, tpl.get().reach() * 2));
+                    "자리 없음 — 추종자%d · 저장고 %.0f · 거부 집%d 밭%d 물%d 낙차%d",
+                    followers, larder, SITE_REJECT[0], SITE_REJECT[1],
+                    SITE_REJECT[2], SITE_REJECT[3]));
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
@@ -2831,7 +2832,9 @@ public class MimicEntity extends PathfinderMob {
         assignFacilityRoad(sl, site, tpl.get());
         SimEvents.event(founder, "학교", String.format(
                 "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d"
-                        + " · 이용자중심 @%d,%d 에서 %.0f블록 · 못닿던학생" + unserved,
+                        + " · 이용자중심 @%d,%d 에서 %.0f블록 · 못닿던학생" + unserved
+                        + String.format(" · 안쪽거부 집%d 밭%d 물%d 낙차%d", SITE_REJECT[0],
+                                SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]),
                 site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers,
                 Facilities.SCHOOL_COST, larder, larder - Facilities.SCHOOL_COST,
                 tpl.get().seats().size(), centre.getX(), centre.getZ(),
@@ -2868,8 +2871,18 @@ public class MimicEntity extends PathfinderMob {
      * 메움 한도 안일 것. 거처 신축의 {@code siteFault} 와 같은 종류의 검사지만 도면이
      * {@link HomeBlueprint} 가 아니라 목록을 직접 본다.
      */
+    /**
+     * 부지 후보가 <b>무엇 때문에</b> 거부됐는가 — [집 여유, 밭 몸통, 물, 낙차].
+     *
+     * <p>지금까지는 "자리 없음"·"중심에서 N블록" 만 알 수 있어, 안쪽 고리를 막는 것이 집인지
+     * 밭인지 물인지 셀 수 없었다. 회피 여유·원 근사·이웃 반경을 차례로 고치면서도 매번
+     * <b>추측</b>으로 다음 후보를 골랐다. 이 네 수가 그 추측을 끝낸다.
+     */
+    private static final int[] SITE_REJECT = new int[4];
+
     @Nullable
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl) {
+        java.util.Arrays.fill(SITE_REJECT, 0);
         HomeStore homes = HomeStore.get(sl);
         FarmStore farms = FarmStore.get(sl);
         // 이웃 반경은 <b>집마다 제 것</b>을 쓴다. 마을 최대 반경(저택)을 모든 집에 적용하면
@@ -2907,27 +2920,33 @@ public class MimicEntity extends PathfinderMob {
                     }
                 }
                 if (bad) {
+                    SITE_REJECT[0]++;
                     continue;
                 }
                 int lo = Integer.MAX_VALUE;
                 int hi = Integer.MIN_VALUE;
+                int why = -1;
                 for (BlockPos col : tpl.groundCols()) {
                     int x = cx + col.getX();
                     int z = cz + col.getZ();
                     if (farms.isFarmBody(x, z)) {
-                        bad = true;
+                        why = 1; // 밭 몸통
                         break;
                     }
                     int y = sl.getHeight(SURFACE_MAP, x, z) - 1;
                     var st = sl.getBlockState(new BlockPos(x, y, z));
                     if (st.getFluidState().isSource() || !st.getFluidState().isEmpty()) {
-                        bad = true;
+                        why = 2; // 물
                         break;
                     }
                     lo = Math.min(lo, y);
                     hi = Math.max(hi, y);
                 }
-                if (bad || hi - lo > Facilities.MAX_SPREAD) {
+                if (why < 0 && hi - lo > Facilities.MAX_SPREAD) {
+                    why = 3; // 낙차
+                }
+                if (why >= 0) {
+                    SITE_REJECT[why]++;
                     continue;
                 }
                 return new BlockPos(cx, medianSurface(sl, tpl, cx, cz) + BASE_LIFT, cz);

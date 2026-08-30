@@ -2887,11 +2887,18 @@ public class MimicEntity extends PathfinderMob {
         }
         // <b>주변에서 쓸 수 있는 사람</b> — 추종 여부를 보지 않는다. 이 수가 곧 이 자리에서
         // 받을 수 있는 최대 인원이고, 크기는 여기서 나온다.
+        //
+        // <b>세는 지점은 이용자 무게중심이다</b>(창건자의 집이 아니다). 부지 탐색이 무게중심에서
+        // 시작하므로, 창건자 집에서 세면 크기를 정한 인원과 건물이 실제로 설 자리가 어긋난다 —
+        // 실측: 창건자 집 주변 23명으로 큰 교회를 고른 사람과, 12명으로 고른 사람이 나란히
+        // 나왔는데 둘의 집은 서로 100블록 넘게 떨어져 있었다. 이 세션에서 "한 곳에서 재고 다른
+        // 곳에서 쓰는" 어긋남을 여러 번 밟았으므로 기준점을 하나로 묶는다.
+        BlockPos centre = studentCentre(sl, id, homePos);
         int nearby = 0;
         for (MimicEntity m : sl.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
                         && e.getStage() != LifeStage.INFANT)) {
-            if (m.getHomePos().distSqr(homePos)
+            if (m.getHomePos().distSqr(centre)
                     <= Facilities.CHURCH_REACH * Facilities.CHURCH_REACH) {
                 nearby++;
             }
@@ -2913,7 +2920,6 @@ public class MimicEntity extends PathfinderMob {
         if (tpl.isEmpty()) {
             return larder;
         }
-        BlockPos centre = studentCentre(sl, id, homePos);
         BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id));
         if (site != null) {
             for (FacilityStore.Entry other : reg.all()) {

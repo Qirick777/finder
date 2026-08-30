@@ -78,11 +78,29 @@ public class MimicSchoolGoal extends Goal {
         lastPos = mob.blockPosition();
         stuckTicks = 0;
         announced = false;
+        // <b>리시를 호위자로 바꾼다.</b> 활동반경 리시(우선순위 2)는 앵커에서 활동반경
+        // ({@link com.evosim.core.Roaming#BASE_RADIUS} 32 · 애향 16)을 벗어나면 시간대와 무관하게
+        // 끌고 돌아온다. 등교는 우선순위 6 이라 언제나 진다 — 학교가 32블록 밖이면 아이가
+        // "출발 → 강제귀환"을 반복하며 영영 못 닿는다. 붙잡힌 게 아니라 <b>움직이는 중</b>이라
+        // 무진전 포기에도 안 걸려, 착석도 포기도 없는 채로 하루가 지난다.
+        //
+        // 실측이 이것과 맞는다: 착석한 아이의 최대 거리 31 · 도착 못 한 아이의 최소 거리 37 로
+        // 경계가 32 를 사이에 두고 갈렸고, 이번 런에서 실제 착석은 22블록 하나뿐이었으며
+        // 46블록 등록자는 착석 0 · 포기 0 이었다. 길찾기는 56블록까지 닿는다(navprobe).
+        //
+        // <b>밭일이 이미 같은 결함을 겪고 같은 방식으로 고쳤다</b>({@link MimicEntity#roamAnchor}
+        // 의 workAnchor 주석: "통근(≤48) 밭이 활동반경 밖이면 리시가 밭일을 선점해 무한 줄다리기").
+        // 등교도 통근 한계가 48 인데 앵커를 세우지 않아 그 수정에서 빠져 있었다.
+        //
+        // workAnchor 를 쓰는 이유: 노동 시간대에만 유효해서 수업이 끝나면 저절로 풀린다 —
+        // 남은 앵커가 밤 귀가를 학교로 끌지 않는다. 밭일 goal 은 BOY 를 제외하므로 충돌하지 않는다.
+        mob.setWorkAnchor(seat);
     }
 
     @Override
     public void stop() {
         seat = null;
+        mob.setWorkAnchor(null); // 리시 앵커 원복(거처)
         mob.getNavigation().stop();
     }
 
@@ -126,6 +144,7 @@ public class MimicSchoolGoal extends Goal {
                         "포기 — %d틱 무진전 (자리 @%d,%d 까지 %.0f블록)",
                         stuckTicks, seat.getX(), seat.getZ(), Math.sqrt(d)));
                 seat = null;
+                mob.setWorkAnchor(null); // 포기했으면 리시도 놓아준다 — 집으로 돌아갈 수 있게
             }
         } else {
             lastPos = now;

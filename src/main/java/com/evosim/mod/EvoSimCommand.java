@@ -3529,6 +3529,11 @@ public final class EvoSimCommand {
         java.util.List<Double> trip = new java.util.ArrayList<>();
         int boys = 0;
         int sat = 0;
+        // <b>거리별 도착 여부</b> — 계획서의 "0.8 속도로 왕복 가능한 범위"는 이 두 분포를
+        // 견주어야만 답이 나온다. 등록만 세면 "먼 아이가 하루 안에 못 닿는다"가 안 보인다
+        // (실측: 등록3 · 실제착석1 인데 등교 포기 사건은 0건 — 막힌 게 아니라 못 닿은 것).
+        java.util.List<Double> arrived = new java.util.ArrayList<>();
+        java.util.List<Double> missed = new java.util.ArrayList<>();
         long today = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         int learnedSum = 0;
         int learnedN = 0;
@@ -3544,6 +3549,11 @@ public final class EvoSimCommand {
             }
             if (m.satInSchoolToday(today)) {
                 sat++;
+                if (sp != null && m.getHomePos() != null) {
+                    arrived.add(Math.sqrt(m.getHomePos().distSqr(sp)));
+                }
+            } else if (sp != null && m.getHomePos() != null) {
+                missed.add(Math.sqrt(m.getHomePos().distSqr(sp)));
             }
             // 능력 격차 — 한 번이라도 앉아 본 소년과 아예 못 가 본 소년을 나눠 센다.
             if (m.getSchoolDays() > 0) {
@@ -3606,6 +3616,16 @@ public final class EvoSimCommand {
                     Facilities.COMMUTE_RANGE, within, near.size(),
                     trip.isEmpty() ? "" : String.format(
                             " · 등록자 통학 중앙%.0f", trip.get(trip.size() / 2))));
+        }
+        if (!arrived.isEmpty() || !missed.isEmpty()) {
+            java.util.Collections.sort(arrived);
+            java.util.Collections.sort(missed);
+            tell(ctx.getSource(), String.format(
+                    "  도착 대 미도착 — 착석%d명(최대%s) · 미착석%d명(최소%s)",
+                    arrived.size(),
+                    arrived.isEmpty() ? "-" : String.format("%.0f", arrived.get(arrived.size() - 1)),
+                    missed.size(),
+                    missed.isEmpty() ? "-" : String.format("%.0f", missed.get(0))));
         }
         return reg.all().size();
     }

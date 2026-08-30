@@ -2847,7 +2847,6 @@ public class MimicEntity extends PathfinderMob {
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl) {
         HomeStore homes = HomeStore.get(sl);
         FarmStore farms = FarmStore.get(sl);
-        double myReach = tpl.reach();
         double nbReach = HomeBlueprint.reachOf(sl, HomeStore.TENT);
         for (BlockPos h : homes.positions()) {
             HomeStore.Entry e = homes.entry(h);
@@ -2855,7 +2854,10 @@ public class MimicEntity extends PathfinderMob {
                 nbReach = Math.max(nbReach, HomeBlueprint.reachOf(sl, e.design()));
             }
         }
-        double need = myReach + nbReach + Facilities.HOME_MARGIN;
+        // <b>축별 반폭</b>으로 본다 — 21×18 을 원으로 근사하면 반경 13.8 이라 집마다 3~5블록의
+        // 헛여유가 붙고, 그 탓에 마을 한복판에는 학교가 들어갈 구멍이 없어진다.
+        double needX = tpl.halfX() + nbReach + Facilities.HOME_MARGIN;
+        double needZ = tpl.halfZ() + nbReach + Facilities.HOME_MARGIN;
         for (int r = Facilities.MIN_RADIUS; r <= Facilities.SEARCH_RADIUS; r += 4) {
             // 각도 수를 반지름에 맞춘다 — 고정 16각이면 r=64 에서 표본 간격이 25블록이라
             // 좁은 빈터를 통째로 건너뛴다. 호 길이 약 4블록마다 한 번 보게 한다.
@@ -2866,10 +2868,8 @@ public class MimicEntity extends PathfinderMob {
                 int cz = from.getZ() + (int) Math.round(Math.sin(ang) * r);
                 boolean bad = false;
                 for (BlockPos h : homes.positions()) {
-                    double dx = h.getX() - cx;
-                    double dz = h.getZ() - cz;
-                    if (Math.sqrt(dx * dx + dz * dz) < need) {
-                        bad = true;
+                    if (Math.abs(h.getX() - cx) < needX && Math.abs(h.getZ() - cz) < needZ) {
+                        bad = true; // 두 축 모두 겹쳐야 진짜 충돌이다
                         break;
                     }
                 }

@@ -76,10 +76,12 @@ public final class FacilityTemplate {
     private final List<BlockPos> doorSteps;
     private final List<BlockPos> seats;
     private final double reach;
+    private final double halfX;
+    private final double halfZ;
 
     private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
-                             List<BlockPos> seats, double reach) {
+                             List<BlockPos> seats, double reach, double halfX, double halfZ) {
         this.kind = kind;
         this.plan = plan;
         this.carve = carve;
@@ -87,6 +89,8 @@ public final class FacilityTemplate {
         this.doorSteps = doorSteps;
         this.seats = seats;
         this.reach = reach;
+        this.halfX = halfX;
+        this.halfZ = halfZ;
     }
 
     public Kind kind() {
@@ -127,6 +131,24 @@ public final class FacilityTemplate {
     /** 앵커에서 가장 먼 점유 열까지의 수평 거리 — 부지 확보·회피 반경의 입력. */
     public double reach() {
         return reach;
+    }
+
+    /**
+     * 축별 반폭 — 회피 판정에 {@link #reach()}(대각선) 대신 이것을 쓴다.
+     *
+     * <p>21×18 건물을 원으로 근사하면 반경이 13.8 이 되는데, 실제로 x 로 뻗은 것은 10.5,
+     * z 로는 9 뿐이다. 그 차이가 집마다 3~5블록의 헛여유가 되어 마을 한복판에 학교가
+     * 들어갈 구멍이 없어진다 — 실측: 이용자 무게중심에서 44~60블록 떨어진 자리에만 섰고
+     * 소년 최근접거리 중앙이 54 로 통학 한계 48 을 넘었다.
+     *
+     * <p>거처(10×7)는 원 근사의 오차가 작아 문제가 없었다. 건물이 커지면서 드러난 것이다.
+     */
+    public double halfX() {
+        return halfX;
+    }
+
+    public double halfZ() {
+        return halfZ;
     }
 
     private static final Map<String, FacilityTemplate> CACHE = new HashMap<>();
@@ -205,6 +227,8 @@ public final class FacilityTemplate {
         List<BlockPos> carve = new ArrayList<>();
         java.util.Set<BlockPos> cols = new java.util.HashSet<>();
         double far = 0.0;
+        double hx = 0.0;
+        double hz = 0.0;
         for (var e : byPos.entrySet()) {
             BlockPos rel = e.getKey().subtract(anchor);
             if (e.getValue().isAir()) {
@@ -215,6 +239,8 @@ public final class FacilityTemplate {
             }
             cols.add(new BlockPos(rel.getX(), 0, rel.getZ()));
             far = Math.max(far, Math.sqrt(rel.getX() * rel.getX() + rel.getZ() * rel.getZ()));
+            hx = Math.max(hx, Math.abs(rel.getX()));
+            hz = Math.max(hz, Math.abs(rel.getZ()));
             pl.add(new Placement(rel, e.getValue()));
         }
         pl.sort(java.util.Comparator.comparingInt(q -> q.rel().getY()));
@@ -256,6 +282,6 @@ public final class FacilityTemplate {
                 .thenComparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
 
         return Optional.of(new FacilityTemplate(kind, List.copyOf(pl), List.copyOf(carve),
-                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far));
+                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz));
     }
 }

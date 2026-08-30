@@ -2968,6 +2968,14 @@ public final class EvoSimCommand {
         for (boolean fnt : new boolean[] {false, true}) {
             var items = street.all(fnt);
             if (items.isEmpty()) {
+                // <b>0 이면 왜 0 인지</b>를 그 자리에서 훑어 말한다. 착공 경로는 자리를 못
+                // 찾으면 조용히 넘어가므로(나무는 매일 후보를 보는지라 사건을 남기면 도배가
+                // 된다), 사유를 보고에서 되짚는다. 이 훑기는 읽기만 하고 아무것도 바꾸지 않는다.
+                com.evosim.mod.entity.StreetPlanner.pickSite(level, fnt);
+                tell(ctx.getSource(), String.format(
+                        "  §e[%s]§r 0개 — 걸러진 사유 %s (도로망 %d칸)",
+                        fnt ? "분수" : "가로수",
+                        com.evosim.mod.entity.StreetPlanner.rejectSummary(), roads.size()));
                 continue;
             }
             double mn = Double.MAX_VALUE;

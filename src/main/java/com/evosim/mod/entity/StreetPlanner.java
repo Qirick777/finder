@@ -192,10 +192,21 @@ public final class StreetPlanner {
         for (int[] c : roads.all()) {
             cells.add(c);
         }
-        // 결정론 — 좌표순. 자리값이 없으므로 순서가 곧 우선순위다.
+        // 결정론 — 좌표순으로 정렬하되 <b>시작점을 날마다 돌린다</b>.
+        //
+        // 좌표순으로 고정해 놓고 예산에서 끊으면, 도로망이 예산보다 길 때 <b>늘 같은 서쪽 끝
+        // 칸들만</b> 보게 된다. 거기가 막혀 있으면 마을 나머지가 아무리 비어 있어도 영영 자리를
+        // 못 찾는다(실측: 도로망이 자란 마을에서 가로수가 0그루였다). 가로등은 어둠 점수로
+        // 정렬해 자연히 흩어지지만, 꾸밈은 자리값이 없어 순서가 곧 전부다.
+        //
+        // 날짜로 시작점을 돌리면 며칠에 걸쳐 도로망 전체를 훑는다 — 무작위를 새로 들이지 않고
+        // (결정론이 깨지지 않게) 같은 효과를 낸다. 마실 목적지가 (id+날) 로 도는 것과 같은 수법이다.
         cells.sort(Comparator.<int[]>comparingInt(a -> a[0]).thenComparingInt(a -> a[1]));
         int budget = 400;
-        for (int[] c : cells) {
+        int start = cells.isEmpty() ? 0
+                : (int) Math.floorMod(SimTime.tick(sl) / 24000L, cells.size());
+        for (int i = 0; i < cells.size(); i++) {
+            int[] c = cells.get((start + i) % cells.size());
             int x = c[0];
             int z = c[1];
             if (store.nearest(x, z, fountain) < spacing) {

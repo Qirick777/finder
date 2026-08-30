@@ -202,8 +202,24 @@ public final class StreetPlanner {
         // 날짜로 시작점을 돌리면 며칠에 걸쳐 도로망 전체를 훑는다 — 무작위를 새로 들이지 않고
         // (결정론이 깨지지 않게) 같은 효과를 낸다. 마실 목적지가 (id+날) 로 도는 것과 같은 수법이다.
         cells.sort(Comparator.<int[]>comparingInt(a -> a[0]).thenComparingInt(a -> a[1]));
+        if (fountain) {
+            // <b>분수는 길이 가장 많이 모이는 곳에 선다</b> — 광장의 중심이기 때문이다.
+            //
+            // 처음에는 좌표순으로 훑어 처음 걸리는 자리에 세웠는데, 그러면 광장이 아니라
+            // <b>변두리 들판</b>에 선다(실측: 공중 사진에서 분수 넷이 모두 마을 바깥 빈 들에
+            // 있었다). 설계에는 "교차로 밀집" 이라고 적어 두고 코드에 옮기지 않은 것이다.
+            //
+            // 자리값 = 반경 8 안의 길 칸 수. 교차로가 겹치고 갈래가 많은 곳일수록 커지므로
+            // 자연히 마을 한복판이 이긴다. 가로등이 어둠으로 자리값을 매기는 것과 같은 꼴이고,
+            // 꾸밈에는 자리값이 없다던 앞의 판단이 분수에는 틀렸다.
+            java.util.Set<Long> road = roads.raw();
+            cells.sort(Comparator.<int[]>comparingInt(a -> -density(road, a[0], a[1]))
+                    .thenComparingInt(a -> a[0]).thenComparingInt(a -> a[1]));
+        }
         int budget = 400;
-        int start = cells.isEmpty() ? 0
+        // 나무는 날마다 시작점을 돌려 도로망 전체를 훑는다. 분수는 자리값 순이라 돌리지 않는다 —
+        // 돌리면 "가장 많이 모이는 곳" 이라는 기준이 무너진다.
+        int start = cells.isEmpty() || fountain ? 0
                 : (int) Math.floorMod(SimTime.tick(sl) / 24000L, cells.size());
         for (int i = 0; i < cells.size(); i++) {
             int[] c = cells.get((start + i) % cells.size());
@@ -215,16 +231,35 @@ public final class StreetPlanner {
             if (--budget < 0) {
                 return null;
             }
-            for (int[] d : RoadPlanner.D4) {
-                int px = x + d[0] * off;
-                int pz = z + d[1] * off;
-                if (ok(sl, roads, store, ob, farms, px, pz, spacing, half, fountain)) {
-                    int y = RoadPlanner.surfaceY(sl, px, pz);
-                    return new BlockPos(px, y + 1, pz);
+            // <b>한 칸만 보지 않고 물러나며 본다.</b> 정확히 off 칸 한 자리만 시험하면 거기가
+            // 막혔을 때 그 길 칸을 통째로 버린다 — 가로등·집·밭이 빽빽한 마을에서는 대부분이
+            // 그렇게 걸러져 나무가 거의 안 선다(실측: 마을 하나에 두 그루). 가로등이 같은
+            // 이유로 후보 사다리({@code offsets})를 갖고 있다.
+            for (int extra = 0; extra <= 2; extra++) {
+                for (int[] d : RoadPlanner.D4) {
+                    int px = x + d[0] * (off + extra);
+                    int pz = z + d[1] * (off + extra);
+                    if (ok(sl, roads, store, ob, farms, px, pz, spacing, half, fountain)) {
+                        int y = RoadPlanner.surfaceY(sl, px, pz);
+                        return new BlockPos(px, y + 1, pz);
+                    }
                 }
             }
         }
         return null;
+    }
+
+    /** 반경 8 안의 길 칸 수 — 광장다움. 교차로가 겹칠수록 커진다. */
+    private static int density(java.util.Set<Long> road, int x, int z) {
+        int n = 0;
+        for (int dx = -8; dx <= 8; dx++) {
+            for (int dz = -8; dz <= 8; dz++) {
+                if (road.contains(RoadStore.key(x + dx, z + dz))) {
+                    n++;
+                }
+            }
+        }
+        return n;
     }
 
     private static boolean ok(ServerLevel sl, RoadStore roads, StreetStore store,

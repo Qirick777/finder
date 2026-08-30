@@ -2856,17 +2856,24 @@ public class MimicEntity extends PathfinderMob {
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl) {
         HomeStore homes = HomeStore.get(sl);
         FarmStore farms = FarmStore.get(sl);
-        double nbReach = HomeBlueprint.reachOf(sl, HomeStore.TENT);
+        // 이웃 반경은 <b>집마다 제 것</b>을 쓴다. 마을 최대 반경(저택)을 모든 집에 적용하면
+        // 작은 집 하나하나가 저택만큼 자리를 차지하는 셈이라, 집이 늘수록 학교가 들어갈
+        // 구멍이 사라진다 — 실측(D18): 자리가 이용자 중심에서 44블록에 잡혀 통학 한계 32
+        // 안에 든 소년이 <b>0/9</b> 였다. 큰 건물을 원으로 근사한 것과 같은 종류의 과대평가다.
+        double[][] near = new double[homes.positions().size()][3]; // x, z, 반경
+        int hn = 0;
         for (BlockPos h : homes.positions()) {
             HomeStore.Entry e = homes.entry(h);
-            if (e != null) {
-                nbReach = Math.max(nbReach, HomeBlueprint.reachOf(sl, e.design()));
-            }
+            near[hn][0] = h.getX();
+            near[hn][1] = h.getZ();
+            near[hn][2] = e == null ? HomeBlueprint.reachOf(sl, HomeStore.TENT)
+                    : HomeBlueprint.reachOf(sl, e.design());
+            hn++;
         }
         // <b>축별 반폭</b>으로 본다 — 21×18 을 원으로 근사하면 반경 13.8 이라 집마다 3~5블록의
         // 헛여유가 붙고, 그 탓에 마을 한복판에는 학교가 들어갈 구멍이 없어진다.
-        double needX = tpl.halfX() + nbReach + Facilities.HOME_MARGIN;
-        double needZ = tpl.halfZ() + nbReach + Facilities.HOME_MARGIN;
+        double halfX = tpl.halfX() + Facilities.HOME_MARGIN;
+        double halfZ = tpl.halfZ() + Facilities.HOME_MARGIN;
         for (int r = Facilities.MIN_RADIUS; r <= Facilities.SEARCH_RADIUS; r += 4) {
             // 각도 수를 반지름에 맞춘다 — 고정 16각이면 r=64 에서 표본 간격이 25블록이라
             // 좁은 빈터를 통째로 건너뛴다. 호 길이 약 4블록마다 한 번 보게 한다.
@@ -2876,8 +2883,9 @@ public class MimicEntity extends PathfinderMob {
                 int cx = from.getX() + (int) Math.round(Math.cos(ang) * r);
                 int cz = from.getZ() + (int) Math.round(Math.sin(ang) * r);
                 boolean bad = false;
-                for (BlockPos h : homes.positions()) {
-                    if (Math.abs(h.getX() - cx) < needX && Math.abs(h.getZ() - cz) < needZ) {
+                for (int k = 0; k < hn; k++) {
+                    if (Math.abs(near[k][0] - cx) < halfX + near[k][2]
+                            && Math.abs(near[k][1] - cz) < halfZ + near[k][2]) {
                         bad = true; // 두 축 모두 겹쳐야 진짜 충돌이다
                         break;
                     }

@@ -973,6 +973,55 @@ public final class FarmTicker {
         return FOLLOWERS.getOrDefault(id, 0);
     }
 
+    /**
+     * <b>못 다니는 학생 수</b> — 이 주인을 따르는 가구의 소년 중, 그가 가진 어떤 학교에서도
+     * 통학 한계 밖인 아이가 몇인가.
+     *
+     * <p>착공 조건을 "한 사람이 학교 하나"로 두었더니 마을이 바깥으로 자라도 학교가 늘지
+     * 못했다 — 실측(D23): 소년 최근접거리 중앙이 하루 만에 39→73 으로 벌어졌는데(새 가구가
+     * 변두리에 정착), 자격자 둘 중 하나는 이미 갖고 있고 다른 하나는 <b>승계로 두 채를
+     * 물려받아</b> 막혀 있었다. 등교는 7명에서 0명이 됐다.
+     *
+     * <p>수를 세어 <b>안 닿는 학생이 있을 때만</b> 더 짓게 한다. 문턱을 교사 급여의 손익분기
+     * (학생 3명)와 같은 수로 두면, 새 학교가 서자마자 흑자가 되는 자리에서만 지어진다.
+     */
+    public static int unservedStudents(ServerLevel level, long ownerId) {
+        FacilityStore reg = FacilityStore.get(level);
+        java.util.List<BlockPos> mine = new java.util.ArrayList<>();
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.ownerId == ownerId && e.kind == FacilityTemplate.Kind.SCHOOL) {
+                mine.add(e.pos);
+            }
+        }
+        int n = 0;
+        for (MimicEntity b : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null && m.getHomePos() != null
+                        && m.getStage() == com.evosim.core.LifeStage.BOY)) {
+            boolean follows = false;
+            for (BlockPos h : FOLLOWER_HOMES.getOrDefault(ownerId, java.util.List.of())) {
+                if (h.equals(b.getHomePos())) {
+                    follows = true;
+                    break;
+                }
+            }
+            if (!follows) {
+                continue;
+            }
+            boolean served = false;
+            for (BlockPos sp : mine) {
+                if (b.getHomePos().distSqr(sp)
+                        <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    served = true;
+                    break;
+                }
+            }
+            if (!served) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /** 주인별 추종자 <b>거처</b> — 시설 부지를 이용자 쪽으로 당기는 입력(통학거리). */
     private static final java.util.Map<Long, java.util.List<BlockPos>> FOLLOWER_HOMES =
             new java.util.HashMap<>();

@@ -2773,8 +2773,17 @@ public class MimicEntity extends PathfinderMob {
         }
         long id = founder.getIndividual().id();
         FacilityStore reg = FacilityStore.get(sl);
-        if (reg.countOf(id, FacilityTemplate.Kind.SCHOOL) >= 1) {
-            return larder; // 한 사람이 학교를 여럿 갖지 않는다 — 이용자가 갈릴 뿐이다
+        // <b>안 닿는 학생이 있을 때만</b> 더 짓는다. "한 사람이 학교 하나"로 두었더니 마을이
+        // 바깥으로 자라도 학교가 늘지 못했다 — 실측(D23): 소년 최근접거리 중앙이 하루 만에
+        // 39→73 으로 벌어졌는데(새 가구가 변두리에 정착) 자격자 둘 중 하나는 이미 갖고
+        // 있고 다른 하나는 승계로 두 채를 물려받아 막혀, 등교가 7명에서 0명이 됐다.
+        //
+        // 문턱을 교사 급여의 손익분기(학생 3명)와 같은 수로 둔다 — 새 학교가 서자마자
+        // 흑자가 되는 자리에서만 지어지므로, 수요 없이 늘어나지 않는다.
+        int unserved = FarmTicker.unservedStudents(sl, id);
+        if (reg.countOf(id, FacilityTemplate.Kind.SCHOOL) >= 1
+                && unserved < Facilities.UNSERVED_TO_BUILD) {
+            return larder;
         }
         double gate = Facilities.SCHOOL_COST
                 + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
@@ -2806,7 +2815,7 @@ public class MimicEntity extends PathfinderMob {
         RoadPlanner.Obstacles.invalidate(); // 건물이 길의 장애물로 즉시 잡히게
         SimEvents.event(founder, "학교", String.format(
                 "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d"
-                        + " · 이용자중심 @%d,%d 에서 %.0f블록",
+                        + " · 이용자중심 @%d,%d 에서 %.0f블록 · 못닿던학생" + unserved,
                 site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers,
                 Facilities.SCHOOL_COST, larder, larder - Facilities.SCHOOL_COST,
                 tpl.get().seats().size(), centre.getX(), centre.getZ(),

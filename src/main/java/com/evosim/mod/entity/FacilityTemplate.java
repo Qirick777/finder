@@ -329,6 +329,68 @@ public final class FacilityTemplate {
                 .comparingInt((BlockPos q) -> q.getX() * q.getX() + q.getZ() * q.getZ())
                 .thenComparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
 
+        // <b>독서대가 없는 도면의 대체 자리</b> — 지붕 덮인 실내에서 설 수 있는 칸을 간격 2 로
+        // 솎아 쓴다.
+        //
+        // 위 주석과 {@link #seats()} 문서가 "교회는 문간 안쪽을 자리로 본다"·"랜턴 아래(교회)"
+        // 라고 적어 두었는데 <b>코드에는 그런 경로가 없었다</b>. 그래서 실측하면 교회 두 도면이
+        // 모두 자리 0 이다 — 큰 교회는 독서대가 0개고, 작은 교회는 1개지만 그 둘레가 조건을
+        // 못 맞춘다. 방문자가 갈 곳이 없다는 뜻이라 P6 를 붙이는 순간 터진다.
+        //
+        // 랜턴 아래로도 재 봤으나 큰 교회 4자리 · 작은 교회 2자리뿐이라 상한
+        // ({@link Facilities#CHURCH_CAP} 12 · {@link Facilities#SMALL_CHURCH_CAP} 4)을 못 채운다.
+        // 실내 칸을 솎으면 29 · 11 자리가 나와 넉넉하다. 간격 2 는 사람이 한 칸에 뭉치지 않게
+        // 하는 최소값이다 — 학생 자리를 한 명씩 나눠 준 것과 같은 이유(앵커 하나로 보내면
+        // 스무 명이 한 칸에서 밀치기만 한다).
+        //
+        // 독서대가 있는 도면(학교)은 위에서 이미 채워졌으므로 이 경로를 타지 않는다.
+        if (seats.isEmpty()) {
+            int top = Integer.MIN_VALUE;
+            for (BlockPos p : byPos.keySet()) {
+                top = Math.max(top, p.getY());
+            }
+            List<BlockPos> indoor = new ArrayList<>();
+            for (var e : byPos.entrySet()) {
+                BlockPos p = e.getKey();
+                if (p.getY() != anchor.getY()) {
+                    continue;
+                }
+                BlockState here = byPos.get(p);
+                BlockState head = byPos.get(p.above());
+                BlockState below = byPos.get(p.below());
+                if ((here != null && !here.isAir()) || (head != null && !head.isAir())
+                        || below == null || below.isAir()) {
+                    continue; // 서 있을 수 없는 칸
+                }
+                boolean roofed = false;
+                for (int y = p.getY() + 2; y <= top; y++) {
+                    BlockState up = byPos.get(new BlockPos(p.getX(), y, p.getZ()));
+                    if (up != null && !up.isAir()) {
+                        roofed = true;
+                        break;
+                    }
+                }
+                if (roofed) {
+                    indoor.add(p.subtract(anchor));
+                }
+            }
+            indoor.sort(java.util.Comparator
+                    .comparingInt((BlockPos q) -> q.getX() * q.getX() + q.getZ() * q.getZ())
+                    .thenComparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
+            for (BlockPos c : indoor) {
+                boolean apart = true;
+                for (BlockPos s : seats) {
+                    if (Math.abs(c.getX() - s.getX()) < 2 && Math.abs(c.getZ() - s.getZ()) < 2) {
+                        apart = false;
+                        break;
+                    }
+                }
+                if (apart) {
+                    seats.add(c);
+                }
+            }
+        }
+
         return Optional.of(new FacilityTemplate(kind, List.copyOf(pl), List.copyOf(carve),
                 List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz));
     }

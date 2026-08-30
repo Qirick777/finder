@@ -2792,7 +2792,8 @@ public class MimicEntity extends PathfinderMob {
         if (tpl.isEmpty()) {
             return larder;
         }
-        BlockPos site = facilitySite(sl, studentCentre(sl, id, homePos), tpl.get());
+        BlockPos centre = studentCentre(sl, id, homePos);
+        BlockPos site = facilitySite(sl, centre, tpl.get());
         if (site == null) {
             SimEvents.event(founder, "학교", String.format(
                     "자리 없음 — 추종자%d · 저장고 %.0f (반경 %d 안에 %.0f칸 폭의 빈 땅이 없다)",
@@ -2804,10 +2805,12 @@ public class MimicEntity extends PathfinderMob {
                 Facilities.SCHOOL_COST);
         RoadPlanner.Obstacles.invalidate(); // 건물이 길의 장애물로 즉시 잡히게
         SimEvents.event(founder, "학교", String.format(
-                "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d",
+                "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d"
+                        + " · 이용자중심 @%d,%d 에서 %.0f블록",
                 site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers,
                 Facilities.SCHOOL_COST, larder, larder - Facilities.SCHOOL_COST,
-                tpl.get().seats().size()));
+                tpl.get().seats().size(), centre.getX(), centre.getZ(),
+                Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
         return larder - Facilities.SCHOOL_COST;
     }
 

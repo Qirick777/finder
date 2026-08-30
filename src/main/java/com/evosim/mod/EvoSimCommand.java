@@ -3555,6 +3555,24 @@ public final class EvoSimCommand {
             }
         }
         java.util.Collections.sort(trip);
+        // <b>부지가 좋은가</b>는 등록된 아이만 봐서는 알 수 없다 — 등록이 0 이면 통학거리 줄이
+        // 통째로 사라져 배치가 나아졌는지 나빠졌는지 볼 수단이 없어진다(실측: 등록0/소년8).
+        // 그래서 등록과 무관하게 모든 소년의 <b>최근접 학교</b> 거리를 따로 잰다.
+        java.util.List<Double> near = new java.util.ArrayList<>();
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && e.getStage() == com.evosim.core.LifeStage.BOY)) {
+            double best = Double.MAX_VALUE;
+            for (FacilityStore.Entry fe : reg.all()) {
+                if (fe.kind == FacilityTemplate.Kind.SCHOOL) {
+                    best = Math.min(best, Math.sqrt(m.getHomePos().distSqr(fe.pos)));
+                }
+            }
+            if (best < Double.MAX_VALUE) {
+                near.add(best);
+            }
+        }
+        java.util.Collections.sort(near);
         tell(ctx.getSource(), String.format(
                 "  학교 — 등록%.0f/소년%d(%.0f%%) · §b실제착석%d§r · 수업료%.1f · 미납%.1f"
                         + " · 급여%.1f · 당일수지%+.1f",
@@ -3572,14 +3590,22 @@ public final class EvoSimCommand {
             // 가른다 — 대표만 못 따르는가(판정이 좁은가), 가구 전체가 안 따르는가.
             tell(ctx.getSource(), String.format(
                     "  못 간 사유 — 가구전체안따름%2$d · 통학초과%3$d · 자리없음%4$d"
-                            + " (대표아닌가구원의 연으로 등교%1$d)",
+                            + " (가구 연으로 자격 얻음%1$d — 그 뒤 거리에서 탈락 가능)",
                     miss[0], miss[1], miss[2], miss[3]));
         }
-        if (!trip.isEmpty()) {
+        if (!near.isEmpty()) {
+            int within = 0;
+            for (double d : near) {
+                if (d <= Facilities.COMMUTE_RANGE) {
+                    within++;
+                }
+            }
             tell(ctx.getSource(), String.format(
-                    "  통학거리 — 최소%.0f 중앙%.0f 최대%.0f (한계%.0f)",
-                    trip.get(0), trip.get(trip.size() / 2), trip.get(trip.size() - 1),
-                    Facilities.COMMUTE_RANGE));
+                    "  소년→최근접학교 — 최소%.0f 중앙%.0f 최대%.0f · 한계%.0f 안 %d/%d명%s",
+                    near.get(0), near.get(near.size() / 2), near.get(near.size() - 1),
+                    Facilities.COMMUTE_RANGE, within, near.size(),
+                    trip.isEmpty() ? "" : String.format(
+                            " · 등록자 통학 중앙%.0f", trip.get(trip.size() / 2))));
         }
         return reg.all().size();
     }

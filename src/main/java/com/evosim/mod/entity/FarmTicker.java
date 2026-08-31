@@ -1504,7 +1504,7 @@ public final class FarmTicker {
             }
             // 헌금과 신세를 <b>둘 다</b> 매기는 것은 이중 부과가 아니다 — 소액 헌금이 위안의
             // 값을 다 치르지 못하고 그 차액이 은혜로 남는 것이 후원의 실체다(학교와 같은 구조).
-            ledger.record(m.getIndividual().id(), ch.ownerId, Facilities.W_CHURCH, unpaid, day);
+            ledger.recordChurch(m.getIndividual().id(), ch.ownerId, Facilities.W_CHURCH, unpaid, day);
             // ── 성직자 급여 — 방문이 있어야 예배가 있고, 예배가 있어야 급여다(학교와 같다).
             if (paidClergy.add(ch.pos.asLong())) {
                 MimicEntity clergy = byId.get(ch.staffId);

@@ -251,6 +251,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("dynastyx").executes(EvoSimCommand::stageDynastyX))
                 .then(Commands.literal("navprobe").executes(EvoSimCommand::navProbe))
                 .then(Commands.literal("jitter").executes(EvoSimCommand::jitterProbe))
+                .then(Commands.literal("decayrelief")
+                        .then(Commands.literal("on").executes(ctx -> setRelief(ctx, true)))
+                        .then(Commands.literal("off").executes(ctx -> setRelief(ctx, false))))
                 .then(Commands.literal("forageprobe").executes(EvoSimCommand::forageProbe))
                 .then(Commands.literal("graze").executes(EvoSimCommand::graze))
                 .then(Commands.literal("fixedpairs")
@@ -1443,6 +1446,17 @@ public final class EvoSimCommand {
         level.getChunk(tgt.getX() >> 4, tgt.getZ() >> 4); // 경로상 지형 강제 로드
         var path = m.getNavigation().createPath(tgt, 1);
         return path != null && path.canReach();
+    }
+
+    /** 감쇠 완화 A/B — 대조 런에서 끈다(같은 jar 로 두 조건을 돌리기 위한 스위치). */
+    private static int setRelief(CommandContext<CommandSourceStack> ctx, boolean on) {
+        AllegianceStore.RELIEF_ON = on;
+        tell(ctx.getSource(), String.format(
+                "감쇠 완화 %s — 교회 주인에게 진 신세의 하루 감쇠 %.2f (평시 %.2f)",
+                on ? "ON" : "OFF",
+                on ? AllegianceStore.DECAY_RELIEVED : AllegianceStore.DECAY_PER_DAY,
+                AllegianceStore.DECAY_PER_DAY));
+        return 1;
     }
 
     /** {@link #jitterProbe} 의 직전 표본: 개체 id → [x, z, 목표x, 목표z, 게임틱]. */
@@ -3468,6 +3482,49 @@ public final class EvoSimCommand {
                 patron.size(), byId.size(), direct.size(),
                 direct.values().stream().mapToInt(Integer::intValue).max().orElse(0),
                 maxDepth, cycles));
+        // ── 교회 귀속(P6) — <b>반사실</b>로 묻는다: 교회에서 온 몫을 빼면 이 사슬이 남는가.
+        //
+        // 합계만 보면 깊이 2 가 교회 덕인지 밭 지대 덕인지 감쇠 완화 덕인지 갈리지 않는다.
+        // 결속마다 교회에서 온 몫을 따로 세어 두었으므로(Bond.fromChurch), 그것을 뺀 원장으로
+        // 같은 판정을 한 번 더 돌리면 "교회가 없었다면" 이 그 자리에서 계산된다.
+        java.util.Map<Long, Long> patronNoCh = new java.util.HashMap<>();
+        for (long debtor : led.all().keySet()) {
+            if (byId.get(debtor) == null) {
+                continue;
+            }
+            long p = led.patronOf(debtor, farms.ownedTiles(debtor), true);
+            if (p != 0L) {
+                patronNoCh.put(debtor, p);
+            }
+        }
+        int depthNoCh = 0;
+        for (long start : patronNoCh.keySet()) {
+            java.util.Set<Long> seen = new java.util.HashSet<>();
+            long cur = start;
+            int d = 0;
+            while (patronNoCh.containsKey(cur)) {
+                if (!seen.add(cur) || d > 64) {
+                    break;
+                }
+                cur = patronNoCh.get(cur);
+                d++;
+            }
+            depthNoCh = Math.max(depthNoCh, d);
+        }
+        double churchSum = 0.0;
+        int churchBonds = 0;
+        for (var e : led.all().entrySet()) {
+            for (AllegianceStore.Bond b : e.getValue()) {
+                if (b.fromChurch > 0.0) {
+                    churchBonds++;
+                    churchSum += b.fromChurch;
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  교회 귀속 — 교회분 있는 결속%d개(합%.1f) · 교회분 빼면 추종%d명·사슬깊이%d"
+                        + " (지금 %d명·%d — 차이가 곧 교회의 몫)",
+                churchBonds, churchSum, patronNoCh.size(), depthNoCh, patron.size(), maxDepth));
 
         // ── 신분(파생) ── 판정식은 SocialRank 한 곳에만 있다. 여기서는 부르고 세기만 한다.
         java.util.Map<Long, SocialRank> ranks = SocialRank.derive(

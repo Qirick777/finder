@@ -102,6 +102,14 @@ public class AllegianceStore extends SavedData {
         public final long patronId;
         public double forgiven;  // 탕감분(무상)
         public double owed;      // 상환분(빚) — P2 에서는 0
+        /**
+         * 이 결속 중 <b>교회에서 온 몫</b>(관측 전용 — total() 에 이미 포함돼 있다).
+         *
+         * <p>귀속을 <b>세지 않고 말할 수 없기</b> 때문에 둔다. 사슬 깊이가 2 가 되었을 때
+         * 그것이 교회 덕인지 밭 지대 덕인지 감쇠 완화 덕인지는 합계만 봐서는 갈리지 않는다.
+         * 이 몫을 빼고 문턱을 다시 물으면 "교회가 없었다면" 이 그 자리에서 계산된다.
+         */
+        public double fromChurch;
         public long lastDay;
 
         Bond(long patronId, long day) {
@@ -147,6 +155,17 @@ public class AllegianceStore extends SavedData {
     /** 신세를 더한다. 자기 자신·무효 id 는 무시한다. */
     public void record(long debtorId, long patronId, double forgivenAdd, double owedAdd,
                        long day) {
+        recordFrom(debtorId, patronId, forgivenAdd, owedAdd, day, false);
+    }
+
+    /** 교회 상납으로 생긴 결속 — 합계는 같고 출처만 따로 적는다({@link Bond#fromChurch}). */
+    public void recordChurch(long debtorId, long patronId, double forgivenAdd, double owedAdd,
+                             long day) {
+        recordFrom(debtorId, patronId, forgivenAdd, owedAdd, day, true);
+    }
+
+    private void recordFrom(long debtorId, long patronId, double forgivenAdd, double owedAdd,
+                            long day, boolean church) {
         if (debtorId == 0L || patronId == 0L || debtorId == patronId) {
             return;
         }
@@ -167,6 +186,11 @@ public class AllegianceStore extends SavedData {
         }
         hit.forgiven += forgivenAdd;
         hit.owed += owedAdd;
+        if (church) {
+            // <b>탕감분만</b> 센다. 빚(owed)은 이자로 불어나고 탕감분은 감쇠로 줄어 dynamics 가
+            // 반대라, 둘을 한 수에 섞으면 total()-fromChurch 가 음수로 새어 반사실이 깨진다.
+            hit.fromChurch += forgivenAdd;
+        }
         hit.lastDay = day;
         trim(list);
         setDirty();
@@ -206,6 +230,14 @@ public class AllegianceStore extends SavedData {
      */
     public static final double DECAY_RELIEVED = 0.98;
 
+    /**
+     * 감쇠 완화를 <b>끄는</b> 스위치 — 대조 런 전용(기본 켬, 저장되지 않는다).
+     *
+     * <p>완화가 실제로 사슬을 붙잡는지는 완화가 없는 같은 월드와 견주지 않으면 말할 수 없다.
+     * 상수를 고쳐 빌드를 두 개 만드는 대신 스위치를 두어, 같은 jar 로 A/B 를 돌린다.
+     */
+    public static boolean RELIEF_ON = true;
+
     public void decayDaily(long day, java.util.Set<Long> aliveIds) {
         decayDaily(day, aliveIds, java.util.Set.of());
     }
@@ -235,8 +267,10 @@ public class AllegianceStore extends SavedData {
             list.removeIf(b -> !aliveIds.contains(b.patronId));
             for (Bond b : list) {
                 // 교회 주인에게 진 신세는 덜 옅어진다(P6) — 그것이 지주 간 사슬을 붙잡는 못이다.
-                b.forgiven *= relievedPatrons.contains(b.patronId)
+                double rate = relievedPatrons.contains(b.patronId) && RELIEF_ON
                         ? DECAY_RELIEVED : DECAY_PER_DAY;
+                b.forgiven *= rate;
+                b.fromChurch *= rate; // 부분집합이므로 같은 비율로 줄어야 한다
                 b.owed *= 1.0 + INTEREST_PER_DAY; // 빚은 불어난다
             }
             list.removeIf(b -> b.total() < EPSILON);
@@ -346,12 +380,22 @@ public class AllegianceStore extends SavedData {
      * @param ownedTiles 이 개체가 소유한 밭 타일 수 — 임계가 여기에 비례한다.
      */
     public long patronOf(long debtorId, int ownedTiles) {
+        return patronOf(debtorId, ownedTiles, false);
+    }
+
+    /**
+     * 추종 대상. {@code withoutChurch} 를 주면 <b>교회에서 온 몫을 빼고</b> 같은 판정을 한다 —
+     * "교회가 없었다면 이 사람이 그를 따랐겠는가" 를 그 자리에서 되묻는 반사실 질의다.
+     * 시뮬 결정에는 쓰지 않는다(보고 전용).
+     */
+    public long patronOf(long debtorId, int ownedTiles, boolean withoutChurch) {
         double gate = Math.max(MIN_BOND, ownedTiles * TILE_WORTH);
         long best = 0L;
         double bestVal = 0.0;
         for (Bond b : bondsOf(debtorId)) {
-            if (b.total() > bestVal) {
-                bestVal = b.total();
+            double v = withoutChurch ? b.total() - b.fromChurch : b.total();
+            if (v > bestVal) {
+                bestVal = v;
                 best = b.patronId;
             }
         }
@@ -493,6 +537,7 @@ public class AllegianceStore extends SavedData {
             long debtor = t.getLong("D");
             Bond b = new Bond(t.getLong("P"), t.getLong("Day"));
             b.forgiven = t.getDouble("F");
+            b.fromChurch = t.getDouble("FC"); // 없으면 0 — 구세계는 귀속 불명으로 0 이 맞다
             b.owed = t.getDouble("O");
             s.bonds.computeIfAbsent(debtor, k -> new ArrayList<>()).add(b);
         }
@@ -519,6 +564,7 @@ public class AllegianceStore extends SavedData {
                 t.putLong("D", e.getKey());
                 t.putLong("P", b.patronId);
                 t.putDouble("F", b.forgiven);
+                t.putDouble("FC", b.fromChurch);
                 t.putDouble("O", b.owed);
                 t.putLong("Day", b.lastDay);
                 arr.add(t);

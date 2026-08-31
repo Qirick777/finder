@@ -73,6 +73,18 @@ public final class StreetPlanner {
     public static final double TREE_COST = 2.0;
     public static final double FOUNTAIN_COST = 45.0;
 
+    /**
+     * <b>참나무가 실제로 차지하는 반경</b> — 줄기는 한 칸이지만 잎은 옆으로 두 칸 뻗는다.
+     *
+     * <p>자리 판정이 줄기만 보고 있었다. 그래서 밭 몸통에서 한 칸만 떨어져도 자리로 잡혔고,
+     * 다 자란 나무의 잎이 밭 칸 위로 덮였다 — 실측(D28): 구획 #11 의 구멍 한 칸이
+     * {@code @3,26=oak_leaves} 였다. 밭은 잎을 뽑지 못하므로 그 칸은 영영 구멍으로 남는다.
+     *
+     * <p>가로등이 지붕까지 재고 분수가 5×5 를 통째로 재는 것과 같은 셈이다. 나무만 줄기
+     * 한 칸으로 재고 있었던 것이 빠진 자리다.
+     */
+    public static final int TREE_CANOPY = 2;
+
     /** 도로망이 이만큼은 자라야 꾸밈을 생각한다 — 가로등과 같은 문턱. */
     private static final int MIN_ROAD_TREE = 24;
     /** 분수는 광장이 있어야 뜻이 있다 — 훨씬 큰 마을에서만. */
@@ -273,8 +285,10 @@ public final class StreetPlanner {
                 }
             }
         }
-        for (int dx = -half; dx <= half; dx++) {
-            for (int dz = -half; dz <= half; dz++) {
+        // 나무는 <b>잎이 뻗는 만큼</b> 본다 — half 는 줄기(0)라 이 검사가 줄기만 보고 있었다.
+        int spread = fountain ? half : TREE_CANOPY;
+        for (int dx = -spread; dx <= spread; dx++) {
+            for (int dz = -spread; dz <= spread; dz++) {
                 if (ob.blocked(px + dx, pz + dz) || farms.nearBody(px + dx, pz + dz, 1)) {
                     REJ[1]++;
                     return false;

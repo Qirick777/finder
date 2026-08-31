@@ -1656,7 +1656,7 @@ public final class FarmTicker {
                         gridOffset(anchor, d, c, r));
                 if (!level.isLoaded(gp) || store.isFarmTile(gp)
                         || nearSomeHome(level, adults, gp, PLANT_CLEAR)
-                        || nearFacility(level, gp)
+                        || nearFacility(level, gp) || nearStreet(level, gp)
                         || store.nearOtherBody(selfId, gp.getX(), gp.getZ(), PLOT_GAP)) {
                     continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
                 }
@@ -1728,6 +1728,9 @@ public final class FarmTicker {
         }
         if (store.nearOtherBody(plot.id, gp.getX(), gp.getZ(), PLOT_GAP)) {
             return null; // 이웃 구획과 붙지 않는다 — 사이에 테두리 둘과 통로 한 칸(PLOT_GAP)
+        }
+        if (nearStreet(level, gp)) {
+            return null; // 가로수 그늘·분수 몸통 — 나무 쪽에서도 막지만 심는 순서는 정해져 있지 않다
         }
         // <b>몸통과 맞닿을 것</b> — 연결을 구성적으로 보장한다.
         //
@@ -1843,6 +1846,9 @@ public final class FarmTicker {
         if (nearFacility(level, gp)) {
             return "시설여유";
         }
+        if (nearStreet(level, gp)) {
+            return "가로수여유";
+        }
         var at = level.getBlockState(gp);
         var below = level.getBlockState(gp.below());
         if (!(at.isAir() || at.canBeReplaced() || weed(at))) {
@@ -1870,6 +1876,28 @@ public final class FarmTicker {
      * <b>운</b>이지 안전이 아니다 — 집·가로등과 밭이 겹치던 것과 같은 종류의 빈틈이다.
      * 시설은 많아야 서너 채라 선형 순회로 충분하다.
      */
+    /**
+     * <b>가로수·분수를 피한다</b> — 꾸밈이 밭 칸을 덮지 않게.
+     *
+     * <p>나무 쪽({@code StreetPlanner.ok})도 밭을 피하지만, 어느 쪽이 먼저 서느냐는 정해져
+     * 있지 않다. 나무가 먼저면 밭이 물러서야 하고 밭이 먼저면 나무가 물러서야 한다 — 집·시설을
+     * 양쪽에서 다 막는 것과 같은 이유다. 한쪽만 막으면 순서에 따라 새는 빈틈이 남는다.
+     *
+     * <p>실측(D28): 구획 #11 의 구멍 한 칸이 {@code oak_leaves} 였다. 잎은 뽑히지 않으므로
+     * 그 칸은 영영 구멍이다. 꾸밈은 많아야 수십 개라 선형 순회로 충분하다.
+     */
+    private static boolean nearStreet(ServerLevel level, BlockPos gp) {
+        var street = com.evosim.mod.entity.StreetStore.get(level);
+        for (boolean fnt : new boolean[] {false, true}) {
+            // 나무는 잎이 뻗는 두 칸, 분수는 5×5 의 절반. 거기에 밭 테두리 한 겹을 더한다.
+            int need = (fnt ? 2 : com.evosim.mod.entity.StreetPlanner.TREE_CANOPY) + 1;
+            if (street.nearest(gp.getX(), gp.getZ(), fnt) <= need) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean nearFacility(ServerLevel level, BlockPos gp) {
         for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
             var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);

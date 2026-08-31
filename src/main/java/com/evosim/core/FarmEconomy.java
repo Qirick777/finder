@@ -12,9 +12,14 @@ public final class FarmEconomy {
      *  8×0.75×0.55=3.3 → 소작가구(정원5.0+임금)가 자식 2명대 소모(8.4)에 닿는다(E2 출산 재개).
      *  독립 차단은 임금이 아니라 "만족의 덫"(개간 임계 30 > 만족선 — 아래 INVEST_RESERVE 참조). */
     public static final double FEE = 0.45;
-    /** 개인 수확 용량 기본(타일/일). 12→8(소작 루프 v2): "적은 노동의 지주" 수치화 —
-     *  고용 문턱을 8+최소일감으로 낮추고, 큰 밭일수록 소작 의존이 커진다. */
-    public static final int C_BASE = 8;
+    /**
+     * 개인 수확 용량 기본(타일/일) — <b>2단계 밭 크기와 같다</b>(FarmLayout: 12칸).
+     *
+     * <p>8→12. "혼자 감당할 수 있는 최대치가 소형 밭"이 되게 맞춘 값이다. 1~2단계(6·12칸)는
+     * 혼자 짓고 혼자 거두고, <b>3단계(24칸)부터 소작이 필요</b>하다. 종전 8 이면 2단계에서
+     * 이미 소작이 붙어, 소형 밭과 소작 규모가 구별되지 않았다.
+     */
+    public static final int C_BASE = 12;
     /** 상시 소작 승격 — 같은 밭 연속 출근 일수(예약석: 이후 슬롯 변동 무관 유지).
      *  3→2(2배속 압축 — 1.5의 올림, 반나절 관대해지는 왜곡은 정직 표기). */
     public static final int PROMOTE_DAYS = 2;
@@ -26,6 +31,23 @@ public final class FarmEconomy {
      *  d15에 63(목표 180~220의 1/3) 정체. 1.0이면 +22%/일 → 180 도달 d20±1. 전 지주
      *  공통 산식(자금 능력 순)·노동 캡 불변 — 능력 경사 유지. */
     public static final double EXPAND_COST = 1.0;
+
+    /** 단계마다 개간이 비싸지는 비율 — 타일당 비용 = EXPAND_COST × STAGE_COST_MULT^(단계−1). */
+    public static final double STAGE_COST_MULT = 1.5;
+
+    /**
+     * <b>이 단계의 타일당 개간 비용</b> — 단계가 오를수록 가파르게 비싸진다.
+     *
+     * <pre>1단계 1.00 · 2단계 1.50 · 3단계 2.25 · 4단계 3.38 · 5단계 5.06</pre>
+     *
+     * <p>한 단계를 여는 총액으로 보면 6 · 9 · 27 · 40 · 91 이다. 빈둥지 부부 만족선이 24,
+     * 1자녀 가구가 27.6 이므로 <b>3단계(27)가 정확히 그 사이에 걸린다</b> — 거기서부터는
+     * 만족의 덫을 뚫는 자, 즉 야망가만 자금을 쌓는다. 새 잠금이 아니라 기존 잠금(Satisfaction)을
+     * 단계 경계에 맞춘 것이다.
+     */
+    public static double expandCost(int stage) {
+        return EXPAND_COST * Math.pow(STAGE_COST_MULT, Math.max(0, stage - 1));
+    }
     /** 신규 밭 기본 비용(food). 30→18: 엘리트 초기 저축률(관측 10~12/일)로 착공 d2(40분) 역산.
      *  체증 ×1.5 유지(2호 27·3호 40.5 — 축적 폭주 제동).
      *  18→12(P1): 밭 유무가 더는 권력이 아니게 되므로 여는 문턱을 낮춰 <b>밭을 흔하게</b> 한다.
@@ -40,16 +62,17 @@ public final class FarmEconomy {
      * 흔해지고, <b>키우는 것</b>은 추종자를 거느려야 가능해져 엘리트만 크게 키운다. 일반민은
      * 밭을 열 수 있으나 키울 수 없다 — "시도하나 능력이 안 됨".
      *
-     * <p>기본값 40 의 근거: 실측 최대 단일 구획이 58 타일(C런 D16)이고 보통은 20~45 였다.
-     * 40 이면 상위 구획만 걸려 <b>기제가 작동하는지</b>는 보이면서 경제가 무너지지는 않는다.
-     * 조이는 것은 전 단계가 붙은 뒤 실측을 보고 한다(규칙 14).
+     * <p>40/15 → <b>12/12</b>(덩어리 도면 정합). 상한을 단계 경계에 얹는다:
      *
-     * <p>추종자 계수는 아직 쓰이지 않는다 — 추종 원장이 없어 호출부가 0 을 넘긴다.
-     * 그 배선은 P3(계층·승계)에서 붙는다.
+     * <pre>추종자 0 → 12(2단계) · 1 → 24(3단계) · 2 → 36(4단계) · 4 → 60(5단계 54 가능)</pre>
+     *
+     * <p>그래서 <b>평범한 미믹은 1~2단계에서 멈춘다</b> — 혼자 거둘 수 있는 만큼(C_BASE 12)이
+     * 곧 상한이다. 소작을 부릴 규모(3단계 24칸)로 가려면 사람을 거느려야 하고, 사람을 거느리는
+     * 것은 신세를 베풀 여유가 있는 자만 한다. 신분 분기가 아니라 추종자 수가 가른다.
      */
-    public static final int PLOT_TILE_BASE = 40;
+    public static final int PLOT_TILE_BASE = 12;
 
-    public static final int PLOT_TILE_PER_FOLLOWER = 15;
+    public static final int PLOT_TILE_PER_FOLLOWER = 12;
 
     public static int plotTileCap(int followers) {
         return PLOT_TILE_BASE + Math.max(0, followers) * PLOT_TILE_PER_FOLLOWER;
@@ -107,7 +130,7 @@ public final class FarmEconomy {
         return 0.5 * FoodEconomy.forageYieldMult(ind);
     }
 
-    /** 밭 성숙 판정 — 최신(직영) 밭이 이 타일 수 이상이면 다음 밭 개간 자격(소작 2명 붙는 규모). */
+    /** 밭 성숙 판정 — 최신 밭이 이 타일 수 이상이면 다음 밭 개간 자격. 3단계(24칸) = 소작이 붙는 규모. */
     public static final int MATURE_TILES = 24;
 
     /** n번째 신규 밭 비용(이미 owned 개 소유) = 18 × 1.5^owned. */
@@ -200,7 +223,12 @@ public final class FarmEconomy {
      * 생계 예비 불필요(계정은 누구의 식량도 아님 — 정산 전 미이체분). 노동·게이트 상한은 호출부.
      */
     public static int reinvestTiles(double account) {
-        return (int) Math.floor(Math.max(0.0, account) / EXPAND_COST);
+        return reinvestTiles(account, 1);
+    }
+
+    /** 단계 비용을 반영한 재투자 가능 타일 수 — 호출부가 구획의 단계를 안다. */
+    public static int reinvestTiles(double account, int stage) {
+        return (int) Math.floor(Math.max(0.0, account) / expandCost(stage));
     }
 
     // ── 마름(클래스 시스템 v1.3) — 임명·수당 산식 ──

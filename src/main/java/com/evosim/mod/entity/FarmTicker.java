@@ -363,7 +363,7 @@ public final class FarmTicker {
             // 부수 효과로 확장 속도가 3.5배 느려져, 노동(소작 1인당 +8타일/일)이 확장을 따라잡는
             // 범위로 들어온다 — 익은 채 방치되던 타일(실측 79/303)이 함께 줄어든다.
             int afford = com.evosim.core.FarmEconomy.reinvestTiles(
-                    plot.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE);
+                    plot.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE, plot.steps + 1);
             double ownerFunds = 0.0;
             if (nTen == 0) { // 부트스트랩(자영) — 저장고 예비 위 잉여를 폴백 재원으로
                 ownerFunds = ownerEnt.getHomePos() != null
@@ -373,7 +373,7 @@ public final class FarmTicker {
                         eligible, store.ownedCount(plot.ownerId),
                         familyDailyNeed(level, ownerEnt, adults));
                 afford += (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
-                        / com.evosim.core.FarmEconomy.EXPAND_COST);
+                        / com.evosim.core.FarmEconomy.expandCost(plot.steps + 1));
             }
             // 구획 타일 상한 — 밭은 흔하되 마구 커지지 않는다. 상한이 추종자 수에 비례해
             // 올라가므로 <b>사람을 거느린 자만</b> 크게 키운다. 일반민은 밭을 열 수는 있으나
@@ -422,7 +422,7 @@ public final class FarmTicker {
             if (placed > 0) {
                 // 지불: 밭 계정 먼저 소진, 잔여는 자영 밭 한정 주인 저장고(부트스트랩). 소작 밭은
                 // afford=내림(계정)이라 fromLarder=0(저장고 무손실 — 축장 보호). 회계 합 = placed×cost.
-                double bill = placed * com.evosim.core.FarmEconomy.EXPAND_COST;
+                double bill = placed * com.evosim.core.FarmEconomy.expandCost(plot.steps + 1);
                 double fromAccount = Math.min(plot.account, bill);
                 plot.account -= fromAccount;
                 double fromLarder = bill - fromAccount;

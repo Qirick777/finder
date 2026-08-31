@@ -23,7 +23,7 @@ public final class Satisfaction {
     /** 재개 히스테리시스 — 만족 중엔 기준 × 이 값 미만으로 떨어져야 재개. */
     public static final double RESUME_FACTOR = 0.8;
     /** 야망가의 만족 기준 — 소유 밭 타일 합이 이 값 이상이어야(대지주 규모 T5). */
-    public static final int AMBITION_TILE_GOAL = 49;
+    public static final int AMBITION_TILE_GOAL = 54; // 49→54: 5단계 경계(덩어리 도면)
 
     private Satisfaction() {
     }

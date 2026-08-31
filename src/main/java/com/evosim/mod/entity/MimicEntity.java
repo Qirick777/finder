@@ -4295,6 +4295,16 @@ public class MimicEntity extends PathfinderMob {
                 break;
             }
         }
+        // <b>미완성 정원의 식수 비용</b> — 출산이 이것을 먼저 먹지 못하게 아래 번식 판정에서 뺀다.
+        // 설계는 "정착 즉시 정원 완성 → 식수 후 잔여로 d2 첫 출산"을 계산했는데, 정원 식수는
+        // 건축 중이면 건너뛰고 출산은 그 조건이 없어서 <b>지참금이 정원 대신 아이에게 먼저</b>
+        // 쓰였다. 그 결과 정착 당일 전 가구가 출산하고(실측 r1 D1: 10쌍 전원 1.00) 인구가 5일 만에
+        // 21→37 로 늘어 풀이 고갈(가구당 0.72→0.07)되고, 엘리트마저 착공 자금을 못 모았다.
+        double gardenDebt = 0.0;
+        if (homePos != null) {
+            gardenDebt = Math.max(0, berryCap(sl) - countBerries(sl))
+                    * com.evosim.core.BerryEconomy.BUSH_COST;
+        }
         if (homePos != null && !underConstruction) {
             sweepLegacyGarden(sl); // 구 정원 범위(입구 줄)에 굳은 고아 덤불 걷어내기 — 기존 월드 치유
             int bushCount = countBerries(sl);
@@ -4336,7 +4346,7 @@ public class MimicEntity extends PathfinderMob {
                 // 베리·밭이 케어하고, 부족해지면 기근 이주가 알아서 분산시킨다. 인위 상한은
                 // 마을 중심부 번식만 조용히 멈추는 관측 불가 벽이었다(d5~6 실측).
                 if (cooldownOk && underLimit
-                        && FoodEconomy.canReproduce(larder, need, adults, adj, starving)
+                        && FoodEconomy.canReproduce(larder - gardenDebt, need, adults, adj, starving)
                         && mother.spawnChild(sl, father)) {
                     larder -= FoodEconomy.BIRTH_COST; // 비용은 출산이 실제 성사됐을 때만 차감(결과 기반)
                 }

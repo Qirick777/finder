@@ -3589,6 +3589,73 @@ public final class EvoSimCommand {
         if (rs.length() > 0) {
             tell(ctx.getSource(), "  역할별 1인 순수지/살림 — " + rs);
         }
+        // ── <b>벌이</b> — 지갑이 아니라 소득으로 본다.
+        //
+        // 저장고가 얕다고 가난한 것이 아니다. 많이 버는 자는 번 것을 밭으로 되돌리므로 지갑이
+        // 늘 얕아 보인다. 그러니 <b>얼마나 벌었나</b>를 원장에서 직접 읽는다 — 밭 원장의
+        // totalToOwner(지대+자영)와 totalToTenant(소작 몫)는 개간일부터의 누계다.
+        long today2 = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        java.util.Map<Long, double[]> earn = new java.util.HashMap<>(); // id → [수취, 일수]
+        double tenantSum = 0.0;
+        for (FarmStore.Plot p : farms.all().values()) {
+            double days = Math.max(1.0, today2 - Math.max(0L, p.foundedDay));
+            double[] e = earn.computeIfAbsent(p.ownerId, k -> new double[2]);
+            e[0] += p.totalToOwner;
+            e[1] = Math.max(e[1], days);
+            tenantSum += p.totalToTenant;
+        }
+        java.util.List<java.util.Map.Entry<Long, double[]>> rich =
+                new java.util.ArrayList<>(earn.entrySet());
+        rich.sort((x, y) -> Double.compare(y.getValue()[0], x.getValue()[0]));
+        StringBuilder eb = new StringBuilder();
+        for (int i = 0; i < Math.min(3, rich.size()); i++) {
+            double[] e = rich.get(i).getValue();
+            MimicEntity m = byId.get(rich.get(i).getKey());
+            eb.append(String.format("%s %.0f(%.1f/일) ",
+                    m == null ? "?" : m.getIndividual().shortName(), e[0], e[0] / e[1]));
+        }
+        int tenantN = 0;
+        for (MimicEntity m : byId.values()) {
+            if (m.getTenantFarm() != 0L) {
+                tenantN++;
+            }
+        }
+        tell(ctx.getSource(), String.format(
+                "  벌이(누적/일평균) — 지주 상위 %s· 소작 전체 %.0f(%d명)",
+                eb.toString(), tenantSum, tenantN));
+        // ── <b>출산률</b> — 부부당 자녀 수. 목표 1.5~3, 0 도 4 도 결함이다.
+        int couples = 0;
+        int kids = 0;
+        int[] dist = new int[5]; // 0,1,2,3,4+
+        int eliteCouples = 0;
+        int eliteKids = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getIndividual().sex() == com.evosim.core.Sex.FEMALE
+                        && e.getSpouseId() != 0L
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            couples++;
+            int n = m.getChildrenBorn();
+            kids += n;
+            dist[Math.min(4, n)]++;
+            if (com.evosim.core.ExpressionResolver.isExpressed(
+                    m.getIndividual(), com.evosim.core.Trait.AMBITIOUS)
+                    || farms.ownedTiles(m.getIndividual().id()) > 0
+                    || (m.getSpouseId() != 0L && farms.ownedTiles(m.getSpouseId()) > 0)) {
+                eliteCouples++;
+                eliteKids += n;
+            }
+        }
+        if (couples > 0) {
+            double avg = (double) kids / couples;
+            boolean ok = avg >= 1.5 && avg <= 3.0;
+            tell(ctx.getSource(), String.format(
+                    "  %s출산 — 부부%d쌍 평균 자녀 %.2f(목표 1.5~3)§r · 분포 0:%d 1:%d 2:%d 3:%d 4+:%d"
+                            + " · 지주가문 %d쌍 평균 %.2f",
+                    ok ? "§a" : "§c", couples, avg, dist[0], dist[1], dist[2], dist[3], dist[4],
+                    eliteCouples, eliteCouples == 0 ? 0.0 : (double) eliteKids / eliteCouples));
+        }
 
         java.util.List<java.util.Map.Entry<Long, Integer>> top =
                 new java.util.ArrayList<>(direct.entrySet());

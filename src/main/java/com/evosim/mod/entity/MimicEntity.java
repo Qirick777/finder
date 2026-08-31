@@ -180,6 +180,12 @@ public class MimicEntity extends PathfinderMob {
     // 번식(§6): 마지막 출산 시각 + 출산 수. 실제 발동은 가족 정산의 저장고 게이트(familyTick).
     private long lastBirthTick = -100_000L;
     private int childrenBorn = 0;
+
+    /** 낳은 자식 수 — 출산률 보고(부부당 평균)의 입력. */
+    public int getChildrenBorn() {
+        return childrenBorn;
+    }
+
     private static final double ZOMBIE_AGGRO_RANGE = 12.0; // 전투 가능 성년·노년의 유인 반경 — 위협 판정(12)과 정합
     private static final double ZOMBIE_CLOSE_AGGRO = 4.0;  // 유아·소년은 근접 조우만 — 원거리 자살 유인 제거, 밤 위협은 유지
 

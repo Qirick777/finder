@@ -3834,8 +3834,9 @@ public final class EvoSimCommand {
             // 겨우 · 지배자는 그 위. 전체 평균 하나로는 "평민이 4를 낳고 지주가 0"인 병든 분포와
             // 정상 분포를 구분할 수 없다. 층은 소유 타일과 고용으로만 가른다(라벨 없음).
             String[] cls = {"소작·농노", "마름", "자영농", "지배자"};
-            double[] lo = {1.5, 3.0, 3.0, 3.0};
-            double[] hi = {2.0, 4.0, 4.0, 99.0};
+            // 소작·농노 1~3(지시 갱신: 1.5~2 에서 넓힘) · 마름·자영농 3~4 · 지배자 3 이상.
+            double[] lo = {1.0, 3.0, 3.0, 3.0};
+            double[] hi = {3.0, 4.0, 4.0, 99.0};
             int[] cc = new int[4];
             int[] ck = new int[4];
             for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
@@ -3864,7 +3865,7 @@ public final class EvoSimCommand {
                 cb.append(String.format("%s%s %d쌍 %.2f§r ",
                         ca >= lo[k] && ca <= hi[k] ? "§a" : "§c", cls[k], cc[k], ca));
             }
-            tell(ctx.getSource(), "  출산 신분별(목표 소작1.5~2 · 마름·자영농3~4 · 지배자3+) — "
+            tell(ctx.getSource(), "  출산 신분별(목표 소작1~3 · 마름·자영농3~4 · 지배자3+) — "
                     + (cb.length() == 0 ? "해당 없음" : cb.toString().trim()));
         }
 

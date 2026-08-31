@@ -384,105 +384,35 @@ public final class FarmTicker {
             if (k <= 0) {
                 continue;
             }
-            // <b>점유 집합</b> 기준으로 이상 수열을 훑는다 — 개수 색인이 아니다.
+            // ── 덩어리 도면 성장 ────────────────────────────────────────────
             //
-            // 종전에는 {@code layout(tiles.length + k)} 의 <b>i번째</b>부터 놓았다. 그러면 칸
-            // 하나가 막혀 건너뛰는 순간 개수와 실제 배치가 어긋나고, 다음 날은 이미 틀어진 개수를
-            // 기준으로 또 다른 칸을 계산해 구획이 이상 직사각형에서 영구히 표류한다. 게다가 막힌
-            // 칸은 {@code continue} 로 <b>그냥 버려져</b> 그날 밭의 양이 줄었다.
-            //
-            // 이제 이상 수열을 앞에서부터 훑어 <b>아직 우리 것이 아닌</b> 칸만 후보로 삼고,
-            // k개를 채울 때까지 계속 나아간다. 수열은 본래 연결적이라(열 확장 (w,r)은 (w−1,r)에,
-            // 새 줄 (c,k)는 (c,k−1)에 붙는다) 막힌 칸을 건너뛰어도 몸통은 이어진 채 남는다.
-            // SCAN_SLACK 만큼 더 훑으므로 막힌 칸이 있어도 배치 수가 줄지 않는다.
-            var seq = com.evosim.core.FarmLayout.layout(plot.tiles.length + k + SCAN_SLACK);
-            java.util.Set<Long> mine = new java.util.HashSet<>();
-            for (long l : plot.tiles) {
-                mine.add(l);
-            }
+            // 칸을 이어 붙이지 않는다. 확보한 발자국 안의 <b>안 심은 재배 칸</b>을 도면 순서대로
+            // 채우고, 다 채웠으면 다음 단계 발자국을 예약한다(원목은 예약 즉시 깔린다).
+            // 그래서 미완성은 언제나 마지막 줄 하나에만 남고, 밭은 늘 반듯한 직사각형이다.
             int placed = 0;
-            // <b>폭은 첫 장애물에서 끊는다</b> — 계단이 생기는 자리가 바로 여기다.
-            //
-            // 수열은 열을 넓힐 때 모든 줄에 한 칸씩 더하므로 줄 길이는 ±1 이어야 한다. 그런데
-            // 막힌 칸을 그냥 건너뛰면, 집 여유 반경에 걸린 줄 하나는 거기서 <b>영구히</b> 멈추고
-            // 나머지 줄은 계속 넓어진다 — 오른쪽이 계단처럼 깎인 모양(실측 D28: 채움 80%,
-            // 줄 길이 2~11, 막힌 339칸 중 집·시설 여유가 318칸)이 그렇게 만들어진다.
-            //
-            // 그래서 어느 줄이든 열 c 에서 막히면 <b>그 구획의 폭을 c 로 끊는다</b>. 남은 성장은
-            // 새 재배줄(c < blockCol)로 가고, 그마저 막히면 placed==0 이 되어 아래의 방향 전환이
-            // 받는다. 종전 방향 전환은 <b>한 칸도 못 심을 때만</b> 발동해서, 한 줄만 막힌 흔한
-            // 경우에는 아무 일도 하지 않았다.
-            //
-            // <b>미리 훑어서</b> 정한다. 배치하며 정하면 늦다: 수열은 열을 (c,0) → (c,1) → …
-            // 순으로 넓히므로, (c,0) 이 뚫려 있으면 <b>먼저 놓인 뒤</b> (c,1) 에서야 막힌 것을
-            // 안다. 이미 놓은 칸은 되돌릴 수 없고 다음 날도 같은 일이 반복되어 그 줄만 영구히
-            // 한 칸 길어진다 — 실측 A′ D15: 줄 길이 [5,5,5,7,3](5 에서 6 을 건너뛰고 7).
-            int blockCol = Integer.MAX_VALUE;
-            for (int[] t : seq) {
-                if (t[0] >= blockCol) {
-                    continue;
-                }
-                BlockPos probe = level.getHeightmapPos(
-                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        gridOffset(plot.anchor, plot.dir, t[0], t[1]));
-                String r = gateReason(level, store, plot.id, probe, adults);
-                if (r != null && !"이미밭".equals(r)) {
-                    blockCol = t[0];
-                }
+            if (plot.beds <= 0) {
+                continue; // 구세계 구획(칸 수열로 자란 옛 밭) — 모양을 건드리지 않는다
             }
-            for (int i = 0; i < seq.size() && placed < k; i++) {
-                int sc = seq.get(i)[0];
-                int sr = seq.get(i)[1];
-                if (sc >= blockCol) {
-                    continue; // 이 폭 너머는 이 구획의 땅이 아니다
+            java.util.List<int[]> todo = unplanted(store, plot);
+            if (todo.isEmpty() && reserveNext(level, store, plot, adults)) {
+                todo = unplanted(store, plot);
+            }
+            for (int[] cr : todo) {
+                if (placed >= k) {
+                    break;
                 }
-                BlockPos raw = level.getHeightmapPos(
-                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        gridOffset(plot.anchor, plot.dir, sc, sr));
-                if (gateReason(level, store, plot.id, raw, adults) != null) {
-                    continue; // 우리 칸이거나 막힘 — 폭은 위에서 이미 확정했다
+                if (plantAt(level, store, plot, cr[0], cr[1])) {
+                    int[] xz = colOf(plot, cr[0], cr[1]);
+                    com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, plot,
+                            new BlockPos(xz[0], plot.baseY + 2, xz[1]));
+                    placed++;
                 }
-                BlockPos gp = idealSpot(level, store, plot, sc, sr, adults, mine);
-                if (gp == null) {
-                    continue; // 연결 조건(몸통과 맞닿을 것) 미충족 — 폭은 끊지 않는다
-                }
-                level.setBlockAndUpdate(gp.below(),
-                        net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
-                level.setBlockAndUpdate(gp,
-                        net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                                .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
-                store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
-                // 타일을 <b>등록한 뒤</b> 부른다 — 그래야 새 줄까지 포함한 몸통으로 판정한다.
-                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, plot, gp);
-                placed++;
             }
             // 공간 포화 감지 — 자금·노동은 있었는데 한 칸도 못 심음. 2일 연속이면 성숙 간주(막힌
             // 밭도 다음 밭을 연다 — 교착 방지). 심었으면 리셋.
-            if (placed > 0) {
-                redrawBorder(level, store, plot); // 상자가 커졌으면 테두리를 한 겹 물린다
-            }
             if (placed == 0) {
-                // <b>막히면 방향을 한 번 튼다.</b> 성장 방향이 집·다른 밭에 막히면 줄이 계단처럼
-                // 짧아지는데(실측: 14구획 중 1개가 줄 길이 9→4→3→2→2, 채움 43%), 거울을 걷어낸
-                // 뒤로는 반대편으로 넘어갈 수단이 없었다.
-                //
-                // 뒤집어도 <b>몸통은 끊기지 않는다</b>. dir 의 x 를 뒤집으면 새 칸은 앵커+(−1,…)
-                // 부터 놓이는데 <b>앵커 열(c=0)은 양쪽이 공유</b>하므로 기존 타일과 맞닿는다.
-                // 칸마다 뒤집던 옛 거울과 달리 구획 단위로 <b>한 번만</b> 트는 것이라, 떨어져
-                // 나온 타일이 생기지 않는다. turned 로 한 번만 허용해 무한 회전을 막는다.
-                if (!plot.turned) {
-                    byte nd = pickDirExcept(level, store, plot.anchor, adults, plot.dir, plot.id);
-                    if (nd != plot.dir) {
-                        com.evosim.mod.log.SimEvents.note(level, "밭방향", String.format(
-                                "구획 %d 포화 — 성장 방향 %d→%d 로 전환(타일 %d)",
-                                plot.id, plot.dir, nd, plot.tiles.length));
-                        plot.dir = nd;
-                        plot.turned = true;
-                        plot.blockedDays = 0;
-                        store.setDirty();
-                        continue; // 다음 날 새 방향으로 다시 시도한다
-                    }
-                }
+                // 발자국 예약이 두 수 × 양쪽 = 네 방향을 이미 다 봤다 — 여기 오면 진짜 포화다.
+                // 방향 전환(turnDir)은 뜻이 없어졌다: 도면이 매번 네 방향을 본다.
                 plot.blockedDays++;
                 store.setDirty();
             } else if (plot.blockedDays != 0) {
@@ -670,10 +600,11 @@ public final class FarmTicker {
             if (owned > 0 && !nextFarmEligible(store, adults, m.getIndividual().id())) {
                 continue; // 성숙 트리거(P6) — nextFarmEligible 참조(확장 예비 산정과 단일 출처)
             }
-            BlockPos site = findFarmSite(level, store, m.getHomePos(), adults);
-            if (site == null) {
-                continue;
+            int[] spot = findFootprint(level, store, m.getHomePos(), adults);
+            if (spot == null) {
+                continue; // 1단계 발자국(4×5)이 들어갈 자리가 없다
             }
+            BlockPos site = new BlockPos(spot[0], spot[3] + 1, spot[1]);
             if (m.getTenantFarm() != 0L) {
                 // 유령 상시 해소(런6 실측): 상시 소작이 독립 개간 후에도 명부에 남아 슬롯을
                 // 점유(covered 포화) → 신규 고용 게시가 봉쇄되고 지대가 말랐다(d10~13 farm 소득 0).
@@ -708,29 +639,24 @@ public final class FarmTicker {
             FarmStore.Plot plot = store.create(site, newOwnerId);
             plot.founderId = m.getIndividual().id(); // 원장: 창설자 = 착공 실행자(귀속과 무관)
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
-            plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
-            // 성장 방향을 <b>여기서 한 번</b> 정한다 — 앵커 둘레 네 사분면 중 가장 넓게 트인 쪽.
-            // 그 뒤로는 칸마다 뒤집지 않으므로 구획이 한쪽으로 반듯하게 자란다.
-            plot.dir = pickDir(level, store, site, adults, plot.id);
-            java.util.Set<Long> mine0 = new java.util.HashSet<>();
-            for (int[] t : com.evosim.core.FarmLayout.layout(9 + SCAN_SLACK)) {
-                if (plot.tiles.length >= 9) {
-                    break; // 9타일 채웠다 — 막힌 칸이 있었으면 수열을 더 훑어 벌충한 뒤 끝
+            // 1단계 발자국을 그대로 앉힌다 — 원목은 즉시, 재배 칸은 노동에 따라 차오른다.
+            int[] br1 = com.evosim.core.FarmLayout.stage(1);
+            plot.beds = br1[0];
+            plot.rows = br1[1];
+            plot.bedAxisX = spot[2] != 0;
+            plot.fx = spot[0];
+            plot.fz = spot[1];
+            plot.baseY = spot[3];
+            plot.tilesByFounder = com.evosim.core.FarmLayout.tiles(br1[0], br1[1]);
+            store.setDirty();
+            layLogs(level, plot);
+            for (int[] cr : com.evosim.core.FarmLayout.cropOrder(plot.beds, plot.rows)) {
+                if (plantAt(level, store, plot, cr[0], cr[1])) {
+                    int[] xz = colOf(plot, cr[0], cr[1]);
+                    com.evosim.mod.entity.MimicEntity.farmTookRoad(level, m, plot,
+                            new BlockPos(xz[0], plot.baseY + 2, xz[1]));
                 }
-                BlockPos gp = idealSpot(level, store, plot, t[0], t[1], adults, mine0);
-                if (gp == null) {
-                    continue; // 막힌 칸 — 수열의 다음 이상 칸으로(버리지 않는다)
-                }
-                mine0.add(gp.asLong());
-                level.setBlockAndUpdate(gp.below(),
-                        net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
-                level.setBlockAndUpdate(gp,
-                        net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                                .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
-                store.addTile(plot, gp, com.evosim.mod.entity.SimTime.tick(level));
-                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, m, plot, gp);
             }
-            redrawBorder(level, store, plot); // 착공 즉시 경계가 보이게
             larders.set(m.getHomePos(), funds - cost);
             if (familyLord != null) {
                 plot.stewardDebt = cost; // 착공비 상환 채무(영주→마름, 밤 정산 이월)
@@ -1913,6 +1839,188 @@ public final class FarmTicker {
      * <b>운</b>이지 안전이 아니다 — 집·가로등과 밭이 겹치던 것과 같은 종류의 빈틈이다.
      * 시설은 많아야 서너 채라 선형 순회로 충분하다.
      */
+    // ── 덩어리 도면 기하 ────────────────────────────────────────────────────
+
+    /** 발자국 격자 (열 c, 행 r) → 월드 열 {x, z}. 덩어리 축이 z 면 c/r 이 바뀐다. */
+    static int[] colOf(FarmStore.Plot p, int c, int r) {
+        return p.bedAxisX ? new int[] {p.fx + c, p.fz + r} : new int[] {p.fx + r, p.fz + c};
+    }
+
+    /** 발자국의 월드 상자 {x0, z0, 폭, 깊이}. */
+    static int[] boxOf(FarmStore.Plot p, int beds, int rows) {
+        int[] fp = com.evosim.core.FarmLayout.footprint(beds, rows);
+        return p.bedAxisX ? new int[] {p.fx, p.fz, fp[0], fp[1]}
+                : new int[] {p.fx, p.fz, fp[1], fp[0]};
+    }
+
+    /**
+     * 이 월드 상자를 <b>밭으로 쓸 수 있는가</b> — 비었고, 평평하고, 이웃과 간격이 있는가.
+     *
+     * <p>칸마다 묻던 종전과 달리 <b>한 번에</b> 묻는다. 이것이 덩어리 도면의 핵심이다:
+     * 통과하면 모양이 보장되고, 실패하면 아무것도 놓지 않는다 — 반쯤 놓여 계단이 되는 중간
+     * 상태가 존재하지 않는다.
+     *
+     * @param baseY 요구 지면 높이(-1 이면 첫 칸의 높이를 기준으로 삼는다)
+     */
+    private static boolean boxUsable(ServerLevel level, FarmStore store, long selfId,
+                                     int x0, int z0, int w, int d, int baseY,
+                                     java.util.List<MimicEntity> adults) {
+        int want = baseY;
+        for (int x = x0; x < x0 + w; x++) {
+            for (int z = z0; z < z0 + d; z++) {
+                int y = RoadPlanner.surfaceY(level, x, z);
+                if (y == Integer.MIN_VALUE) {
+                    return false;
+                }
+                if (want < 0) {
+                    want = y;
+                } else if (y != want) {
+                    return false; // 평평하지 않다 — 한 칸이라도 어긋나면 밭이 계단이 된다
+                }
+                BlockPos gp = new BlockPos(x, y + 1, z);
+                if (!level.isLoaded(gp)) {
+                    return false;
+                }
+                if (store.nearOtherBody(selfId, x, z, PLOT_GAP)) {
+                    return false;
+                }
+                if (nearSomeHome(level, adults, gp, PLANT_CLEAR) || nearFacility(level, gp)
+                        || nearStreet(level, gp)) {
+                    return false;
+                }
+                if (RoadStore.get(level).has(x, z)) {
+                    return false; // 등기된 마을 길 위에는 안 놓는다
+                }
+                var at = level.getBlockState(gp);
+                if (!(at.isAir() || at.canBeReplaced() || weed(at))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** 확보한 발자국의 원목(테두리·길)을 깐다 — 이미 원목인 칸은 건너뛴다. */
+    private static void layLogs(ServerLevel level, FarmStore.Plot p) {
+        int[] fp = com.evosim.core.FarmLayout.footprint(p.beds, p.rows);
+        for (int c = 0; c < fp[0]; c++) {
+            for (int r = 0; r < fp[1]; r++) {
+                if (com.evosim.core.FarmLayout.isCrop(c, r, p.beds, p.rows)) {
+                    continue;
+                }
+                int[] xz = colOf(p, c, r);
+                BlockPos at = new BlockPos(xz[0], p.baseY + 1, xz[1]);
+                if (!level.getBlockState(at).is(net.minecraft.world.level.block.Blocks.OAK_LOG)) {
+                    level.setBlockAndUpdate(at,
+                            net.minecraft.world.level.block.Blocks.OAK_LOG.defaultBlockState());
+                }
+                // 길 위에 옛 베리가 남아 있으면 걷어낸다(줄이 늘 때 재배 칸이 길로 바뀌는 경우).
+                BlockPos above = at.above();
+                if (level.getBlockState(above)
+                        .is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)) {
+                    level.setBlockAndUpdate(above,
+                            net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+                }
+            }
+        }
+    }
+
+    /** 재배 칸 하나를 심는다 — 지면+1 잔디블록, 그 위 베리. 이미 심겼으면 false. */
+    private static boolean plantAt(ServerLevel level, FarmStore store, FarmStore.Plot p,
+                                   int c, int r) {
+        int[] xz = colOf(p, c, r);
+        BlockPos soil = new BlockPos(xz[0], p.baseY + 1, xz[1]);
+        BlockPos bush = soil.above();
+        if (store.isFarmTile(bush)) {
+            return false;
+        }
+        level.setBlockAndUpdate(soil,
+                net.minecraft.world.level.block.Blocks.GRASS_BLOCK.defaultBlockState());
+        level.setBlockAndUpdate(bush,
+                net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                        .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 1));
+        store.addTile(p, bush, com.evosim.mod.entity.SimTime.tick(level));
+        return true;
+    }
+
+    /** 아직 안 심은 재배 칸 — {@code FarmLayout.cropOrder} 순(위 줄부터, 줄 안은 왼쪽부터). */
+    private static java.util.List<int[]> unplanted(FarmStore store, FarmStore.Plot p) {
+        java.util.List<int[]> out = new java.util.ArrayList<>();
+        for (int[] cr : com.evosim.core.FarmLayout.cropOrder(p.beds, p.rows)) {
+            int[] xz = colOf(p, cr[0], cr[1]);
+            if (!store.isFarmTile(new BlockPos(xz[0], p.baseY + 2, xz[1]))) {
+                out.add(cr);
+            }
+        }
+        return out;
+    }
+
+    /** 이 (덩어리, 줄)이 몇 단계인가 — 표준 수열에서 찾는다(없으면 0). */
+    private static int stageIndex(int beds, int rows) {
+        for (int s = 1; s <= 64; s++) {
+            int[] br = com.evosim.core.FarmLayout.stage(s);
+            if (br[0] == beds && br[1] == rows) {
+                return s;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * <b>다음 단계를 예약해 본다</b> — 되면 발자국이 커지고 원목이 즉시 깔린다.
+     *
+     * <p>표준 수열의 다음 수(덩어리 추가 또는 줄 늘리기)를 먼저 시도하고, 그 쪽이 막히면
+     * <b>다른 수</b>를 시도한다. 각 수는 양쪽 방향을 다 본다 — 방향을 고정하면 한쪽이 막힌
+     * 것만으로 밭이 멈춘다. 넷 다 안 되면 포화다.
+     *
+     * <p>붙이는 띠는 언제나 <b>3칸</b>이다. 덩어리를 늘리면 옛 테두리 열이 사이 길이 되고,
+     * 줄을 늘리면 옛 테두리 줄이 재배 줄이 된다 — 그래서 새로 필요한 땅은 3칸뿐이다.
+     */
+    private static boolean reserveNext(ServerLevel level, FarmStore store, FarmStore.Plot p,
+                                       java.util.List<MimicEntity> adults) {
+        int s = stageIndex(p.beds, p.rows);
+        if (s == 0) {
+            return false; // 표준 수열 밖(구세계 등) — 건드리지 않는다
+        }
+        boolean[] first = com.evosim.core.FarmLayout.nextAddsBed(s)
+                ? new boolean[] {true, false} : new boolean[] {false, true};
+        for (boolean addBed : first) {
+            int nb = addBed ? p.beds + 1 : p.beds;
+            int nr = addBed ? p.rows : p.rows + com.evosim.core.FarmLayout.ROW_STEP;
+            int[] old = boxOf(p, p.beds, p.rows);
+            int[] neu = boxOf(p, nb, nr);
+            int gw = neu[2] - old[2];   // 늘어난 폭
+            int gd = neu[3] - old[3];   // 늘어난 깊이
+            // + 방향: 상자 끝에 붙인다. − 방향: 원점을 당긴다.
+            int[][] tries = gw > 0
+                    ? new int[][] {{old[0] + old[2], old[1], gw, old[3]}, {old[0] - gw, old[1], gw, old[3]}}
+                    : new int[][] {{old[0], old[1] + old[3], old[2], gd}, {old[0], old[1] - gd, old[2], gd}};
+            for (int t = 0; t < tries.length; t++) {
+                int[] strip = tries[t];
+                if (!boxUsable(level, store, p.id, strip[0], strip[1], strip[2], strip[3],
+                        p.baseY, adults)) {
+                    continue;
+                }
+                if (t == 1) { // − 방향이면 원점이 당겨진다
+                    p.fx -= gw > 0 && p.bedAxisX ? gw : 0;
+                    p.fz -= gw > 0 && !p.bedAxisX ? gw : 0;
+                    p.fx -= gd > 0 && !p.bedAxisX ? gd : 0;
+                    p.fz -= gd > 0 && p.bedAxisX ? gd : 0;
+                }
+                p.beds = nb;
+                p.rows = nr;
+                store.setDirty();
+                layLogs(level, p);
+                com.evosim.mod.log.SimEvents.note(level, "밭단계", String.format(
+                        "구획 %d — %d단계로(덩어리%d 줄%d · 재배%d칸) %s쪽으로 %s @%d,%d",
+                        p.id, s + 1, nb, nr, com.evosim.core.FarmLayout.tiles(nb, nr),
+                        t == 0 ? "+" : "−", addBed ? "덩어리 추가" : "줄 늘리기", p.fx, p.fz));
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * <b>이 칸에 못 심는 사유</b> — 못 심으면 이름, 심을 수 있으면 null.
      *
@@ -1973,24 +2081,60 @@ public final class FarmTicker {
     public static java.util.Map<String, Integer> unfilledReasons(
             ServerLevel level, FarmStore store, FarmStore.Plot plot, int look) {
         java.util.Map<String, Integer> out = new java.util.LinkedHashMap<>();
+        if (plot.beds <= 0) {
+            out.merge("구세계구획", 1, Integer::sum);
+            return out;
+        }
         java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
                 com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 m -> m.isAlive() && m.getIndividual() != null
                         && (m.getStage() == com.evosim.core.LifeStage.ADULT
                                 || m.getStage() == com.evosim.core.LifeStage.ELDER)));
-        java.util.Set<Long> mine = new java.util.HashSet<>();
-        for (long t : plot.tiles) {
-            mine.add(t);
+        int un = unplanted(store, plot).size();
+        if (un > 0) {
+            out.merge("아직 안 심음(순서대기)", un, Integer::sum);
+            return out; // 아직 이번 단계를 채우는 중 — 막힌 것이 아니다
         }
-        for (int[] t : com.evosim.core.FarmLayout.layout(plot.tiles.length + look)) {
-            BlockPos gp = level.getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    gridOffset(plot.anchor, plot.dir, t[0], t[1]));
-            if (mine.contains(gp.asLong())) {
-                continue; // 이미 내 타일 — 빈자리가 아니다
+        // 다음 단계의 네 후보 띠가 각각 무엇에 걸리는지 센다.
+        int s = stageIndex(plot.beds, plot.rows);
+        if (s == 0) {
+            out.merge("수열밖", 1, Integer::sum);
+            return out;
+        }
+        for (boolean addBed : new boolean[] {true, false}) {
+            int nb = addBed ? plot.beds + 1 : plot.beds;
+            int nr = addBed ? plot.rows : plot.rows + com.evosim.core.FarmLayout.ROW_STEP;
+            int[] old = boxOf(plot, plot.beds, plot.rows);
+            int[] neu = boxOf(plot, nb, nr);
+            int gw = neu[2] - old[2];
+            int gd = neu[3] - old[3];
+            int[][] tries = gw > 0
+                    ? new int[][] {{old[0] + old[2], old[1], gw, old[3]},
+                                   {old[0] - gw, old[1], gw, old[3]}}
+                    : new int[][] {{old[0], old[1] + old[3], old[2], gd},
+                                   {old[0], old[1] - gd, old[2], gd}};
+            for (int[] st : tries) {
+                String why = null;
+                for (int x = st[0]; x < st[0] + st[2] && why == null; x++) {
+                    for (int z = st[1]; z < st[1] + st[3] && why == null; z++) {
+                        int y = RoadPlanner.surfaceY(level, x, z);
+                        if (y == Integer.MIN_VALUE || y != plot.baseY) {
+                            why = "높이다름";
+                            break;
+                        }
+                        if (RoadStore.get(level).has(x, z)) {
+                            why = "마을길";
+                            break;
+                        }
+                        String r = gateReason(level, store, plot.id,
+                                new BlockPos(x, y + 1, z), adults);
+                        if (r != null) {
+                            why = r;
+                        }
+                    }
+                }
+                out.merge(why == null ? "열려있음(자금대기)" : why, 1, Integer::sum);
             }
-            String why = gateReason(level, store, plot.id, gp, adults);
-            out.merge(why == null ? "빈땅(순서대기)" : why, 1, Integer::sum);
         }
         return out;
     }
@@ -2197,6 +2341,52 @@ public final class FarmTicker {
      */
     static final int PLOT_GAP = 3;
 
+    /**
+     * <b>1단계 발자국이 들어갈 자리</b> — {x0, z0, 덩어리축이 x면 1, 지면 y}. 없으면 null.
+     *
+     * <p>점 하나를 고르던 종전과 다르다. 밭이 이제 통째로 앉으므로 <b>상자가 들어가는지</b>를
+     * 물어야 한다 — 점만 보고 앉히면 모서리가 집·길·이웃 밭에 걸려 반쯤 놓인 밭이 생긴다.
+     * 후보 점마다 두 축(덩어리가 x로 늘어나는 배치와 z로 늘어나는 배치)을 다 본다.
+     */
+    @javax.annotation.Nullable
+    private static int[] findFootprint(ServerLevel level, FarmStore store, BlockPos home,
+                                       java.util.List<MimicEntity> adults) {
+        int[] br = com.evosim.core.FarmLayout.stage(1);
+        int[] fp = com.evosim.core.FarmLayout.footprint(br[0], br[1]);
+        for (int radius = 15; radius <= 70; radius += 5) {
+            for (int d = 0; d < 16; d++) {
+                double ang = d * Math.PI / 8.0;
+                int cx = home.getX() + (int) Math.round(Math.cos(ang) * radius);
+                int cz = home.getZ() + (int) Math.round(Math.sin(ang) * radius);
+                for (int axis = 0; axis < 2; axis++) {
+                    int w = axis == 1 ? fp[0] : fp[1];
+                    int dpt = axis == 1 ? fp[1] : fp[0];
+                    int x0 = cx - w / 2;
+                    int z0 = cz - dpt / 2;
+                    int y = RoadPlanner.surfaceY(level, x0, z0);
+                    if (y == Integer.MIN_VALUE) {
+                        continue;
+                    }
+                    boolean nearHome = false;
+                    for (MimicEntity a2 : adults) {
+                        if (a2.getHomePos() != null
+                                && a2.getHomePos().distSqr(new BlockPos(cx, y + 1, cz)) < 12 * 12) {
+                            nearHome = true;
+                            break;
+                        }
+                    }
+                    if (nearHome) {
+                        continue;
+                    }
+                    if (boxUsable(level, store, 0L, x0, z0, w, dpt, y, adults)) {
+                        return new int[] {x0, z0, axis, y};
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,
                                          java.util.List<MimicEntity> adults) {
@@ -2233,6 +2423,79 @@ public final class FarmTicker {
             }
         }
         return null;
+    }
+
+    /**
+     * 검증 전용 — 이 자리에 <b>1단계 밭을 세우고</b> 원하는 단계까지 키운다.
+     *
+     * <p>실제 착공·확장과 <b>같은 함수</b>({@link #layLogs}·{@link #plantAt}·{@link #reserveNext})를
+     * 쓴다. 검증용 배치 코드를 따로 두면 실연이 실제와 어긋나 아무것도 보증하지 못한다.
+     *
+     * @return 세운 구획(자리가 없으면 null)
+     */
+    @javax.annotation.Nullable
+    public static FarmStore.Plot debugRaise(ServerLevel level, BlockPos at, int stage) {
+        FarmStore store = FarmStore.get(level);
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
+                com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null
+                        && (m.getStage() == com.evosim.core.LifeStage.ADULT
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER)));
+        int[] br = com.evosim.core.FarmLayout.stage(1);
+        int[] fp = com.evosim.core.FarmLayout.footprint(br[0], br[1]);
+        for (int axis = 0; axis < 2; axis++) {
+            int w = axis == 1 ? fp[0] : fp[1];
+            int d = axis == 1 ? fp[1] : fp[0];
+            int x0 = at.getX() - w / 2;
+            int z0 = at.getZ() - d / 2;
+            int y = RoadPlanner.surfaceY(level, x0, z0);
+            if (y == Integer.MIN_VALUE || !boxUsable(level, store, 0L, x0, z0, w, d, y, adults)) {
+                continue;
+            }
+            FarmStore.Plot p = store.create(new BlockPos(x0, y + 1, z0), 0L);
+            p.beds = br[0];
+            p.rows = br[1];
+            p.bedAxisX = axis != 0;
+            p.fx = x0;
+            p.fz = z0;
+            p.baseY = y;
+            p.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+            p.tilesByFounder = com.evosim.core.FarmLayout.tiles(br[0], br[1]);
+            store.setDirty();
+            layLogs(level, p);
+            for (int[] cr : com.evosim.core.FarmLayout.cropOrder(p.beds, p.rows)) {
+                plantAt(level, store, p, cr[0], cr[1]);
+            }
+            if (stage > 1) {
+                debugAdvance(level, p, stage - 1);
+            }
+            return p;
+        }
+        return null;
+    }
+
+    /** 검증 전용 — 이 구획을 최대 n단계 더 키운다(자금·노동 우회). 실제로 진행한 단계 수 반환. */
+    public static int debugAdvance(ServerLevel level, FarmStore.Plot p, int steps) {
+        FarmStore store = FarmStore.get(level);
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
+                com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null
+                        && (m.getStage() == com.evosim.core.LifeStage.ADULT
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER)));
+        int done = 0;
+        for (int i = 0; i < steps; i++) {
+            for (int[] cr : unplanted(store, p)) {
+                plantAt(level, store, p, cr[0], cr[1]);
+            }
+            if (!reserveNext(level, store, p, adults)) {
+                break;
+            }
+            done++;
+        }
+        for (int[] cr : unplanted(store, p)) {
+            plantAt(level, store, p, cr[0], cr[1]);
+        }
+        return done;
     }
 
     /** 검증 조성 훅 — "어제 이 밭에 출근했음"을 주입(규칙 9: 조성만, 승격 결말은 실경로). */

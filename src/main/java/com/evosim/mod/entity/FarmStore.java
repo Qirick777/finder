@@ -43,6 +43,34 @@ public class FarmStore extends SavedData {
         /** 이 방향으로 더는 못 자라 방향을 튼 적이 있나 — 무한 회전을 막는다. */
         public boolean turned = false;
 
+        // ── 발자국(덩어리 도면) ──────────────────────────────────────────────
+        /**
+         * <b>지금 확보한 발자국</b> — 최소 모서리(fx, fz)와 크기(덩어리 수, 줄 수), 그리고 축.
+         *
+         * <p>밭은 이제 칸을 이어 붙여 자라지 않고 <b>발자국을 통째로</b> 넓힌다. 확보한 발자국의
+         * 원목(테두리·길)은 즉시 깔리고 재배 칸만 노동에 따라 차오르므로, 밭은 언제 봐도 반듯한
+         * 직사각형이고 안쪽 밀도만 변한다 — 계단·구멍·이웃과 붙음이 구성적으로 불가능해진다.
+         *
+         * <p>덩어리 축({@code bedAxisX})은 덩어리가 늘어나는 방향이다. 참이면 덩어리가 x 로,
+         * 거짓이면 z 로 늘어난다. 착공 때 트인 쪽을 보고 한 번 정한다.
+         *
+         * <p>{@code beds == 0} 은 <b>구세계</b>(칸 수열로 자란 옛 구획)를 뜻한다. 그런 구획은
+         * 발자국을 모르므로 타일 목록을 그대로 두고 더 자라지 않는다 — 옛 모양을 억지로
+         * 새 도면에 끼워 맞추면 멀쩡한 밭을 부순다.
+         */
+        public int fx;
+        public int fz;
+        /**
+         * 발자국이 앉은 <b>지면 높이</b>. 원목·재배 바닥은 baseY+1, 베리는 baseY+2 에 놓인다.
+         *
+         * <p>깔고 나면 지형 조회가 밭 표면을 돌려주므로 지면을 다시 알 수 없다. 착공 때 한 번
+         * 적어 둔다. 발자국 전체가 평평해야 하므로 값 하나로 충분하다(분수와 같은 규칙).
+         */
+        public int baseY;
+        public int beds;
+        public int rows;
+        public boolean bedAxisX = true;
+
         /**
          * <b>마지막으로 그린 테두리의 덤불 상자</b>(minX, minZ, maxX, maxZ) — 없으면 ringMinX &gt; ringMaxX.
          *
@@ -253,6 +281,20 @@ public class FarmStore extends SavedData {
      * 같은 실수가 다시 나지 않게 한다.
      */
     public static java.util.Set<Long> bodyOf(Plot p) {
+        if (p.beds > 0) {
+            // 발자국을 확보한 구획은 <b>사각형 그대로</b>가 몸통이다. 아직 안 심은 재배 칸도
+            // 몸통이다 — 그래야 길·집·이웃 밭이 내가 자랄 자리를 침범하지 않는다(예약의 효과).
+            java.util.HashSet<Long> out = new java.util.HashSet<>();
+            int[] fp = com.evosim.core.FarmLayout.footprint(p.beds, p.rows);
+            int w = p.bedAxisX ? fp[0] : fp[1];
+            int h = p.bedAxisX ? fp[1] : fp[0];
+            for (int dx = 0; dx < w; dx++) {
+                for (int dz = 0; dz < h; dz++) {
+                    out.add(RoadStore.key(p.fx + dx, p.fz + dz));
+                }
+            }
+            return out;
+        }
         boolean turnedAxis = (p.dir & 4) != 0;
         java.util.HashMap<Integer, int[]> span = new java.util.HashMap<>(); // 줄 → [최소, 최대]
         for (long l : p.tiles) {
@@ -837,6 +879,12 @@ public class FarmStore extends SavedData {
             p.vacantSince = c.contains("Vacant") ? c.getLong("Vacant") : -1L;
             p.dir = c.getByte("Dir");
             p.turned = c.getBoolean("Turned");
+            p.fx = c.getInt("Fx");
+            p.baseY = c.getInt("BaseY");
+            p.fz = c.getInt("Fz");
+            p.beds = c.getInt("Beds");   // 없으면 0 = 구세계(칸 수열로 자란 구획)
+            p.rows = c.getInt("Rows");
+            p.bedAxisX = !c.contains("BedAxisX") || c.getBoolean("BedAxisX");
             if (c.contains("Ring")) {
                 int[] r = c.getIntArray("Ring");
                 if (r.length == 4) {
@@ -892,6 +940,12 @@ public class FarmStore extends SavedData {
             // 밭 원장(P3)
             c.putByte("Dir", p.dir);
             c.putBoolean("Turned", p.turned);
+            c.putInt("Fx", p.fx);
+            c.putInt("BaseY", p.baseY);
+            c.putInt("Fz", p.fz);
+            c.putInt("Beds", p.beds);
+            c.putInt("Rows", p.rows);
+            c.putBoolean("BedAxisX", p.bedAxisX);
             if (p.ringMaxX >= p.ringMinX) {
                 c.putIntArray("Ring",
                         new int[] {p.ringMinX, p.ringMinZ, p.ringMaxX, p.ringMaxZ});

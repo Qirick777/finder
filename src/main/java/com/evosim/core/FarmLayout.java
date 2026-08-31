@@ -4,76 +4,136 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 밭 배치 수열 (봉건 밭 경제 M0, 순수 §17). 재배줄 + 한 칸 고랑 구조 — 격자 (col, row)에서
- * row 는 재배줄 번호(월드 깊이 = row×2, 홀수 줄은 고랑). 성장 규칙 하나로 사용자 지정 순서를 재현:
+ * 밭 배치 기하 (봉건 밭 경제 M0, 순수). 밭은 <b>덩어리의 격자</b>다.
  *
- * <p>"열 폭 W 가 min(2K−1, cap) 미만이면 열을 넓히고(각 줄에 1칸씩), 아니면 새 줄을 연다.
- * (W,K)가 (cap,cap)에 닿으면 cap += 2." — 결과: 1칸 → 둘째 줄 → 3×2(6) → 정사각 3×3(9)
- * → 5칸3줄(15) → 5칸4줄(20) → 5칸5줄(25) → 7칸5줄(35) → 7×7(49)…
+ * <pre>
+ *   덩어리 = [길 1칸][재배 2칸]        (테두리를 빼면 3칸 주기)
+ *   발자국 = [테두리][재배2][길][재배2][테두리]
  *
- * <p>부지 선정만 랜덤, 수열은 앵커 기준 결정론 — {@code /evotest farm}으로 좌표 전수 대조.
+ *   4x5 (덩어리1·줄3)      7x5 (덩어리2·줄3)      7x8 (덩어리2·줄6)
+ *     TTTT                   TTTTTTT                TTTTTTT
+ *     TBBT                   TBBTBBT                TBBTBBT
+ *     TBBT                   TBBTBBT                TBBTBBT  ×6
+ *     TBBT                   TBBTBBT                TTTTTTT
+ *     TTTT                   TTTTTTT
+ * </pre>
+ *
+ * <p><b>왜 칸 단위 수열을 버렸나.</b> 종전에는 타일을 하나씩 이어 붙이는 수열이 모양을 만들었다.
+ * 그러면 막힌 칸을 만날 때마다 모양이 무너져(계단·구멍·이웃과 붙음), 관문을 하나 추가할 때마다
+ * 그 모양이 다시 깨졌다 — 실측에서 채움 80%, 줄 길이 1~12 까지 벌어졌다. 발자국을 <b>통째로</b>
+ * 정하면 그 문제군이 구성적으로 사라진다. 집·학교·교회가 이미 그렇게 서 있다.
+ *
+ * <p><b>세로 길이 가로 고랑을 대신한다.</b> 덩어리가 2열뿐이라 모든 재배 칸이 길에 맞닿는다.
+ * 그래서 재배줄 사이에 빈 고랑 줄을 둘 필요가 없고, 발자국 대비 재배 밀도는 종전과 같은 ~50%다.
+ *
+ * <p>월드 배치(높이)는 여기 없다 — 이 클래스는 평면 격자만 안다. 원목은 지면 +1, 재배 바닥
+ * (잔디블록)도 지면 +1, 베리는 그 위 +2 에 놓인다.
  */
 public final class FarmLayout {
 
-    /** 티어 경계 타일 수 — 경제 문턱(자영 한계 25, 첫 고용 35)과 맞물린 이정표. */
-    public static final int[] TIERS = {9, 15, 25, 35, 49};
-    /** 시작 열 폭 상한(5칸) — (5,5) 도달 시 +2. */
-    public static final int START_CAP = 5;
+    /** 덩어리 하나의 재배 열 수. */
+    public static final int BED_COLS = 2;
+    /** 덩어리 주기 = 길 1 + 재배 2. */
+    public static final int BED_PITCH = BED_COLS + 1;
+    /** 줄을 늘릴 때의 단위 — 한 번에 세 줄. */
+    public static final int ROW_STEP = 3;
+    /** 첫 밭의 줄 수. */
+    public static final int ROWS_MIN = 3;
+
+    /**
+     * 단계 경계 타일 수 — 경제 문턱(자영 한계·첫 고용)이 여기 걸린다.
+     *
+     * <p>{6, 12, 24, 36, 54} = 단계 1~5의 재배 칸. 종전 {9, 15, 25, 35, 49} 에서 핵심 두
+     * 지점(자영 한계 25→24, 첫 고용 35→36)은 거의 그대로고, 앞 둘만 덩어리 경계로 내려온다.
+     */
+    public static final int[] TIERS = {6, 12, 24, 36, 54};
 
     private FarmLayout() {
     }
 
-    /** 처음 n개 타일의 (col, row) 목록 — 설치 순서 그대로. row 는 재배줄 index(고랑 제외). */
-    public static List<int[]> layout(int n) {
-        List<int[]> out = new ArrayList<>(Math.max(0, n));
-        int w = 0;
-        int k = 1;
-        int cap = START_CAP;
-        while (out.size() < n) {
-            if (out.isEmpty()) {
-                out.add(new int[] {0, 0});
-                w = 1;
-                continue;
+    /**
+     * 단계 s(1부터)의 {덩어리 수, 줄 수}.
+     *
+     * <p>덩어리 추가 ↔ 줄 늘리기가 번갈아 간다. 1단계 (1,3) 에서 시작해 <b>덩어리 추가가 먼저</b>다:
+     * (1,3) → (2,3) → (2,6) → (3,6) → (3,9) → (4,9) …
+     */
+    public static int[] stage(int s) {
+        int beds = 1;
+        int rows = ROWS_MIN;
+        boolean addBed = true;
+        for (int i = 1; i < Math.max(1, s); i++) {
+            if (addBed) {
+                beds++;
+            } else {
+                rows += ROW_STEP;
             }
-            if (w == cap && k == cap) {
-                cap += 2;
-            }
-            if (w < Math.min(2 * k - 1, cap)) { // 열 확장 — 새 열을 각 재배줄에 위→아래
-                for (int r = 0; r < k && out.size() < n; r++) {
-                    out.add(new int[] {w, r});
+            addBed = !addBed;
+        }
+        return new int[] {beds, rows};
+    }
+
+    /** 재배 칸 수 = 2 × 덩어리수 × 줄수. */
+    public static int tiles(int beds, int rows) {
+        return BED_COLS * Math.max(0, beds) * Math.max(0, rows);
+    }
+
+    /** 발자국 {폭, 높이} — 폭 = 3×덩어리+1(테두리 둘 + 재배 + 사이 길), 높이 = 줄+2. */
+    public static int[] footprint(int beds, int rows) {
+        return new int[] {BED_PITCH * Math.max(0, beds) + 1, Math.max(0, rows) + 2};
+    }
+
+    /**
+     * 발자국 안의 (열 c, 행 r)이 <b>재배 칸</b>인가. 아니면 원목(테두리 또는 길)이다.
+     *
+     * <p>발자국 안에 빈 잔디는 없다 — 모든 칸이 재배 아니면 원목이다.
+     */
+    public static boolean isCrop(int c, int r, int beds, int rows) {
+        int[] fp = footprint(beds, rows);
+        if (c <= 0 || r <= 0 || c >= fp[0] - 1 || r >= fp[1] - 1) {
+            return false; // 테두리
+        }
+        return (c - 1) % BED_PITCH != BED_COLS; // 덩어리 주기의 마지막 칸이 길
+    }
+
+    /**
+     * 재배 칸을 채우는 순서 — 위 줄부터, 각 줄은 왼쪽부터.
+     *
+     * <p>노동은 하루 몇 칸이라 한 단계를 여러 날에 걸쳐 채운다. 그동안 미완성인 부분이
+     * <b>마지막 줄 하나</b>에만 남도록 줄 우선으로 훑는다(첨부 도면의 성장 모습 그대로).
+     */
+    public static List<int[]> cropOrder(int beds, int rows) {
+        int[] fp = footprint(beds, rows);
+        List<int[]> out = new ArrayList<>(tiles(beds, rows));
+        for (int r = 1; r < fp[1] - 1; r++) {
+            for (int c = 1; c < fp[0] - 1; c++) {
+                if (isCrop(c, r, beds, rows)) {
+                    out.add(new int[] {c, r});
                 }
-                w++;
-            } else { // 새 재배줄 — 왼→오른쪽으로 채움
-                for (int c = 0; c < w && out.size() < n; c++) {
-                    out.add(new int[] {c, k});
-                }
-                k++;
             }
         }
         return out;
     }
 
-    /**
-     * 네 사분면 부호 조합 — <b>배치에는 더 이상 쓰지 않는다</b>(순수 함수라 남겨 둔다).
-     *
-     * <p>한때 "막힌 칸의 대체 방향"으로 칸마다 이것을 훑었다. 그러면 이상 칸이 막힐 때마다
-     * 그 타일이 <b>앵커 반대편</b>에 놓여, 폭 7까지 자란 구획에서 c=5 가 막히면 몸통에서 10칸
-     * 떨어진 허공에 박혔다 — 실측 공중 덤프에서 두 판에 각각 5·8개의 "홀로 선 한두 칸"이
-     * 그렇게 생겼다. 방향은 <b>구획의 성질</b>이지 칸의 성질이 아니므로, 지금은 착공 때
-     * 사분면을 한 번 고르고({@code FarmTicker.pickDir}) 그 뒤로는 뒤집지 않는다.
-     */
-    public static int[][] mirrors(int c, int r) {
-        return new int[][] {{c, r}, {-c, r}, {c, -r}, {-c, -r}};
+    /** 이 재배 칸 수를 담는 최소 단계(1부터). 상한 없음 — 계속 커진다. */
+    public static int stageOf(int tiles) {
+        for (int s = 1; s <= 64; s++) {
+            int[] br = stage(s);
+            if (tiles(br[0], br[1]) >= tiles) {
+                return s;
+            }
+        }
+        return 64;
     }
 
-    /** n타일 밭의 발자국 (가로, 세로 — 고랑 포함 월드 칸수). */
-    public static int[] footprint(int n) {
-        int maxC = 0;
-        int maxR = 0;
-        for (int[] t : layout(n)) {
-            maxC = Math.max(maxC, t[0]);
-            maxR = Math.max(maxR, t[1]);
-        }
-        return n <= 0 ? new int[] {0, 0} : new int[] {maxC + 1, maxR * 2 + 1};
+    /** 다음 단계에서 늘어나는 재배 칸 수 — 덩어리 추가면 2×줄, 줄 늘리기면 6×덩어리. */
+    public static int growthOf(int s) {
+        int[] a = stage(s);
+        int[] b = stage(s + 1);
+        return tiles(b[0], b[1]) - tiles(a[0], a[1]);
+    }
+
+    /** 다음 단계가 덩어리를 늘리는가(아니면 줄을 늘린다). */
+    public static boolean nextAddsBed(int s) {
+        return stage(s + 1)[0] > stage(s)[0];
     }
 }

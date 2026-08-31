@@ -216,10 +216,15 @@ public final class EvoSimCommand {
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
                 .then(Commands.literal("stats").executes(EvoSimCommand::stats))
                 .then(Commands.literal("farm")
-                        .executes(ctx -> farmDemo(ctx, 25))
-                        .then(Commands.argument("tiles", IntegerArgumentType.integer(1, 49))
+                        .executes(ctx -> farmDemo(ctx, 1))
+                        .then(Commands.argument("stage", IntegerArgumentType.integer(1, 12))
                                 .executes(ctx -> farmDemo(ctx,
-                                        IntegerArgumentType.getInteger(ctx, "tiles")))))
+                                        IntegerArgumentType.getInteger(ctx, "stage")))))
+                .then(Commands.literal("farmstep")
+                        .executes(ctx -> farmStep(ctx, 1))
+                        .then(Commands.argument("steps", IntegerArgumentType.integer(1, 12))
+                                .executes(ctx -> farmStep(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "steps")))))
                 .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
                 .then(Commands.literal("lords").executes(EvoSimCommand::lords))
                 .then(Commands.literal("estates").executes(EvoSimCommand::estates))
@@ -360,37 +365,90 @@ public final class EvoSimCommand {
     }
 
     /**
-     * 밭 골조 실연(M0 육안 확인) — FarmLayout 수열 그대로 n타일을 실제 설치(고랑 확인용).
-     * 무소유(0) 데모 구획 — FarmStore 등록까지 검증. 지반은 흙 강제(베리 유효 조건).
+     * <b>밭 골조 실연</b> — 서 있는 자리에 n단계 밭을 그대로 세운다(덩어리 도면 육안 확인).
+     *
+     * <p>무소유(0) 데모 구획. 실제 착공 경로와 <b>같은 함수</b>(FarmTicker.debugRaise)를 쓰므로
+     * 여기서 보이는 모양이 곧 마을에 서는 모양이다 — 데모 전용 배치 코드를 따로 두면 그 둘이
+     * 어긋나고, 실연이 아무것도 보증하지 못하게 된다.
      */
-    private static int farmDemo(CommandContext<CommandSourceStack> ctx, int tiles) {
+    private static int farmDemo(CommandContext<CommandSourceStack> ctx, int stage) {
         ServerLevel level = ctx.getSource().getLevel();
-        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 4, 4);
-        FarmStore.Plot plot = FarmStore.get(level).create(anchor, 0L);
-        for (int[] t : FarmLayout.layout(tiles)) {
-            BlockPos gp = groundAt(level, Vec3.atBottomCenterOf(anchor), t[0], t[1] * 2);
-            level.setBlockAndUpdate(gp.below(), Blocks.DIRT.defaultBlockState());
-            level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                    .setValue(SweetBerryBushBlock.AGE, 1));
-            FarmStore.get(level).addTile(plot, gp, level.getGameTime());
+        BlockPos at = groundAt(level, ctx.getSource().getPosition(), 4, 4);
+        FarmStore.Plot plot = FarmTicker.debugRaise(level, at, Math.max(1, stage));
+        if (plot == null) {
+            tell(ctx.getSource(), "❌ 이 자리에는 1단계 발자국이 안 들어간다(평평·빈 땅 필요)");
+            return 0;
         }
-        // 자가 판정(결과 상태): 수열 좌표 전부에 베리가 실재하고 등록 타일 수가 일치해야 성공.
+        int[] br = FarmLayout.stage(stageOfPlot(plot));
+        int want = FarmLayout.tiles(plot.beds, plot.rows);
         int placed = 0;
         for (long l : plot.tiles) {
             if (level.getBlockState(BlockPos.of(l)).is(Blocks.SWEET_BERRY_BUSH)) {
                 placed++;
             }
         }
-        boolean ok = placed == tiles && plot.tiles.length == tiles;
-        com.evosim.mod.stage.VerifyLog.ensure(level.getServer().getServerDirectory().toPath());
-        com.evosim.mod.stage.VerifyLog.result(String.format(
-                "[VERIFY-LIVE] %s farm_layout_place | reason=%s | placed=%d/%d footprint=%dx%d plot=%d"
-                        + " | expect: every layout coord holds a berry bush",
-                ok ? "PASS" : "FAIL", ok ? "result_met" : "state_mismatch", placed, tiles,
-                FarmLayout.footprint(tiles)[0], FarmLayout.footprint(tiles)[1], plot.id), ok);
-        tell(ctx.getSource(), (ok ? "✅ " : "❌ ") + "밭 골조 " + placed + "/" + tiles
-                + "타일(구획 " + plot.id + ") — 고랑 수열 육안 병행 확인. 정리: /evosim farmclear " + plot.id);
+        boolean ok = placed == want;
+        int[] fp = FarmLayout.footprint(plot.beds, plot.rows);
+        tell(ctx.getSource(), String.format(
+                "%s밭 구획%d — %d단계(덩어리%d 줄%d) 재배 %d/%d · 발자국 %dx%d @%d,%d y%d%s",
+                ok ? "§a✅ " : "§c❌ ", plot.id, stageOfPlot(plot), plot.beds, plot.rows,
+                placed, want, fp[0], fp[1], plot.fx, plot.fz, plot.baseY,
+                br[0] == plot.beds ? "" : " (요청 단계까지 못 감 — 자리 부족)"));
+        tell(ctx.getSource(), "  정리: /evosim farmclear " + plot.id);
         return ok ? 1 : 0;
+    }
+
+    /** 이 구획이 몇 단계인가(표준 수열 대조). */
+    private static int stageOfPlot(FarmStore.Plot p) {
+        for (int s = 1; s <= 64; s++) {
+            int[] br = FarmLayout.stage(s);
+            if (br[0] == p.beds && br[1] == p.rows) {
+                return s;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * <b>강제 확장</b> — 가장 가까운 구획을 n단계 더 키운다. 막히면 어디서 막혔는지 말한다.
+     *
+     * <p>자금·노동을 우회하므로 <b>기하만</b> 시험한다. 트인 들판·막힌 자리·한쪽만 막힌 자리에서
+     * 각각 어떻게 자라는지를 이 명령 하나로 단계별로 볼 수 있다.
+     */
+    private static int farmStep(CommandContext<CommandSourceStack> ctx, int steps) {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos me = groundAt(level, ctx.getSource().getPosition(), 0, 0);
+        FarmStore store = FarmStore.get(level);
+        FarmStore.Plot best = null;
+        double bd = Double.MAX_VALUE;
+        for (FarmStore.Plot p : store.all().values()) {
+            if (p.beds <= 0) {
+                continue;
+            }
+            double d = new BlockPos(p.fx, p.baseY, p.fz).distSqr(me);
+            if (d < bd) {
+                bd = d;
+                best = p;
+            }
+        }
+        if (best == null) {
+            tell(ctx.getSource(), "❌ 근처에 덩어리 도면 구획이 없다 — 먼저 /evosim farm <단계>");
+            return 0;
+        }
+        int done = FarmTicker.debugAdvance(level, best, Math.max(1, steps));
+        int[] fp = FarmLayout.footprint(best.beds, best.rows);
+        tell(ctx.getSource(), String.format(
+                "구획%d — %d단계 진행(요청 %d) → 지금 %d단계(덩어리%d 줄%d 재배%d) 발자국 %dx%d @%d,%d",
+                best.id, done, steps, stageOfPlot(best), best.beds, best.rows,
+                FarmLayout.tiles(best.beds, best.rows), fp[0], fp[1], best.fx, best.fz));
+        if (done < steps) {
+            StringBuilder sb = new StringBuilder();
+            for (var e : FarmTicker.unfilledReasons(level, store, best, 0).entrySet()) {
+                sb.append(e.getKey()).append(e.getValue()).append(' ');
+            }
+            tell(ctx.getSource(), "  더 못 자란 사유(다음 단계 네 방향) — " + sb.toString().trim());
+        }
+        return done;
     }
 
     /** M1 실연 — 무대 성년 + 그 소유의 15타일 밭(즉시 익음)을 조성 → 주인이 순회 수확하는지 육안. */
@@ -1859,12 +1917,30 @@ public final class EvoSimCommand {
     /** 데모 구획 공용 조성 — n타일 즉시 익음(수열 그대로, 흙 받침 포함). */
     private static FarmStore.Plot buildDemoPlot(ServerLevel level, BlockPos anchor, long ownerId, int n) {
         FarmStore.Plot plot = FarmStore.get(level).create(anchor, ownerId);
-        for (int[] t : FarmLayout.layout(n)) {
-            BlockPos gp = groundAt(level, Vec3.atBottomCenterOf(anchor), t[0], t[1] * 2);
-            level.setBlockAndUpdate(gp.below(), Blocks.DIRT.defaultBlockState());
-            level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
-                    .setValue(SweetBerryBushBlock.AGE, 3));
-            FarmStore.get(level).addTile(plot, gp, level.getGameTime() - FarmEconomy.RIPEN_TICKS);
+        // 덩어리 도면 그대로 — n 을 담는 최소 단계를 세운다(데모도 실제와 같은 모양이어야 한다).
+        int st = FarmLayout.stageOf(n);
+        int[] br = FarmLayout.stage(st);
+        plot.beds = br[0];
+        plot.rows = br[1];
+        plot.bedAxisX = true;
+        plot.baseY = anchor.getY() - 1;
+        int[] dfp = FarmLayout.footprint(br[0], br[1]);
+        plot.fx = anchor.getX() - dfp[0] / 2;
+        plot.fz = anchor.getZ() - dfp[1] / 2;
+        for (int c = 0; c < dfp[0]; c++) {
+            for (int r = 0; r < dfp[1]; r++) {
+                BlockPos base = new BlockPos(plot.fx + c, plot.baseY + 1, plot.fz + r);
+                if (!FarmLayout.isCrop(c, r, br[0], br[1])) {
+                    level.setBlockAndUpdate(base, Blocks.OAK_LOG.defaultBlockState());
+                    continue;
+                }
+                level.setBlockAndUpdate(base, Blocks.GRASS_BLOCK.defaultBlockState());
+                BlockPos gp = base.above();
+                level.setBlockAndUpdate(gp, Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                        .setValue(SweetBerryBushBlock.AGE, 3));
+                FarmStore.get(level).addTile(plot, gp,
+                        level.getGameTime() - FarmEconomy.RIPEN_TICKS);
+            }
         }
         return plot;
     }

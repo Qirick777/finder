@@ -2258,21 +2258,22 @@ public final class EvoTest {
     // /evotest farm — 밭 배치 수열·경제 산식 (봉건 밭 경제 M0)
     // ──────────────────────────────────────────────────────────────
     private static void farm(Report report) {
-        // 1) 배치 수열: 사용자 지정 순서 재현 — 1칸 → 둘째줄 → 3×3(9) → 5칸3줄(15) → 5칸5줄(25) → 7×7(49)
-        var l2 = FarmLayout.layout(2);
-        var l9 = FarmLayout.layout(9);
-        var l25 = FarmLayout.layout(25);
-        boolean seq = l2.get(1)[0] == 0 && l2.get(1)[1] == 1              // 2번째 타일 = 둘째 줄(한 칸 띄움)
-                && java.util.Arrays.equals(FarmLayout.footprint(9), new int[] {3, 5})   // 3열×3줄(깊이 5)
-                && java.util.Arrays.equals(FarmLayout.footprint(15), new int[] {5, 5})  // 5칸 3줄 = 발자국 5×5
-                && java.util.Arrays.equals(FarmLayout.footprint(25), new int[] {5, 9})  // 5칸 5줄
-                && java.util.Arrays.equals(FarmLayout.footprint(49), new int[] {7, 13}) // 7칸 7줄
-                && l9.size() == 9 && l25.size() == 25
-                && FarmLayout.TIERS[2] == 25 && FarmLayout.TIERS[3] == 35;
+        // 1) 덩어리 도면: [테두리][재배2][길][재배2][테두리], 덩어리 추가 ↔ 줄 늘리기 번갈아.
+        //    1~6단계 재배 칸과 발자국이 설계 도면과 글자 단위로 같아야 한다.
+        int[][] want = {{6, 4, 5}, {12, 7, 5}, {24, 7, 8}, {36, 10, 8}, {54, 10, 11}, {72, 13, 11}};
+        boolean seq = FarmLayout.TIERS[2] == 24 && FarmLayout.TIERS[3] == 36;
+        for (int st = 1; st <= 6 && seq; st++) {
+            int[] br = FarmLayout.stage(st);
+            int[] fp = FarmLayout.footprint(br[0], br[1]);
+            seq = FarmLayout.tiles(br[0], br[1]) == want[st - 1][0]
+                    && fp[0] == want[st - 1][1] && fp[1] == want[st - 1][2]
+                    && FarmLayout.cropOrder(br[0], br[1]).size() == want[st - 1][0];
+        }
         // 중복 좌표 없음(수열 무결성)
         var seen = new java.util.HashSet<Long>();
         boolean dup = false;
-        for (int[] t : FarmLayout.layout(49)) {
+        int[] br49 = FarmLayout.stage(6);
+        for (int[] t : FarmLayout.cropOrder(br49[0], br49[1])) {
             if (!seen.add((long) t[0] << 32 | (t[1] & 0xffffffffL))) {
                 dup = true;
             }
@@ -2372,8 +2373,9 @@ public final class EvoTest {
                         one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 133), 1.0)
                 && close(FarmEconomy.manageEfficiency(
                         one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 266), 0.25)
-                && java.util.Arrays.deepEquals(FarmLayout.mirrors(2, 1),
-                        new int[][] {{2, 1}, {-2, 1}, {2, -1}, {-2, -1}})
+                // 덩어리 도면: 다음 수가 덩어리↔줄로 번갈아 가는가(1→2 덩어리, 2→3 줄).
+                && FarmLayout.nextAddsBed(1) && !FarmLayout.nextAddsBed(2)
+                && FarmLayout.growthOf(1) == 6 && FarmLayout.growthOf(2) == 12
                 && FarmEconomy.EXPAND_PER_DAY == 12 // 6→12(2배속 정합 — 설계율 6×2, 자금 병목 불변)
                 // 소작 비례 확장 6×(1+상시소작)의 구획 캡 30→60(2배속 비례 유지)
                 && FarmEconomy.EXPAND_DAY_MAX == 60

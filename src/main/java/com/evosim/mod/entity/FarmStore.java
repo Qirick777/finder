@@ -105,6 +105,14 @@ public class FarmStore extends SavedData {
         public long stewardSince = -1L; // 임명 게임일(-1=없음) — 근속 수당 입력
         public boolean stewarded;       // 마름 운영 이력 — 공석 재임명 문턱 1(즉시 충원, 칭호 무붕괴)
         public double stewardDebt;      // 가문 편입 착공비 미상환분 — 밤 정산 때 영주→마름 이체(이월)
+        /**
+         * <b>수당 소수 이월</b> — 정수 유닛만 지급되므로 남는 소수를 다음 날로 넘긴다.
+         *
+         * <p>버리면 매일 최대 1 미만이 사라진다. 실측: 계수 1.00 에 소작 평균 1.54 인데
+         * 수당은 늘 <b>+1</b> 이었다(0.54 소실 = 35%). 계수를 올려도 버림이 그대로 먹으므로
+         * 상한·기본값을 손대는 것으로는 풀리지 않는다. 축장·상환이 이미 쓰는 방식이다.
+         */
+        public double wageCarry;
 
         // ── fee 분할(E11) — 지주 몫 초과분(누진분)의 잠금 축장. 밭 계정과 별도라 확장(growFarms)이
         //    건드리지 않는다. 밤 정산 때 정수 유닛만 지주 저장고로(L 정수성, 소수 이월). ──
@@ -925,6 +933,7 @@ public class FarmStore extends SavedData {
             p.stewardSince = c.contains("StwSince") ? c.getLong("StwSince") : -1L;
             p.stewarded = c.getBoolean("StwEver");
             p.stewardDebt = c.getDouble("StwDebt");
+            p.wageCarry = c.getDouble("WageCarry");
             p.excessHoard = c.getDouble("ExHrd"); // fee 분할(E11) — 구세계 로드는 0
             p.totalSpentExpand = c.getDouble("SpentExp");
             s.plots.put(p.id, p);
@@ -981,6 +990,7 @@ public class FarmStore extends SavedData {
             c.putLong("StwSince", p.stewardSince);
             c.putBoolean("StwEver", p.stewarded);
             c.putDouble("StwDebt", p.stewardDebt);
+            c.putDouble("WageCarry", p.wageCarry);
             c.putDouble("ExHrd", p.excessHoard);
             c.putDouble("SpentExp", p.totalSpentExpand);
             list.add(c);

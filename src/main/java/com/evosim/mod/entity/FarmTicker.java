@@ -117,20 +117,25 @@ public final class FarmTicker {
                 if (stwEnt != null && stwEnt.getHomePos() != null && paid > 0.0 && workers > 0) {
                     int g = com.evosim.core.Multipliers.manageAbilityGrade(stwEnt.getIndividual());
                     long tenure = plot.stewardSince >= 0 ? day - plot.stewardSince : 0L;
-                    double wage = Math.min(plot.account,
-                            paid / workers * com.evosim.core.FarmEconomy.stewardWageMult(g, tenure));
+                    // <b>소수를 버리지 않고 넘긴다.</b> 저장고는 정수 유닛으로만 움직이는데
+                    // 매일 버리면 최대 1 미만이 사라진다 — 실측: 계수 1.00 에 소작 평균 1.54
+                    // 인데 수당은 늘 +1 이었다(0.54 소실 = 35%). 계수나 상한을 올려도 버림이
+                    // 그대로 먹으므로 그쪽으로는 안 풀린다. 축장·상환과 같은 방식이다.
+                    double mult = com.evosim.core.FarmEconomy.stewardWageMult(g, tenure);
+                    double due = paid / workers * mult + plot.wageCarry;
+                    double wage = Math.min(plot.account, due);
                     int wUnits = (int) Math.floor(wage);
+                    plot.wageCarry = Math.max(0.0, due - Math.max(0, wUnits));
                     if (wUnits >= 1) {
                         larder.set(stwEnt.getHomePos(), larder.get(stwEnt.getHomePos()) + wUnits);
                         plot.account -= wUnits;
-                        store.setDirty();
                         com.evosim.mod.log.SimAudit.record(
                                 com.evosim.mod.log.SimAudit.Src.WAGE, wUnits);
                         com.evosim.mod.log.SimEvents.event(stwEnt, "수당", String.format(
-                                "구획 %d 마름 수당 +%d (평균 %.2f × 계수 %.2f · 근속 %d일)",
-                                plot.id, wUnits, paid / workers,
-                                com.evosim.core.FarmEconomy.stewardWageMult(g, tenure), tenure));
+                                "구획 %d 마름 수당 +%d (평균 %.2f × 계수 %.2f · 근속 %d일 · 이월 %.2f)",
+                                plot.id, wUnits, paid / workers, mult, tenure, plot.wageCarry));
                     }
+                    store.setDirty();
                 }
                 // ── 편입 착공비 상환 — 영주 저장고 → 마름(예비 12 보호, 부족분 이월)
                 if (plot.stewardDebt >= 1.0 && stwEnt != null && stwEnt.getHomePos() != null

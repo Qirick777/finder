@@ -69,7 +69,7 @@ public final class Multipliers {
      * 증폭기는 능력 축의 양수 항에만 붙으므로 무능력자의 값은 그대로고, 감폭(0.8)도 그대로다.
      * 실측 엘리트(야망가+약초Ⅴ+명석)는 1.875 → 2.160 (+15%), 평범한 자는 1.0 불변.
      *
-     * <p>{@code tileYield = 0.5 × forageYieldMult} 이므로 <b>밭 산출도 함께 오른다</b> — 의도한
+     * <p>{@code tileYield = TILE_YIELD_MULT × forageYieldMult} 이므로 <b>밭 산출도 함께 오른다</b> — 의도한
      * 것이다. 엘리트 지주는 채집과 밭 양쪽에서 벌어, 격차가 능력에서 나온다는 축이 굵어진다.
      */
     private static double abilityAmp(Set<Trait> t) {

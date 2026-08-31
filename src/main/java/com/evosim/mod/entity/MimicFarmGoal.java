@@ -154,7 +154,10 @@ public class MimicFarmGoal extends Goal {
             // 마름보다 잘하는 소작은 제 능력을 유지한다(재능 있는 평민의 상승 경로 보존).
             double mine = FoodEconomy.forageYieldMult(mob.getIndividual());
             double useMult = Math.max(mine, hand != null ? hand.stewardForage : 0.0);
-            double base = 0.5 * useMult;
+            // 칸당 계수는 <b>반드시</b> FarmEconomy 의 상수를 쓴다. 여기에 숫자를 박아 두었더니
+            // TILE_YIELD_MULT 를 0.5→0.8 로 올려도 실제 수확은 0.5 그대로였다 — 상수는 마름 선발·
+            // 후보 점수 같은 예측 경로에만 쓰여, 계획과 실적이 조용히 어긋났다(w5 무효).
+            double base = FarmEconomy.TILE_YIELD_MULT * useMult;
             // 가구 밭 판정 — 배우자는 <b>양방향</b>으로 본다(marriedTo). 남편의 spouseId 는 본처만
             // 가리키므로 단방향이면 첩 소유 밭이 "남의 밭"으로 잡혀 자기 가구 수확이 소작 분할로
             // 새어 나간다.

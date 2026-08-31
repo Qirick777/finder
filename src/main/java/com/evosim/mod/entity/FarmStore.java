@@ -70,6 +70,8 @@ public class FarmStore extends SavedData {
         public int beds;
         public int rows;
         public boolean bedAxisX = true;
+        /** 지금까지 진행한 성장 수 — 대체 수를 써서 표준 수열을 벗어나도 정직하게 남는다. */
+        public int steps;
 
         /**
          * <b>마지막으로 그린 테두리의 덤불 상자</b>(minX, minZ, maxX, maxZ) — 없으면 ringMinX &gt; ringMaxX.
@@ -885,6 +887,7 @@ public class FarmStore extends SavedData {
             p.beds = c.getInt("Beds");   // 없으면 0 = 구세계(칸 수열로 자란 구획)
             p.rows = c.getInt("Rows");
             p.bedAxisX = !c.contains("BedAxisX") || c.getBoolean("BedAxisX");
+            p.steps = c.getInt("Steps");
             if (c.contains("Ring")) {
                 int[] r = c.getIntArray("Ring");
                 if (r.length == 4) {
@@ -946,6 +949,7 @@ public class FarmStore extends SavedData {
             c.putInt("Beds", p.beds);
             c.putInt("Rows", p.rows);
             c.putBoolean("BedAxisX", p.bedAxisX);
+            c.putInt("Steps", p.steps);
             if (p.ringMaxX >= p.ringMinX) {
                 c.putIntArray("Ring",
                         new int[] {p.ringMinX, p.ringMinZ, p.ringMaxX, p.ringMaxZ});

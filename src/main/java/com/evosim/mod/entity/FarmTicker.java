@@ -1842,12 +1842,12 @@ public final class FarmTicker {
     // ── 덩어리 도면 기하 ────────────────────────────────────────────────────
 
     /** 발자국 격자 (열 c, 행 r) → 월드 열 {x, z}. 덩어리 축이 z 면 c/r 이 바뀐다. */
-    static int[] colOf(FarmStore.Plot p, int c, int r) {
+    public static int[] colOf(FarmStore.Plot p, int c, int r) {
         return p.bedAxisX ? new int[] {p.fx + c, p.fz + r} : new int[] {p.fx + r, p.fz + c};
     }
 
     /** 발자국의 월드 상자 {x0, z0, 폭, 깊이}. */
-    static int[] boxOf(FarmStore.Plot p, int beds, int rows) {
+    public static int[] boxOf(FarmStore.Plot p, int beds, int rows) {
         int[] fp = com.evosim.core.FarmLayout.footprint(beds, rows);
         return p.bedAxisX ? new int[] {p.fx, p.fz, fp[0], fp[1]}
                 : new int[] {p.fx, p.fz, fp[1], fp[0]};
@@ -1955,17 +1955,6 @@ public final class FarmTicker {
         return out;
     }
 
-    /** 이 (덩어리, 줄)이 몇 단계인가 — 표준 수열에서 찾는다(없으면 0). */
-    private static int stageIndex(int beds, int rows) {
-        for (int s = 1; s <= 64; s++) {
-            int[] br = com.evosim.core.FarmLayout.stage(s);
-            if (br[0] == beds && br[1] == rows) {
-                return s;
-            }
-        }
-        return 0;
-    }
-
     /**
      * <b>다음 단계를 예약해 본다</b> — 되면 발자국이 커지고 원목이 즉시 깔린다.
      *
@@ -1978,11 +1967,12 @@ public final class FarmTicker {
      */
     private static boolean reserveNext(ServerLevel level, FarmStore store, FarmStore.Plot p,
                                        java.util.List<MimicEntity> adults) {
-        int s = stageIndex(p.beds, p.rows);
-        if (s == 0) {
-            return false; // 표준 수열 밖(구세계 등) — 건드리지 않는다
+        if (p.beds <= 0) {
+            return false; // 구세계 구획 — 건드리지 않는다
         }
-        boolean[] first = com.evosim.core.FarmLayout.nextAddsBed(s)
+        // 다음 수는 <b>모양</b>이 정한다(단계 번호가 아니라). 번호로 정하면 대체 수를 한 번
+        // 쓴 순간 수열 밖이 되어 영영 자라지 못한다 — FarmLayout.addBedNext 참조.
+        boolean[] first = com.evosim.core.FarmLayout.addBedNext(p.beds, p.rows)
                 ? new boolean[] {true, false} : new boolean[] {false, true};
         for (boolean addBed : first) {
             int nb = addBed ? p.beds + 1 : p.beds;
@@ -2001,19 +1991,21 @@ public final class FarmTicker {
                         p.baseY, adults)) {
                     continue;
                 }
-                if (t == 1) { // − 방향이면 원점이 당겨진다
-                    p.fx -= gw > 0 && p.bedAxisX ? gw : 0;
-                    p.fz -= gw > 0 && !p.bedAxisX ? gw : 0;
-                    p.fx -= gd > 0 && !p.bedAxisX ? gd : 0;
-                    p.fz -= gd > 0 && p.bedAxisX ? gd : 0;
+                if (t == 1) {
+                    // − 방향이면 원점이 그만큼 당겨진다. gw·gd 는 boxOf 가 돌려준 <b>월드</b>
+                    // 폭·깊이 증가분이라 축이 이미 반영돼 있다 — 여기서 축을 또 곱하면 원점이
+                    // 엉뚱하게 움직여 옛 타일이 발자국 밖으로 밀려난다(실측: 발자국밖 타일 6).
+                    p.fx -= gw;
+                    p.fz -= gd;
                 }
                 p.beds = nb;
                 p.rows = nr;
+                p.steps++;
                 store.setDirty();
                 layLogs(level, p);
                 com.evosim.mod.log.SimEvents.note(level, "밭단계", String.format(
                         "구획 %d — %d단계로(덩어리%d 줄%d · 재배%d칸) %s쪽으로 %s @%d,%d",
-                        p.id, s + 1, nb, nr, com.evosim.core.FarmLayout.tiles(nb, nr),
+                        p.id, p.steps + 1, nb, nr, com.evosim.core.FarmLayout.tiles(nb, nr),
                         t == 0 ? "+" : "−", addBed ? "덩어리 추가" : "줄 늘리기", p.fx, p.fz));
                 return true;
             }
@@ -2096,11 +2088,6 @@ public final class FarmTicker {
             return out; // 아직 이번 단계를 채우는 중 — 막힌 것이 아니다
         }
         // 다음 단계의 네 후보 띠가 각각 무엇에 걸리는지 센다.
-        int s = stageIndex(plot.beds, plot.rows);
-        if (s == 0) {
-            out.merge("수열밖", 1, Integer::sum);
-            return out;
-        }
         for (boolean addBed : new boolean[] {true, false}) {
             int nb = addBed ? plot.beds + 1 : plot.beds;
             int nr = addBed ? plot.rows : plot.rows + com.evosim.core.FarmLayout.ROW_STEP;

@@ -379,7 +379,6 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "❌ 이 자리에는 1단계 발자국이 안 들어간다(평평·빈 땅 필요)");
             return 0;
         }
-        int[] br = FarmLayout.stage(stageOfPlot(plot));
         int want = FarmLayout.tiles(plot.beds, plot.rows);
         int placed = 0;
         for (long l : plot.tiles) {
@@ -393,20 +392,14 @@ public final class EvoSimCommand {
                 "%s밭 구획%d — %d단계(덩어리%d 줄%d) 재배 %d/%d · 발자국 %dx%d @%d,%d y%d%s",
                 ok ? "§a✅ " : "§c❌ ", plot.id, stageOfPlot(plot), plot.beds, plot.rows,
                 placed, want, fp[0], fp[1], plot.fx, plot.fz, plot.baseY,
-                br[0] == plot.beds ? "" : " (요청 단계까지 못 감 — 자리 부족)"));
+                stageOfPlot(plot) >= stage ? "" : " (요청 단계까지 못 감 — 자리 부족)"));
         tell(ctx.getSource(), "  정리: /evosim farmclear " + plot.id);
         return ok ? 1 : 0;
     }
 
-    /** 이 구획이 몇 단계인가(표준 수열 대조). */
+    /** 이 구획이 몇 단계인가 — 진행한 성장 수 + 1(대체 수를 써도 정직하다). */
     private static int stageOfPlot(FarmStore.Plot p) {
-        for (int s = 1; s <= 64; s++) {
-            int[] br = FarmLayout.stage(s);
-            if (br[0] == p.beds && br[1] == p.rows) {
-                return s;
-            }
-        }
-        return 0;
+        return p.steps + 1;
     }
 
     /**
@@ -3236,266 +3229,108 @@ public final class EvoSimCommand {
         ServerLevel level = ctx.getSource().getLevel();
         FarmStore farms = FarmStore.get(level);
         java.util.List<FarmStore.Plot> plots = new java.util.ArrayList<>(farms.all().values());
-        plots.sort((a, b) -> Integer.compare(b.tiles.length, a.tiles.length));
+        plots.sort((a, b) -> b.tiles.length - a.tiles.length);
+        tell(ctx.getSource(), "§e[밭형태]§r 구획" + plots.size()
+                + " — 의도: 덩어리 도면 [테두리][재배2][길][재배2][테두리]");
+        int legacy = 0;
+        int badLog = 0;      // 원목이어야 할 칸에 원목이 없다
+        int badCrop = 0;     // 재배여야 할 칸에 베리가 없다(아직 안 심음 포함)
+        int strayTile = 0;   // 등록 타일인데 발자국 밖
         int totTiles = 0;
-        int totHoles = 0;
-        int totBlocked = 0;
-        int totBreaks = 0;
-        int totRows = 0;
-        int mirrored = 0;
-        int fouled = 0;
-        int strays = 0;
-        int axisZ = 0;
-        double fillSum = 0.0;
-        // (열, 줄) 격자좌표 한 쌍을 long 하나로 — 음수 열/줄이 있으므로 그냥 곱셈은 못 쓴다.
-
-        int counted = 0;
-        StringBuilder holeAt = new StringBuilder();
-        tell(ctx.getSource(), String.format("§e[밭형태] 구획%d — 의도: 재배줄+고랑1의 꽉 찬 직사각형",
-                plots.size()));
+        int totWant = 0;
         for (FarmStore.Plot p : plots) {
-            if (p.tiles.length == 0) {
+            if (p.beds <= 0) {
+                legacy++;
                 continue;
             }
-            // 격자 복원 — col = x−앵커x, row = (z−앵커z)/2. 나머지가 있으면 고랑 오염이다.
-            java.util.Map<Integer, java.util.List<Integer>> rows = new java.util.TreeMap<>();
-            int foul = 0;
-            java.util.Set<Long> cells = new java.util.HashSet<>();
-            // 격자 복원은 구획의 <b>축</b>을 따라야 한다(dir 비트2 = 전치). 축을 안 보면 전치된
-            // 구획은 줄 간격이 x 로 벌어져 있는데 z 로 나누게 되어, 타일마다 홀수가 나와
-            // 전부 고랑오염으로 오판된다 — 계측기가 먼저 깨지는 자리다.
-            boolean turnedAxis = (p.dir & 4) != 0;
-            for (long l : p.tiles) {
-                BlockPos t = BlockPos.of(l);
-                int along = turnedAxis ? t.getZ() - p.anchor.getZ() : t.getX() - p.anchor.getX();
-                int across = turnedAxis ? t.getX() - p.anchor.getX() : t.getZ() - p.anchor.getZ();
-                if ((across & 1) != 0) {
-                    foul++;
-                    continue;
-                }
-                rows.computeIfAbsent(across / 2, k -> new java.util.ArrayList<>()).add(along);
-                cells.add(cell(along, across / 2));
-            }
-            // <b>흩어짐 = 격자 연결성</b>. 앵커 양쪽 점유 여부로 재던 종전 잣대는 못 쓴다:
-            // 막힌 구획은 이제 방향을 한 번 트는데, 그러면 앵커 열을 공유한 <b>한 덩어리</b>가
-            // 양쪽에 걸치므로 멀쩡한 구획이 흩어짐으로 찍힌다. 실제로 물어야 할 것은
-            // "몸통이 둘로 갈렸는가"이니, 이웃(열 ±1 같은 줄 / 줄 ±1 같은 열)으로 잇고
-            // 덩어리 수를 센다. 1이면 하나의 밭이다.
-            int comp = components(cells);
-            int n = p.tiles.length;
-            int holes = 0;
-            int breaks = 0;
-            // 회피 규칙이나 구조물 때문에 <b>채울 수 없는</b> 칸. 구멍과 <b>같은 단위(칸)</b>다 —
-            // 종전에는 끊긴 구간 단위로 세어 "구멍4(막힘2)" 처럼 넷 중 둘만 설명된 것처럼
-            // 읽혔다. 실제로는 네 칸 전부 설명됐는데 구간이 둘이었을 뿐이다.
-            int blocked = 0;
-            int minLen = Integer.MAX_VALUE;
-            int maxLen = 0;
-            for (var re : rows.entrySet()) {
-                java.util.List<Integer> v = re.getValue();
-                java.util.Collections.sort(v);
-                int gapCells = (v.get(v.size() - 1) - v.get(0) + 1) - v.size();
-                for (int i = 1; i < v.size(); i++) {
-                    if (v.get(i) - v.get(i - 1) > 1) {
-                        // <b>빠진 칸의 월드 좌표</b>를 남긴다. 개수만 세면 무엇이 막고 있는지
-                        // 영영 못 본다 — 이번 세션에서 무너진 집도, 이 구멍도 좌표를 붙이고
-                        // 나서야 원인이 잡혔다. 격자 복원의 역변환이라 정확하다.
-                        for (int c = v.get(i - 1) + 1; c < v.get(i); c++) {
-                            int across = re.getKey() * 2;
-                            int wx = turnedAxis ? p.anchor.getX() + across : p.anchor.getX() + c;
-                            int wz = turnedAxis ? p.anchor.getZ() + c : p.anchor.getZ() + across;
-                            // <b>무엇이 막고 있는지</b>를 서버가 직접 말하게 한다. 좌표만 찍고
-                            // 공중 격자를 눈으로 읽으면 격자 색인이 틀렸을 때 엉뚱한 칸을
-                            // 들여다보게 된다 — 실제로 그렇게 한 번 헛짚었다.
-                            BlockPos wp = level.getHeightmapPos(
-                                    net.minecraft.world.level.levelgen.Heightmap.Types
-                                            .MOTION_BLOCKING_NO_LEAVES,
-                                    new BlockPos(wx, 0, wz));
-                            // <b>배치와 같은 코드에 묻는다.</b> 규칙을 보고 쪽에 베껴 쓰면
-                            // 두 벌이 갈라진다 — 블록 종류만 보고 분류했을 때 집 여유 안의
-                            // 맨 잔디 칸이 진짜 구멍으로 잡혔던 것이 그 실수였다.
-                            String why = FarmTicker.plantBlockReason(level, wp);
-                            if (why != null) {
-                                blocked++; // <b>칸</b> 단위로 센다 — 구멍과 같은 단위여야 한다
-                            }
-                            if (holeAt.length() < 220) {
-                                holeAt.append(String.format("#%d@%d,%d=%s ",
-                                        p.id, wx, wz, why == null ? "빈칸" : why));
-                            }
+            int[] fp = FarmLayout.footprint(p.beds, p.rows);
+            int want = FarmLayout.tiles(p.beds, p.rows);
+            int haveCrop = 0;
+            int missLog = 0;
+            for (int c = 0; c < fp[0]; c++) {
+                for (int r = 0; r < fp[1]; r++) {
+                    int[] xz = FarmTicker.colOf(p, c, r);
+                    BlockPos base = new BlockPos(xz[0], p.baseY + 1, xz[1]);
+                    if (FarmLayout.isCrop(c, r, p.beds, p.rows)) {
+                        if (level.getBlockState(base.above()).is(Blocks.SWEET_BERRY_BUSH)) {
+                            haveCrop++;
                         }
-                        breaks++;
-                    }
-                }
-                holes += gapCells;
-                minLen = Math.min(minLen, v.size());
-                maxLen = Math.max(maxLen, v.size());
-                if (v.size() == 1) {
-                    strays++;
-                }
-            }
-            // 줄 번호가 연속인가 — 중간에 통째로 빠진 재배줄도 구멍이다.
-            int rowGaps = 0;
-            Integer prev = null;
-            for (int r : rows.keySet()) {
-                if (prev != null && r - prev > 1) {
-                    rowGaps += r - prev - 1;
-                }
-                prev = r;
-            }
-            double fill = rows.isEmpty() ? 0.0 : (double) n / (rows.size() * Math.max(1, maxLen));
-            totTiles += n;
-            totHoles += holes;
-            totBlocked += blocked;
-            totBreaks += breaks;
-            totRows += rows.size();
-            fillSum += fill;
-            counted++;
-            if (turnedAxis) {
-                axisZ++;
-            }
-            boolean spread = comp > 1;
-            if (spread) {
-                mirrored++;
-            }
-            if (foul > 0) {
-                fouled++;
-            }
-            // 막힘만 있는 구획은 <b>결함이 아니다</b> — 밭이 구조물을 옳게 비켜 간 것이다.
-            String flag = (breaks > 0 || spread || foul > 0 || rowGaps > 0) ? "§c" : "§a";
-            tell(ctx.getSource(), String.format(
-                    "  %s#%d 타일%d 줄%d(길이%d~%d) 채움%.0f%% 구멍%d(막힘%d) 줄끊김%d 빈줄%d 덩어리%d 고랑오염%d%s§r @%d,%d",
-                    flag, p.id, n, rows.size(), minLen == Integer.MAX_VALUE ? 0 : minLen, maxLen,
-                    100 * fill, holes, blocked, breaks, rowGaps, comp, foul,
-                    (turnedAxis ? " 줄z축" : " 줄x축") + (p.turned ? "·방향전환" : ""),
-                    p.anchor.getX(), p.anchor.getZ()));
-        }
-        // ── 테두리 검증 ── 덤불 상자 바깥 한 겹이 실제로 흙길인가, 그리고 그것이 남의
-        // 것(집 지면·문앞 계단·정원·다른 밭)을 덮지 않았는가. 아울러 옛 테두리가 몸통 안에
-        // 남아 있지는 않은가(밭이 자랄 때 한 겹 물리지 못하면 동심원처럼 겹겹이 남는다).
-        RoadStore roadsB = RoadStore.get(level);
-        RoadPlanner.Obstacles obB = RoadPlanner.Obstacles.of(level);
-        HomeStore regB = HomeStore.get(level);
-        java.util.Set<Long> homeCols = new java.util.HashSet<>();
-        java.util.Set<Long> stepCols = new java.util.HashSet<>();
-        java.util.Set<Long> gardenCols = new java.util.HashSet<>();
-        for (BlockPos h : regB.positions()) {
-            HomeStore.Entry e = regB.entry(h);
-            if (e == null) {
-                continue;
-            }
-            HomeBlueprint hb = HomeBlueprint.of(level, h, e.design(), e.rotation(), e.mirrored());
-            for (BlockPos c : hb.groundFootprint()) {
-                homeCols.add(RoadStore.key(c.getX(), c.getZ()));
-            }
-            for (BlockPos c : hb.doorSteps()) {
-                stepCols.add(RoadStore.key(c.getX(), c.getZ()));
-            }
-            for (BlockPos c : hb.garden()) {
-                gardenCols.add(RoadStore.key(c.getX(), c.getZ()));
-            }
-        }
-        int ringOk = 0;
-        int ringMiss = 0;
-        int ringBad = 0;
-        int ringStale = 0;
-        StringBuilder staleAt = new StringBuilder(); // 남은 칸 좌표 — 원인 추적용
-        for (FarmStore.Plot p : plots) {
-            if (p.tiles.length == 0) {
-                continue;
-            }
-            int aX = Integer.MAX_VALUE;
-            int bX = Integer.MIN_VALUE;
-            int aZ = Integer.MAX_VALUE;
-            int bZ = Integer.MIN_VALUE;
-            for (long l : p.tiles) {
-                BlockPos t = BlockPos.of(l);
-                aX = Math.min(aX, t.getX());
-                bX = Math.max(bX, t.getX());
-                aZ = Math.min(aZ, t.getZ());
-                bZ = Math.max(bZ, t.getZ());
-            }
-            for (int x = aX - 1; x <= bX + 1; x++) {
-                for (int z = aZ - 1; z <= bZ + 1; z++) {
-                    boolean edge = x == aX - 1 || x == bX + 1 || z == aZ - 1 || z == bZ + 1;
-                    BlockPos g = surfaceNear(level, x, z);
-                    boolean path = g != null && level.getBlockState(g).is(Blocks.DIRT_PATH);
-                    if (edge) {
-                        if (path) {
-                            ringOk++;
-                            if (homeCols.contains(RoadStore.key(x, z))
-                                    || stepCols.contains(RoadStore.key(x, z))
-                                    || gardenCols.contains(RoadStore.key(x, z))
-                                    || farms.isFarmTile(new BlockPos(x, 0, z))) {
-                                ringBad++;
-                            }
-                        } else if (g != null && RoadPlanner.pavable(level, g)
-                                && !obB.blocked(x, z)) {
-                            ringMiss++; // 깔 수 있는 땅인데 안 깔렸다
-                        }
-                    } else if (path && !roadsB.has(x, z) && farms.isFarmBody(x, z)) {
-                        ringStale++; // 몸통 안에 남은 흙길 — 옛 테두리이거나 못 치운 길
-                        if (staleAt.length() < 120) {
-                            staleAt.append(String.format("#%d@%d,%d ", p.id, x, z));
-                        }
+                    } else if (!level.getBlockState(base).is(Blocks.OAK_LOG)) {
+                        missLog++;
                     }
                 }
             }
+            int outside = 0;
+            for (long l : p.tiles) {
+                BlockPos t = BlockPos.of(l);
+                int dx = p.bedAxisX ? t.getX() - p.fx : t.getZ() - p.fz;
+                int dz = p.bedAxisX ? t.getZ() - p.fz : t.getX() - p.fx;
+                if (dx < 0 || dz < 0 || dx >= fp[0] || dz >= fp[1]
+                        || !FarmLayout.isCrop(dx, dz, p.beds, p.rows)) {
+                    outside++;
+                }
+            }
+            badLog += missLog;
+            badCrop += want - haveCrop;
+            strayTile += outside;
+            totTiles += haveCrop;
+            totWant += want;
+            if (plots.indexOf(p) < 8) {
+                tell(ctx.getSource(), String.format(
+                        "  #%d %d단계 덩어리%d 줄%d · 재배 %d/%d · 발자국 %dx%d · %s원목결손%d 발자국밖%d§r"
+                                + " · %s @%d,%d y%d",
+                        p.id, p.steps + 1, p.beds, p.rows, haveCrop, want, fp[0], fp[1],
+                        missLog + outside == 0 ? "§a" : "§c", missLog, outside,
+                        p.bedAxisX ? "덩어리축x" : "덩어리축z", p.fx, p.fz, p.baseY));
+            }
         }
+        boolean clean = badLog == 0 && strayTile == 0;
         tell(ctx.getSource(), String.format(
-                "  %s테두리 — 깔린칸%d · 결손%d · 침범%d · 몸통내잔여%d%s§r",
-                (ringBad + ringStale == 0) ? "§a" : "§c", ringOk, ringMiss, ringBad, ringStale,
-                staleAt.length() == 0 ? "" : " [" + staleAt.toString().trim() + "]"));
-
-        // 구획끼리 얼마나 붙어 있나 — 각각 반듯해도 맞닿으면 위에서 한 덩어리로 읽힌다.
-        int touching = 0;
-        double minGap = Double.MAX_VALUE;
-        for (int i = 0; i < plots.size(); i++) {
-            for (int j = i + 1; j < plots.size(); j++) {
-                double best = Double.MAX_VALUE;
-                for (long a : plots.get(i).tiles) {
-                    BlockPos pa = BlockPos.of(a);
-                    for (long b : plots.get(j).tiles) {
-                        BlockPos pb = BlockPos.of(b);
-                        double d = Math.hypot(pa.getX() - pb.getX(), pa.getZ() - pb.getZ());
-                        best = Math.min(best, d);
-                    }
-                }
-                if (best < Double.MAX_VALUE) {
-                    minGap = Math.min(minGap, best);
-                    if (best <= 3.0) {
-                        touching++;
-                    }
-                }
-            }
-        }
-        // ── <b>왜 사각형이 안 차는가</b> — 다음 이상 칸들이 걸리는 사유를 세어 말한다.
-        //
-        // 채움 70%대와 줄 길이 1~12 는 "밭이 이상하다" 는 인상만 준다. 배치 수열은 줄 길이를
-        // ±1 로 유지하므로 그 벌어짐은 <b>막힌 칸을 건너뛴 흔적</b>인데, 무엇이 막았는지는
-        // 세어 보기 전에는 알 수 없다. 여기서 세면 지도를 눈으로 훑지 않아도 원인이 나온다.
+                "  %s합계 재배 %d/%d(%.0f%%) · 원목결손%d · 발자국밖 타일%d · 구세계구획%d§r",
+                clean ? "§a" : "§c", totTiles, totWant,
+                totWant == 0 ? 0.0 : 100.0 * totTiles / totWant, badLog, strayTile, legacy));
+        // 못 채운 사유 — 아직 심는 중인지, 다음 단계가 막힌 것인지.
         java.util.Map<String, Integer> why = new java.util.TreeMap<>();
         for (FarmStore.Plot p : plots) {
-            for (var e : FarmTicker.unfilledReasons(level, farms, p, 24).entrySet()) {
+            for (var e : FarmTicker.unfilledReasons(level, farms, p, 0).entrySet()) {
                 why.merge(e.getKey(), e.getValue(), Integer::sum);
             }
         }
         StringBuilder wb = new StringBuilder();
-        why.entrySet().stream()
-                .sorted((x, y) -> y.getValue() - x.getValue())
-                .limit(8)
+        why.entrySet().stream().sorted((x, y) -> y.getValue() - x.getValue()).limit(8)
                 .forEach(e -> wb.append(e.getKey()).append(e.getValue()).append(' '));
-        tell(ctx.getSource(), "  못 채운 사유(다음 24칸까지) — " + wb.toString().trim());
-        tell(ctx.getSource(), String.format(
-                "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d(막힘%d) · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d · 줄방향 x축%d/z축%d",
-                totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBlocked, totBreaks,
-                strays, mirrored, counted, fouled, counted - axisZ, axisZ));
-        if (holeAt.length() > 0) {
-            tell(ctx.getSource(), "  빠진칸: " + holeAt.toString().trim());
+        tell(ctx.getSource(), "  다음 단계 사정 — " + wb.toString().trim());
+        // 구획 간 최소거리 — 두 밭이 붙어 한 덩어리로 보이지 않는지.
+        double minGap = Double.MAX_VALUE;
+        int touching = 0;
+        for (int a = 0; a < plots.size(); a++) {
+            for (int b = a + 1; b < plots.size(); b++) {
+                double d = boxGap(plots.get(a), plots.get(b));
+                if (d < 0) {
+                    continue;
+                }
+                minGap = Math.min(minGap, d);
+                if (d <= 3.0) {
+                    touching++;
+                }
+            }
         }
         tell(ctx.getSource(), String.format(
-                "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d (각각 반듯해도 붙으면 한 덩어리로 보인다)",
+                "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d",
                 minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
-        return plots.size();
+        return 1;
+    }
+
+    /** 두 발자국 상자 사이의 빈 칸 거리(겹치면 0, 한쪽이 구세계면 −1). */
+    private static double boxGap(FarmStore.Plot a, FarmStore.Plot b) {
+        if (a.beds <= 0 || b.beds <= 0) {
+            return -1;
+        }
+        int[] ba = FarmTicker.boxOf(a, a.beds, a.rows);
+        int[] bb = FarmTicker.boxOf(b, b.beds, b.rows);
+        int dx = Math.max(0, Math.max(ba[0] - (bb[0] + bb[2]), bb[0] - (ba[0] + ba[2])));
+        int dz = Math.max(0, Math.max(ba[1] - (bb[1] + bb[3]), bb[1] - (ba[1] + ba[3])));
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     /**

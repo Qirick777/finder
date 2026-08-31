@@ -3393,12 +3393,21 @@ public final class EvoSimCommand {
     }
 
     /** 이 지주의 밭에 붙은 상시 소작 수. */
+    /**
+     * 이 주인의 밭에서 <b>오늘 실제로 일하는</b> 사람 수 — 상시 계약과 일용 배정을 함께 센다.
+     *
+     * <p>계약만 세면 실제 고용을 크게 놓친다(w10 실측 d14~d19: 계약 3명, 실제 9~13명). 일용·
+     * 긴급 배정이 명부에 없기 때문이다.
+     */
     private static int tenantsOf(ServerLevel level, long ownerId) {
         FarmStore store = FarmStore.get(level);
         int n = 0;
         for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getTenantFarm() != 0L)) {
-            FarmStore.Plot p = store.get(m.getTenantFarm());
+                e -> e.isAlive() && (e.getTenantFarm() != 0L
+                        || FarmTicker.assignedPlot(e.getId()) != 0L))) {
+            long pid = m.getTenantFarm() != 0L ? m.getTenantFarm()
+                    : FarmTicker.assignedPlot(m.getId());
+            FarmStore.Plot p = store.get(pid);
             if (p != null && p.ownerId == ownerId) {
                 n++;
             }
@@ -3656,7 +3665,13 @@ public final class EvoSimCommand {
             String key = farms.ownedTiles(id) > 0
                     ? (direct.getOrDefault(id, 0) > 0 ? "영주" : "자영")
                     : (farms.stewardOf(id) != 0L ? "마름"
-                            : (m.getTenantFarm() != 0L ? "소작" : "무직"));
+                            // <b>상시 계약만 세면 안 된다.</b> 실측(w10 d14~d19): 계약 소작은 3명인데
+                            // 실제로 밭에서 일한 사람은 매일 9~13명이었다 — 나머지는 일용·긴급
+                            // 배정이라 계약 명부에 없다. 그걸 무직으로 분류하면 "소작농이 다수인가"를
+                            // 물을 수 없고, 실제로 서 있는 피라미드를 보고가 감춘다.
+                            : (m.getTenantFarm() != 0L
+                                    || FarmTicker.assignedPlot(m.getId()) != 0L
+                                            ? "소작" : "무직"));
             double[] v = role.get(key);
             v[0] += in.getOrDefault(id, 0.0) - out.getOrDefault(id, 0.0);
             v[1]++;

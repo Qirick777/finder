@@ -3834,9 +3834,10 @@ public final class EvoSimCommand {
             // 겨우 · 지배자는 그 위. 전체 평균 하나로는 "평민이 4를 낳고 지주가 0"인 병든 분포와
             // 정상 분포를 구분할 수 없다. 층은 소유 타일과 고용으로만 가른다(라벨 없음).
             String[] cls = {"소작·농노", "마름", "자영농", "지배자"};
-            // 소작·농노 1~3(지시 갱신: 1.5~2 에서 넓힘) · 마름·자영농 3~4 · 지배자 3 이상.
-            double[] lo = {1.0, 3.0, 3.0, 3.0};
-            double[] hi = {3.0, 4.0, 4.0, 99.0};
+            // 지시(갱신): 소작·농노 2 · 마름 3 · 자영농 3 · 지배자 5(넉넉히, 상한 없음).
+            // <b>순서가 뒤집히면 계층의 뜻이 없어진다</b>는 것이 별도 요구라, 아래에서 따로 센다.
+            double[] lo = {1.5, 2.5, 2.5, 4.0};
+            double[] hi = {2.5, 3.5, 4.0, 99.0};
             int[] cc = new int[4];
             int[] ck = new int[4];
             for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
@@ -3865,8 +3866,29 @@ public final class EvoSimCommand {
                 cb.append(String.format("%s%s %d쌍 %.2f§r ",
                         ca >= lo[k] && ca <= hi[k] ? "§a" : "§c", cls[k], cc[k], ca));
             }
-            tell(ctx.getSource(), "  출산 신분별(목표 소작1~3 · 마름·자영농3~4 · 지배자3+) — "
+            tell(ctx.getSource(), "  출산 신분별(목표 소작2 · 마름3 · 자영농3 · 지배자5) — "
                     + (cb.length() == 0 ? "해당 없음" : cb.toString().trim()));
+            // <b>층 간 순서</b> — 값이 목표 안에 들어도 순서가 뒤집히면 계층의 뜻이 없어진다
+            // (지시). 인원이 있는 층만 이어서 비교한다: 소작 ≤ 마름 ≤ 자영농 ≤ 지배자.
+            StringBuilder ob = new StringBuilder();
+            double last = -1.0;
+            int inversions = 0;
+            for (int k = 0; k < 4; k++) {
+                if (cc[k] == 0) {
+                    continue;
+                }
+                double ca = (double) ck[k] / cc[k];
+                if (last >= 0 && ca < last) {
+                    inversions++;
+                    ob.append(String.format("§c%s%.2f↓§r ", cls[k], ca));
+                } else {
+                    ob.append(String.format("%s%.2f ", cls[k], ca));
+                }
+                last = ca;
+            }
+            tell(ctx.getSource(), String.format(
+                    "  출산 순서(소작≤마름≤자영≤지배) — %s· %s역전 %d곳§r",
+                    ob, inversions == 0 ? "§a" : "§c", inversions));
         }
 
         java.util.List<java.util.Map.Entry<Long, Integer>> top =

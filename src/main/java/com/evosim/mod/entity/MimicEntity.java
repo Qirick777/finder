@@ -1708,8 +1708,8 @@ public class MimicEntity extends PathfinderMob {
 
     /** 지참금 1가(家) 최소자부담 X — 양가합산 지참금 = 2X = 14 = initialLarder(부부 need). 부모 저장고 실차감. */
     private static final double DOWRY_PER_SIDE = 7.0;
-    /** 씨앗 세대 부트스트랩 정원 그루 수(만점) — 초기조건: 생산자산(수율 0.20×M(g), 자연 상한). */
-    private static final int SEED_GARDEN_BUSHES = 8;
+    // 씨앗 세대 부트스트랩 정원 그루 수는 폐기했다 — 착공이 정원 칸을 비우므로 건축 전 식수는
+    // 지워지고 가구가 같은 날 밤에 비용을 내고 다시 심는다(endowNewHome 주석 참조).
 
     /**
      * 결혼 신설 가구 밑천 부여 — 두 경로로 갈린다.
@@ -1736,9 +1736,14 @@ public class MimicEntity extends PathfinderMob {
                             other.holding, true)));
             double s = FoodEconomy.initialLarder(need); // 표준 시작 저장고(부부 = 14)
             ls.set(newHome, s);
-            int planted = plantBerries(sl, SEED_GARDEN_BUSHES); // this.homePos == newHome(직전 setHomePos)
+            // <b>여기서 정원을 심지 않는다.</b> 착공이 정원 칸을 공기로 비우므로(HomeTemplate 의
+            // carve = 정원칸 ∪ 앵커 · excavate) 건축 전에 심은 그루는 전부 지워지고, 같은 날 밤
+            // 가구 정산이 <b>비용을 내고</b> 다시 심는다 — 실측(r2): "[d0] 씨앗정착 정원 6그루"
+            // 직후 "[d0 밤] 베리 +6 (비용 3 → 누적 6/6)". 부트스트랩이 하는 일이 없이 블록만
+            // 두 번 놓여, 지면의 베리가 잔디블록으로 바뀌었다가 그 위에 다시 서는 것으로 보였다.
+            // 경계조건의 알맹이는 저장고 s 이고, 그것으로 가구가 당일 밤에 정원을 채운다.
             SimEvents.event(this, "씨앗정착", String.format(
-                    "초기조건 부트스트랩 — 정원 %d그루 + 저장고 %.0f(경계조건)", planted, s));
+                    "초기조건 부트스트랩 — 저장고 %.0f(경계조건) · 정원은 착공 후 가구가 심는다", s));
             return;
         }
         double dowry = pullDowry(ls, homeSelf) + pullDowry(ls, homeOther);

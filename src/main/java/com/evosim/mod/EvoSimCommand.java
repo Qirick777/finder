@@ -3634,6 +3634,46 @@ public final class EvoSimCommand {
         // 라벨만 갈라 놓으면 의미가 없다. 계층별 평균으로 <b>실제 수치가 갈리는지</b>를 본다.
         // 살림은 가구 저장고라 한 지붕 아래 사람에게 같은 값이 잡힌다(개인 재산이 아님).
         tell(ctx.getSource(), "  계층별 평균 — " + detail);
+        // ── <b>역할별</b> 순수지 — 신분 라벨과 별개로 "고용된 층" 이 쌓이는가를 본다.
+        //
+        // 신분(지배·상위·평민·천민)은 소유와 예속으로 갈리므로, 무토지인 마름과 소작은 둘 다
+        // 천민으로 묶여 서로 구별되지 않는다. 그런데 계층이 굳으려면 <b>고용된 자가 자기
+        // 저장고를 가질 수 있어야</b> 한다 — 그것을 보려면 역할로 갈라 봐야 한다.
+        // 실측(D26)에서 평민 −0.24 · 천민 −0.95 로 아래 두 층이 모두 적자였다.
+        LarderStore larderStore = LarderStore.get(level);
+        java.util.Map<String, double[]> role = new java.util.LinkedHashMap<>();
+        role.put("영주", new double[3]);
+        role.put("마름", new double[3]);
+        role.put("소작", new double[3]);
+        role.put("자영", new double[3]);
+        role.put("무직", new double[3]);
+        for (MimicEntity m : byId.values()) {
+            if (m.getIndividual() == null || m.getHomePos() == null
+                    || m.getStage() != com.evosim.core.LifeStage.ADULT) {
+                continue;
+            }
+            long id = m.getIndividual().id();
+            String key = farms.ownedTiles(id) > 0
+                    ? (direct.getOrDefault(id, 0) > 0 ? "영주" : "자영")
+                    : (farms.stewardOf(id) != 0L ? "마름"
+                            : (m.getTenantFarm() != 0L ? "소작" : "무직"));
+            double[] v = role.get(key);
+            v[0] += in.getOrDefault(id, 0.0) - out.getOrDefault(id, 0.0);
+            v[1]++;
+            v[2] += larderStore.get(m.getHomePos());
+        }
+        StringBuilder rs = new StringBuilder();
+        for (var e : role.entrySet()) {
+            if (e.getValue()[1] == 0) {
+                continue;
+            }
+            rs.append(rs.length() > 0 ? " · " : "").append(String.format(
+                    "%s%d명 %+.2f/살림%.0f", e.getKey(), (int) e.getValue()[1],
+                    e.getValue()[0] / e.getValue()[1], e.getValue()[2] / e.getValue()[1]));
+        }
+        if (rs.length() > 0) {
+            tell(ctx.getSource(), "  역할별 1인 순수지/살림 — " + rs);
+        }
 
         java.util.List<java.util.Map.Entry<Long, Integer>> top =
                 new java.util.ArrayList<>(direct.entrySet());

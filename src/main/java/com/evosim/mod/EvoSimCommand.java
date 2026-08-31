@@ -4730,8 +4730,10 @@ public final class EvoSimCommand {
         String[] names = {"무능", "평범", "유능", "엘리트"};
         int[] n = new int[4];
         int[] pass = new int[4];
+        int[] own = new int[4];
         double[] tSum = new double[4];
         double[] barSum = new double[4];
+        double[] fund = new double[4];
         for (MimicEntity m : byId.values()) {
             if (m.getHomePos() == null || m.getSpouseId() == 0L) {
                 continue; // 착공 자격 = 독립가구(FarmTicker 와 같은 조건)
@@ -4776,6 +4778,14 @@ public final class EvoSimCommand {
                     farms.ownedTiles(ind.id()), false)) {
                 pass[b]++;
             }
+            // <b>실제로 무엇이 되었나</b> — 돌파는 허가일 뿐이고 자금이 임계에 닿아야 착공한다.
+            // 무능한 욕심쟁이는 만족을 모르니 늘 '돌파'로 세어지지만 벌이가 낮아 영영 못 연다.
+            // 허가율만 재면 결론이 뒤집히므로 결과(소유·살림)를 나란히 둔다.
+            if (farms.ownedTiles(ind.id()) > 0
+                    || farms.ownedTiles(m.getSpouseId()) > 0) {
+                own[b]++;
+            }
+            fund[b] += larders.get(m.getHomePos());
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 4; i++) {
@@ -4784,12 +4794,13 @@ public final class EvoSimCommand {
                 continue;
             }
             sb.append(sb.length() > 0 ? " · " : "").append(String.format(
-                    "%s %d명 돌파%d(임계%.0f vs 만족선%.0f)",
-                    names[i], n[i], pass[i], tSum[i] / n[i], barSum[i] / n[i]));
+                    "%s %d명 §e지주%d§r 돌파%d 살림%.0f(임계%.0f vs 만족선%.0f)",
+                    names[i], n[i], own[i], pass[i], fund[i] / n[i],
+                    tSum[i] / n[i], barSum[i] / n[i]));
         }
         tell(src, "  능력 사다리(a=성별뺀 채집능력) — " + sb);
-        tell(src, "    ※돌파 = 착공 임계만큼 모아도 만족 안 함(T ≤ 만족선). 구간이 오를수록"
-                + " 돌파율이 올라야 능력이 신분을 가른 것 — 고르면 가른 것은 능력이 아니다.");
+        tell(src, "    ※판정은 <지주 비율>이다 — 구간이 오를수록 지주 비율이 올라야 능력이 신분을"
+                + " 가른 것. 돌파(T≤만족선)는 허가일 뿐이고, 살림이 임계에 닿아야 실제로 연다.");
     }
 
     private static void tell(CommandSourceStack src, String msg) {

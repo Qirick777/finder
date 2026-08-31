@@ -3325,6 +3325,13 @@ public final class EvoSimCommand {
         return 1;
     }
 
+    /**
+     * 군인 가구가 출산 문턱을 넘기까지 주는 <b>지평</b>(일). 사용자 기준은 "봉급으로 굶지 않고
+     * 약간 흑자를 보며 아이 1명은 가질 수 있을 정도"라, 출산은 하루치 비용이 아니라 이 기간 안에
+     * 쌓아 올리는 적립이다. 10일은 시뮬 1일 = 설계 2일 압축에서 설계 3주 남짓에 해당한다.
+     */
+    private static final double TROOP_BIRTH_HORIZON_DAYS = 10.0;
+
     /** 이 개체가 속한 가구의 하루 소모 합(명목) — 착공 임계 등 <b>판정</b>과 같은 척도. */
     private static double familyNeedOf(ServerLevel level, MimicEntity who) {
         double need = 0.0;
@@ -3678,11 +3685,21 @@ public final class EvoSimCommand {
             // 그 위에 축적으로 출산 한 건을 더 보장하려면 BIRTH_COST 만큼이 더 남아야 한다.
             boolean plusBirth = spare - feeds * house >= com.evosim.core.FoodEconomy.BIRTH_COST;
             // <b>군인 환산</b>(P7 의 실제 물음) — "봉급으로 굶지 않고 약간 흑자를 보며 아이 하나는
-            // 가질 수 있는" 가구를 몇 호나 굴릴 수 있나. 그러려면 한 호마다 살림값 위에 출산
-            // 한 건분이 더 얹혀야 하므로 분모가 house 가 아니라 house+BIRTH_COST 다. feeds 는
-            // 굶기지만 않는 수라 언제나 이보다 크다 — 둘을 나란히 두어야 과장이 안 된다.
-            int troops = (int) Math.floor(Math.max(0.0, spare)
-                    / (house + com.evosim.core.FoodEconomy.BIRTH_COST));
+            // 가질 수 있는" 가구를 몇 호나 굴릴 수 있나.
+            //
+            // 분자는 확장을 <b>빼기 전</b>이다. 확장은 지배자가 고르는 지출이지 의무가 아니고,
+            // 물음 자체가 "군인을 굴리고도 확장할 여유가 있는가"이므로 확장을 먼저 깔면 확장에
+            // 전액을 쓰는 지배자가 영영 0호로 찍혀 물음에 답을 못 한다(w9 D13 실측: 밭벌이 10.8 을
+            // 확장 11.3 이 전부 삼켜 여유 −3.0 → 군인 0호. 실제 가용은 10.8−2.6 = 8.2 다).
+            //
+            // 분모는 <b>단위를 맞춘다</b>. 종전에는 하루치 살림에 일회성 출산비를 더해 나눴는데
+            // 그러면 뜻이 없는 수가 나온다. 출산은 문턱까지 <b>적립</b>하는 일이므로 지평으로
+            // 나눠 하루치로 환산한다: 원가/일 = 실소모 + 출산문턱 ÷ 지평.
+            double grossSpare = gain - own;
+            double reproGate = com.evosim.core.FoodEconomy.BIRTH_COST
+                    + familyNeedOf(level, m) * com.evosim.core.FoodEconomy.REPRO_NEED_DAYS + 3.0;
+            double troopCost = house + reproGate / TROOP_BIRTH_HORIZON_DAYS;
+            int troops = (int) Math.floor(Math.max(0.0, grossSpare) / troopCost);
             // <b>이미 먹이고 있는 비생산자</b>도 함께 센다. 마름은 밭을 갖지 않고 임금으로 사는
             // 사람이라, 그 수가 곧 "지금 부양 중인 인원"이다. 여유(장래 여력)와 나란히 놓아야
             // 지표가 현실과 어긋나지 않는다 — 실측 D15 에서 마름 4명을 먹이는 영주를 두고
@@ -3690,11 +3707,12 @@ public final class EvoSimCommand {
             int paid = farms.stewardCount(m.getIndividual().id());
             tell(ctx.getSource(), String.format(
                     "  부양력 %s — 밭벌이%.1f/일 − 확장%.1f − 제가구%.1f(실측) = %s여유%+.1f§r"
-                            + " → 지금 마름%d명 부양 · 추가 여력 %d호%s · 군인 %d호(살림+출산1)"
+                            + " → 지금 마름%d명 부양 · 추가 여력 %d호%s"
+                            + " · 확장 빼기 전 가용%+.1f → §b군인 %d호§r(1호당 %.1f/일)"
                             + " (밭%d 소작%d) ※벌이는 밭 수입만(채집 제외)",
                     m.getIndividual().shortName(), gain, spend, own,
                     spare > 0 ? "§a" : "§c", spare, paid, feeds,
-                    plusBirth ? " + 출산1" : "", troops,
+                    plusBirth ? " + 출산1" : "", grossSpare, troops, troopCost,
                     farms.ownedCount(m.getIndividual().id()),
                     tenantsOf(level, m.getIndividual().id())));
         }

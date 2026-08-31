@@ -4736,9 +4736,11 @@ public final class EvoSimCommand {
         int[] n = new int[4];
         int[] pass = new int[4];
         int[] own = new int[4];
+        int[] male = new int[4];
         double[] tSum = new double[4];
         double[] barSum = new double[4];
         double[] fund = new double[4];
+        double[] best = new double[4];
         for (MimicEntity m : byId.values()) {
             if (m.getHomePos() == null || m.getSpouseId() == 0L) {
                 continue; // 착공 자격 = 독립가구(FarmTicker 와 같은 조건)
@@ -4794,6 +4796,14 @@ public final class EvoSimCommand {
                 own[b]++;
             }
             fund[b] += larders.get(m.getHomePos());
+            // 구간 <b>구성</b>을 함께 남긴다. 평균만 보면 두 가지를 구별할 수 없다 —
+            // ① 구간 전체가 임계에서 멀다 ② 한 집이 코앞인데 나머지가 평균을 끌어내린다.
+            // 성비도 남긴다: 채집 산출에 성별 배수(남 1.5 / 여 0.5)가 곱해지므로, 유능한 아내와
+            // 평범한 남편의 가구는 "유능 구간"에 잡히면서 실제 벌이는 낮다.
+            if (m.getIndividual().sex() == com.evosim.core.Sex.MALE) {
+                male[b]++;
+            }
+            best[b] = Math.max(best[b], larders.get(m.getHomePos()));
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 4; i++) {
@@ -4802,8 +4812,8 @@ public final class EvoSimCommand {
                 continue;
             }
             sb.append(sb.length() > 0 ? " · " : "").append(String.format(
-                    "%s %d명 §e지주%d§r 돌파%d 살림%.0f(임계%.0f vs 만족선%.0f)",
-                    names[i], n[i], own[i], pass[i], fund[i] / n[i],
+                    "%s %d명(남%d) §e지주%d§r 돌파%d 살림%.0f/최고%.0f(임계%.0f vs 만족선%.0f)",
+                    names[i], n[i], male[i], own[i], pass[i], fund[i] / n[i], best[i],
                     tSum[i] / n[i], barSum[i] / n[i]));
         }
         tell(src, "  능력 사다리(a=성별뺀 채집능력) — " + sb);

@@ -4755,6 +4755,7 @@ public final class EvoSimCommand {
         int[] pass = new int[4];
         int[] own = new int[4];
         int[] male = new int[4];
+        int[] landless = new int[4];
         double[] tSum = new double[4];
         double[] barSum = new double[4];
         double[] fund = new double[4];
@@ -4768,6 +4769,13 @@ public final class EvoSimCommand {
                 continue;
             }
             var ind = m.getIndividual();
+            // <b>지주 가구는 사다리에서 뺀다.</b> 살림은 가구 단위인데 구간은 개인으로 나뉘므로,
+            // 지주의 배우자가 남편 가구의 살림을 그대로 달고 아래 구간에 잡힌다 — 실측에서
+            // "평범 최고 40 · 엘리트 최고 40" 처럼 두 번 연속 같은 값이 찍혔고, 그걸 보고
+            // "평민 가구가 임계 코앞까지 왔다"는 <b>없는 결론</b>을 냈다. 사다리가 묻는 것은
+            // "아직 밭이 없는 자가 어떻게 뚫는가"이므로 이미 가진 집은 셈에서 빠져야 한다.
+            boolean landedHome = farms.ownedTiles(ind.id()) > 0
+                    || farms.ownedTiles(m.getSpouseId()) > 0;
             double need = homeNeed.get(m.getHomePos())[0];
             // 착공 예비의 가족 계상 = 본인 + 배우자 + 유아·소년(성인 자녀 제외, FarmTicker 와 동일).
             double famNeed = com.evosim.core.FoodEconomy.consumptionPerDay(m.getStage(),
@@ -4813,7 +4821,11 @@ public final class EvoSimCommand {
             if (farms.ownedTiles(ind.id()) > 0) {
                 own[b]++;
             }
-            fund[b] += larders.get(m.getHomePos());
+            if (!landedHome) {
+                fund[b] += larders.get(m.getHomePos());
+                landless[b]++;
+                best[b] = Math.max(best[b], larders.get(m.getHomePos()));
+            }
             // 구간 <b>구성</b>을 함께 남긴다. 평균만 보면 두 가지를 구별할 수 없다 —
             // ① 구간 전체가 임계에서 멀다 ② 한 집이 코앞인데 나머지가 평균을 끌어내린다.
             // 성비도 남긴다: 채집 산출에 성별 배수(남 1.5 / 여 0.5)가 곱해지므로, 유능한 아내와
@@ -4821,7 +4833,6 @@ public final class EvoSimCommand {
             if (m.getIndividual().sex() == com.evosim.core.Sex.MALE) {
                 male[b]++;
             }
-            best[b] = Math.max(best[b], larders.get(m.getHomePos()));
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 4; i++) {
@@ -4830,8 +4841,9 @@ public final class EvoSimCommand {
                 continue;
             }
             sb.append(sb.length() > 0 ? " · " : "").append(String.format(
-                    "%s %d명(남%d) §e지주%d§r 돌파%d 살림%.0f/최고%.0f(임계%.0f vs 만족선%.0f)",
-                    names[i], n[i], male[i], own[i], pass[i], fund[i] / n[i], best[i],
+                    "%s %d명(남%d) §e지주%d§r 돌파%d 무토지살림%.0f/최고%.0f(임계%.0f vs 만족선%.0f)",
+                    names[i], n[i], male[i], own[i], pass[i],
+                    landless[i] == 0 ? 0.0 : fund[i] / landless[i], best[i],
                     tSum[i] / n[i], barSum[i] / n[i]));
         }
         tell(src, "  능력 사다리(a=성별뺀 채집능력) — " + sb);

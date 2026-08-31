@@ -3589,8 +3589,11 @@ public final class EvoSimCommand {
         role.put("자영", new double[3]);
         role.put("무직", new double[3]);
         for (MimicEntity m : byId.values()) {
+            // <b>노년도 센다.</b> ADULT 만 세면 자리 잡은 영주가 통째로 빠진다 — 실측 D15:
+            // 72타일·소작4·마름4 를 거느린 1위 지주가 노년이 되자 역할별에서 사라졌다.
             if (m.getIndividual() == null || m.getHomePos() == null
-                    || m.getStage() != com.evosim.core.LifeStage.ADULT) {
+                    || (m.getStage() != com.evosim.core.LifeStage.ADULT
+                            && m.getStage() != com.evosim.core.LifeStage.ELDER)) {
                 continue;
             }
             long id = m.getIndividual().id();
@@ -3650,11 +3653,18 @@ public final class EvoSimCommand {
             int feeds = (int) Math.floor(Math.max(0.0, spare) / house);
             // 그 위에 축적으로 출산 한 건을 더 보장하려면 BIRTH_COST 만큼이 더 남아야 한다.
             boolean plusBirth = spare - feeds * house >= com.evosim.core.FoodEconomy.BIRTH_COST;
+            // <b>이미 먹이고 있는 비생산자</b>도 함께 센다. 마름은 밭을 갖지 않고 임금으로 사는
+            // 사람이라, 그 수가 곧 "지금 부양 중인 인원"이다. 여유(장래 여력)와 나란히 놓아야
+            // 지표가 현실과 어긋나지 않는다 — 실측 D15 에서 마름 4명을 먹이는 영주를 두고
+            // 보고가 "0호 부양"이라 말했다.
+            int paid = farms.stewardCount(m.getIndividual().id());
             tell(ctx.getSource(), String.format(
-                    "  부양력 %s — 벌이%.1f/일 − 확장%.1f − 제가구%.1f = %s여유%+.1f§r"
-                            + " → 타가구 %d호 부양%s (밭%d 소작%d)",
+                    "  부양력 %s — 밭벌이%.1f/일 − 확장%.1f − 제가구%.1f = %s여유%+.1f§r"
+                            + " → 지금 마름%d명 부양 · 추가 여력 %d호%s (밭%d 소작%d)"
+                            + " ※벌이는 밭 수입만(채집 제외)",
                     m.getIndividual().shortName(), gain, spend, own,
-                    spare > 0 ? "§a" : "§c", spare, feeds, plusBirth ? " + 출산1" : "",
+                    spare > 0 ? "§a" : "§c", spare, paid, feeds,
+                    plusBirth ? " + 출산1" : "",
                     farms.ownedCount(m.getIndividual().id()),
                     tenantsOf(level, m.getIndividual().id())));
         }

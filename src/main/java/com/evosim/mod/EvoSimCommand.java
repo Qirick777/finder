@@ -3325,6 +3325,32 @@ public final class EvoSimCommand {
         return 1;
     }
 
+    /** 이 개체가 속한 가구의 하루 소모 합(명목) — 부양력의 분모. */
+    private static double familyNeedOf(ServerLevel level, MimicEntity who) {
+        double need = 0.0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && e.getHomePos().equals(who.getHomePos()))) {
+            need += com.evosim.core.FoodEconomy.consumptionPerDay(
+                    m.getStage(), com.evosim.core.Activity.MOVE, m.getIndividual(), false);
+        }
+        return need;
+    }
+
+    /** 이 지주의 밭에 붙은 상시 소작 수. */
+    private static int tenantsOf(ServerLevel level, long ownerId) {
+        FarmStore store = FarmStore.get(level);
+        int n = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getTenantFarm() != 0L)) {
+            FarmStore.Plot p = store.get(m.getTenantFarm());
+            if (p != null && p.ownerId == ownerId) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /** 두 발자국 상자 사이의 빈 칸 거리(겹치면 0, 한쪽이 구세계면 −1). */
     private static double boxGap(FarmStore.Plot a, FarmStore.Plot b) {
         if (a.beds <= 0 || b.beds <= 0) {
@@ -3595,34 +3621,44 @@ public final class EvoSimCommand {
         // 늘 얕아 보인다. 그러니 <b>얼마나 벌었나</b>를 원장에서 직접 읽는다 — 밭 원장의
         // totalToOwner(지대+자영)와 totalToTenant(소작 몫)는 개간일부터의 누계다.
         long today2 = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
-        java.util.Map<Long, double[]> earn = new java.util.HashMap<>(); // id → [수취, 일수]
+        // 지주별 [수취누계, 지출누계, 최장 경과일]
+        java.util.Map<Long, double[]> earn = new java.util.HashMap<>();
         double tenantSum = 0.0;
         for (FarmStore.Plot p : farms.all().values()) {
             double days = Math.max(1.0, today2 - Math.max(0L, p.foundedDay));
-            double[] e = earn.computeIfAbsent(p.ownerId, k -> new double[2]);
+            double[] e = earn.computeIfAbsent(p.ownerId, k -> new double[3]);
             e[0] += p.totalToOwner;
-            e[1] = Math.max(e[1], days);
+            e[1] += p.totalSpentExpand;
+            e[2] = Math.max(e[2], days);
             tenantSum += p.totalToTenant;
         }
         java.util.List<java.util.Map.Entry<Long, double[]>> rich =
                 new java.util.ArrayList<>(earn.entrySet());
         rich.sort((x, y) -> Double.compare(y.getValue()[0], x.getValue()[0]));
-        StringBuilder eb = new StringBuilder();
-        for (int i = 0; i < Math.min(3, rich.size()); i++) {
-            double[] e = rich.get(i).getValue();
-            MimicEntity m = byId.get(rich.get(i).getKey());
-            eb.append(String.format("%s %.0f(%.1f/일) ",
-                    m == null ? "?" : m.getIndividual().shortName(), e[0], e[0] / e[1]));
-        }
-        int tenantN = 0;
-        for (MimicEntity m : byId.values()) {
-            if (m.getTenantFarm() != 0L) {
-                tenantN++;
+        for (int i2 = 0; i2 < Math.min(2, rich.size()); i2++) {
+            double[] e = rich.get(i2).getValue();
+            MimicEntity m = byId.get(rich.get(i2).getKey());
+            if (m == null || m.getHomePos() == null) {
+                continue;
             }
+            double gain = e[0] / e[2];              // 일평균 수취
+            double spend = e[1] / e[2];             // 일평균 확장 지출
+            double own = familyNeedOf(level, m);    // 제 가구 하루 소모
+            double spare = gain - spend - own;      // 남을 먹일 수 있는 몫
+            // <b>몇 가구를 먹일 수 있나</b> — 이것이 곧 군인 고용 가능성이다(P7 입력).
+            double house = Math.max(1.0, own);
+            int feeds = (int) Math.floor(Math.max(0.0, spare) / house);
+            // 그 위에 축적으로 출산 한 건을 더 보장하려면 BIRTH_COST 만큼이 더 남아야 한다.
+            boolean plusBirth = spare - feeds * house >= com.evosim.core.FoodEconomy.BIRTH_COST;
+            tell(ctx.getSource(), String.format(
+                    "  부양력 %s — 벌이%.1f/일 − 확장%.1f − 제가구%.1f = %s여유%+.1f§r"
+                            + " → 타가구 %d호 부양%s (밭%d 소작%d)",
+                    m.getIndividual().shortName(), gain, spend, own,
+                    spare > 0 ? "§a" : "§c", spare, feeds, plusBirth ? " + 출산1" : "",
+                    farms.ownedCount(m.getIndividual().id()),
+                    tenantsOf(level, m.getIndividual().id())));
         }
-        tell(ctx.getSource(), String.format(
-                "  벌이(누적/일평균) — 지주 상위 %s· 소작 전체 %.0f(%d명)",
-                eb.toString(), tenantSum, tenantN));
+        tell(ctx.getSource(), String.format("  소작 전체 수취 %.0f", tenantSum));
         // ── <b>출산률</b> — 부부당 자녀 수. 목표 1.5~3, 0 도 4 도 결함이다.
         int couples = 0;
         int kids = 0;
@@ -3651,10 +3687,37 @@ public final class EvoSimCommand {
             double avg = (double) kids / couples;
             boolean ok = avg >= 1.5 && avg <= 3.0;
             tell(ctx.getSource(), String.format(
-                    "  %s출산 — 부부%d쌍 평균 자녀 %.2f(목표 1.5~3)§r · 분포 0:%d 1:%d 2:%d 3:%d 4+:%d"
+                    "  %s출산 전체 — 부부%d쌍 평균 %.2f(목표 1.5~3)§r · 분포 0:%d 1:%d 2:%d 3:%d 4+:%d"
                             + " · 지주가문 %d쌍 평균 %.2f",
                     ok ? "§a" : "§c", couples, avg, dist[0], dist[1], dist[2], dist[3], dist[4],
                     eliteCouples, eliteCouples == 0 ? 0.0 : (double) eliteKids / eliteCouples));
+            // <b>2·3세대만 본다.</b> 그 둘이 정상이면 4세대가 급변할 이유가 없고, 그것을
+            // 확인하겠다고 런을 길게 끄는 것은 시간만 쓴다(지시).
+            StringBuilder gb = new StringBuilder();
+            for (int g = 2; g <= 3; g++) {
+                int gc = 0;
+                int gk = 0;
+                for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null
+                                && e.getIndividual().sex() == com.evosim.core.Sex.FEMALE
+                                && e.getSpouseId() != 0L
+                                && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                        || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+                    if (m.getIndividual().generation() != g) {
+                        continue;
+                    }
+                    gc++;
+                    gk += m.getChildrenBorn();
+                }
+                if (gc > 0) {
+                    double ga = (double) gk / gc;
+                    gb.append(String.format("%s%d세대 %d쌍 %.2f§r ",
+                            ga >= 1.5 && ga <= 3.0 ? "§a" : "§c", g, gc, ga));
+                }
+            }
+            if (gb.length() > 0) {
+                tell(ctx.getSource(), "  출산 세대별(판정 대상) — " + gb.toString().trim());
+            }
         }
 
         java.util.List<java.util.Map.Entry<Long, Integer>> top =

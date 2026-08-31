@@ -110,6 +110,15 @@ public class FarmStore extends SavedData {
         //    건드리지 않는다. 밤 정산 때 정수 유닛만 지주 저장고로(L 정수성, 소수 이월). ──
         public double excessHoard = 0.0;
 
+        /**
+         * 이 구획에 들어간 <b>개간 지출</b> 누계 — 부양력 계산의 입력.
+         *
+         * <p>"엘리트가 얼마나 버나"는 벌이만으로 답이 안 된다. 번 것의 상당분이 다시 밭으로
+         * 들어가므로, <b>남는 것</b>을 알려면 얼마를 되돌렸는지 세어야 한다. 그 남는 것이
+         * 곧 남을 먹일 수 있는 여력(= 군인 고용 가능성)이다.
+         */
+        public double totalSpentExpand;
+
         Plot(long id, BlockPos anchor, long ownerId) {
             this.id = id;
             this.anchor = anchor;
@@ -917,6 +926,7 @@ public class FarmStore extends SavedData {
             p.stewarded = c.getBoolean("StwEver");
             p.stewardDebt = c.getDouble("StwDebt");
             p.excessHoard = c.getDouble("ExHrd"); // fee 분할(E11) — 구세계 로드는 0
+            p.totalSpentExpand = c.getDouble("SpentExp");
             s.plots.put(p.id, p);
             for (long l : p.tiles) {
                 s.tileIndex.add(l);
@@ -972,6 +982,7 @@ public class FarmStore extends SavedData {
             c.putBoolean("StwEver", p.stewarded);
             c.putDouble("StwDebt", p.stewardDebt);
             c.putDouble("ExHrd", p.excessHoard);
+            c.putDouble("SpentExp", p.totalSpentExpand);
             list.add(c);
         }
         tag.put("Plots", list);

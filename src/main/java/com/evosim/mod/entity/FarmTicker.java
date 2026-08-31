@@ -423,6 +423,7 @@ public final class FarmTicker {
                 // 지불: 밭 계정 먼저 소진, 잔여는 자영 밭 한정 주인 저장고(부트스트랩). 소작 밭은
                 // afford=내림(계정)이라 fromLarder=0(저장고 무손실 — 축장 보호). 회계 합 = placed×cost.
                 double bill = placed * com.evosim.core.FarmEconomy.expandCost(plot.steps + 1);
+                plot.totalSpentExpand += bill; // 부양력 계산의 입력 — 번 것 중 되돌린 몫
                 double fromAccount = Math.min(plot.account, bill);
                 plot.account -= fromAccount;
                 double fromLarder = bill - fromAccount;

@@ -484,15 +484,23 @@ public class FarmStore extends SavedData {
      * 마름 한정 필터. 가문 편입은 이 경로를 타지 않는다). 동률은 근속(streak) 큰 순 → id 낮은 순.
      */
     public MimicEntity successorFor(ServerLevel level, Plot p) {
-        return bestCandidate(level, m -> m.getTenantFarm() == p.id);
+        return bestCandidate(level, m -> m.getTenantFarm() == p.id, p.tiles.length);
     }
 
     /** 영지 전체 상시 소작 중 후보(케이스 2 하청 개간의 신임 마름 선발). */
     public MimicEntity estateCandidate(ServerLevel level, long ownerId) {
+        // 부담은 이 영지에서 가장 큰 구획으로 잡는다 — 신임 마름이 맡을 자리의 상한.
+        int load = 0;
+        for (Plot t : plots.values()) {
+            if (t.ownerId == ownerId) {
+                load = Math.max(load, t.tiles.length);
+            }
+        }
+        final int fload = load;
         return bestCandidate(level, m -> {
             Plot t = plots.get(m.getTenantFarm());
             return t != null && t.ownerId == ownerId;
-        });
+        }, fload);
     }
 
 
@@ -542,6 +550,50 @@ public class FarmStore extends SavedData {
         return c;
     }
 
+    /**
+     * <b>수확 한 번에 필요한 구획 맥락</b> — 관리 효율 E 와 <b>마름의 채집 배율</b>.
+     *
+     * <p>둘을 따로 물으면 순회가 두 번이다. {@code plotEfficiency} 주석이 이미 경고한 그
+     * 축(수확 한 번의 비용이 구획 수에 비례해 자란다)이라, 한 번에 읽어 같이 돌려준다.
+     */
+    public static final class Hand {
+        /** 관리 효율 E — 지주 몫에 곱해진다. */
+        public final double efficiency;
+        /** 마름의 채집 배율(마름 없으면 0) — 소작농 산출의 <b>바닥</b>. */
+        public final double stewardForage;
+
+        Hand(double efficiency, double stewardForage) {
+            this.efficiency = efficiency;
+            this.stewardForage = stewardForage;
+        }
+    }
+
+    /**
+     * <b>마름이 일솜씨를 퍼뜨린다</b> — 마름의 채집 배율이 그 구획 소작농의 <b>바닥</b>이 된다.
+     *
+     * <p>종전에는 마름이 "얼마나 넓게 감독하나"(관리 용량 → E)만 정하고 "얼마나 잘 시키나"는
+     * 정하지 않았다. 소작농은 저마다 제 능력으로 땄으므로, 마름을 잘 뽑을 이유가 임금 말고는
+     * 없었다. 이제 마름 하나가 그 밭 전체의 산출을 끌어올린다 — 조직이 생산한다는 봉건 명제가
+     * 수치가 된다.
+     *
+     * <p><b>교체가 아니라 바닥</b>인 이유: 마름보다 잘하는 소작농은 제 능력을 유지해야 재능
+     * 있는 평민의 상승 경로가 남는다. 그리고 임명이 누구에게도 손해가 아니므로("마름을 두면
+     * 잘하는 소작이 손해" 같은) 뒤틀린 유인이 생기지 않는다.
+     *
+     * <p>무마름 구획에는 <b>지주 바닥을 두지 않는다</b>. 두면 마름을 임명할 이유가 사라진다.
+     */
+    public Hand handOf(ServerLevel level, Plot p) {
+        Census c = scanOnce(level);
+        double sf = 0.0;
+        if (p.stewardId != 0L) {
+            MimicEntity stw = c.find(p.stewardId);
+            if (stw != null && stw.getIndividual() != null) {
+                sf = com.evosim.core.FoodEconomy.forageYieldMult(stw.getIndividual());
+            }
+        }
+        return new Hand(plotEfficiency(c, p), sf);
+    }
+
     private double plotEfficiency(Census c, Plot p) {
         MimicEntity ownerEnt = c.find(p.ownerId);
         int worked = workedTiles(c, p);
@@ -586,25 +638,41 @@ public class FarmStore extends SavedData {
         return n;
     }
 
+    /**
+     * <b>마름 후보 고르기</b> — 그 사람이 마름일 때 이 구획이 실제로 내는 값으로 줄 세운다.
+     *
+     * <pre>점수 = tileYield(후보) × manageEfficiency(후보, 부담 타일)</pre>
+     *
+     * <p>종전에는 관리 등급만 봤다. 그런데 마름은 이제 채집 배율도 퍼뜨리므로(handOf), 두 축을
+     * <b>따로</b> 보면 어느 쪽도 옳지 않다 — 채집만 보면 관리 용량이 낮은 자가 뽑혀 E 가 무너지고,
+     * 관리만 보면 솜씨 좋은 자를 놓친다. 위 곱은 휴리스틱이 아니라 <b>결과 그 자체</b>다.
+     *
+     * <p><b>야망가 제외를 없앤다.</b> 엘리트는 야망가라, 종전 규칙에서는 최고 인재가 아예 후보에
+     * 들지 못했다 — 마름 제도가 이류만 뽑도록 설계돼 있던 셈이다. 이탈은 임금(근속 가산)과 착공
+     * 마찰({@code STEWARD_FOUND_RESERVE_MULT})이 맡는다. 그리고 야망가 마름이 결국 돈을 모아
+     * 제 밭을 열고 떠난다면 그것은 이탈이 아니라 <b>상승</b>이다 — 자영농이 생기는 경로다.
+     *
+     * @param load 이 자리가 질 관리 부담(타일). E 는 부담이 클수록 떨어지므로 순위가 달라진다.
+     */
     private MimicEntity bestCandidate(ServerLevel level,
-            java.util.function.Predicate<MimicEntity> pool) {
+            java.util.function.Predicate<MimicEntity> pool, int load) {
         MimicEntity best = null;
-        int bg = -1;
+        double bv = -1.0;
         int bs = -1;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() != 0L)) {
-            if (!pool.test(m) || ownedCount(m.getIndividual().id()) > 0
-                    || com.evosim.core.ExpressionResolver.isExpressed(
-                            m.getIndividual(), com.evosim.core.Trait.AMBITIOUS)) {
-                continue; // 소유자·야망가 제외(겸직 금지 + 이탈 방지 ①)
+            if (!pool.test(m) || ownedCount(m.getIndividual().id()) > 0) {
+                continue; // 소유자 제외(겸직 금지)
             }
-            int g = com.evosim.core.Multipliers.manageAbilityGrade(m.getIndividual());
+            double v = com.evosim.core.FarmEconomy.tileYield(m.getIndividual())
+                    * com.evosim.core.FarmEconomy.manageEfficiency(m.getIndividual(), load);
             int s = m.getTenantStreak();
-            boolean better = best == null || g > bg || (g == bg && (s > bs
-                    || (s == bs && m.getIndividual().id() < best.getIndividual().id())));
+            boolean better = best == null || v > bv + 1e-9
+                    || (Math.abs(v - bv) <= 1e-9 && (s > bs
+                            || (s == bs && m.getIndividual().id() < best.getIndividual().id())));
             if (better) {
                 best = m;
-                bg = g;
+                bv = v;
                 bs = s;
             }
         }

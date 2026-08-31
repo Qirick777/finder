@@ -142,13 +142,19 @@ public class MimicFarmGoal extends Goal {
         var st = mob.level().getBlockState(target);
         if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
             mob.level().setBlockAndUpdate(target, st.setValue(SweetBerryBushBlock.AGE, 1));
-            // 기본 수확 = <b>실제로 일한 개체</b>의 채집 능력. 관리 효율 E 는 여기 곱하지 않는다.
-            double base = 0.5 * FoodEconomy.forageYieldMult(mob.getIndividual());
             FarmStore.Plot p = plotOf(target);
             // 관리 효율(회차 S2 — 관리 바닥값): 마름 밭 E = max(마름 E, 지주 재흡수 E) — 지주
             // 오버사이트가 바닥이라 무능 마름 조기 임명해도 붕괴 없음, 지주가 캡 초과로 얇아지면
             // 마름 전담 E가 바닥 넘어 캡 돌파. 무마름 밭은 지주의 무마름 타일 합 기준. (plotEfficiency)
-            double e = p != null ? farmStore().plotEfficiency(serverLevel(), p) : 1.0;
+            // 마름의 채집 배율도 같은 순회에서 함께 읽는다(FarmStore.handOf).
+            FarmStore.Hand hand = p != null ? farmStore().handOf(serverLevel(), p) : null;
+            double e = hand != null ? hand.efficiency : 1.0;
+            // 기본 수확 = 일한 개체의 채집 능력, <b>단 마름 솜씨가 바닥</b>이다(FarmStore.handOf).
+            // 마름은 감독만 하는 것이 아니라 일을 가르친다 — 못하는 소작은 마름 수준까지 올라오고,
+            // 마름보다 잘하는 소작은 제 능력을 유지한다(재능 있는 평민의 상승 경로 보존).
+            double mine = FoodEconomy.forageYieldMult(mob.getIndividual());
+            double useMult = Math.max(mine, hand != null ? hand.stewardForage : 0.0);
+            double base = 0.5 * useMult;
             // 가구 밭 판정 — 배우자는 <b>양방향</b>으로 본다(marriedTo). 남편의 spouseId 는 본처만
             // 가리키므로 단방향이면 첩 소유 밭이 "남의 밭"으로 잡혀 자기 가구 수확이 소작 분할로
             // 새어 나간다.
@@ -188,8 +194,9 @@ public class MimicFarmGoal extends Goal {
                 com.evosim.mod.log.SimAudit.record(
                         com.evosim.mod.log.SimAudit.Src.RENT, baseShare + excessShare);
                 SimEvents.event(mob, "소작수확", String.format(
-                        "+%.2f (지대 계정 %.2f + 축장 %.2f, E%.2f, 오늘 %d타일)",
-                        tShare, baseShare, excessShare, e, harvestedToday + 1));
+                        "+%.2f (지대 계정 %.2f + 축장 %.2f, E%.2f, G%.2f%s, 오늘 %d타일)",
+                        tShare, baseShare, excessShare, e, useMult,
+                        useMult > mine ? "←마름" : "", harvestedToday + 1));
             } else {
                 // 자영 = 전액 지주 몫이므로 E 적용(확장 제동 유지 — 자영 지주만 예외가 되지 않게).
                 double own = base * e;

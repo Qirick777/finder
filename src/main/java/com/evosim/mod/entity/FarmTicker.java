@@ -685,7 +685,24 @@ public final class FarmTicker {
             // 있으면 소유권은 그 머리에게 귀속되고 착공자는 그 구획의 마름이 된다(착공비는 밤 정산 때
             // 상환). 야망가 포함 예외 없음 — 착공 시도가 곧 영지 확장 노동이 되는 순환(발사대 봉쇄).
             // 편입된 첫 밭이 머리를 2호 보유로 만들어 영주로 부트스트랩(자력 2호 대기 불요).
-            MimicEntity familyLord = owned == 0 ? findFamilyLord(level, store, adults, m) : null;
+            // <b>자력이면 제 이름으로 등기한다.</b>
+            //
+            // 편입은 영주를 부트스트랩하려고 넣은 것인데, 조건이 "무토지면 무조건"이라 저축을
+            // 해도 자영농이 되지 못했다. 실측(런 A): 개간 19건 중 대부분이 가문 귀속이었고,
+            // 타일러 블랙우드는 혼자 5구획을 개간했는데 한 뼘도 제 것이 아니었다. 그러면 소작
+            // → 마름 → 자영으로 오르는 사다리에 마지막 칸이 없다.
+            //
+            // 문턱은 <b>착공 문턱의 두 배</b>다. 가문의 등에 업혀 간신히 여는 자와, 제 힘으로
+            // 한 번 더 열 만큼 모은 자를 가른다 — 신분 분기가 아니라 저축액이 가른다(규칙5).
+            double selfThreshold = 2.0 * (cost + reserve);
+            boolean selfMade = funds >= selfThreshold;
+            MimicEntity familyLord = (owned == 0 && !selfMade)
+                    ? findFamilyLord(level, store, adults, m) : null;
+            if (owned == 0 && selfMade) {
+                com.evosim.mod.log.SimEvents.event(m, "자력착공", String.format(
+                        "저장고 %.0f ≥ 자력문턱 %.0f (착공 %.0f + 예비 %.0f) — 가문 귀속 없이 제 이름으로",
+                        funds, selfThreshold, cost, reserve));
+            }
             long newOwnerId = familyLord != null
                     ? familyLord.getIndividual().id() : m.getIndividual().id();
             FarmStore.Plot plot = store.create(site, newOwnerId);

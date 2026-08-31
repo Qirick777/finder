@@ -36,7 +36,7 @@ public final class Multipliers {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double amp = abilityAmp(t);
         double m = 1.0;
-        m += amp * scaled(ind, t, Trait.HERBALIST, 0.5);  // 약초학자 Ⅴ=×1.5(증폭 전)
+        m += amp * scaled(ind, t, Trait.HERBALIST, 0.65); // 약초학자 Ⅴ=×1.65(증폭 전)
         m += scaled(ind, t, Trait.PLANT_CONFUSED, -0.5);  // 식물혼동 Ⅴ=×0.5
         m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
@@ -62,10 +62,19 @@ public final class Multipliers {
         return Math.max(0.0, m);
     }
 
-    /** 명석 = 능력 증폭 ×1.25 / 멍청 = ×0.8 — 양(+)의 능력 축 항에만 곱해진다(재설계 A안). */
+    /**
+     * 명석 = 능력 증폭 ×1.4 / 멍청 = ×0.8 — 양(+)의 능력 축 항에만 곱해진다(재설계 A안).
+     *
+     * <p>1.25→1.4 (약초학자 0.5→0.65 와 함께): 엘리트의 식량을 올리되 <b>바닥은 올리지 않는다</b>.
+     * 증폭기는 능력 축의 양수 항에만 붙으므로 무능력자의 값은 그대로고, 감폭(0.8)도 그대로다.
+     * 실측 엘리트(야망가+약초Ⅴ+명석)는 1.875 → 2.160 (+15%), 평범한 자는 1.0 불변.
+     *
+     * <p>{@code tileYield = 0.5 × forageYieldMult} 이므로 <b>밭 산출도 함께 오른다</b> — 의도한
+     * 것이다. 엘리트 지주는 채집과 밭 양쪽에서 벌어, 격차가 능력에서 나온다는 축이 굵어진다.
+     */
     private static double abilityAmp(Set<Trait> t) {
         if (t.contains(Trait.BRIGHT)) {
-            return 1.25;
+            return 1.4;
         }
         if (t.contains(Trait.DULL)) {
             return 0.8;

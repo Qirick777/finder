@@ -458,6 +458,7 @@ public class AllegianceStore extends SavedData {
             }
             to.forgiven += from.forgiven;
             to.owed += from.owed;
+            to.fromChurch += from.fromChurch; // 귀속도 함께 옮긴다 — 안 옮기면 반사실이 0 이 된다
             trim(list);
         }
         // ② 채무 — 죽은 자의 목록을 상속인 목록에 합친다.
@@ -481,6 +482,7 @@ public class AllegianceStore extends SavedData {
                 }
                 to.forgiven += b.forgiven;
                 to.owed += b.owed;
+                to.fromChurch += b.fromChurch;
             }
             trim(heirList);
         }
@@ -496,15 +498,26 @@ public class AllegianceStore extends SavedData {
      */
     public void inheritAtBirth(long childId, long parentId, long day) {
         double best = 0.0;
+        double bestChurch = 0.0;
         long patron = 0L;
         for (Bond b : bondsOf(parentId)) {
             if (b.total() > best) {
                 best = b.total();
+                bestChurch = b.fromChurch;
                 patron = b.patronId;
             }
         }
         if (patron != 0L && patron != childId && best > 0.0) {
             record(childId, patron, best, 0.0, day);
+            // 물려받은 결속의 <b>출처 비율도</b> 물려준다. 안 그러면 세대가 바뀔 때마다
+            // 귀속이 씻겨 나가 "교회가 아무것도 안 했다" 로 보인다(실측: D23 결속19개 47.7 →
+            // 하루 뒤 0개. 승계에서 fromChurch 를 안 옮긴 탓이었다).
+            for (Bond b : bondsOf(childId)) {
+                if (b.patronId == patron) {
+                    b.fromChurch += bestChurch;
+                    break;
+                }
+            }
         }
     }
 

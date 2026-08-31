@@ -1654,19 +1654,8 @@ public final class FarmTicker {
                         net.minecraft.world.level.levelgen.Heightmap.Types
                                 .MOTION_BLOCKING_NO_LEAVES,
                         gridOffset(anchor, d, c, r));
-                if (!level.isLoaded(gp) || store.isFarmTile(gp)
-                        || nearSomeHome(level, adults, gp, PLANT_CLEAR)
-                        || nearFacility(level, gp) || nearStreet(level, gp)
-                        || store.nearOtherBody(selfId, gp.getX(), gp.getZ(), PLOT_GAP)) {
-                    continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
-                }
-                var at = level.getBlockState(gp);
-                var below = level.getBlockState(gp.below());
-                if ((at.isAir() || at.canBeReplaced() || weed(at))
-                        && (below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
-                        || below.is(net.minecraft.world.level.block.Blocks.DIRT)
-                        || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
-                        || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))) {
+                // 방향 고르기도 <b>실제로 심을 수 있는 칸</b>만 세야 맞다 — 배치와 같은 관문.
+                if (gateReason(level, store, selfId, gp, adults) == null) {
                     free++;
                 }
             }
@@ -1721,16 +1710,8 @@ public final class FarmTicker {
         BlockPos gp = level.getHeightmapPos(
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 gridOffset(plot.anchor, plot.dir, c, r));
-        if (!level.isLoaded(gp) || mine.contains(gp.asLong()) || store.isFarmTile(gp)
-                || nearSomeHome(level, adults, gp, PLANT_CLEAR)
-                || nearFacility(level, gp)) {
-            return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다
-        }
-        if (store.nearOtherBody(plot.id, gp.getX(), gp.getZ(), PLOT_GAP)) {
-            return null; // 이웃 구획과 붙지 않는다 — 사이에 테두리 둘과 통로 한 칸(PLOT_GAP)
-        }
-        if (nearStreet(level, gp)) {
-            return null; // 가로수 그늘·분수 몸통 — 나무 쪽에서도 막지만 심는 순서는 정해져 있지 않다
+        if (mine.contains(gp.asLong()) || gateReason(level, store, plot.id, gp, adults) != null) {
+            return null; // 관문은 gateReason 하나에 모아 둔다 — 배치와 진단이 같은 것을 본다
         }
         // <b>몸통과 맞닿을 것</b> — 연결을 구성적으로 보장한다.
         //
@@ -1876,6 +1857,86 @@ public final class FarmTicker {
      * <b>운</b>이지 안전이 아니다 — 집·가로등과 밭이 겹치던 것과 같은 종류의 빈틈이다.
      * 시설은 많아야 서너 채라 선형 순회로 충분하다.
      */
+    /**
+     * <b>이 칸에 못 심는 사유</b> — 못 심으면 이름, 심을 수 있으면 null.
+     *
+     * <p>{@link #idealSpot}(배치) · {@link #freeIn}(방향) · {@link #unfilledReasons}(진단) 이
+     * 같은 관문을 봐야 한다. 종전에는 관문이 배치와 방향 두 곳에 복사돼 있었고, 새 조건을 한쪽에만
+     * 넣으면 "실제로는 못 심을 자리를 트였다고 세는" 어긋남이 생겼다. 사유를 <b>문자열로</b>
+     * 돌려주므로 진단이 같은 코드를 다시 쓰지 않고 histogram 을 만들 수 있다.
+     *
+     * <p>연결 조건(몸통과 맞닿을 것)은 여기 없다 — 그것은 땅의 성질이 아니라 순서의 성질이다.
+     */
+    @javax.annotation.Nullable
+    private static String gateReason(ServerLevel level, FarmStore store, long selfId,
+                                     BlockPos gp, java.util.List<MimicEntity> adults) {
+        if (!level.isLoaded(gp)) {
+            return "미로드";
+        }
+        if (store.isFarmTile(gp)) {
+            return "이미밭";
+        }
+        if (nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
+            return "집여유";
+        }
+        if (nearFacility(level, gp)) {
+            return "시설여유";
+        }
+        if (nearStreet(level, gp)) {
+            return "가로수여유";
+        }
+        if (store.nearOtherBody(selfId, gp.getX(), gp.getZ(), PLOT_GAP)) {
+            return "이웃구획";
+        }
+        var at = level.getBlockState(gp);
+        var below = level.getBlockState(gp.below());
+        if (!(at.isAir() || at.canBeReplaced() || weed(at))) {
+            return net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .getKey(at.getBlock()).getPath();
+        }
+        boolean ground = below.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)
+                || below.is(net.minecraft.world.level.block.Blocks.DIRT)
+                || below.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                || below.is(net.minecraft.world.level.block.Blocks.DIRT_PATH);
+        return ground ? null : "땅아님";
+    }
+
+    /**
+     * <b>이 구획이 제 사각형을 왜 못 채우는가</b> — 다음 이상 칸들이 걸리는 사유 histogram.
+     *
+     * <p>실측에서 큰 구획의 채움이 70% 언저리로 주저앉고 재배줄 길이가 1~12 로 벌어졌다.
+     * 배치 수열은 열을 넓힐 때 <b>모든 줄에 한 칸씩</b> 더하므로 줄 길이는 원래 ±1 이어야 한다.
+     * 그런데 막힌 칸을 만나면 건너뛰고 다음 칸으로 가므로, 어떤 줄 하나가 <b>영구히</b> 막히면
+     * 그 줄만 거기서 멈추고 나머지는 계속 넓어진다 — 오른쪽이 계단처럼 깎이는 모양의 정체다.
+     *
+     * <p>그러면 "무엇이 막았나" 가 남는데, 사각형이 안 찬 자리를 세어 보지 않으면 알 수 없다.
+     * 이 함수는 아무것도 바꾸지 않고 읽기만 한다.
+     */
+    public static java.util.Map<String, Integer> unfilledReasons(
+            ServerLevel level, FarmStore store, FarmStore.Plot plot, int look) {
+        java.util.Map<String, Integer> out = new java.util.LinkedHashMap<>();
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
+                com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                m -> m.isAlive() && m.getIndividual() != null
+                        && (m.getStage() == com.evosim.core.LifeStage.ADULT
+                                || m.getStage() == com.evosim.core.LifeStage.ELDER)));
+        java.util.Set<Long> mine = new java.util.HashSet<>();
+        for (long t : plot.tiles) {
+            mine.add(t);
+        }
+        for (int[] t : com.evosim.core.FarmLayout.layout(plot.tiles.length + look)) {
+            BlockPos gp = level.getHeightmapPos(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    gridOffset(plot.anchor, plot.dir, t[0], t[1]));
+            if (mine.contains(gp.asLong())) {
+                continue; // 이미 내 타일 — 빈자리가 아니다
+            }
+            String why = gateReason(level, store, plot.id, gp, adults);
+            out.merge(why == null ? "빈땅(순서대기)" : why, 1, Integer::sum);
+        }
+        return out;
+    }
+
     /**
      * <b>가로수·분수를 피한다</b> — 꾸밈이 밭 칸을 덮지 않게.
      *

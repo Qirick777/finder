@@ -3392,6 +3392,23 @@ public final class EvoSimCommand {
                 }
             }
         }
+        // ── <b>왜 사각형이 안 차는가</b> — 다음 이상 칸들이 걸리는 사유를 세어 말한다.
+        //
+        // 채움 70%대와 줄 길이 1~12 는 "밭이 이상하다" 는 인상만 준다. 배치 수열은 줄 길이를
+        // ±1 로 유지하므로 그 벌어짐은 <b>막힌 칸을 건너뛴 흔적</b>인데, 무엇이 막았는지는
+        // 세어 보기 전에는 알 수 없다. 여기서 세면 지도를 눈으로 훑지 않아도 원인이 나온다.
+        java.util.Map<String, Integer> why = new java.util.TreeMap<>();
+        for (FarmStore.Plot p : plots) {
+            for (var e : FarmTicker.unfilledReasons(level, farms, p, 24).entrySet()) {
+                why.merge(e.getKey(), e.getValue(), Integer::sum);
+            }
+        }
+        StringBuilder wb = new StringBuilder();
+        why.entrySet().stream()
+                .sorted((x, y) -> y.getValue() - x.getValue())
+                .limit(8)
+                .forEach(e -> wb.append(e.getKey()).append(e.getValue()).append(' '));
+        tell(ctx.getSource(), "  못 채운 사유(다음 24칸까지) — " + wb.toString().trim());
         tell(ctx.getSource(), String.format(
                 "  합계 타일%d · 평균 채움 %.0f%% · 구멍%d(막힘%d) · 줄끊김%d · 홀로선줄%d · 몸통갈린구획%d/%d · 고랑오염구획%d · 줄방향 x축%d/z축%d",
                 totTiles, counted == 0 ? 0.0 : 100 * fillSum / counted, totHoles, totBlocked, totBreaks,

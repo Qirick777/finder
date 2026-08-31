@@ -3635,7 +3635,12 @@ public final class EvoSimCommand {
                     e.getValue()[0] / e.getValue()[1], e.getValue()[2] / e.getValue()[1]));
         }
         if (rs.length() > 0) {
-            tell(ctx.getSource(), "  역할별 1인 순수지/살림 — " + rs);
+            // 이름을 정확히 쓴다 — 이 수는 <b>세금 흐름</b>(신세 상납·상환)만 집계한 것이고
+            // 채집 소득도 식량 소모도 들어 있지 않다(FarmTicker.taxIn/taxOut). 그냥 "순수지"라
+            // 부르면 "평민이 적자라 착공 임계에 못 닿는다" 같은 <b>없는 결론</b>을 부른다.
+            // 축적을 말하는 것은 옆의 살림(저장고)이다.
+            tell(ctx.getSource(), "  역할별 1인 세수순수지/살림 — " + rs
+                    + "  ※세수순수지는 신세 상납·상환만 — 채집·소모 불포함. 축적은 살림을 볼 것");
         }
         // ── <b>벌이</b> — 지갑이 아니라 소득으로 본다.
         //

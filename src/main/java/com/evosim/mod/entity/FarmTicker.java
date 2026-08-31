@@ -432,7 +432,7 @@ public final class FarmTicker {
                 // 칸마다 뒤집던 옛 거울과 달리 구획 단위로 <b>한 번만</b> 트는 것이라, 떨어져
                 // 나온 타일이 생기지 않는다. turned 로 한 번만 허용해 무한 회전을 막는다.
                 if (!plot.turned) {
-                    byte nd = pickDirExcept(level, store, plot.anchor, adults, plot.dir);
+                    byte nd = pickDirExcept(level, store, plot.anchor, adults, plot.dir, plot.id);
                     if (nd != plot.dir) {
                         com.evosim.mod.log.SimEvents.note(level, "밭방향", String.format(
                                 "구획 %d 포화 — 성장 방향 %d→%d 로 전환(타일 %d)",
@@ -655,7 +655,7 @@ public final class FarmTicker {
             plot.tilesByFounder = 9;                        // 착공 9타일 = 부익부 대조 기준선
             // 성장 방향을 <b>여기서 한 번</b> 정한다 — 앵커 둘레 네 사분면 중 가장 넓게 트인 쪽.
             // 그 뒤로는 칸마다 뒤집지 않으므로 구획이 한쪽으로 반듯하게 자란다.
-            plot.dir = pickDir(level, store, site, adults);
+            plot.dir = pickDir(level, store, site, adults, plot.id);
             java.util.Set<Long> mine0 = new java.util.HashSet<>();
             for (int[] t : com.evosim.core.FarmLayout.layout(9 + SCAN_SLACK)) {
                 if (plot.tiles.length >= 9) {
@@ -1580,7 +1580,7 @@ public final class FarmTicker {
 
     /** 지금 방향을 뺀 나머지 셋 중 가장 트인 쪽 — 없으면 현재 방향 그대로. */
     private static byte pickDirExcept(ServerLevel level, FarmStore store, BlockPos anchor,
-                                      java.util.List<MimicEntity> adults, byte cur) {
+                                      java.util.List<MimicEntity> adults, byte cur, long selfId) {
         byte best = cur;
         int bestFree = -1;
         int off = spin(anchor);
@@ -1598,7 +1598,7 @@ public final class FarmTicker {
             if (d == cur || (d & 4) != (cur & 4)) {
                 continue;
             }
-            int free = freeIn(level, store, anchor, adults, d);
+            int free = freeIn(level, store, anchor, adults, d, selfId);
             if (free > bestFree) {
                 bestFree = free;
                 best = d;
@@ -1629,13 +1629,13 @@ public final class FarmTicker {
      * 그 유연성을 <b>구획 단위</b>로 격하시켜 보존한다 — 막힌 쪽을 피해 자라되 몸통은 하나다.
      */
     private static byte pickDir(ServerLevel level, FarmStore store, BlockPos anchor,
-                                java.util.List<MimicEntity> adults) {
+                                java.util.List<MimicEntity> adults, long selfId) {
         byte best = 0;
         int bestFree = -1;
         int off = spin(anchor);
         for (int i = 0; i < 8; i++) {
             byte d = (byte) ((i + off) % 8);
-            int free = freeIn(level, store, anchor, adults, d);
+            int free = freeIn(level, store, anchor, adults, d, selfId);
             if (free > bestFree) {
                 bestFree = free;
                 best = d;
@@ -1646,7 +1646,7 @@ public final class FarmTicker {
 
     /** 이 방향 7×7 격자에서 실제로 개간 가능한 칸 수. */
     private static int freeIn(ServerLevel level, FarmStore store, BlockPos anchor,
-                              java.util.List<MimicEntity> adults, byte d) {
+                              java.util.List<MimicEntity> adults, byte d, long selfId) {
         int free = 0;
         for (int c = 0; c < 7; c++) {
             for (int r = 0; r < 7; r++) {
@@ -1656,7 +1656,8 @@ public final class FarmTicker {
                         gridOffset(anchor, d, c, r));
                 if (!level.isLoaded(gp) || store.isFarmTile(gp)
                         || nearSomeHome(level, adults, gp, PLANT_CLEAR)
-                        || nearFacility(level, gp)) {
+                        || nearFacility(level, gp)
+                        || store.nearOtherBody(selfId, gp.getX(), gp.getZ(), PLOT_GAP)) {
                     continue; // 방향 고르기도 실제로 심을 수 있는 칸만 세야 맞다
                 }
                 var at = level.getBlockState(gp);
@@ -1724,6 +1725,9 @@ public final class FarmTicker {
                 || nearSomeHome(level, adults, gp, PLANT_CLEAR)
                 || nearFacility(level, gp)) {
             return null; // 새로 심는 칸은 집에서 한 발 더 물러선다 — 테두리 놓을 자리를 남긴다
+        }
+        if (store.nearOtherBody(plot.id, gp.getX(), gp.getZ(), PLOT_GAP)) {
+            return null; // 이웃 구획과 붙지 않는다 — 사이에 테두리 둘과 통로 한 칸(PLOT_GAP)
         }
         // <b>몸통과 맞닿을 것</b> — 연결을 구성적으로 보장한다.
         //
@@ -2033,6 +2037,19 @@ public final class FarmTicker {
      */
     private static final double PLANT_MARGIN = 3.0;
 
+    /**
+     * <b>구획 사이에 남길 빈 칸</b>(체비셰프) — 새 타일은 남의 몸통에서 이만큼 떨어져야 한다.
+     *
+     * <p>집을 피하는 {@link #PLANT_MARGIN}과 같은 셈이다: 내 테두리 한 겹 + 남의 테두리 한 겹
+     * + 지나다닐 한 칸 = 3. 이보다 좁히면 테두리가 서로 겹쳐 그려지지 못하고, 두 밭이 공중에서
+     * <b>한 덩어리</b>로 읽힌다(실측: 구획 간 최소거리 1.0 — 각각은 반듯한데 사이가 없어
+     * 찌그러져 보였다).
+     *
+     * <p>앵커 간격(20)으로는 이걸 보장할 수 없다. 앵커는 착공 순간의 점일 뿐이고 구획은 그
+     * 뒤로 열 방향으로 계속 뻗기 때문이다 — 간격은 <b>타일을 놓는 순간</b>에 물어야 한다.
+     */
+    static final int PLOT_GAP = 3;
+
     /** 신규 밭 부지 — 집 기준 8방위 20블록, 기존 밭 앵커 20·거처 12 회피(발자국 근사). 없으면 null. */
     private static BlockPos findFarmSite(ServerLevel level, FarmStore store, BlockPos home,
                                          java.util.List<MimicEntity> adults) {
@@ -2052,6 +2069,11 @@ public final class FarmTicker {
                     if (p.anchor.distSqr(site) < 20 * 20) {
                         bad = true;
                     }
+                }
+                // 앵커 간격(20)만으로는 부족하다 — 이웃이 이미 이쪽으로 <b>자라 왔을</b> 수 있다.
+                // 몸통까지 재서, 놓자마자 남의 밭과 붙는 자리를 부지 단계에서 걸러낸다.
+                if (store.nearOtherBody(0L, site.getX(), site.getZ(), PLOT_GAP)) {
+                    bad = true;
                 }
                 for (MimicEntity a : adults) {
                     if (a.getHomePos() != null && a.getHomePos().distSqr(site) < 12 * 12) {

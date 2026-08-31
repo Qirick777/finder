@@ -250,6 +250,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lordx").executes(EvoSimCommand::stageLordX))
                 .then(Commands.literal("dynastyx").executes(EvoSimCommand::stageDynastyX))
                 .then(Commands.literal("navprobe").executes(EvoSimCommand::navProbe))
+                .then(Commands.literal("jitter").executes(EvoSimCommand::jitterProbe))
                 .then(Commands.literal("forageprobe").executes(EvoSimCommand::forageProbe))
                 .then(Commands.literal("graze").executes(EvoSimCommand::graze))
                 .then(Commands.literal("fixedpairs")
@@ -1442,6 +1443,86 @@ public final class EvoSimCommand {
         level.getChunk(tgt.getX() >> 4, tgt.getZ() >> 4); // 경로상 지형 강제 로드
         var path = m.getNavigation().createPath(tgt, 1);
         return path != null && path.canReach();
+    }
+
+    /** {@link #jitterProbe} 의 직전 표본: 개체 id → [x, z, 목표x, 목표z, 게임틱]. */
+    private static final java.util.Map<Integer, double[]> JITTER_SNAP = new java.util.HashMap<>();
+
+    /**
+     * <b>움찔거림 계측</b> — "어디 가지 못하고 목표가 계속 바뀌며 제자리에서 떠는" 개체를 <b>수로</b>
+     * 잡는다. 스크린샷은 한 순간만 보여 주므로 이 증상은 눈으로 못 세고, 사건 로그도 목표 전환을
+     * 남기지 않는다.
+     *
+     * <p>두 번 부른다. 첫 호출은 전원의 (위치, 이동 목표)를 적어 두고, 다음 호출은 그 사이의
+     * <b>실제 이동거리</b>와 <b>목표가 바뀌었는지</b>를 함께 본다. 판정은 둘의 곱이다 —
+     *
+     * <ul>
+     *   <li>이동 &lt; 1블록 <b>이면서</b> 목표가 바뀌었다 → 움찔(재조준만 하고 못 감)</li>
+     *   <li>이동 &lt; 1블록인데 목표도 그대로 → 그냥 멈춰 있는 것(휴식·작업·대기, 정상)</li>
+     *   <li>이동이 있으면 목표가 바뀌든 말든 정상(길을 가다 마음을 바꾼 것)</li>
+     * </ul>
+     *
+     * <p>목표가 없는(navigation done) 개체는 재조준할 것이 없으므로 분모에서 뺀다.
+     */
+    private static int jitterProbe(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        long now = level.getGameTime();
+        java.util.List<MimicEntity> all = new java.util.ArrayList<>(level.getEntities(
+                ModEntities.MIMIC.get(), e -> e.isAlive() && e.getIndividual() != null));
+        int seen = 0;
+        int stuck = 0;
+        int retargeted = 0;
+        int jitter = 0;
+        long dtTicks = 0;
+        StringBuilder who = new StringBuilder();
+        for (MimicEntity m : all) {
+            var path = m.getNavigation().getPath();
+            double tx = path == null || path.getTarget() == null ? Double.NaN
+                    : path.getTarget().getX();
+            double tz = path == null || path.getTarget() == null ? Double.NaN
+                    : path.getTarget().getZ();
+            double[] prev = JITTER_SNAP.get(m.getId());
+            JITTER_SNAP.put(m.getId(), new double[] {m.getX(), m.getZ(), tx, tz, now});
+            if (prev == null || prev[4] >= now) {
+                continue; // 첫 표본(또는 같은 틱 재호출) — 비교할 것이 없다
+            }
+            if (Double.isNaN(prev[2]) && Double.isNaN(tx)) {
+                continue; // 그때도 지금도 갈 데가 없다 — 재조준 자체가 성립 안 함
+            }
+            seen++;
+            dtTicks = now - (long) prev[4];
+            double moved = Math.hypot(m.getX() - prev[0], m.getZ() - prev[1]);
+            boolean changed = Double.isNaN(prev[2]) != Double.isNaN(tx)
+                    || (!Double.isNaN(tx) && (Math.abs(prev[2] - tx) > 0.5
+                            || Math.abs(prev[3] - tz) > 0.5));
+            if (moved < 1.0) {
+                stuck++;
+            }
+            if (changed) {
+                retargeted++;
+            }
+            if (moved < 1.0 && changed) {
+                jitter++;
+                if (who.length() < 160) {
+                    who.append(String.format("%s@%d,%d ", m.getIndividual().shortName(),
+                            m.blockPosition().getX(), m.blockPosition().getZ()));
+                }
+            }
+        }
+        if (seen == 0) {
+            tell(ctx.getSource(), String.format(
+                    "§e[움찔]§r 기준 표본 적재(%d명) — 잠시 뒤 한 번 더 부르면 그 사이를 잰다",
+                    all.size()));
+            return 1;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[움찔]§r %d틱 사이 %d명 관측 · 제자리(<1블록)%d · 목표바뀜%d · %s움찔%d명(%.0f%%)§r",
+                dtTicks, seen, stuck, retargeted, jitter == 0 ? "§a" : "§c", jitter,
+                100.0 * jitter / seen));
+        if (jitter > 0) {
+            tell(ctx.getSource(), "  " + who.toString().trim());
+        }
+        return 1;
     }
 
     private static int navProbe(CommandContext<CommandSourceStack> ctx) {

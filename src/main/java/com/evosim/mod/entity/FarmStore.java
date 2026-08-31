@@ -177,6 +177,8 @@ public class FarmStore extends SavedData {
      * <p>타일이 바뀔 때만 무효화하고 필요할 때 다시 만든다(하루 몇 번).
      */
     private transient java.util.HashSet<Long> bodyCache;
+    /** 열 → 그 열을 몸통으로 가진 구획 id. {@link #bodyCache}와 같은 시점에 버린다. */
+    private transient java.util.HashMap<Long, Long> bodyOwnerCache;
     private long nextId = 1;
 
     public static FarmStore get(ServerLevel level) {
@@ -220,6 +222,7 @@ public class FarmStore extends SavedData {
         p.planted = g;
         tileIndex.add(pos.asLong());
         bodyCache = null;
+        bodyOwnerCache = null;
         setDirty();
     }
 
@@ -292,6 +295,40 @@ public class FarmStore extends SavedData {
         return out;
     }
 
+    /**
+     * <b>다른 구획</b>의 몸통이 이 열에서 r칸 이내인가 — 구획 사이에 빈 띠를 남기는 판정.
+     *
+     * <p>착공 부지({@code findFarmSite})는 <b>앵커</b>끼리 20블록을 띄우지만, 구획은 착공 뒤에도
+     * 자란다. 9타일로 시작한 밭이 40타일이 되면 앵커에서 열 방향으로 10칸 넘게 뻗으므로 앵커
+     * 간격 20은 <b>몸통</b> 간격을 아무것도 보장하지 않는다. 실측(런: 21구획)에서 구획 간
+     * 최소거리가 1.0까지 붙어 두 밭이 공중에서 한 덩어리로 보였다 — 각 구획이 저마다는 반듯한데
+     * 사이 테두리가 끊겨 찌그러져 보이던 정체다.
+     *
+     * <p>그래서 <b>타일을 놓는 시점</b>에 남의 몸통과의 거리를 묻는다. 자기 몸통은 제외 —
+     * 자기 자신에게서 물러설 이유는 없다. 이미 붙어 있는 옛 타일은 건드리지 않는다(소급 없음):
+     * 새로 자라는 방향만 막으면 구획은 다른 쪽으로 뻗는다.
+     */
+    public boolean nearOtherBody(long selfPlotId, int x, int z, int r) {
+        if (bodyOwnerCache == null) {
+            java.util.HashMap<Long, Long> out = new java.util.HashMap<>();
+            for (Plot p : plots.values()) {
+                for (long c : bodyOf(p)) {
+                    out.put(c, p.id);
+                }
+            }
+            bodyOwnerCache = out;
+        }
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                Long owner = bodyOwnerCache.get(RoadStore.key(x + dx, z + dz));
+                if (owner != null && owner != selfPlotId) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** 이 열이 밭 몸통(타일 또는 고랑)인가. */
     public boolean isFarmBody(int x, int z) {
         return bodyColumns().contains(RoadStore.key(x, z));
@@ -327,6 +364,7 @@ public class FarmStore extends SavedData {
         }
         tileIndex.remove(p.tiles[i]);
         bodyCache = null;
+        bodyOwnerCache = null;
         long[] t = new long[p.tiles.length - 1];
         long[] g = new long[p.planted.length - 1];
         System.arraycopy(p.tiles, 0, t, 0, i);
@@ -712,6 +750,7 @@ public class FarmStore extends SavedData {
             for (long l : p.tiles) {
                 tileIndex.remove(l);
                 bodyCache = null;
+        bodyOwnerCache = null;
             }
             setDirty();
         }

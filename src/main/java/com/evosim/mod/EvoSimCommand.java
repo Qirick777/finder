@@ -3310,14 +3310,18 @@ public final class EvoSimCommand {
                     continue;
                 }
                 minGap = Math.min(minGap, d);
-                if (d <= 3.0) {
+                // 문턱은 PLOT_GAP <b>미만</b>이다. 빈 칸 3 은 설계된 하한이지 위반이 아니다 —
+                // 옛 기하에서 타일-대-타일로 재던 "≤3" 을 상자-대-상자에 그대로 가져오면
+                // 정상값이 전부 위반으로 잡힌다(실측: 하한에 정확히 멈춘 6쌍이 경보로 떴다).
+                if (d < com.evosim.mod.entity.FarmTicker.PLOT_GAP) {
                     touching++;
                 }
             }
         }
         tell(ctx.getSource(), String.format(
-                "  구획 간 최소거리 %.1f · 3칸 이내로 맞닿은 구획쌍 %d",
-                minGap == Double.MAX_VALUE ? 0.0 : minGap, touching));
+                "  구획 간 최소거리 %.1f (하한 %d) · 하한 위반 구획쌍 %d",
+                minGap == Double.MAX_VALUE ? 0.0 : minGap,
+                com.evosim.mod.entity.FarmTicker.PLOT_GAP, touching));
         return 1;
     }
 

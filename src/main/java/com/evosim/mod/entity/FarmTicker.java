@@ -2326,7 +2326,7 @@ public final class FarmTicker {
      * <p>앵커 간격(20)으로는 이걸 보장할 수 없다. 앵커는 착공 순간의 점일 뿐이고 구획은 그
      * 뒤로 열 방향으로 계속 뻗기 때문이다 — 간격은 <b>타일을 놓는 순간</b>에 물어야 한다.
      */
-    static final int PLOT_GAP = 3;
+    public static final int PLOT_GAP = 3;
 
     /**
      * <b>1단계 발자국이 들어갈 자리</b> — {x0, z0, 덩어리축이 x면 1, 지면 y}. 없으면 null.

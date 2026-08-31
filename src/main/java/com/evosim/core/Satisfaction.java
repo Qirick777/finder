@@ -45,9 +45,20 @@ public final class Satisfaction {
         if (t.contains(Trait.AMBITIOUS) && farmTiles < AMBITION_TILE_GOAL) {
             return false; // 야망가: 부가 아니라 자산(밭)이 기준
         }
-        // σ 우선순위: 안분지족·무욕(기존 성향) > 보조 축(자수성가/안분) > 기본.
-        // 기존 성향을 앞세우는 것은 보조가 <b>주(主)를 뒤집지 않는다</b>는 원칙 — 보조는
-        // 아무 성향도 없을 때의 기본값만 좌우한다.
+        double bar = bar(ind, dailyNeed);
+        return wealth > (wasSatisfied ? bar * RESUME_FACTOR : bar);
+    }
+
+    /**
+     * 만족선 그 자체 — 판정과 <b>같은 식</b>을 계측이 읽게 한다. 계측이 σ 선택을 따로 베껴
+     * 두면 언젠가 한쪽만 고쳐져 보고가 조용히 거짓이 된다.
+     *
+     * <p>σ 우선순위: 안분지족·무욕(기존 성향) &gt; 보조 축(자수성가/안분) &gt; 기본. 기존 성향을
+     * 앞세우는 것은 보조가 <b>주(主)를 뒤집지 않는다</b>는 원칙 — 보조는 아무 성향도 없을 때의
+     * 기본값만 좌우한다.
+     */
+    public static double bar(Individual ind, double dailyNeed) {
+        var t = ExpressionResolver.expressedTraits(ind);
         double sigma;
         if (t.contains(Trait.CONTENT) || t.contains(Trait.ASCETIC)) {
             sigma = SIGMA_CONTENT;
@@ -58,8 +69,39 @@ public final class Satisfaction {
         } else {
             sigma = SIGMA_BASE;
         }
-        double bar = dailyNeed * FoodEconomy.comfortDays(ind) * sigma;
-        return wealth > (wasSatisfied ? bar * RESUME_FACTOR : bar);
+        return dailyNeed * FoodEconomy.comfortDays(ind) * sigma * aspiration(ind);
+    }
+
+    /**
+     * <b>능력이 만족선을 끌어올린다</b> — 같은 곳간을 보고도 잘 버는 자에게는 며칠치가 안 된다.
+     *
+     * <p>이것이 신분 사다리의 능력 축이다. 종전에는 만족을 뚫는 길이 <b>특성뿐</b>이었다
+     * (욕심·부지런·경쟁·야망). 그래서 능력이 아무리 좋아도 야망이 없으면 영원히 소작이고,
+     * 능력이 없어도 욕심만 있으면 착공했다 — 능력이 신분에 <b>한 톨도</b> 관여하지 않았다.
+     * 기준을 벌이에 비례시키면 사다리가 수치에서 저절로 선다(1자녀 가구·착공 임계 32.7 기준):
+     *
+     * <pre>
+     *   0.8 멍청·곰손 → 만족선 27.6(바닥 1.0) → 임계 아래, 게다가 소득이 낮아 매인다  농노
+     *   1.0 평범      → 27.6                  → 임계 아래                            소작
+     *   1.26 약초Ⅱ   → 34.8                  → <b>임계 돌파</b>(밭 12칸 상한)         자영농
+     *   2.16 엘리트   → 59.6 · 야망은 만족 자체를 무시                                지배자
+     * </pre>
+     *
+     * <p>엘리트 2.16 = 1 + 1.4(명석 증폭)×0.65(약초Ⅴ) + 0.1(명석 기본) + 0.15(야망 몰입).
+     * 실측 대조: 개간 로그의 {@code G2.59} = 0.8(수확계수) × 1.5(남성) × 2.16 — 일치.
+     *
+     * <p><b>성별을 뺀</b> {@link Multipliers#gather} 를 쓴다. {@code forageYieldMult} 는 남 1.5 /
+     * 여 0.5 를 품고 있어, 그걸 쓰면 사다리가 능력제가 아니라 <b>성별 카스트</b>가 된다.
+     *
+     * <p><b>1.0 아래로는 내리지 않는다</b>(위로만 곱한다). 무능력자의 만족선까지 끌어내리면
+     * "소작이 임금 며칠에 만족 진입 → 노동 정지 → 지대 고갈"이 되살아난다 — 런3·5·6 에서
+     * <b>세 번</b> 실측된 실패다. 사다리의 분리는 착공 임계 쪽({@link FarmEconomy#foundReserve}
+     * 계수 3.0)이 만들고, 능력은 그 올라간 임계를 <b>넘는 데에만</b> 쓴다. 바닥층(농노)은 이
+     * 기준이 아니라 소득으로 갈린다 — 못 버는 자는 신세를 져 매이고, 매인 무토지가 곧 천민이다
+     * ({@code SocialRank}).
+     */
+    public static double aspiration(Individual ind) {
+        return Math.max(1.0, Multipliers.gather(ind));
     }
 
     /** 밭 확장·개간을 아예 안 하는가 — 무욕(잉여는 나눔·생계로만). */

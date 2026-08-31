@@ -3518,6 +3518,7 @@ public final class EvoSimCommand {
                             r.label(), s[0] / n, s[1] / n, s[2] / n));
         }
         tell(ctx.getSource(), "  신분 — " + line + "  (지배=간접지배 성립 · 천민=매인 무토지 자활불능)");
+        tellLadder(ctx.getSource(), byId, farms, larders);
         // 척도 자체를 드러낸다 — 천민이 0 일 때 그것이 "조건이 죽어서"인지 "정말 아무도 해당
         // 없어서"인지 구분할 수 없으면 0 은 보고가 아니다. 궁핍은 계측 전용(행동·판정 무관).
         int poorNow = 0;
@@ -3653,6 +3654,12 @@ public final class EvoSimCommand {
             int feeds = (int) Math.floor(Math.max(0.0, spare) / house);
             // 그 위에 축적으로 출산 한 건을 더 보장하려면 BIRTH_COST 만큼이 더 남아야 한다.
             boolean plusBirth = spare - feeds * house >= com.evosim.core.FoodEconomy.BIRTH_COST;
+            // <b>군인 환산</b>(P7 의 실제 물음) — "봉급으로 굶지 않고 약간 흑자를 보며 아이 하나는
+            // 가질 수 있는" 가구를 몇 호나 굴릴 수 있나. 그러려면 한 호마다 살림값 위에 출산
+            // 한 건분이 더 얹혀야 하므로 분모가 house 가 아니라 house+BIRTH_COST 다. feeds 는
+            // 굶기지만 않는 수라 언제나 이보다 크다 — 둘을 나란히 두어야 과장이 안 된다.
+            int troops = (int) Math.floor(Math.max(0.0, spare)
+                    / (house + com.evosim.core.FoodEconomy.BIRTH_COST));
             // <b>이미 먹이고 있는 비생산자</b>도 함께 센다. 마름은 밭을 갖지 않고 임금으로 사는
             // 사람이라, 그 수가 곧 "지금 부양 중인 인원"이다. 여유(장래 여력)와 나란히 놓아야
             // 지표가 현실과 어긋나지 않는다 — 실측 D15 에서 마름 4명을 먹이는 영주를 두고
@@ -3660,11 +3667,11 @@ public final class EvoSimCommand {
             int paid = farms.stewardCount(m.getIndividual().id());
             tell(ctx.getSource(), String.format(
                     "  부양력 %s — 밭벌이%.1f/일 − 확장%.1f − 제가구%.1f = %s여유%+.1f§r"
-                            + " → 지금 마름%d명 부양 · 추가 여력 %d호%s (밭%d 소작%d)"
-                            + " ※벌이는 밭 수입만(채집 제외)",
+                            + " → 지금 마름%d명 부양 · 추가 여력 %d호%s · 군인 %d호(살림+출산1)"
+                            + " (밭%d 소작%d) ※벌이는 밭 수입만(채집 제외)",
                     m.getIndividual().shortName(), gain, spend, own,
                     spare > 0 ? "§a" : "§c", spare, paid, feeds,
-                    plusBirth ? " + 출산1" : "",
+                    plusBirth ? " + 출산1" : "", troops,
                     farms.ownedCount(m.getIndividual().id()),
                     tenantsOf(level, m.getIndividual().id())));
         }
@@ -3728,6 +3735,42 @@ public final class EvoSimCommand {
             if (gb.length() > 0) {
                 tell(ctx.getSource(), "  출산 세대별(판정 대상) — " + gb.toString().trim());
             }
+            // ── <b>신분별</b> 출산 — 목표가 층마다 다르다(지시): 평민 1.5~2 · 마름·자영농 3~4
+            // 겨우 · 지배자는 그 위. 전체 평균 하나로는 "평민이 4를 낳고 지주가 0"인 병든 분포와
+            // 정상 분포를 구분할 수 없다. 층은 소유 타일과 고용으로만 가른다(라벨 없음).
+            String[] cls = {"소작·농노", "마름", "자영농", "지배자"};
+            double[] lo = {1.5, 3.0, 3.0, 3.0};
+            double[] hi = {2.0, 4.0, 4.0, 99.0};
+            int[] cc = new int[4];
+            int[] ck = new int[4];
+            for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null
+                            && e.getIndividual().sex() == com.evosim.core.Sex.FEMALE
+                            && e.getSpouseId() != 0L
+                            && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                    || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+                // 가구 기준 — 아내 명의든 남편 명의든 한 가구의 살림은 하나다.
+                long me = m.getIndividual().id();
+                int tiles = farms.ownedTiles(me) + farms.ownedTiles(m.getSpouseId());
+                boolean steward = farms.stewardOf(me) != 0L
+                        || farms.stewardOf(m.getSpouseId()) != 0L;
+                int hired = tenantsOf(level, me) + tenantsOf(level, m.getSpouseId());
+                int k = tiles == 0 ? (steward ? 1 : 0)
+                        : (hired > 0 || tiles > com.evosim.core.FarmEconomy.MATURE_TILES ? 3 : 2);
+                cc[k]++;
+                ck[k] += m.getChildrenBorn();
+            }
+            StringBuilder cb = new StringBuilder();
+            for (int k = 0; k < 4; k++) {
+                if (cc[k] == 0) {
+                    continue;
+                }
+                double ca = (double) ck[k] / cc[k];
+                cb.append(String.format("%s%s %d쌍 %.2f§r ",
+                        ca >= lo[k] && ca <= hi[k] ? "§a" : "§c", cls[k], cc[k], ca));
+            }
+            tell(ctx.getSource(), "  출산 신분별(목표 소작1.5~2 · 마름·자영농3~4 · 지배자3+) — "
+                    + (cb.length() == 0 ? "해당 없음" : cb.toString().trim()));
         }
 
         java.util.List<java.util.Map.Entry<Long, Integer>> top =
@@ -4631,6 +4674,104 @@ public final class EvoSimCommand {
             tell(ctx.getSource(), "  모양보정 내역: " + HomeTemplate.lastSettledDetail);
         }
         return ok ? 1 : 0;
+    }
+
+    /**
+     * <b>신분 사다리의 능력 문턱</b> 실측 — "계층이 능력에서 갈리는가"를 세는 줄.
+     *
+     * <p>착공은 두 조건의 <b>동시</b> 성립이다: 자금 ≥ 임계 T, 그리고 그 자금을 쥐고도 만족하지
+     * 않을 것. 그러므로 <b>돌파 가능 ⟺ T ≤ 만족선</b>이다(T 를 모은 순간 만족해 버리면 영영 못
+     * 연다 — 만족의 덫). 여기서는 유배우 성인마다 그 부등식을 직접 풀어, 능력 구간별 돌파율을
+     * 낸다. 능력이 오를수록 돌파율이 올라야 사다리가 산 것이고, 구간과 무관하게 고르면 신분을
+     * 가르는 것은 능력이 아니라 다른 무엇이다(직전 실측: 가족 규모였다).
+     *
+     * <p>판정은 {@link com.evosim.core.Satisfaction#satisfied}를 <b>그대로</b> 부른다 — 특성
+     * 우회(욕심·부지런·경쟁·야망)까지 같은 식으로 반영되도록. 이웃 최대 부는 전역 최대로
+     * 근사한다(실제 판정은 48블록 반경이라, 경쟁 특성 보유자는 여기서 다소 낙관적으로 잡힌다).
+     */
+    private static void tellLadder(CommandSourceStack src,
+                                   java.util.Map<Long, MimicEntity> byId,
+                                   FarmStore farms, LarderStore larders) {
+        // 가구별 명목 소모 합 — 만족선의 입력(MimicEntity.updateMotivation 과 같은 정의).
+        java.util.Map<net.minecraft.core.BlockPos, double[]> homeNeed = new java.util.HashMap<>();
+        double neighborMax = 0.0;
+        for (MimicEntity m : byId.values()) {
+            if (m.getHomePos() == null) {
+                continue;
+            }
+            homeNeed.computeIfAbsent(m.getHomePos(), k -> new double[1])[0] +=
+                    com.evosim.core.FoodEconomy.consumptionPerDay(m.getStage(),
+                            com.evosim.core.Activity.MOVE, m.getIndividual(), false);
+            neighborMax = Math.max(neighborMax, larders.get(m.getHomePos()));
+        }
+        // 능력 구간 — 성별을 뺀 <b>날것의</b> 채집 능력(Multipliers.gather)이 축이다.
+        // aspiration 으로 나누면 안 된다: 그쪽은 1.0 에서 클램프되므로 무능력 구간이 영영
+        // 0명으로 찍혀, "바닥층이 없다"는 거짓 보고가 된다.
+        // 경계 근거 — 평범 1.0 · 약초Ⅱ 1.26 · 약초Ⅲ 1.39 · 엘리트(명석+약초Ⅴ+야망) 2.16.
+        double[] cuts = {1.0, 1.2, 1.8};
+        String[] names = {"무능", "평범", "유능", "엘리트"};
+        int[] n = new int[4];
+        int[] pass = new int[4];
+        double[] tSum = new double[4];
+        double[] barSum = new double[4];
+        for (MimicEntity m : byId.values()) {
+            if (m.getHomePos() == null || m.getSpouseId() == 0L) {
+                continue; // 착공 자격 = 독립가구(FarmTicker 와 같은 조건)
+            }
+            if (m.getStage() != com.evosim.core.LifeStage.ADULT
+                    && m.getStage() != com.evosim.core.LifeStage.ELDER) {
+                continue;
+            }
+            var ind = m.getIndividual();
+            double need = homeNeed.get(m.getHomePos())[0];
+            // 착공 예비의 가족 계상 = 본인 + 배우자 + 유아·소년(성인 자녀 제외, FarmTicker 와 동일).
+            double famNeed = com.evosim.core.FoodEconomy.consumptionPerDay(m.getStage(),
+                    com.evosim.core.Activity.MOVE, ind, false);
+            for (MimicEntity h : byId.values()) {
+                if (h == m || !m.getHomePos().equals(h.getHomePos())) {
+                    continue;
+                }
+                boolean spouse = h.getIndividual().id() == m.getSpouseId()
+                        || h.getSpouseId() == ind.id();
+                boolean child = h.getStage() == com.evosim.core.LifeStage.INFANT
+                        || h.getStage() == com.evosim.core.LifeStage.BOY;
+                if (spouse || child) {
+                    famNeed += com.evosim.core.FoodEconomy.consumptionPerDay(h.getStage(),
+                            com.evosim.core.Activity.MOVE, h.getIndividual(), false);
+                }
+            }
+            double t = com.evosim.core.FarmEconomy.newFarmCost(farms.ownedCount(ind.id()))
+                    + com.evosim.core.FarmEconomy.foundReserve(famNeed);
+            if (farms.stewardOf(ind.id()) != 0L) {
+                t *= com.evosim.core.FarmEconomy.STEWARD_FOUND_RESERVE_MULT;
+            }
+            double a = com.evosim.core.Multipliers.gather(ind);
+            int b = 0;
+            while (b < cuts.length && a >= cuts[b]) {
+                b++;
+            }
+            n[b]++;
+            tSum[b] += t;
+            barSum[b] += com.evosim.core.Satisfaction.bar(ind, need);
+            // 임계 T 만큼 모은 순간을 그대로 물어본다 — 만족하지 않으면 그날 밤 착공한다.
+            if (!com.evosim.core.Satisfaction.satisfied(ind, need, t, neighborMax,
+                    farms.ownedTiles(ind.id()), false)) {
+                pass[b]++;
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 4; i++) {
+            if (n[i] == 0) {
+                sb.append(sb.length() > 0 ? " · " : "").append(names[i]).append("0명");
+                continue;
+            }
+            sb.append(sb.length() > 0 ? " · " : "").append(String.format(
+                    "%s %d명 돌파%d(임계%.0f vs 만족선%.0f)",
+                    names[i], n[i], pass[i], tSum[i] / n[i], barSum[i] / n[i]));
+        }
+        tell(src, "  능력 사다리(a=성별뺀 채집능력) — " + sb);
+        tell(src, "    ※돌파 = 착공 임계만큼 모아도 만족 안 함(T ≤ 만족선). 구간이 오를수록"
+                + " 돌파율이 올라야 능력이 신분을 가른 것 — 고르면 가른 것은 능력이 아니다.");
     }
 
     private static void tell(CommandSourceStack src, String msg) {

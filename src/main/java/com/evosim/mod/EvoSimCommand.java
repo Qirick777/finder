@@ -3332,6 +3332,36 @@ public final class EvoSimCommand {
      */
     private static final double TROOP_BIRTH_HORIZON_DAYS = 10.0;
 
+    /**
+     * <b>무토지 가구 한 호의 하루 실소모 평균</b> — 군인 한 호를 먹이는 값.
+     *
+     * <p>군인은 밭 없는 가구에서 뽑히므로(계획서 §1.7 천민의 진로) 그 층의 살림이 곧 원가다.
+     * 밭을 가진 가구는 셈에서 뺀다 — 지주는 자녀가 많아 가구가 크고, 그 식비로 나누면 군인
+     * 수가 과소평가된다.
+     */
+    private static double landlessHouseCost(ServerLevel level, FarmStore farms) {
+        java.util.Map<net.minecraft.core.BlockPos, double[]> byHome = new java.util.HashMap<>();
+        java.util.Set<net.minecraft.core.BlockPos> landed = new java.util.HashSet<>();
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null)) {
+            byHome.computeIfAbsent(m.getHomePos(), k -> new double[1])[0]
+                    += m.dailyConsumedActual();
+            if (farms.ownedTiles(m.getIndividual().id()) > 0) {
+                landed.add(m.getHomePos());
+            }
+        }
+        double sum = 0.0;
+        int n = 0;
+        for (var e : byHome.entrySet()) {
+            if (landed.contains(e.getKey()) || e.getValue()[0] <= 0.0) {
+                continue;
+            }
+            sum += e.getValue()[0];
+            n++;
+        }
+        return n == 0 ? 0.0 : sum / n;
+    }
+
     /** 이 개체가 속한 가구의 하루 소모 합(명목) — 착공 임계 등 <b>판정</b>과 같은 척도. */
     private static double familyNeedOf(ServerLevel level, MimicEntity who) {
         double need = 0.0;
@@ -3680,7 +3710,11 @@ public final class EvoSimCommand {
             double own = familyActualOf(level, m);  // 제 가구 하루 <b>실</b>소모(명목 아님)
             double spare = gain - spend - own;      // 남을 먹일 수 있는 몫
             // <b>몇 가구를 먹일 수 있나</b> — 이것이 곧 군인 고용 가능성이다(P7 입력).
-            double house = Math.max(1.0, own);
+            // 한 호의 밥값은 <b>부양받는 쪽</b>의 살림이지 지배자 자신의 살림이 아니다. 지주는
+            // 자녀가 많아 가구가 큰데(실측 D13: 3.4/일) 군인 가구는 부부 한 쌍이라, 지주의
+            // 식비로 나누면 남의 집 밥값을 부잣집 기준으로 매기는 셈이 되어 군인 수가 과소평가된다
+            // (D9 3.8 → D13 6.7 로 원가가 뛴 것이 그 증상이다). 무토지 가구의 실측 평균을 쓴다.
+            double house = Math.max(1.0, landlessHouseCost(level, farms));
             int feeds = (int) Math.floor(Math.max(0.0, spare) / house);
             // 그 위에 축적으로 출산 한 건을 더 보장하려면 BIRTH_COST 만큼이 더 남아야 한다.
             boolean plusBirth = spare - feeds * house >= com.evosim.core.FoodEconomy.BIRTH_COST;
@@ -3696,8 +3730,13 @@ public final class EvoSimCommand {
             // 그러면 뜻이 없는 수가 나온다. 출산은 문턱까지 <b>적립</b>하는 일이므로 지평으로
             // 나눠 하루치로 환산한다: 원가/일 = 실소모 + 출산문턱 ÷ 지평.
             double grossSpare = gain - own;
+            // 출산 문턱도 <b>군인 가구</b>(성인 부부) 기준이다 — 지주의 대가족 소모를 넣으면
+            // 원가가 부풀어 같은 과소평가가 반복된다. 성인 명목 소모 × 2인 + 성인수(2)+1.
+            double coupleNeed = 2.0 * com.evosim.core.FoodEconomy.consumptionPerDay(
+                    com.evosim.core.LifeStage.ADULT, com.evosim.core.Activity.MOVE,
+                    m.getIndividual(), false);
             double reproGate = com.evosim.core.FoodEconomy.BIRTH_COST
-                    + familyNeedOf(level, m) * com.evosim.core.FoodEconomy.REPRO_NEED_DAYS + 3.0;
+                    + coupleNeed * com.evosim.core.FoodEconomy.REPRO_NEED_DAYS + 3.0;
             double troopCost = house + reproGate / TROOP_BIRTH_HORIZON_DAYS;
             int troops = (int) Math.floor(Math.max(0.0, grossSpare) / troopCost);
             // <b>이미 먹이고 있는 비생산자</b>도 함께 센다. 마름은 밭을 갖지 않고 임금으로 사는

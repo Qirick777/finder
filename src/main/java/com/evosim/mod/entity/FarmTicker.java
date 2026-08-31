@@ -412,7 +412,24 @@ public final class FarmTicker {
             // 새 재배줄(c < blockCol)로 가고, 그마저 막히면 placed==0 이 되어 아래의 방향 전환이
             // 받는다. 종전 방향 전환은 <b>한 칸도 못 심을 때만</b> 발동해서, 한 줄만 막힌 흔한
             // 경우에는 아무 일도 하지 않았다.
+            //
+            // <b>미리 훑어서</b> 정한다. 배치하며 정하면 늦다: 수열은 열을 (c,0) → (c,1) → …
+            // 순으로 넓히므로, (c,0) 이 뚫려 있으면 <b>먼저 놓인 뒤</b> (c,1) 에서야 막힌 것을
+            // 안다. 이미 놓은 칸은 되돌릴 수 없고 다음 날도 같은 일이 반복되어 그 줄만 영구히
+            // 한 칸 길어진다 — 실측 A′ D15: 줄 길이 [5,5,5,7,3](5 에서 6 을 건너뛰고 7).
             int blockCol = Integer.MAX_VALUE;
+            for (int[] t : seq) {
+                if (t[0] >= blockCol) {
+                    continue;
+                }
+                BlockPos probe = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        gridOffset(plot.anchor, plot.dir, t[0], t[1]));
+                String r = gateReason(level, store, plot.id, probe, adults);
+                if (r != null && !"이미밭".equals(r)) {
+                    blockCol = t[0];
+                }
+            }
             for (int i = 0; i < seq.size() && placed < k; i++) {
                 int sc = seq.get(i)[0];
                 int sr = seq.get(i)[1];
@@ -422,12 +439,8 @@ public final class FarmTicker {
                 BlockPos raw = level.getHeightmapPos(
                         net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                         gridOffset(plot.anchor, plot.dir, sc, sr));
-                String why = gateReason(level, store, plot.id, raw, adults);
-                if (why != null) {
-                    if (!"이미밭".equals(why)) {
-                        blockCol = Math.min(blockCol, sc); // 진짜 장애물 — 여기서 폭을 끊는다
-                    }
-                    continue; // 우리 칸이면 그냥 다음 이상 칸으로
+                if (gateReason(level, store, plot.id, raw, adults) != null) {
+                    continue; // 우리 칸이거나 막힘 — 폭은 위에서 이미 확정했다
                 }
                 BlockPos gp = idealSpot(level, store, plot, sc, sr, adults, mine);
                 if (gp == null) {

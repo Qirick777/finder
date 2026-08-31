@@ -401,11 +401,37 @@ public final class FarmTicker {
                 mine.add(l);
             }
             int placed = 0;
+            // <b>폭은 첫 장애물에서 끊는다</b> — 계단이 생기는 자리가 바로 여기다.
+            //
+            // 수열은 열을 넓힐 때 모든 줄에 한 칸씩 더하므로 줄 길이는 ±1 이어야 한다. 그런데
+            // 막힌 칸을 그냥 건너뛰면, 집 여유 반경에 걸린 줄 하나는 거기서 <b>영구히</b> 멈추고
+            // 나머지 줄은 계속 넓어진다 — 오른쪽이 계단처럼 깎인 모양(실측 D28: 채움 80%,
+            // 줄 길이 2~11, 막힌 339칸 중 집·시설 여유가 318칸)이 그렇게 만들어진다.
+            //
+            // 그래서 어느 줄이든 열 c 에서 막히면 <b>그 구획의 폭을 c 로 끊는다</b>. 남은 성장은
+            // 새 재배줄(c < blockCol)로 가고, 그마저 막히면 placed==0 이 되어 아래의 방향 전환이
+            // 받는다. 종전 방향 전환은 <b>한 칸도 못 심을 때만</b> 발동해서, 한 줄만 막힌 흔한
+            // 경우에는 아무 일도 하지 않았다.
+            int blockCol = Integer.MAX_VALUE;
             for (int i = 0; i < seq.size() && placed < k; i++) {
-                BlockPos gp = idealSpot(level, store, plot, seq.get(i)[0], seq.get(i)[1], adults,
-                        mine);
+                int sc = seq.get(i)[0];
+                int sr = seq.get(i)[1];
+                if (sc >= blockCol) {
+                    continue; // 이 폭 너머는 이 구획의 땅이 아니다
+                }
+                BlockPos raw = level.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        gridOffset(plot.anchor, plot.dir, sc, sr));
+                String why = gateReason(level, store, plot.id, raw, adults);
+                if (why != null) {
+                    if (!"이미밭".equals(why)) {
+                        blockCol = Math.min(blockCol, sc); // 진짜 장애물 — 여기서 폭을 끊는다
+                    }
+                    continue; // 우리 칸이면 그냥 다음 이상 칸으로
+                }
+                BlockPos gp = idealSpot(level, store, plot, sc, sr, adults, mine);
                 if (gp == null) {
-                    continue; // 이미 우리 칸이거나 막힘 — 수열의 다음 이상 칸으로
+                    continue; // 연결 조건(몸통과 맞닿을 것) 미충족 — 폭은 끊지 않는다
                 }
                 level.setBlockAndUpdate(gp.below(),
                         net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState());
@@ -1873,6 +1899,11 @@ public final class FarmTicker {
         if (!level.isLoaded(gp)) {
             return "미로드";
         }
+        // 이웃 검사를 먼저 — 그래야 "이미밭" 이 <b>우리</b> 타일만 뜻한다(남의 타일은 제 몸통이라
+        // 여기서 이웃구획으로 잡힌다). 호출부가 "넘어갈 칸" 과 "막힌 칸" 을 가르는 근거가 된다.
+        if (store.nearOtherBody(selfId, gp.getX(), gp.getZ(), PLOT_GAP)) {
+            return "이웃구획";
+        }
         if (store.isFarmTile(gp)) {
             return "이미밭";
         }
@@ -1884,9 +1915,6 @@ public final class FarmTicker {
         }
         if (nearStreet(level, gp)) {
             return "가로수여유";
-        }
-        if (store.nearOtherBody(selfId, gp.getX(), gp.getZ(), PLOT_GAP)) {
-            return "이웃구획";
         }
         var at = level.getBlockState(gp);
         var below = level.getBlockState(gp.below());

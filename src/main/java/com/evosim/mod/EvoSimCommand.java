@@ -3325,7 +3325,7 @@ public final class EvoSimCommand {
         return 1;
     }
 
-    /** 이 개체가 속한 가구의 하루 소모 합(명목) — 부양력의 분모. */
+    /** 이 개체가 속한 가구의 하루 소모 합(명목) — 착공 임계 등 <b>판정</b>과 같은 척도. */
     private static double familyNeedOf(ServerLevel level, MimicEntity who) {
         double need = 0.0;
         for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
@@ -3335,6 +3335,24 @@ public final class EvoSimCommand {
                     m.getStage(), com.evosim.core.Activity.MOVE, m.getIndividual(), false);
         }
         return need;
+    }
+
+    /**
+     * 이 개체가 속한 가구의 하루 <b>실</b>소모 합 — 부양력의 분모.
+     *
+     * <p>명목치(MOVE 기준)를 쓰면 안 된다. 미믹은 하루의 태반을 자고(×0.0) 쉬므로(×0.4) 실제
+     * 소모는 명목의 1/4 안팎이고, 명목으로 재면 넉넉한 영주도 영영 "부양 0호"로 찍힌다 —
+     * 정원 수지를 명목 6.0 과 견주어 적자로 착각했던 것과 같은 착오다. 실측 계량기가 아직 하루를
+     * 못 채웠으면(런 첫날) 0 이 나오므로, 그때만 명목으로 물러선다.
+     */
+    private static double familyActualOf(ServerLevel level, MimicEntity who) {
+        double sum = 0.0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && e.getHomePos().equals(who.getHomePos()))) {
+            sum += m.dailyConsumedActual();
+        }
+        return sum > 0.0 ? sum : familyNeedOf(level, who);
     }
 
     /** 이 지주의 밭에 붙은 상시 소작 수. */
@@ -3647,7 +3665,7 @@ public final class EvoSimCommand {
             }
             double gain = e[0] / e[2];              // 일평균 수취
             double spend = e[1] / e[2];             // 일평균 확장 지출
-            double own = familyNeedOf(level, m);    // 제 가구 하루 소모
+            double own = familyActualOf(level, m);  // 제 가구 하루 <b>실</b>소모(명목 아님)
             double spare = gain - spend - own;      // 남을 먹일 수 있는 몫
             // <b>몇 가구를 먹일 수 있나</b> — 이것이 곧 군인 고용 가능성이다(P7 입력).
             double house = Math.max(1.0, own);
@@ -3666,7 +3684,7 @@ public final class EvoSimCommand {
             // 보고가 "0호 부양"이라 말했다.
             int paid = farms.stewardCount(m.getIndividual().id());
             tell(ctx.getSource(), String.format(
-                    "  부양력 %s — 밭벌이%.1f/일 − 확장%.1f − 제가구%.1f = %s여유%+.1f§r"
+                    "  부양력 %s — 밭벌이%.1f/일 − 확장%.1f − 제가구%.1f(실측) = %s여유%+.1f§r"
                             + " → 지금 마름%d명 부양 · 추가 여력 %d호%s · 군인 %d호(살림+출산1)"
                             + " (밭%d 소작%d) ※벌이는 밭 수입만(채집 제외)",
                     m.getIndividual().shortName(), gain, spend, own,

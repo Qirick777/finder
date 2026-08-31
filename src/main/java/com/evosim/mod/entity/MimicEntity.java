@@ -4010,7 +4010,9 @@ public class MimicEntity extends PathfinderMob {
         double perDay = FoodEconomy.consumptionPerDay(getStage(), act, individual,
                 getHealth() < getMaxHealth())
                 * FoodEconomy.maternalHungerMult(getStage(), cachedMaternal); // 모성애 축(자식 허기 효율)
+        double before = holding;
         holding = Math.max(0.0, holding - perDay * interval * scale / 24000.0);
+        noteConsumed(before - holding);
         // 위기 계정 인출(E11 안전장치 ④) — 소지 식량 고갈 시, 지주는 자기 밭 계정 식량을 소지로
         // <b>직접</b> 인출(저장고 우회 → 귀가 지연 A-4와 무관하게 현장 발동). 연속 hungerTick이라
         // 밤 확장·정산보다 앞서 실행되어 확장이 생존 식량을 가로채지 못한다. 비지주는 소유 밭이 없어
@@ -4054,6 +4056,33 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 현재 상태 → 활동 강도(소모 배율). 전투 > 취침(위급이면 R6로 깨어 있어 제외) > 이동 > 대기. */
+    // ── 하루 실소모 계량기(계측 전용, 행동·판정 무관) ───────────────────────────────────
+    // 명목치(MOVE 기준)로 부양력을 재면 실제의 4배쯤 되는 지출을 잡아, 넉넉한 영주도 영영
+    // "부양 0호"로 보고된다. 예전에 정원 수지를 명목 6.0과 견주어 적자로 착각했던 것과 같은
+    // 착오다. 활동은 내비게이션 상태에 달려 있어 정적으로 계산할 수 없으므로 <b>실제로 깎인
+    // 양</b>을 그대로 적는다.
+    private double consumedToday;
+    private double consumedPrevDay;
+    private long consumeDay = -1L;
+
+    private void noteConsumed(double d) {
+        long day = com.evosim.mod.entity.SimTime.tick(level()) / 24000L;
+        if (day != consumeDay) {
+            // 첫 관측일은 하루가 잘려 있으므로 직전값으로 넘기지 않는다(과소보고 방지).
+            if (consumeDay >= 0) {
+                consumedPrevDay = consumedToday;
+            }
+            consumeDay = day;
+            consumedToday = 0.0;
+        }
+        consumedToday += Math.max(0.0, d);
+    }
+
+    /** 하루 실소모(식량/일) — 직전 하루의 실측치. 아직 하루를 못 채웠으면 오늘 누적분. */
+    public double dailyConsumedActual() {
+        return consumedPrevDay > 0.0 ? consumedPrevDay : consumedToday;
+    }
+
     public Activity deriveActivity() {
         if (isUnderThreat()) {
             return Activity.COMBAT;

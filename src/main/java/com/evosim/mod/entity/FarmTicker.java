@@ -1398,6 +1398,10 @@ public final class FarmTicker {
     private static void runBarracks(ServerLevel level, AllegianceStore ledger, LarderStore larders,
                                     java.util.List<MimicEntity> adults,
                                     java.util.Map<Long, Long> patrons, long day) {
+        // 어제의 배속 명단을 들고 있다가, 오늘 다시 앉지 못한 자에게서 무장을 벗긴다.
+        // POST_OF 는 매일 새로 짜므로 이 스냅숏이 없으면 이탈·해임된 자가 죽을 때까지
+        // 검과 갑옷을 걸치고 다닌다 — 육안으로 군인 수를 셀 수 없게 된다.
+        java.util.Set<Integer> wasPosted = new java.util.HashSet<>(POST_OF.keySet());
         POST_OF.clear();
         GUARD_SEAT.clear();
         java.util.Arrays.fill(GUARD_SUM, 0.0);
@@ -1422,7 +1426,13 @@ public final class FarmTicker {
                 continue;
             }
             // ① 지킬 가구 — 이 막사의 경계 반경 안에 있는 추종 가구.
-            java.util.List<BlockPos> guarded = new java.util.ArrayList<>();
+            //
+            // <b>가구 단위로 센다.</b> FOLLOWER_HOMES 는 everyone(유아·소년 포함) 순회로 채워져
+            // 한 지붕 아래 4명이 살면 같은 좌표가 4번 들어간다. List 로 그대로 세면
+            // "4가구당 군인 1명"이 실제로는 "추종자 4명당 1명"이 되어 정원이 부풀고, 지주가
+            // 감당 못 할 수의 병사를 두게 된다. 세금도 가구 단위로 걷으므로(아래 ②) 여기서
+            // 중복을 없애야 세수와 정원이 같은 분모를 본다.
+            java.util.Set<BlockPos> guarded = new java.util.LinkedHashSet<>();
             for (BlockPos h : followerHomesOf(bk.ownerId)) {
                 if (h.distSqr(bk.pos) <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
                     guarded.add(h);
@@ -1431,6 +1441,14 @@ public final class FarmTicker {
             int cap = Math.min(tpl.get().seats().size(),
                     guarded.size() / Facilities.HOUSEHOLDS_PER_SOLDIER);
             if (cap <= 0) {
+                // <b>여기서도 사유를 남긴다.</b> 종전에는 조용히 continue 해서, "막사는 섰는데
+                // 군인이 0명"인 상태에 로그가 한 줄도 없었다(실측 — 사용자가 원인을 못 찾음).
+                // 침묵은 진단이 아니다.
+                com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
+                        "막사 @%d,%d — 지킬가구 %d < %d → 정원 0 · 배속 없음"
+                                + "(추종 가구가 경계 반경 %d 안에 더 들어와야 한다)",
+                        bk.pos.getX(), bk.pos.getZ(), guarded.size(),
+                        Facilities.HOUSEHOLDS_PER_SOLDIER, (int) Facilities.COMMUTE_RANGE));
                 continue; // 지킬 사람이 없다 — 병사도 세금도 없다
             }
             // ② 보호세 — 지킬 가구가 저장고 비율로 낸다(캡·2일치 유보). 못 내면 빚(신세).
@@ -1534,6 +1552,7 @@ public final class FarmTicker {
                 POST_OF.put(s.getId(), bk.pos);
                 GUARD_SEAT.put(s.getId(),
                         bk.pos.offset(tpl.get().seats().get(seated % tpl.get().seats().size())));
+                s.setSoldierGear(true); // 무장은 배속의 표시 — 값도 내구도도 없다
                 seated++;
                 GUARD_SUM[0]++;
             }
@@ -1542,6 +1561,12 @@ public final class FarmTicker {
                             + " · 주인 저장고 %.1f",
                     bk.pos.getX(), bk.pos.getZ(), guarded.size(), cap, seated, taxIn,
                     GUARD_SUM[1], larders.get(owner.getHomePos())));
+        }
+        // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
+        for (MimicEntity m : adults) {
+            if (wasPosted.contains(m.getId()) && !POST_OF.containsKey(m.getId())) {
+                m.setSoldierGear(false);
+            }
         }
     }
 

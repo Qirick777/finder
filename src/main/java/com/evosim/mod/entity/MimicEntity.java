@@ -3138,12 +3138,25 @@ public class MimicEntity extends PathfinderMob {
         if (have >= 1 && unguarded < Facilities.HOUSEHOLDS_PER_SOLDIER) {
             return larder; // 지킬 만큼 지키고 있다 — 더 짓지 않는다
         }
+        // 문턱에 <b>봉급 운영자금</b>을 포함한다 — 상비군은 한 번 치르는 값이 아니라 매일
+        // 나가는 값이다. 정원은 아래 착공 로그가 쓰는 그 식과 같은 것을 쓴다(단일 출처).
+        // 자리 수는 회전과 무관하므로 기준 회전(0)으로 한 번만 읽는다. 도면을 못 읽으면
+        // 어차피 아래에서 착공이 무산되므로, 여기서는 정원 0 으로 보수적으로 잡는다.
+        int seats = FacilityTemplate.of(sl, FacilityTemplate.Kind.BARRACKS, (byte) 0, false)
+                .map(t -> t.seats().size()).orElse(0);
+        int plannedCap = Math.min(seats, followers / Facilities.HOUSEHOLDS_PER_SOLDIER);
+        double payroll = plannedCap * Facilities.SOLDIER_WAGE_MAX * Facilities.BARRACKS_RUNWAY_DAYS;
         double gate = Facilities.BARRACKS_COST
-                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR
+                + payroll;
         if (larder < gate) {
             SimEvents.event(founder, "막사", String.format(
-                    "보류 — 추종자%d · 못지킴%d가구 · 저장고 %.0f < 문턱 %.0f",
-                    followers, unguarded, larder, gate));
+                    "보류 — 추종자%d · 못지킴%d가구 · 정원%d · 저장고 %.0f < 문턱 %.0f"
+                            + "(건축 %.0f + 여유 %.0f + 봉급 %.0f일치 %.0f)",
+                    followers, unguarded, plannedCap, larder, gate,
+                    Facilities.BARRACKS_COST,
+                    HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR,
+                    Facilities.BARRACKS_RUNWAY_DAYS, payroll));
             return larder;
         }
         byte rot = (byte) getRandom().nextInt(4);
@@ -3796,6 +3809,46 @@ public class MimicEntity extends PathfinderMob {
         ItemStack want = new ItemStack(p.state().getBlock());
         if (!ItemStack.matches(getItemBySlot(EquipmentSlot.MAINHAND), want)) {
             setItemSlot(EquipmentSlot.MAINHAND, want);
+        }
+    }
+
+    /**
+     * <b>군인의 무장</b> — 배속되면 입고, 풀리면 벗는다. 값도 내구도도 없다.
+     *
+     * <p>무장 비용을 회계로 넣으면 매일 개체마다 내구도를 굴려야 해서 연산이 커진다. 그래서
+     * 봉급 안에 무장비가 포함된 것으로 본다(승인된 단순화). 여기서 하는 일은 <b>보이게 하는
+     * 것뿐</b>이다 — 군인이 서 있는데 맨몸이면 배속됐는지 아닌지 육안으로 구분할 수 없고,
+     * 실제로 그래서 "군인이 없다"고 오인된 적이 있다.
+     *
+     * <p>바뀔 때만 슬롯을 건드린다(동기화 절약). 떨굼 확률은 0 — 죽어도 장비가 바닥에
+     * 남지 않는다(주울 주체도 없고, 아이템 엔티티만 쌓인다).
+     */
+    public void setSoldierGear(boolean on) {
+        ItemStack sword = on ? new ItemStack(net.minecraft.world.item.Items.IRON_SWORD)
+                : ItemStack.EMPTY;
+        ItemStack shield = on ? new ItemStack(net.minecraft.world.item.Items.SHIELD)
+                : ItemStack.EMPTY;
+        ItemStack mail = on ? new ItemStack(net.minecraft.world.item.Items.CHAINMAIL_CHESTPLATE)
+                : ItemStack.EMPTY;
+        ItemStack helm = on ? new ItemStack(net.minecraft.world.item.Items.CHAINMAIL_HELMET)
+                : ItemStack.EMPTY;
+        // 손에 무언가 들고 일하는 중(건축 자재)이면 주무기는 건드리지 않는다 — 건축 표시가
+        // 우선이고, 어차피 다음 갱신 때 맞춰진다.
+        if (!isBuilding() && !ItemStack.matches(getItemBySlot(EquipmentSlot.MAINHAND), sword)) {
+            setItemSlot(EquipmentSlot.MAINHAND, sword);
+            setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+        }
+        if (!ItemStack.matches(getItemBySlot(EquipmentSlot.OFFHAND), shield)) {
+            setItemSlot(EquipmentSlot.OFFHAND, shield);
+            setDropChance(EquipmentSlot.OFFHAND, 0.0F);
+        }
+        if (!ItemStack.matches(getItemBySlot(EquipmentSlot.CHEST), mail)) {
+            setItemSlot(EquipmentSlot.CHEST, mail);
+            setDropChance(EquipmentSlot.CHEST, 0.0F);
+        }
+        if (!ItemStack.matches(getItemBySlot(EquipmentSlot.HEAD), helm)) {
+            setItemSlot(EquipmentSlot.HEAD, helm);
+            setDropChance(EquipmentSlot.HEAD, 0.0F);
         }
     }
 

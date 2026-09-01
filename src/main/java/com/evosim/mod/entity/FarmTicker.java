@@ -345,6 +345,7 @@ public final class FarmTicker {
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
             runSchools(level, ledger, larders, adults, everyone, patrons, day);
+            runBarracks(level, ledger, larders, adults, patrons, day);
             runChurches(level, ledger, larders, everyone, patrons, day);
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
@@ -1331,6 +1332,195 @@ public final class FarmTicker {
      * 다 치르지 못하고 그 차액이 은혜로 남는 것이 후원의 실체다 — 소작이 임금을 받으면서도
      * 신세를 쌓는 것({@link AllegianceStore#W_TENANCY})과 같은 구조이고 선례가 이미 있다.
      */
+    // ── 막사(군인) ────────────────────────────────────────────────────────────────────
+    /** 개체 → 배속된 막사 좌표. 하루 단위로 다시 짠다(학교의 SCHOOL_OF 와 같은 구조). */
+    private static final java.util.Map<Integer, BlockPos> POST_OF = new java.util.HashMap<>();
+
+    /** 개체 → 그 막사에서 맡은 자리(경계 위치). */
+    private static final java.util.Map<Integer, BlockPos> GUARD_SEAT = new java.util.HashMap<>();
+
+    /** 개체 → 봉급 미납 연속 일수. 이탈 판정의 입력. */
+    private static final java.util.Map<Long, Integer> UNPAID_DAYS = new java.util.HashMap<>();
+
+    /** [배속, 지급총액, 세수총액, 이탈, 구휼] — 보고용 누계. */
+    private static final double[] GUARD_SUM = new double[5];
+
+    public static BlockPos postOf(MimicEntity m) {
+        return POST_OF.get(m.getId());
+    }
+
+    public static BlockPos guardSeatOf(MimicEntity m) {
+        return GUARD_SEAT.get(m.getId());
+    }
+
+    public static boolean isSoldier(MimicEntity m) {
+        return POST_OF.containsKey(m.getId());
+    }
+
+    public static double[] guardSums() {
+        return GUARD_SUM.clone();
+    }
+
+    /**
+     * <b>주둔 정산</b> — 배속 · 보호세 · 봉급 · 이탈. 하루 1회, 학교 정산과 같은 틱.
+     *
+     * <p>순서가 뜻을 갖는다: 먼저 <b>세금을 걷고</b>(보호받는 가구 → 지주), 그 돈이 섞인
+     * 저장고에서 <b>봉급을 준다</b>. 그래서 세금은 지주의 부담을 줄이는 것이지 별도 금고가
+     * 아니다 — 지시 사양 그대로다.
+     *
+     * <p>정원은 자리 수가 아니라 <b>지킬 가구 수</b>에서 나온다. 지킬 사람이 없는데 자리를 다
+     * 채우는 것은 낭비다({@link Facilities#HOUSEHOLDS_PER_SOLDIER}).
+     */
+    private static void runBarracks(ServerLevel level, AllegianceStore ledger, LarderStore larders,
+                                    java.util.List<MimicEntity> adults,
+                                    java.util.Map<Long, Long> patrons, long day) {
+        POST_OF.clear();
+        GUARD_SEAT.clear();
+        java.util.Arrays.fill(GUARD_SUM, 0.0);
+        FacilityStore reg = FacilityStore.get(level);
+        FarmStore fs = FarmStore.get(level);
+        for (FacilityStore.Entry bk : reg.all()) {
+            if (bk.kind.group != FacilityTemplate.Group.BARRACKS) {
+                continue;
+            }
+            MimicEntity owner = null;
+            for (MimicEntity m : adults) {
+                if (m.getIndividual() != null && m.getIndividual().id() == bk.ownerId) {
+                    owner = m;
+                    break;
+                }
+            }
+            if (owner == null || owner.getHomePos() == null) {
+                continue; // 주인 부재(사망·미로드) — 그날은 쉰다
+            }
+            var tpl = FacilityTemplate.of(level, bk.kind, bk.rotation, bk.mirrored);
+            if (tpl.isEmpty() || tpl.get().seats().isEmpty()) {
+                continue;
+            }
+            // ① 지킬 가구 — 이 막사의 경계 반경 안에 있는 추종 가구.
+            java.util.List<BlockPos> guarded = new java.util.ArrayList<>();
+            for (BlockPos h : followerHomesOf(bk.ownerId)) {
+                if (h.distSqr(bk.pos) <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    guarded.add(h);
+                }
+            }
+            int cap = Math.min(tpl.get().seats().size(),
+                    guarded.size() / Facilities.HOUSEHOLDS_PER_SOLDIER);
+            if (cap <= 0) {
+                continue; // 지킬 사람이 없다 — 병사도 세금도 없다
+            }
+            // ② 보호세 — 지킬 가구가 저장고 비율로 낸다(캡·2일치 유보). 못 내면 빚(신세).
+            double taxIn = 0.0;
+            for (BlockPos h : guarded) {
+                double stock = larders.get(h);
+                double due = Math.min(Facilities.GUARD_TAX_CAP, stock * Facilities.GUARD_TAX_RATE);
+                MimicEntity res = null;
+                for (MimicEntity m : adults) {
+                    if (h.equals(m.getHomePos())) {
+                        res = m;
+                        break;
+                    }
+                }
+                double pay = res == null ? 0.0
+                        : Math.min(due, com.evosim.core.Tribute.payable(stock,
+                                familyDailyNeed(level, res, adults)));
+                if (pay > 0.0) {
+                    larders.set(h, stock - pay);
+                    taxIn += pay;
+                }
+                double unpaid = due - pay;
+                if (unpaid > 0.0 && res != null && res.getIndividual() != null) {
+                    ledger.record(res.getIndividual().id(), bk.ownerId, 0.0, unpaid, day);
+                }
+            }
+            larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + taxIn);
+            reg.earn(bk, taxIn);
+            GUARD_SUM[2] += taxIn;
+            // ③ 배속 — 추종하는 무전(無田) 성년, 가까운 순, 정원만큼.
+            java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
+            for (MimicEntity m : adults) {
+                if (m.getIndividual() == null || m.getHomePos() == null
+                        || POST_OF.containsKey(m.getId())) {
+                    continue;
+                }
+                long mid = m.getIndividual().id();
+                if (mid == bk.ownerId || fs.ownedTiles(mid) > 0) {
+                    continue; // 지주 자신·제 땅 가진 자는 군인이 되지 않는다(자영농 층 보존)
+                }
+                if (!Long.valueOf(bk.ownerId).equals(patrons.get(mid))
+                        && !owner.marriedTo(patrons.getOrDefault(mid, 0L))) {
+                    continue; // 이 주인(또는 그 배우자)을 따르는 자만
+                }
+                if (m.getHomePos().distSqr(bk.pos)
+                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    continue;
+                }
+                pick.add(m);
+            }
+            pick.sort(java.util.Comparator.comparingDouble(
+                    (MimicEntity m) -> m.getHomePos().distSqr(bk.pos))
+                    .thenComparingLong(m -> m.getIndividual().id()));
+            int seated = 0;
+            for (MimicEntity s : pick) {
+                if (seated >= cap) {
+                    break;
+                }
+                long sid = s.getIndividual().id();
+                // ④ 봉급 — 가난할수록 많이. 기준선은 그 가구 성인 명목소모 × 3.5.
+                double adultNeed = 0.0;
+                for (MimicEntity a : adults) {
+                    if (s.getHomePos().equals(a.getHomePos())) {
+                        adultNeed += com.evosim.core.FoodEconomy.consumptionPerDay(a.getStage(),
+                                com.evosim.core.Activity.MOVE, a.getIndividual(), false);
+                    }
+                }
+                double capLine = Math.max(1.0E-6, adultNeed * Facilities.SOLDIER_WAGE_CAP_DAYS);
+                double r = Math.min(1.0, Math.max(0.0, larders.get(s.getHomePos())) / capLine);
+                double wage = Facilities.SOLDIER_WAGE_MIN
+                        + (Facilities.SOLDIER_WAGE_MAX - Facilities.SOLDIER_WAGE_MIN) * (1.0 - r);
+                // 위급한 병사는 <b>고용주가 즉시 책임진다</b> — 전업이라 스스로 벌 수단이 없다.
+                if (s.isCritical()) {
+                    wage += com.evosim.core.FoodEconomy.CRITICAL * 4.0;
+                    GUARD_SUM[4]++;
+                }
+                double have = larders.get(owner.getHomePos());
+                double paid = Math.min(wage, have);
+                if (paid > 0.0) {
+                    larders.set(owner.getHomePos(), have - paid);
+                    larders.set(s.getHomePos(), larders.get(s.getHomePos()) + paid);
+                    reg.spend(bk, paid);
+                    GUARD_SUM[1] += paid;
+                }
+                if (paid < wage - 1.0E-9) {
+                    int miss = UNPAID_DAYS.merge(sid, 1, Integer::sum);
+                    if (miss >= Facilities.SOLDIER_DESERT_DAYS) {
+                        UNPAID_DAYS.remove(sid);
+                        GUARD_SUM[3]++;
+                        com.evosim.mod.log.SimEvents.event(s, "이탈", String.format(
+                                "봉급 %.1f 중 %.1f 만 받음이 %d일 연속 — 막사 @%d,%d 를 떠난다"
+                                        + "(주인 저장고 %.1f)",
+                                wage, paid, miss, bk.pos.getX(), bk.pos.getZ(), have));
+                        continue; // 배속하지 않는다
+                    }
+                } else {
+                    UNPAID_DAYS.remove(sid);
+                }
+                // ⑤ 신세 — 봉급은 지주→군인 방향으로 예속을 쌓는다(소작 임금과 같은 구조).
+                ledger.record(sid, bk.ownerId, AllegianceStore.W_TENANCY, 0.0, day);
+                POST_OF.put(s.getId(), bk.pos);
+                GUARD_SEAT.put(s.getId(),
+                        bk.pos.offset(tpl.get().seats().get(seated % tpl.get().seats().size())));
+                seated++;
+                GUARD_SUM[0]++;
+            }
+            com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
+                    "막사 @%d,%d — 지킬가구 %d → 정원 %d · 배속 %d명 · 세수 %.1f · 봉급 %.1f"
+                            + " · 주인 저장고 %.1f",
+                    bk.pos.getX(), bk.pos.getZ(), guarded.size(), cap, seated, taxIn,
+                    GUARD_SUM[1], larders.get(owner.getHomePos())));
+        }
+    }
+
     private static void runSchools(ServerLevel level, AllegianceStore ledger, LarderStore larders,
                                    java.util.List<MimicEntity> adults,
                                    java.util.List<MimicEntity> everyone,

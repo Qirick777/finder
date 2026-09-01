@@ -261,6 +261,8 @@ public final class EvoSimCommand {
                             return 1;
                         })))
                 .then(Commands.literal("church").executes(EvoSimCommand::churchReport))
+                .then(Commands.literal("tplcheck").executes(EvoSimCommand::tplCheck))
+                .then(Commands.literal("guard").executes(EvoSimCommand::guardReport))
                 .then(Commands.literal("homes").executes(EvoSimCommand::homesReport))
                 .then(Commands.literal("farms").executes(EvoSimCommand::farmsReport))
                 .then(Commands.literal("visitfix")
@@ -1754,6 +1756,90 @@ public final class EvoSimCommand {
      * <p>왕복은 <b>쌍</b>으로 나타난다: A→B 와 B→A 가 나란히 상위에 있으면 그 둘이 서로를
      * 선점하며 진동하는 것이다. 한쪽만 많으면 정상적인 하루 흐름(예: 밭→귀가)이다.
      */
+    /**
+     * <b>주둔 보고</b> — 군인이 감당되는가, 시민이 쪼들리는가.
+     *
+     * <p>사용자가 확인하라고 지목한 셋을 한 화면에 낸다: 군인 수와 지주 부담, 지주가 몰락하고
+     * 있지 않은지(저장고 추세), 보호세를 낸 가구가 궁해지지 않았는지.
+     */
+    private static int guardReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var reg = com.evosim.mod.entity.FacilityStore.get(level);
+        var lar = LarderStore.get(level);
+        var fl = com.evosim.mod.entity.FamilyLedger.get(level);
+        double[] g = FarmTicker.guardSums();
+        tell(ctx.getSource(), String.format(
+                "§e[주둔]§r 어제 배속 %.0f명 · 봉급 %.1f · 세수 %.1f · §c지주 실부담 %.1f§r"
+                        + " · 이탈 %.0f · 구휼 %.0f",
+                g[0], g[1], g[2], g[1] - g[2], g[3], g[4]));
+        int n = 0;
+        for (var e : reg.all()) {
+            if (e.kind.group != com.evosim.mod.entity.FacilityTemplate.Group.BARRACKS) {
+                continue;
+            }
+            n++;
+            var owner = fl.get(e.ownerId);
+            int fol = FarmTicker.followersOf(e.ownerId);
+            tell(ctx.getSource(), String.format(
+                    "  막사 @%d,%d · 주인 §a%s§r 추종자 %d → 정원 %d · 주인 저장고 %.1f"
+                            + " · 누계 지출 %.1f 수입 %.1f",
+                    e.pos.getX(), e.pos.getZ(),
+                    owner != null && owner.name != null ? owner.name : "#" + e.ownerId, fol,
+                    Math.min(12, fol / com.evosim.mod.entity.Facilities.HOUSEHOLDS_PER_SOLDIER),
+                    lar.get(ownerHomeOf(level, e.ownerId)), e.spent, e.earned));
+        }
+        if (n == 0) {
+            tell(ctx.getSource(), "  막사 없음");
+        }
+        // 실제 군인 목록 — 저장고가 균형점(≈21) 근처인지, 굶고 있지는 않은지.
+        int soldiers = 0;
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && FarmTicker.isSoldier(e))) {
+            soldiers++;
+            if (soldiers <= 12) {
+                tell(ctx.getSource(), String.format("    병사 %s · 저장고 %.1f · 소지 %.1f%s",
+                        m.getIndividual() == null ? "?" : m.getIndividual().shortName(),
+                        m.getHomePos() == null ? 0.0 : lar.get(m.getHomePos()), m.getHolding(),
+                        m.isCritical() ? " §c위급§r" : ""));
+            }
+        }
+        tell(ctx.getSource(), String.format("  현재 배속 %d명", soldiers));
+        return 1;
+    }
+
+    private static BlockPos ownerHomeOf(ServerLevel level, long ownerId) {
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getIndividual().id() == ownerId && e.getHomePos() != null)) {
+            return m.getHomePos();
+        }
+        return BlockPos.ZERO;
+    }
+
+    /**
+     * <b>도면 점검</b> — 시설 도면이 몇 자리를 내는가.
+     *
+     * <p>자리 수는 곧 정원(학생·방문자·주둔 병력)이라 경제 수치다. 도면을 새로 넣거나 자리
+     * 판정을 바꿀 때마다 <b>긴 런을 돌려 우연히 드러나기를 기다릴 이유가 없다</b> — 그 자리에서
+     * 세어 본다. 교회 도면이 실측 자리 0 이던 결함을 이런 확인 없이 오래 끌었다.
+     */
+    private static int tplCheck(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        for (var kind : com.evosim.mod.entity.FacilityTemplate.Kind.values()) {
+            var t = com.evosim.mod.entity.FacilityTemplate.of(level, kind, (byte) 0, false);
+            if (t.isEmpty()) {
+                tell(ctx.getSource(), String.format("  §c%s(%s) — 도면 로드 실패§r",
+                        kind.label, kind.design));
+                continue;
+            }
+            var tpl = t.get();
+            tell(ctx.getSource(), String.format("  %s(%s) · 자리 §a%d§r · 반경 %.1f · 진입칸 %d",
+                    kind.label, kind.design, tpl.seats().size(), tpl.reach(),
+                    tpl.doorSteps().size()));
+        }
+        return 1;
+    }
+
     /**
      * <b>밭 보고</b> — 구획마다 무엇이 확장을 막고 있는가.
      *

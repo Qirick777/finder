@@ -337,6 +337,9 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(1, new MimicBuildGoal(this));     // 거처 건축(부지로 이동·머묾)
         this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
         this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
+        // 주둔 — 밭일(6)보다 앞이다. 군인은 전업이라 근무 시간에 밭·채집으로 새면 안 된다.
+        // 리시(2)보다는 뒤라 반경 이탈 시 호위를 받는다(막사가 앵커라 막사로 데려다 준다).
+        this.goalSelector.addGoal(4, new MimicGarrisonGoal(this));
         this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
         this.goalSelector.addGoal(2, new MimicShareGoal(this));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
         this.goalSelector.addGoal(3, new ElderVisitGoal(this));     // 노인 방문: 자식 집 배달·마실 육아(Return보다 앞)
@@ -2911,6 +2914,11 @@ public class MimicEntity extends PathfinderMob {
         if (followers >= Facilities.CHURCH_MIN_FOLLOWERS) {
             larder = considerChurch(sl, founder, followers, larder, adultNeed);
         }
+        // 막사는 교회 다음 · 학교 앞이다. 자격 문턱(5)이 그 사이이고, 학교 문턱(6)에서
+        // 되돌아가면 막사까지 함께 막히기 때문이다 — 교회를 먼저 보는 것과 같은 이유.
+        if (followers >= Facilities.BARRACKS_MIN_FOLLOWERS) {
+            larder = considerBarracks(sl, founder, followers, larder, adultNeed);
+        }
         if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;
         }
@@ -2951,15 +2959,11 @@ public class MimicEntity extends PathfinderMob {
         // 교사 급여는 각각 나가 둘 다 적자가 된다. 수요 판정(빈자리 있는 학교가 닿는가)이
         // 대개 막지만 그것은 그날의 등록 수를 보므로 아이가 자라 빠지는 날에 구멍이 생긴다.
         if (site != null) {
-            for (FacilityStore.Entry other : reg.all()) {
-                if (other.kind == FacilityTemplate.Kind.SCHOOL
-                        && Math.sqrt(other.pos.distSqr(site)) < Facilities.SCHOOL_MIN_GAP) {
-                    SimEvents.event(founder, "학교", String.format(
-                            "보류 — 기존 학교와 %.0f블록 (최소 %.0f) @%d,%d",
-                            Math.sqrt(other.pos.distSqr(site)), Facilities.SCHOOL_MIN_GAP,
-                            other.pos.getX(), other.pos.getZ()));
-                    return larder;
-                }
+            String clash = facilityGapFault(reg, site, FacilityTemplate.Group.SCHOOL,
+                    Facilities.SCHOOL_MIN_GAP);
+            if (clash != null) {
+                SimEvents.event(founder, "학교", "보류 — " + clash);
+                return larder;
             }
         }
         if (site == null) {
@@ -3057,15 +3061,12 @@ public class MimicEntity extends PathfinderMob {
         }
         BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id));
         if (site != null) {
-            for (FacilityStore.Entry other : reg.all()) {
-                if (other.kind.group == FacilityTemplate.Group.CHURCH
-                        && Math.sqrt(other.pos.distSqr(site)) < Facilities.CHURCH_MIN_GAP) {
-                    SimEvents.event(founder, "교회", String.format(
-                            "보류 — 기존 교회와 %.0f블록 (최소 %.0f) @%d,%d",
-                            Math.sqrt(other.pos.distSqr(site)), Facilities.CHURCH_MIN_GAP,
-                            other.pos.getX(), other.pos.getZ()));
-                    return larder;
-                }
+            // 같은 갈래는 96, 다른 갈래(학교·막사)는 24 — 갈래 간 규칙이 종전에는 없었다.
+            String clash = facilityGapFault(reg, site, FacilityTemplate.Group.CHURCH,
+                    Facilities.CHURCH_MIN_GAP);
+            if (clash != null) {
+                SimEvents.event(founder, "교회", "보류 — " + clash);
+                return larder;
             }
         }
         if (site == null) {
@@ -3095,6 +3096,114 @@ public class MimicEntity extends PathfinderMob {
                 centre.getX(), centre.getZ(),
                 Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
         return larder - cost;
+    }
+
+    /**
+     * <b>막사 착공</b> — 지킬 사람이 있는 만큼, 지킬 수 있는 자리에.
+     *
+     * <p>학교·교회와 세 가지가 다르다.
+     *
+     * <ul>
+     *   <li><b>정원이 수요에서 나온다</b> — 자리 12개짜리 도면이라도 지킬 가구가 8이면 병사는
+     *       2명이다({@link Facilities#HOUSEHOLDS_PER_SOLDIER}). 지킬 사람이 없는데 12명을
+     *       채우는 것은 낭비다.</li>
+     *   <li><b>둘째 막사의 근거가 "못 지키는 가구"다</b> — 학교가 "못 닿는 학생"으로 판단하는
+     *       것과 같은 구조다. 경계 반경(통근 한계) 밖에 추종 가구가 쌓이면 그때 하나 더 짓는다.
+     *       반경을 늘리는 쪽은 택하지 않는다 — 군인이 멀리 나가 길을 잃는다.</li>
+     *   <li><b>무게중심이 추종 가구다</b> — 창건자 집이 아니다. {@code studentCentre} 가 이미
+     *       추종 가구 집들의 평균을 내므로 그대로 쓴다.</li>
+     * </ul>
+     */
+    private double considerBarracks(ServerLevel sl, MimicEntity founder, int followers,
+                                    double larder, double adultNeed) {
+        long id = founder.getIndividual().id();
+        FacilityStore reg = FacilityStore.get(sl);
+        BlockPos centre = studentCentre(sl, id, homePos);
+        // 이미 있는 막사가 못 지키는 추종 가구 수 — 이것이 둘째를 짓는 유일한 근거다.
+        int unguarded = 0;
+        for (BlockPos h : FarmTicker.followerHomesOf(id)) {
+            boolean covered = false;
+            for (FacilityStore.Entry e : reg.all()) {
+                if (e.kind.group == FacilityTemplate.Group.BARRACKS && e.ownerId == id
+                        && h.distSqr(e.pos) <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) {
+                unguarded++;
+            }
+        }
+        int have = reg.countOf(id, FacilityTemplate.Group.BARRACKS);
+        if (have >= 1 && unguarded < Facilities.HOUSEHOLDS_PER_SOLDIER) {
+            return larder; // 지킬 만큼 지키고 있다 — 더 짓지 않는다
+        }
+        double gate = Facilities.BARRACKS_COST
+                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (larder < gate) {
+            SimEvents.event(founder, "막사", String.format(
+                    "보류 — 추종자%d · 못지킴%d가구 · 저장고 %.0f < 문턱 %.0f",
+                    followers, unguarded, larder, gate));
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.BARRACKS, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id));
+        if (site == null) {
+            SimEvents.event(founder, "막사", String.format(
+                    "자리 없음 — 못지킴%d가구 · 거부 집%d 밭%d 물%d 낙차%d",
+                    unguarded, SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]));
+            return larder;
+        }
+        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.BARRACKS,
+                Facilities.BARRACKS_MIN_GAP);
+        if (clash != null) {
+            SimEvents.event(founder, "막사", "보류 — " + clash);
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.BARRACKS, rot, mir, id, today(),
+                Facilities.BARRACKS_COST);
+        RoadPlanner.Obstacles.invalidate();
+        assignFacilityRoad(sl, site, tpl.get());
+        int cap = Math.min(tpl.get().seats().size(),
+                followers / Facilities.HOUSEHOLDS_PER_SOLDIER);
+        SimEvents.event(founder, "막사", String.format(
+                "착공 @%d,%d 회전%d%s — 추종자%d · 못지킴%d가구 · 자리%d → 정원 %d명"
+                        + " · 건축비 %.0f (저장고 %.0f→%.0f) · 중심 @%d,%d 에서 %.0f블록",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers, unguarded,
+                tpl.get().seats().size(), cap, Facilities.BARRACKS_COST, larder,
+                larder - Facilities.BARRACKS_COST, centre.getX(), centre.getZ(),
+                Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
+        return larder - Facilities.BARRACKS_COST;
+    }
+
+    /**
+     * 시설 간격 위반 사유 — 같은 갈래는 {@code sameGap}, <b>다른 갈래는</b>
+     * {@link Facilities#FACILITY_CROSS_GAP}. 위반이 없으면 null.
+     *
+     * <p>종전에는 갈래가 다른 시설 사이 규칙이 아예 없어 학교와 교회가 벽을 맞대도 걸리지
+     * 않았다(육안 관측: "엄청 가깝게 설치되어 답답"). 같은 갈래의 96 을 그대로 쓰면 정말
+     * 필요한 건물까지 막히므로(학교에서 실측한 그 함정) 갈래 간에는 훨씬 작은 값을 쓴다.
+     */
+    private static String facilityGapFault(FacilityStore reg, BlockPos site,
+                                           FacilityTemplate.Group group, double sameGap) {
+        for (FacilityStore.Entry other : reg.all()) {
+            double d = Math.sqrt(other.pos.distSqr(site));
+            boolean same = other.kind.group == group;
+            double need = same ? sameGap : Facilities.FACILITY_CROSS_GAP;
+            if (d < need) {
+                return String.format("%s와 %.0f블록 (최소 %.0f · %s) @%d,%d",
+                        other.kind.label, d, need, same ? "같은 갈래" : "다른 갈래",
+                        other.pos.getX(), other.pos.getZ());
+            }
+        }
+        return null;
     }
 
     private static BlockPos studentCentre(ServerLevel sl, long ownerId, BlockPos ownerHome) {
@@ -3538,6 +3647,14 @@ public class MimicEntity extends PathfinderMob {
         }
         for (Zombie z : level().getEntitiesOfClass(Zombie.class, getBoundingBox().inflate(12.0))) {
             if (z.getTarget() == this) {
+                return true;
+            }
+            // <b>내가 쫓는 경우도 교전이다.</b> 종전에는 "당하는 쪽"만 봤다 — 맞았거나, 좀비가
+            // 나를 노리거나. 민간인은 먼저 덤비지 않아 그걸로 충분했지만 <b>군인은 그게
+            // 본업</b>이라, 먼저 달려든 병사가 아직 안 맞았고 좀비가 다른 사람을 노리고 있으면
+            // 교전이 아닌 것으로 잡힌다. 그러면 리시(우선순위 2)가 발동해 경계 반경 밖으로
+            // 나간 병사를 도로 끌어당기고, 놓으면 다시 쫓아가 빙글빙글 돈다.
+            if (getTarget() == z) {
                 return true;
             }
         }

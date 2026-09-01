@@ -52,7 +52,8 @@ public final class FacilityTemplate {
      */
     public enum Group {
         SCHOOL("학교"),
-        CHURCH("교회");
+        CHURCH("교회"),
+        BARRACKS("막사");
 
         public final String label;
 
@@ -64,7 +65,8 @@ public final class FacilityTemplate {
     public enum Kind {
         SCHOOL("school", "학교", Group.SCHOOL),
         CHURCH("church", "큰교회", Group.CHURCH),
-        SMALL_CHURCH("small_church", "작은교회", Group.CHURCH);
+        SMALL_CHURCH("small_church", "작은교회", Group.CHURCH),
+        BARRACKS("barracks", "막사", Group.BARRACKS);
 
         public final String design;
         public final String label;
@@ -216,6 +218,7 @@ public final class FacilityTemplate {
         BlockPos bell = null;
         List<BlockPos> doors = new ArrayList<>();
         List<BlockPos> lecterns = new ArrayList<>();
+        List<BlockPos> carpets = new ArrayList<>();
         int minY = Integer.MAX_VALUE;
         for (int i = 0; i < blocksTag.size(); i++) {
             CompoundTag b = blocksTag.getCompound(i);
@@ -234,6 +237,8 @@ public final class FacilityTemplate {
                 doors.add(pos);
             } else if (state.is(Blocks.LECTERN)) {
                 lecterns.add(pos);
+            } else if (state.is(Blocks.WHITE_CARPET)) {
+                carpets.add(pos);
             }
         }
         if (bell == null) {
@@ -311,8 +316,54 @@ public final class FacilityTemplate {
             }
         }
 
-        // 자리 — 독서대 앞(학교). 교회는 독서대가 없으므로 문간 안쪽을 자리로 본다.
+        // ── 자리 ① <b>카펫 덩어리</b>(막사) ────────────────────────────────────────────
+        //
+        // 흰 카펫이 이어진 덩어리 하나가 <b>침상 한 채</b>이고, 거기에 두 명이 든다. 막사 도면은
+        // 3×3 카펫 6덩어리 = 12명으로 그려져 있고(실측: 카펫 54칸 = 6×9, 통도 정확히 12개),
+        // 그 수가 곧 주둔 정원이다.
+        //
+        // 칸마다 자리를 잡으면 54가 되어 정원이 터지고, 덩어리마다 하나만 잡으면 6이 되어 절반만
+        // 쓴다. 덩어리를 찾아 <b>두 칸씩</b> 나눠 준다 — 한 칸에 몰아 보내면 두 명이 같은 자리에서
+        // 밀치기만 하는 것은 학교 자리 배분에서 이미 겪은 일이다. 두 칸은 덩어리 안에서 가장 먼
+        // 대각 끝을 골라 서로 붙지 않게 한다.
         List<BlockPos> seats = new ArrayList<>();
+        if (!carpets.isEmpty()) {
+            java.util.Set<BlockPos> pool = new java.util.HashSet<>(carpets);
+            java.util.Set<BlockPos> seen = new java.util.HashSet<>();
+            List<List<BlockPos>> clumps = new ArrayList<>();
+            for (BlockPos c : carpets) {
+                if (!seen.add(c)) {
+                    continue;
+                }
+                List<BlockPos> comp = new ArrayList<>();
+                java.util.ArrayDeque<BlockPos> st = new java.util.ArrayDeque<>();
+                st.push(c);
+                while (!st.isEmpty()) {
+                    BlockPos p = st.pop();
+                    comp.add(p);
+                    for (BlockPos n : new BlockPos[] {p.east(), p.west(), p.north(), p.south()}) {
+                        if (pool.contains(n) && seen.add(n)) {
+                            st.push(n);
+                        }
+                    }
+                }
+                clumps.add(comp);
+            }
+            // 덩어리 순서를 결정론으로 — 같은 도면이면 언제나 같은 자리 번호가 나오게.
+            clumps.sort(java.util.Comparator
+                    .comparingInt((List<BlockPos> q) -> q.stream().mapToInt(BlockPos::getX).min().orElse(0))
+                    .thenComparingInt(q -> q.stream().mapToInt(BlockPos::getZ).min().orElse(0)));
+            for (List<BlockPos> comp : clumps) {
+                comp.sort(java.util.Comparator.comparingInt((BlockPos q) -> q.getX())
+                        .thenComparingInt(BlockPos::getZ));
+                seats.add(comp.get(0).above().subtract(anchor));
+                if (comp.size() > 1) {
+                    seats.add(comp.get(comp.size() - 1).above().subtract(anchor));
+                }
+            }
+        }
+
+        // ── 자리 ② 독서대 앞(학교) ────────────────────────────────────────────────────
         for (BlockPos lc : lecterns) {
             BlockPos rel = lc.subtract(anchor);
             for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {

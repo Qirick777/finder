@@ -118,6 +118,7 @@ public class MimicFarmGoal extends Goal {
             }
             if (tendTarget != null) {
                 mob.setActivity("관리중");
+                tendWhy(why);
                 return true;
             }
         }
@@ -166,6 +167,48 @@ public class MimicFarmGoal extends Goal {
         mob.setWorkAnchor(null);
         mob.setActivity(""); // 밭일이 끝났으니 표시는 다른 goal 에 넘긴다
         return false;
+    }
+
+    private long lastTendWhyTick = -9999L;
+
+    /**
+     * <b>수확할 게 있는데 관리를 한다</b> — 그 장면을 잡아 사유를 적는다.
+     *
+     * <p>손질을 시작하는 순간 주변에 익은 타일이 있는지 본다. 있으면 그것이 <b>어느 구획</b>의
+     * 것이고 <b>왜 못 따는지</b>를 남긴다. 지금 손질하는 밭에는 익은 게 없어야만 여기까지 오므로
+     * (그 조건은 pickTendTile 이 막는다), 걸린다면 <b>남의 밭</b>이거나 <b>내 밭이지만 못 따는
+     * 사정</b>(용량 소진·돌봄 반경 밖)이다. 둘은 대응이 완전히 다르므로 추측하지 않는다.
+     */
+    private void tendWhy(String why) {
+        if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return;
+        }
+        long now = com.evosim.mod.entity.SimTime.tick(sl);
+        if (now - lastTendWhyTick < 200L) {
+            return;
+        }
+        lastTendWhyTick = now;
+        BlockPos me = mob.blockPosition();
+        long assigned = FarmTicker.assignedPlot(mob.getId());
+        long id = mob.getIndividual().id();
+        for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
+            if (p.anchor != null && me.distSqr(p.anchor) > 4096.0) {
+                continue;
+            }
+            for (long l : p.ripe) {
+                BlockPos pos = BlockPos.of(l);
+                if (me.distSqr(pos) > 64.0) {
+                    continue; // 8블록 안 — 눈에 "코앞"으로 보이는 범위
+                }
+                boolean minePlot = p.ownerId == id || mob.marriedTo(p.ownerId)
+                        || p.id == assigned;
+                SimEvents.event(mob, "관리멍", String.format(
+                        "손질 중인데 %.0f블록 앞(%d,%d)에 익은 타일 — 구획%d(%s) · 수확 못 하는 사유: %s",
+                        Math.sqrt(me.distSqr(pos)), pos.getX(), pos.getZ(), p.id,
+                        minePlot ? "내 밭/배정" : "남의 밭", minePlot ? why : "권한 없음"));
+                return;
+            }
+        }
     }
 
     private long lastWhyTick = -9999L;

@@ -37,14 +37,28 @@ public final class FarmTicker {
 
     /** 구획별 {관리 인원, 커버리지} — 보고용. 스캔과 같은 유효성 기준을 쓴다. */
     public static double[] careOf(ServerLevel level, FarmStore.Plot plot) {
+        return careOf(level, plot, -1);
+    }
+
+    /**
+     * {@code exceptEntity} 를 뺀 관리 현황 — "내가 빠져도 이미 만석인가"를 묻는 데 쓴다.
+     *
+     * <p>커버리지는 1.0 에서 잘리므로 <b>만석인 밭에 더 붙어도 산출이 전혀 늘지 않는다</b>.
+     * 그런데도 서 있으면 순수한 낭비이고, 좁은 밭에서는 서로 부대껴 끼임이 된다 — 육안 관측:
+     * 6타일 밭(1인이면 이미 100%)에 5명이 몰려 있었다. 긴급고용이 밭 크기를 보지 않고 굶는
+     * 개체를 밀어 넣는데(정원초과 허용), 관리가 생기면서 그들이 흩어지지 않고 눌러앉은 탓이다.
+     */
+    public static double[] careOf(ServerLevel level, FarmStore.Plot plot, int exceptEntity) {
         long now = com.evosim.mod.entity.SimTime.tick(level);
         int n = 0;
         double covered = 0.0;
-        for (long[] v : TENDING.values()) {
-            if (v[0] == plot.id && now - v[1] <= SCAN_INTERVAL) {
-                n++;
-                covered += v[2] / 100.0;
+        for (var e : TENDING.entrySet()) {
+            long[] v = e.getValue();
+            if (e.getKey() == exceptEntity || v[0] != plot.id || now - v[1] > SCAN_INTERVAL) {
+                continue;
             }
+            n++;
+            covered += v[2] / 100.0;
         }
         int tiles = Math.max(1, plot.tiles.length);
         return new double[] {n, Math.min(1.0, covered / tiles)};

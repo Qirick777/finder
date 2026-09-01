@@ -174,6 +174,12 @@ public class MimicFarmGoal extends Goal {
         if (p == null || p.tiles.length == 0) {
             return null;
         }
+        // <b>만석인 밭에는 끼어들지 않는다.</b> 커버리지는 1.0 에서 잘리므로 더 붙어도 산출이
+        // 늘지 않고, 좁은 밭에서는 서로 부대껴 끼임만 만든다(육안 관측: 6타일 밭에 5명 —
+        // 케어범위 24 라 한 명이면 이미 100%). 나를 뺀 커버리지가 이미 1.0 이면 물러난다.
+        if (FarmTicker.careOf(sl, p, mob.getId())[1] >= 1.0) {
+            return null;
+        }
         long now = FarmStore.careNow(sl, p);
         BlockPos best = null;
         double bd = Double.MAX_VALUE;

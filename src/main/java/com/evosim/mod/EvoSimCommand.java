@@ -260,6 +260,17 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "끼임 해소 OFF — 종전 거동(끝까지 서로 민다)");
                             return 1;
                         })))
+                .then(Commands.literal("hirecap")
+                        .then(Commands.literal("on").executes(ctx -> {
+                            FarmTicker.setHireCap(true);
+                            tell(ctx.getSource(), "긴급고용 인원 상한 ON — 밭당 타일/MIN_JOB 명까지");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            FarmTicker.setHireCap(false);
+                            tell(ctx.getSource(), "긴급고용 인원 상한 OFF — 종전 거동(초과 무제한)");
+                            return 1;
+                        })))
                 .then(Commands.literal("carehyst")
                         .then(Commands.literal("on").executes(ctx -> {
                             com.evosim.mod.entity.MimicParentingGoal.setHysteresis(true);
@@ -1321,9 +1332,18 @@ public final class EvoSimCommand {
 
         // 밭 전체를 수확 직후(기본) 또는 전부 익음(ripe)으로. 전자는 "딸 게 없을 때 무엇을
         // 하는가", 후자는 "익은 게 코앞인데 왜 안 따는가"를 본다.
+        //
+        // <b>익음은 planted 를 과거로 미뤄서 만들지 않는다.</b> 신규 월드는 gameTime 이 작아
+        // now - RIPEN_TICKS 가 음수가 되는데, 0 이하는 "미설치" 센티널이라 FarmTicker 가 그
+        // 타일을 새로 심어 버린다 — 실측: "전부 익음"이라 찍어 놓고 익은 타일 0, 잔여 23513틱.
+        // 예전에 careBonus 를 만든 이유가 바로 이것이었다(planted[i] -= bonus 언더플로).
+        // 시계를 앞당기는 쪽(careBonus)으로 만든다.
         long now = com.evosim.mod.entity.SimTime.tick(level);
+        if (ripe) {
+            plot.careBonus += FarmEconomy.RIPEN_TICKS;
+        }
         for (int i = 0; i < plot.tiles.length; i++) {
-            plot.planted[i] = ripe ? now - FarmEconomy.RIPEN_TICKS : now;
+            plot.planted[i] = now;
             BlockPos p = BlockPos.of(plot.tiles[i]);
             var st = level.getBlockState(p);
             if (st.is(Blocks.SWEET_BERRY_BUSH)) {
@@ -1346,9 +1366,21 @@ public final class EvoSimCommand {
         }
         level.setDayTime(2000L); // 근무 구간 한복판 — 관리 goal 이 바로 켜지도록
         double[] c = FarmTicker.careOf(level, plot);
+        // <b>무대가 제 상태를 스스로 확인한다.</b> 앞서 "전부 익음"이라 찍어 놓고 실제로는 익은
+        // 타일이 0인 채로 관측이 진행됐다(planted 음수 → 미설치 센티널). 라벨과 실제가
+        // 어긋나면 그 자리에서 드러나야 한다.
+        long careNow = FarmStore.careNow(level, plot);
+        int ripeNow = 0;
+        for (int i = 0; i < plot.tiles.length; i++) {
+            if (plot.planted[i] > 0 && careNow - plot.planted[i] >= FarmEconomy.RIPEN_TICKS) {
+                ripeNow++;
+            }
+        }
         tell(ctx.getSource(), String.format(
                 "§e[관리무대]§r 구획 %d · 타일 %d(%s) · 지주 %s · 소작 %d명 @%d,%d",
-                plot.id, plot.tiles.length, ripe ? "전부 익음" : "전부 수확 직후",
+                plot.id, plot.tiles.length,
+                (ripe ? "전부 익음" : "전부 수확 직후") + " · 실제 익은 타일 " + ripeNow
+                        + (ripe == (ripeNow == plot.tiles.length) ? "" : " §c← 라벨과 불일치§r"),
                 owner.getIndividual().shortName(), tenants,
                 anchor.getX(), anchor.getZ()));
         tell(ctx.getSource(), String.format(

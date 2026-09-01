@@ -113,6 +113,20 @@ public final class FarmTicker {
     }
 
     /** 오늘 이 구획에 배정된 인원(상시+일용) — 마름 노동/관리 모드 판정(0 = 노동 모드). */
+    /**
+     * 긴급고용 인원 상한 A/B — 끄면 종전 거동(초과 배정 무제한). 상한이 <b>굶는 자를 일자리에서
+     * 밀어내는 대가</b>를 치르므로(아사 증가) 껐다 켜며 재야 한다.
+     */
+    private static boolean hireCap = true;
+
+    public static void setHireCap(boolean on) {
+        hireCap = on;
+    }
+
+    public static boolean hireCap() {
+        return hireCap;
+    }
+
     public static int assignedToPlot(long plotId) {
         int n = 0;
         for (long v : ASSIGNED.values()) {
@@ -2948,6 +2962,15 @@ public final class FarmTicker {
                 }
                 if (ripeTiles(level, p) <= 0) {
                     continue; // 지금 딸 게 없는 밭 — 보내 봐야 헛걸음이다(아래 주석)
+                }
+                // <b>정원초과에도 물리적 상한은 있다.</b> 종전에는 초과 경로(any)에 아무 제한이
+                // 없어 6타일 밭에 5명이 붙었다(육안 관측). 원인은 위 '여유 있는 밭' 조건이
+                // 타일 > C_BASE(8) × (1+인원) 이라는 것이다 — 9타일 미만 밭은 인원이 0이어도
+                // 영영 만석으로 판정되어 <b>항상</b> 초과 경로로 빠진다. 한 사람 몫의 최소가
+                // MIN_JOB(2)타일이므로 그 이상 붙어 봐야 같은 타일을 두고 서로 비빌 뿐이다.
+                if (hireCap && assignedToPlot(p.id)
+                        >= Math.max(1, p.tiles.length / com.evosim.core.FarmEconomy.MIN_JOB)) {
+                    continue;
                 }
                 double d = m.blockPosition().distSqr(p.anchor);
                 if (d < ad) {

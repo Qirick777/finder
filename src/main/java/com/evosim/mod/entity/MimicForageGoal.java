@@ -318,8 +318,7 @@ public class MimicForageGoal extends Goal {
         if (home == null || mob.getIndividual() == null) {
             return true; // 판정 불능 — 제한하지 않음(구속 자체가 homePos 전제라 실질 미도달)
         }
-        double r = Math.max(mob.getIndividual().parentingCare().careRadius(),
-                MimicParentingGoal.CARE_SLACK);
+        double r = MimicParentingGoal.workRadius(mob.getIndividual());
         return p.distSqr(home) <= r * r;
     }
 

@@ -1,5 +1,7 @@
 package com.evosim.mod.entity;
 
+import com.evosim.core.Individual;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.goal.Goal;
 
@@ -20,6 +22,32 @@ public class MimicParentingGoal extends Goal {
      *  정원 수확(적극 예외 — 지시 사양)이 원천 봉쇄된다(carex 실측). ForageGoal.withinCare 와 동일값. */
     public static final double CARE_SLACK = 6.5;
 
+    /**
+     * 돌봄자의 <b>노동 반경</b> — 밭·채집이 표적을 고를 수 있는 범위. 육아·밭·채집이 각자
+     * 같은 식을 따로 쓰다 보면 어긋나기 쉬워 한 곳으로 모았다.
+     */
+    public static double workRadius(Individual ind) {
+        return Math.max(ind.parentingCare().careRadius(), CARE_SLACK);
+    }
+
+    /**
+     * 발동/해제 문턱 — 노동 반경의 배수. <b>발동이 해제보다 바깥</b>이라야 경계에서 진동하지 않는다.
+     *
+     * <p>없으면(종전 {@code canContinueToUse = canUse}) 무한 왕복이 된다. 밭일(우선순위 6)·채집(7)은
+     * 노동 반경 안 표적을 잡는데 육아(1)는 같은 반경을 넘는 순간 선점하므로, 길이 장애물을 돌아
+     * 한 발 부풀기만 해도 집으로 끌려오고, 들어오면 다시 같은 표적으로 향한다 — 육안 관측된
+     * "육아와 밭일을 계속 왔다갔다"의 정체다. {@code Satisfaction.RESUME_FACTOR} 와 같은 장치다.
+     *
+     * <p>고치는 방향은 <b>노동 반경을 좁히는 게 아니라 견인 문턱을 넓히는 것</b>이다. 표적 반경을
+     * 줄이면(0.6× 시안) 적극 돌봄자의 노동 반경이 3.9블록이 되어 {@link #CARE_SLACK} 이 지키려던
+     * 정원 최원 그루(≈5.4블록)가 사정권 밖으로 나간다 — 정원 수확 봉쇄가 재발한다. 표적은 반경
+     * 그대로 두고, 견인은 1.35× 밖에서 걸어 해제는 반경 안(1.0×)에서 푼다.
+     */
+    private static final double ENGAGE_FACTOR = 1.35;
+
+    /** 해제 문턱 — 노동 반경 안으로 되돌아오면 푼다(그 자리에서 바로 다시 일할 수 있다). */
+    private static final double RELEASE_FACTOR = 1.0;
+
     private final MimicEntity mob;
 
     public MimicParentingGoal(MimicEntity mob) {
@@ -34,13 +62,17 @@ public class MimicParentingGoal extends Goal {
         if (!mob.isCaregiverBound() || mob.getHomePos() == null || mob.getIndividual() == null) {
             return false;
         }
-        double r = Math.max(mob.getIndividual().parentingCare().careRadius(), CARE_SLACK);
-        return mob.blockPosition().distSqr(mob.getHomePos()) > r * r; // 돌봄 반경(+정원 여유) 이탈
+        double r = workRadius(mob.getIndividual()) * ENGAGE_FACTOR;
+        return mob.blockPosition().distSqr(mob.getHomePos()) > r * r; // 견인 문턱 이탈
     }
 
     @Override
     public boolean canContinueToUse() {
-        return canUse();
+        if (!mob.isCaregiverBound() || mob.getHomePos() == null || mob.getIndividual() == null) {
+            return false;
+        }
+        double r = workRadius(mob.getIndividual()) * RELEASE_FACTOR;
+        return mob.blockPosition().distSqr(mob.getHomePos()) > r * r;
     }
 
     @Override

@@ -231,12 +231,15 @@ public final class EvoSimCommand {
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
                 .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
                 .then(Commands.literal("caretest")
-                        .executes(ctx -> careTest(ctx, 36, 4))
+                        .executes(ctx -> careTest(ctx, 36, 4, false))
                         .then(Commands.argument("tiles", IntegerArgumentType.integer(6, 200))
                                 .then(Commands.argument("tenants", IntegerArgumentType.integer(1, 12))
                                         .executes(ctx -> careTest(ctx,
                                                 IntegerArgumentType.getInteger(ctx, "tiles"),
-                                                IntegerArgumentType.getInteger(ctx, "tenants"))))))
+                                                IntegerArgumentType.getInteger(ctx, "tenants"), false))
+                                        .then(Commands.literal("ripe").executes(ctx -> careTest(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "tiles"),
+                                                IntegerArgumentType.getInteger(ctx, "tenants"), true))))))
                 .then(Commands.literal("carestat").executes(EvoSimCommand::careStat))
                 .then(Commands.literal("jamphase")
                         .then(Commands.literal("on").executes(ctx -> {
@@ -1285,7 +1288,8 @@ public final class EvoSimCommand {
      * <p>긴 런을 돌려 우연히 그 상황이 오기를 기다릴 이유가 없다 — 보고 싶은 것은
      * "익은 게 없을 때 무엇을 하는가" 하나뿐이다.
      */
-    private static int careTest(CommandContext<CommandSourceStack> ctx, int tiles, int tenants) {
+    private static int careTest(CommandContext<CommandSourceStack> ctx, int tiles, int tenants,
+                               boolean ripe) {
         ServerLevel level = ctx.getSource().getLevel();
         LiveCheck.cancelAll();
         FarmTicker.clearAssignments();
@@ -1296,14 +1300,15 @@ public final class EvoSimCommand {
         LarderStore.get(level).set(ownerHome, 60.0);
         FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), tiles);
 
-        // 밭 전체를 수확 직후로 — 블록도 age 1, 장부의 익음 시계도 지금으로.
+        // 밭 전체를 수확 직후(기본) 또는 전부 익음(ripe)으로. 전자는 "딸 게 없을 때 무엇을
+        // 하는가", 후자는 "익은 게 코앞인데 왜 안 따는가"를 본다.
         long now = com.evosim.mod.entity.SimTime.tick(level);
         for (int i = 0; i < plot.tiles.length; i++) {
-            plot.planted[i] = now;
+            plot.planted[i] = ripe ? now - FarmEconomy.RIPEN_TICKS : now;
             BlockPos p = BlockPos.of(plot.tiles[i]);
             var st = level.getBlockState(p);
             if (st.is(Blocks.SWEET_BERRY_BUSH)) {
-                level.setBlockAndUpdate(p, st.setValue(SweetBerryBushBlock.AGE, 1));
+                level.setBlockAndUpdate(p, st.setValue(SweetBerryBushBlock.AGE, ripe ? 3 : 1));
             }
         }
         FarmStore.get(level).setDirty();
@@ -1323,8 +1328,9 @@ public final class EvoSimCommand {
         level.setDayTime(2000L); // 근무 구간 한복판 — 관리 goal 이 바로 켜지도록
         double[] c = FarmTicker.careOf(level, plot);
         tell(ctx.getSource(), String.format(
-                "§e[관리무대]§r 구획 %d · 타일 %d(전부 수확 직후) · 지주 %s · 소작 %d명 @%d,%d",
-                plot.id, plot.tiles.length, owner.getIndividual().shortName(), tenants,
+                "§e[관리무대]§r 구획 %d · 타일 %d(%s) · 지주 %s · 소작 %d명 @%d,%d",
+                plot.id, plot.tiles.length, ripe ? "전부 익음" : "전부 수확 직후",
+                owner.getIndividual().shortName(), tenants,
                 anchor.getX(), anchor.getZ()));
         tell(ctx.getSource(), String.format(
                 "  1인 케어범위 %.0f타일 → 만석에 필요한 인원 %.1f명 · 지금 커버리지 %.0f%%",

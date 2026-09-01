@@ -108,9 +108,11 @@ public class MimicFarmGoal extends Goal {
         // 다음 날의 공급이 는다. 수확 용량은 소모하지 않는다 — 어차피 비던 시간이다.
         tendPlot = tendablePlot();
         if (tendPlot != 0L) {
-            if (tendTarget == null || --tendHold <= 0) {
+            // 표적은 <b>도착해서 다 돌본 뒤에만</b> 바꾼다(tendTick 이 비운다). 걷는 도중에
+            // 다시 고르면 목표가 계속 바뀌어 제자리 움찔이 된다.
+            if (tendTarget == null) {
                 tendTarget = pickTendTile(tendPlot);
-                tendHold = TEND_HOLD_TICKS; // 한 자리에 머무는 시간 — 매 틱 재선택하면 움찔거린다
+                tendStay = 0;
             }
             if (tendTarget != null) {
                 return true;
@@ -210,11 +212,19 @@ public class MimicFarmGoal extends Goal {
         return tendAfterCap;
     }
 
-    /** 한 관리 자리에 머무는 틱 — 매 틱 다시 고르면 목표가 계속 바뀌어 제자리 움찔이 된다. */
-    private static final int TEND_HOLD_TICKS = 40;
+    /** 한 관리 자리에 <b>도착한 뒤</b> 머무는 틱 — 여기까지 채우면 다음 자리로 옮긴다(≈3초). */
+    private static final int TEND_STAY_TICKS = 60;
+
+    /** 다음 자리는 지금 자리에서 최소 이만큼 떨어진 곳으로(3블록²) — 제자리 반복 방지. */
+    private static final double TEND_STEP_SQR = 9.0;
+
+    /** 그중 가까운 이 개수에서 무작위 — 밭을 가로질러 뛰지 않으면서 자리가 매번 달라진다. */
+    private static final int TEND_PICK_SPAN = 5;
+
+    /** 관리 자리에 도착해 머문 틱. */
+    private int tendStay;
 
     private BlockPos tendTarget;
-    private int tendHold;
     private long tendPlot;
 
     /**
@@ -269,21 +279,35 @@ public class MimicFarmGoal extends Goal {
         if (FarmTicker.careOf(sl, p, mob.getId())[1] >= 1.0) {
             return null;
         }
+        // <b>가장 가까운 타일을 고르면 안 된다.</b> 이미 그 앞에 서 있으므로 다시 골라도 같은
+        // 타일이 나오고, 미믹은 제자리에서 팔만 휘두른다(육안 관측). 지시 사양은 "밭 돌아다니며
+        // 관리하는 듯한 행동 연출"이다. 그래서 <b>지금 자리에서 떨어진</b> 타일 중에서 고르되,
+        // 밭을 가로질러 뛰지 않게 그중 가까운 쪽 몇 개에서 무작위로 뽑는다 — 짧게 옮겨 다니는
+        // 걸음이 된다. 여럿이 같이 있어도 무작위라 서로 다른 자리로 흩어진다.
         long now = FarmStore.careNow(sl, p);
-        BlockPos best = null;
-        double bd = Double.MAX_VALUE;
+        java.util.List<BlockPos> far = new java.util.ArrayList<>();
+        java.util.List<BlockPos> any = new java.util.ArrayList<>();
+        BlockPos me = mob.blockPosition();
         for (int i = 0; i < p.tiles.length; i++) {
             if (p.planted[i] < 0 || now - p.planted[i] >= FarmEconomy.RIPEN_TICKS) {
                 continue; // 미설치·이미 익음
             }
             BlockPos t = BlockPos.of(p.tiles[i]);
-            double d = mob.blockPosition().distSqr(t);
-            if (d < bd) {
-                bd = d;
-                best = t;
+            if (t.equals(tendTarget)) {
+                continue; // 방금 돌본 자리 — 같은 곳에 다시 서지 않는다
+            }
+            any.add(t);
+            if (me.distSqr(t) >= TEND_STEP_SQR) {
+                far.add(t);
             }
         }
-        return best;
+        java.util.List<BlockPos> pool = far.isEmpty() ? any : far;
+        if (pool.isEmpty()) {
+            return null;
+        }
+        pool.sort(java.util.Comparator.comparingDouble(me::distSqr));
+        int span = Math.min(TEND_PICK_SPAN, pool.size());
+        return pool.get(mob.getRandom().nextInt(span));
     }
 
     /**
@@ -296,20 +320,33 @@ public class MimicFarmGoal extends Goal {
             return;
         }
         mob.setWorkAnchor(tendTarget); // 리시가 거처로 되끌지 않게 — 수확 경로와 같은 이유
+        if (tendPlot == 0L) {
+            tendTarget = null;
+            return;
+        }
+        // <b>걸어가는 동안에도 관리 중으로 친다.</b> 도착했을 때만 보고하면, 자리를 옮겨
+        // 다니게 만든 순간 커버리지가 걸음마다 끊겨 익음 배속이 널뛴다. 밭 안에서 다음
+        // 이랑으로 가는 걸음도 일이다 — 다만 집에서 출근하는 길까지 세지 않도록 표적
+        // 8블록 안일 때만 인정한다.
+        if (mob.blockPosition().closerThan(tendTarget, 8.0)) {
+            FarmTicker.reportTending(mob.getId(), tendPlot,
+                    com.evosim.mod.entity.SimTime.tick(sl),
+                    FarmEconomy.careRange(mob.getIndividual()));
+        }
         if (!mob.blockPosition().closerThan(tendTarget, 2.5)) {
             mob.getNavigation().moveTo(tendTarget.getX() + 0.5, tendTarget.getY(),
                     tendTarget.getZ() + 0.5, 1.0);
             return;
         }
-        if (tendPlot == 0L) {
-            tendTarget = null;
-            return;
-        }
-        FarmTicker.reportTending(mob.getId(), tendPlot,
-                com.evosim.mod.entity.SimTime.tick(sl),
-                FarmEconomy.careRange(mob.getIndividual()));
+        // 도착 — 잠깐 손질하고(팔 휘두르기) 다음 이랑으로 옮긴다. 이 "머물다 옮기기"가
+        // 지시 사양의 <b>밭 돌아다니며 관리하는 연출</b>이다.
+        mob.getNavigation().stop();
         if (mob.tickCount % 10 == 0) {
             mob.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        }
+        if (++tendStay >= TEND_STAY_TICKS) {
+            tendTarget = null; // 다음 자리는 canUse 가 고른다
+            tendStay = 0;
         }
     }
 

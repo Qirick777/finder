@@ -3085,7 +3085,21 @@ public final class FarmTicker {
             int need = com.evosim.core.FarmEconomy.shortfall(plot.tiles.length, ownCap);
             // 예약석: 상시 소작은 슬롯 산식과 무관하게 매일 우선 배정(고용 진동 차단 — 계획 허점 2).
             // 통근 초과 이주·구획 소멸이면 관계 해제(F: 소작농 이주 미정의 보완).
-            int covered = 0;
+            // <b>예약석에도 정원이 있다.</b>
+            //
+            // 종전에는 상시 소작이면 밭 크기와 무관하게 <b>전원</b> 매일 앉혔다. 상시가 드물게
+            // 생기던 시절에는 드러나지 않았지만, 승격이 흔해지자 12타일 밭에 수십 명이 달라붙는
+            // 상태가 됐다(육안 관측). 그러면 ① 소작들이 익은 것을 순식간에 다 가져가 지주는
+            // 수확할 것이 없고 ② 케어가 만석이라 관리 자리도 없어, 밭 주인이 제 밭에서
+            // <b>아무것도 못 하는</b> 상태로 굳는다.
+            //
+            // 정원은 새로 만들지 않는다 — 바로 아래에서 쓰는 need(부족분)와 capacity(1인 하루
+            // 수확량)를 그대로 쓴다. 부족분을 덮고 나면 더 앉혀도 산출이 늘지 않는다.
+            // 넘치는 인원은 예약석에서 <b>풀어</b> 다른 밭으로 갈 수 있게 한다 — 붙들어 두면
+            // 일감 없는 밭에 묶여 하루를 버린다.
+            //
+            // 근속이 긴 쪽을 남긴다(고용 진동 차단이라는 예약석의 원래 취지).
+            java.util.List<MimicEntity> perm = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
                 if (m.getTenantFarm() != plot.id) {
                     continue;
@@ -3099,6 +3113,20 @@ public final class FarmTicker {
                     // 유령 상시 방어 정리 — 밭 주인이 된 상시는 명부에서 해제(기존 월드 소급 포함)
                     m.setTenant(0L, 0);
                     com.evosim.mod.log.SimEvents.event(m, "소작해제", "지주 전환 — 상시 명부 정리");
+                    continue;
+                }
+                perm.add(m);
+            }
+            perm.sort(java.util.Comparator
+                    .comparingInt((MimicEntity m) -> -m.getTenantStreak()) // 근속 긴 쪽 우선
+                    .thenComparingInt(MimicEntity::getId));                // 동률 결정론
+            int covered = 0;
+            for (MimicEntity m : perm) {
+                if (covered >= need) {
+                    m.setTenant(0L, 0);
+                    com.evosim.mod.log.SimEvents.event(m, "소작해제", String.format(
+                            "구획 %d 정원 초과 — %d타일에 부족분 %d, 이미 %d 충당(내 자리 없음)",
+                            plot.id, plot.tiles.length, need, covered));
                     continue;
                 }
                 ASSIGNED.put(m.getId(), plot.id);

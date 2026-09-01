@@ -6324,6 +6324,28 @@ public class MimicEntity extends PathfinderMob {
                 .anyMatch(w -> w.getGoal() instanceof MimicParentingGoal);
     }
 
+    /**
+     * <b>오늘 밭에 할 일이 없다</b> — 밭일 goal(우선순위 6)이 매 판정마다 갱신하고,
+     * 채집 goal(7)의 "농사 집중" 금지가 이것을 읽는다.
+     *
+     * <p>농사 집중은 "밭 수입이 채집을 대체한다"는 전제로 채집을 막는다. 그런데 소작이
+     * 밭을 다 덮으면 지주는 수확할 것도(익은 것을 소작이 가져감) 관리할 자리도(만석이라
+     * 끼어들지 않음) 없다 — 전제가 깨졌는데 금지만 남아 <b>아무것도 안 하는</b> 지주가
+     * 된다(육안 관측: 야망가라 만족도 아닌데 정원도 밭일도 관리도 안 함).
+     *
+     * <p>판정은 밭일 goal 한 곳에서만 한다. 채집 쪽이 "밭에 할 일이 있나"를 따로 계산하면
+     * 두 판정이 언젠가 어긋난다.
+     */
+    private boolean farmHasNoWork;
+
+    public boolean farmHasNoWork() {
+        return farmHasNoWork;
+    }
+
+    public void setFarmHasNoWork(boolean v) {
+        this.farmHasNoWork = v;
+    }
+
     public boolean isCaregiverBound() {
         if (getStage() != LifeStage.ADULT || homePos == null || individual == null) {
             return false;

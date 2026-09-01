@@ -137,7 +137,10 @@ public class MimicForageGoal extends Goal {
             // 수확하고, 초과분(익은 backlog)은 소작 고용으로 넘긴다. 즉 밭 수입(자가 수확 7.8/일 +
             // 지대)이 채집(9.0/일)을 대체 — 소작을 들일수록 지주로 굳는다. 넉넉선 미만이면(대가족·
             // 흉작) 채집 보충 허용(생계 안전판) — 이때도 밭 goal 이 익은 타일을 먼저 가져간다.
-            if (mob.ownsFarm() && mob.larderComfortable()) {
+            // 농사 집중의 전제는 "밭 수입이 채집을 대체한다"이다. 밭에 오늘 할 일이 없으면
+            // (소작이 익은 것을 다 가져가고 관리 자리도 만석) 그 전제가 깨진다 — 금지만
+            // 남으면 지주가 정원도 밭일도 관리도 안 하는 상태로 굳는다(육안 관측).
+            if (mob.ownsFarm() && mob.larderComfortable() && !mob.farmHasNoWork()) {
                 return gardenWhy("밭 소유 + 저장고 넉넉 — 농사 집중(채집 이탈 금지)");
             }
             if (mob.isProviderRole() || !mob.larderComfortable()) {

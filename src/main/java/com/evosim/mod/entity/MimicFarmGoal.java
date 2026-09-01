@@ -96,6 +96,7 @@ public class MimicFarmGoal extends Goal {
         }
         target = harvestBlocked ? null : nearestWorkRipe();
         if (target != null) {
+            mob.setFarmHasNoWork(false);
             tendTarget = null; // 익은 게 있으면 언제나 수확이 먼저
             mob.setActivity("수확 " + harvestedToday + "/"
                     + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()));
@@ -127,6 +128,7 @@ public class MimicFarmGoal extends Goal {
                 tendStay = 0;
             }
             if (tendTarget != null) {
+                mob.setFarmHasNoWork(false);
                 mob.setActivity("관리중");
                 tendWhy(why);
                 return true;
@@ -147,14 +149,17 @@ public class MimicFarmGoal extends Goal {
             // 남은 타일이 전부 익은 밭에서는 관리 자리가 아예 없다.
             mob.setActivity("퇴근(" + why + ")");
             idleWhy(why + " · 관리할 안 익은 타일도 없음 — 오늘 노동 종료");
+            mob.setFarmHasNoWork(true); // 채집 금지(농사 집중)를 풀어 준다
             return idle();
         }
         if (FarmTicker.assignedPlot(mob.getId()) != 0L) {
             mob.setActivity("대기(딸 것 없음)");
             idleWhy(why + " · 관리 자리도 없음");
+            mob.setFarmHasNoWork(true); // 채집 금지(농사 집중)를 풀어 준다
             return false; // 앵커 유지 — 하루 노동이 끝난 게 아니라 잠시 딸 게 없을 뿐
         }
         idleWhy(why + " · 배정도 소유도 없음");
+        mob.setFarmHasNoWork(true);
         return idle();
     }
 

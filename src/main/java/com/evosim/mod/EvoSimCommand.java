@@ -390,8 +390,17 @@ public final class EvoSimCommand {
                 names.append(names.length() > 0 ? ", " : "").append(e.getIndividual().shortName());
                 SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ+채집꾼Ⅴ · 명석 없음 · 육아 무시 관측 시드");
             }
+            // <b>성비를 맞춘다.</b> wildpairs 는 남녀를 쌍으로 넣는데 엘리트는 남성만 더하므로,
+            // 엘리트가 매 런 짝짓기에서 <b>남는 한 명</b>이 될 수 있는 자리에 선다(남 9 · 여 8).
+            // 실측: 그렇게 밀린 런에서 엘리트가 d5 까지 짝도 집도 없어 개간 자격(spouseId != 0,
+            // homePos != null)을 못 갖췄고, 그 런은 밭이 하나도 서지 않았다. 시드가 관측에서
+            // 통째로 빠지는 것은 운이 아니라 조성의 결함이다.
+            //
+            // 특성은 완전 랜덤(spawnWild)이라 시드 성격은 바뀌지 않고, 짝 형성은 여전히 자연
+            // 경로다 — 엘리트에게 특정 상대를 붙여 주는 것이 아니라 선택지를 한 명 되돌린다.
+            spawnWild(level, scatter(level, base), Sex.FEMALE);
         }
-        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ+채집꾼Ⅴ · 명석X · 육아무시 ♂): "
+        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ+채집꾼Ⅴ · 명석X · 육아무시 ♂, 성비용 야생 여성 " + count + "명 동반): "
                 + names + " — 구애·정착·개간은 전부 자연 경로.");
         return count;
     }

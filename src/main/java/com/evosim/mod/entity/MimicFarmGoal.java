@@ -298,6 +298,18 @@ public class MimicFarmGoal extends Goal {
         if (FarmTicker.careOf(sl, p, mob.getId())[1] >= 1.0) {
             return null;
         }
+        // <b>익은 게 남은 밭은 손질할 때가 아니다.</b>
+        //
+        // 수확 용량을 채운 소작을 놀리지 않으려고 관리로 넘겼는데, 그 결과가 익은 밭 한복판에서
+        // 손질하는 그림이었다(육안 관측: "다 자라도 안 따고 관리를 하고 있는데?"). 사람 눈으로
+        // 이상한 게 맞고, 경제로 봐도 이상하다 — 이미 익은 것을 못 거두는 밭에 익음을 더 빨리
+        // 돌려 봐야 쓸 데가 없다. 손질은 <b>다 딴 밭</b>에 하는 일이다.
+        //
+        // 이 밭에 익은 게 남았으면 물러난다. 그 소작은 오늘 할 일이 끝난 것이고, 위 호출부가
+        // 앵커를 놓고 귀가시킨다.
+        if (p.ripe.length > 0) {
+            return null;
+        }
         // <b>안 익은 목록을 커서로 순회한다.</b>
         //
         // 종전에는 매번 "가장 가까운" 안 익은 타일을 골랐다. 이미 그 앞에 서 있으므로 다시
@@ -325,6 +337,16 @@ public class MimicFarmGoal extends Goal {
             if (me.distSqr(t) > TEND_FAR_SQR) {
                 continue; // 너무 멀다 — 밭을 가로질러 뛰지 않는다. 가까운 칸이 먼저 걸린다
             }
+            // <b>고른 칸은 그 자리에서 눈으로 확인한다.</b> 목록은 200틱(10초)마다 갱신되므로
+            // 그 사이 익은 덤불은 아직 안 익은 목록에 남아 있다 — 열매가 달린 칸을 손질하는
+            // 장면이 딱 그 창에서 나온다. 어긋남을 보면 목록을 즉시 다시 만들고 이번 틱은
+            // 물러난다(다음 틱이 올바른 목록으로 고른다).
+            var st = sl.getBlockState(t);
+            if (!st.is(Blocks.SWEET_BERRY_BUSH)
+                    || st.getValue(SweetBerryBushBlock.AGE) >= 3) {
+                FarmTicker.refreshLists(sl, p);
+                return null;
+            }
             tendCursor = idx + 1;
             return t;
         }
@@ -334,6 +356,10 @@ public class MimicFarmGoal extends Goal {
         double bd = Double.MAX_VALUE;
         for (long l : list) {
             BlockPos t = BlockPos.of(l);
+            var st = sl.getBlockState(t);
+            if (!st.is(Blocks.SWEET_BERRY_BUSH) || st.getValue(SweetBerryBushBlock.AGE) >= 3) {
+                continue; // 목록이 낡았다 — 열매 달린 칸은 손질 대상이 아니다
+            }
             double d = me.distSqr(t);
             if (d < bd) {
                 bd = d;
@@ -355,6 +381,14 @@ public class MimicFarmGoal extends Goal {
         mob.setWorkAnchor(tendTarget); // 리시가 거처로 되끌지 않게 — 수확 경로와 같은 이유
         if (tendPlot == 0L) {
             tendTarget = null;
+            return;
+        }
+        // 손질하는 3초 사이에 그 칸이 익을 수 있다 — 익었으면 즉시 놓는다. 안 그러면 열매가
+        // 달린 채로 계속 손질하는 그림이 남는다.
+        var cur = sl.getBlockState(tendTarget);
+        if (!cur.is(Blocks.SWEET_BERRY_BUSH) || cur.getValue(SweetBerryBushBlock.AGE) >= 3) {
+            tendTarget = null;
+            tendStay = 0;
             return;
         }
         // <b>걸어가는 동안에도 관리 중으로 친다.</b> 도착했을 때만 보고하면, 자리를 옮겨

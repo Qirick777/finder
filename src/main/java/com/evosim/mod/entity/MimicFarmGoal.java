@@ -144,16 +144,23 @@ public class MimicFarmGoal extends Goal {
         if (now - lastWhyTick < 200L) {
             return false;
         }
+        // <b>훑기 자체</b>를 200틱에 한 번으로 묶는다. 이벤트가 나갈 때만 갱신하면, 근처에 익은
+        // 게 없는 흔한 경우에 매 틱 전 구획 × 전 타일을 훑게 된다 — 노는 개체가 많을수록,
+        // 밭이 늘수록 비용이 커져 진단기가 런을 느리게 만든다.
+        lastWhyTick = now;
+        BlockPos me = mob.blockPosition();
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
+            if (p.anchor != null && me.distSqr(p.anchor) > 4096.0) {
+                continue; // 64블록 밖 구획 — 3블록 판정에 걸릴 리 없다
+            }
             for (long l : p.tiles) {
                 BlockPos pos = BlockPos.of(l);
-                if (mob.blockPosition().distSqr(pos) > 9.0 || !sl.isLoaded(pos)) {
+                if (me.distSqr(pos) > 9.0 || !sl.isLoaded(pos)) {
                     continue;
                 }
                 var st = sl.getBlockState(pos);
                 if (st.is(Blocks.SWEET_BERRY_BUSH)
                         && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
-                    lastWhyTick = now;
                     SimEvents.event(mob, "밭멍", String.format(
                             "코앞(%d,%d)에 익은 타일이 있는데 안 딴다 — 사유: %s · 구획%d",
                             pos.getX(), pos.getZ(), reason, p.id));

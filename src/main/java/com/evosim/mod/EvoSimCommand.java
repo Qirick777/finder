@@ -375,11 +375,11 @@ public final class EvoSimCommand {
             // 시드가 남들과 다른 시간표로 돌아간다 — 관측 런에서 엘리트가 앞서는 이유가 능력이
             // 아니라 노동 시간이 되어, 봉건 사슬의 원인을 흐린다.
             //
-            // 약초학자(GATHER_SKILL) 대신 채집꾼Ⅴ(ACQUISITION). 밭 수확 배율은
-            // FoodEconomy.forageYieldMult 가 읽는 획득 계열이라, 개간→지대 사슬을 직접 굴리는
-            // 쪽이 채집꾼이다.
+            // 능력은 약초학자Ⅴ(GATHER_SKILL)에 채집꾼Ⅴ(ACQUISITION)를 <b>더한다</b> — 축이
+            // 달라 겹치지 않는다.
             MimicEntity e = spawnMatingReady(level, scatter(level, base), Sex.MALE,
-                    java.util.Set.of(Trait.BRIGHT), Trait.AMBITIOUS, Trait.GATHERER);
+                    java.util.Set.of(Trait.BRIGHT),
+                    Trait.AMBITIOUS, Trait.HERBALIST, Trait.GATHERER);
             if (e != null && e.getIndividual() != null) {
                 // 육아 무시 — 평범이면 유아가 생기는 순간 <b>육아 구속</b>에 걸려(비무시 성인
                 // 전원이 구속 대상) 시드가 개간·확장을 멈춘다. 관측하려는 것이 그 사람의
@@ -388,10 +388,10 @@ public final class EvoSimCommand {
                 e.getIndividual().setParentingCareMale(
                         com.evosim.core.ParentingClass.NEGLECTFUL);
                 names.append(names.length() > 0 ? ", " : "").append(e.getIndividual().shortName());
-                SimEvents.event(e, "엘리트투입", "야망가+채집꾼Ⅴ · 명석 없음 · 육아 무시 관측 시드");
+                SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ+채집꾼Ⅴ · 명석 없음 · 육아 무시 관측 시드");
             }
         }
-        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+채집꾼Ⅴ · 명석X · 육아무시 ♂): "
+        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ+채집꾼Ⅴ · 명석X · 육아무시 ♂): "
                 + names + " — 구애·정착·개간은 전부 자연 경로.");
         return count;
     }

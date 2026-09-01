@@ -35,6 +35,7 @@ public class MimicGarrisonGoal extends Goal {
     private BlockPos spot;      // 지금 가는 곳(낮=제 자리, 밤=순찰 지점)
     private int stand;
     private boolean night;
+    private int cursor = -1;    // 순찰 경로 커서 — id 기준 시작점(병사마다 다른 구역)
 
     public MimicGarrisonGoal(MimicEntity mob) {
         this.mob = mob;
@@ -115,10 +116,43 @@ public class MimicGarrisonGoal extends Goal {
         stand = 0;
     }
 
-    /** 막사 둘레 반경 안의 순찰 지점 — 결정론 난수라 병사마다 다른 곳을 돈다. */
+    /**
+     * <b>순찰 표적 — 지키는 집들을 돈다.</b>
+     *
+     * <p>종전에는 막사 둘레 반경 20의 무작위 점이었다. 그래서 병사가 막사 근처만 어슬렁거렸다
+     * (육안 관측). 반경 숫자를 키우는 것으로도 넓힐 수는 있지만, 그러면 <b>아무것도 없는
+     * 들판</b>을 돌게 되고 지형에 처박힐 자리도 늘어난다.
+     *
+     * <p>지킬 대상이 곧 순찰 경로다. 막사 정원을 정할 때 이미 세는 그 목록
+     * ({@code FarmTicker.followerHomesOf} 를 통근 한계로 거른 것)을 그대로 순회한다:
+     *
+     * <ul>
+     *   <li>범위가 <b>추종 가구가 퍼진 만큼</b> 넓어진다 — 세력이 크면 순찰도 넓다.</li>
+     *   <li>경계 한계는 따로 둘 필요가 없다. 그 목록이 이미
+     *       {@link Facilities#COMMUTE_RANGE} 안이라 "멀리 갔다 길을 잃는" 경우가 없다.</li>
+     *   <li>집과 길 위로 다니므로 헤매지 않는다.</li>
+     *   <li>병사마다 <b>다른 집에서 시작</b>해(id 기준 커서) 서로 다른 구역을 맡는다 —
+     *       밭 손질 순회와 같은 방식이다.</li>
+     * </ul>
+     *
+     * <p>추종 가구가 하나도 없으면 종전대로 막사 둘레를 돈다(폴백).
+     */
     private BlockPos patrolSpot() {
         if (post == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return null;
+        }
+        java.util.List<BlockPos> route = guardedHomes(sl);
+        if (!route.isEmpty()) {
+            if (cursor < 0) {
+                cursor = (int) Math.floorMod(mob.getIndividual().id(), route.size());
+            }
+            BlockPos home = route.get(Math.floorMod(cursor, route.size()));
+            cursor++;
+            // 집 안이 아니라 <b>문간</b>에 선다 — 남의 거처 한가운데 서 있는 그림을 피한다.
+            int y = sl.getHeightmapPos(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    home).getY();
+            return new BlockPos(home.getX(), y, home.getZ());
         }
         double ang = mob.getRandom().nextDouble() * Math.PI * 2.0;
         double rad = PATROL_RADIUS * (0.4 + 0.6 * mob.getRandom().nextDouble());
@@ -127,5 +161,29 @@ public class MimicGarrisonGoal extends Goal {
         int y = sl.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 new BlockPos(x, post.getY(), z)).getY();
         return new BlockPos(x, y, z);
+    }
+
+    /** 이 막사가 지키는 추종 가구의 집 — 가구 단위(중복 제거), 통근 한계 안. */
+    private java.util.List<BlockPos> guardedHomes(net.minecraft.server.level.ServerLevel sl) {
+        FacilityStore reg = FacilityStore.get(sl);
+        long ownerId = 0L;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.BARRACKS && e.pos.equals(post)) {
+                ownerId = e.ownerId;
+                break;
+            }
+        }
+        if (ownerId == 0L) {
+            return java.util.List.of();
+        }
+        // 순서를 고정한다 — 좌표 정렬. 그래야 커서가 매일 같은 경로를 돌고, 병사마다 다른
+        // 시작점이 실제로 다른 구역이 된다(순서가 흔들리면 커서가 뜻을 잃는다).
+        java.util.List<BlockPos> out = new java.util.ArrayList<>(
+                new java.util.LinkedHashSet<>(FarmTicker.followerHomesOf(ownerId)));
+        out.removeIf(h -> h.distSqr(post)
+                > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE);
+        out.sort(java.util.Comparator.comparingInt((BlockPos h) -> h.getX())
+                .thenComparingInt((BlockPos h) -> h.getZ()));
+        return out;
     }
 }

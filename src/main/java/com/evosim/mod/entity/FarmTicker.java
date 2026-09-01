@@ -3218,6 +3218,28 @@ public final class FarmTicker {
             FarmStore.Plot best = open != null ? open : any;
             if (best != null) {
                 ASSIGNED.put(m.getId(), best.id);
+                // <b>긴급으로 왔어도 출근은 출근이다</b> — 연속 카운터를 정상 배정과 똑같이 쌓는다.
+                //
+                // 종전에는 여기서 ASSIGNED 만 넣고 끝냈다. 그러면 위급으로 온 사람은 같은 밭에
+                // 며칠을 나와도 streak 이 0에 머물러 <b>영원히 일용</b>이고 상시소작이 되지
+                // 못한다. 실측(d7): 긴급고용 24건 · 정상 배정 4건 · 전부 "연속 1일" · 상시소작 0.
+                //
+                // 그 하나가 사슬 전체를 막고 있었다. 상시소작이 0이면 밭이 "자영"으로 판정되어
+                // (nTen==0) 확장비가 밭 계정이 아니라 <b>지주 저장고</b>에서 나가고, 그래서 지주
+                // 저장고가 0~27 을 오가며 한 푼도 쌓이지 않는다. 그 결과 막사·교회·학교가 전부
+                // "저장고 20 < 문턱 48/66/76"으로 영영 보류된다 — 군인을 얹을 토대 자체가
+                // 서지 않는다.
+                if (m.getTenantFarm() == 0L) {
+                    int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == best.id
+                            ? m.getTenantStreak() + 1 : 1;
+                    if (streak >= com.evosim.core.FarmEconomy.PROMOTE_DAYS) {
+                        m.setTenant(best.id, streak);
+                        com.evosim.mod.log.SimEvents.event(m, "상시소작", String.format(
+                                "%d일 연속 출근(긴급 경유) — 구획 %d 예약석 승격", streak, best.id));
+                    } else {
+                        m.setTenant(0L, streak);
+                    }
+                }
                 // 신세 — 굶던 자에게 일자리를 준 것. 1회성이지만 무겁다.
                 AllegianceStore.get(level).record(m.getIndividual().id(), best.ownerId,
                         AllegianceStore.W_HIRE, 0.0,

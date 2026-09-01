@@ -261,6 +261,7 @@ public final class EvoSimCommand {
                             return 1;
                         })))
                 .then(Commands.literal("church").executes(EvoSimCommand::churchReport))
+                .then(Commands.literal("homes").executes(EvoSimCommand::homesReport))
                 .then(Commands.literal("visitfix")
                         .then(Commands.literal("on").executes(ctx -> {
                             com.evosim.mod.entity.MimicVisitGoal.setHoldOnPreempt(true);
@@ -1752,6 +1753,76 @@ public final class EvoSimCommand {
      * <p>왕복은 <b>쌍</b>으로 나타난다: A→B 와 B→A 가 나란히 상위에 있으면 그 둘이 서로를
      * 선점하며 진동하는 것이다. 한쪽만 많으면 정상적인 하루 흐름(예: 밭→귀가)이다.
      */
+    /**
+     * <b>주거 보고</b> — 가구마다 인원·등급·수용·저장고, 그리고 <b>승격에 얼마가 모자란가</b>.
+     *
+     * <p>"6명이 소형 집에 사는데 이사가 작동하는 게 맞나"에 답하기 위한 것이다. 승격 판정
+     * ({@code upgradeTick})은 돈이 모자라면 <b>아무 기록도 남기지 않고</b> 넘어가서, 밖에서는
+     * 고장인지 가난인지 구분할 수 없었다. 모자란 액수를 직접 보여 준다.
+     */
+    private static int homesReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        HomeStore reg = HomeStore.get(level);
+        LarderStore lar = LarderStore.get(level);
+        // 거처별 거주 인원 — 개체의 homePos 로 센다(등기 기준이 아니라 실제 사는 사람 기준).
+        java.util.Map<Long, Integer> members = new java.util.HashMap<>();
+        java.util.Map<Long, Double> need = new java.util.HashMap<>();
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getHomePos() != null && e.getIndividual() != null)) {
+            long k = m.getHomePos().asLong();
+            members.merge(k, 1, Integer::sum);
+            if (m.getStage() == com.evosim.core.LifeStage.ADULT
+                    || m.getStage() == com.evosim.core.LifeStage.ELDER) {
+                // 승격 판정과 같은 기준(성년만의 명목소모 합)으로 맞춘다 — 다른 식을 쓰면
+                // 보고서의 "모자란 액수"가 실제 판정과 어긋난다.
+                need.merge(k, com.evosim.core.FoodEconomy.consumptionPerDay(m.getStage(),
+                        com.evosim.core.Activity.MOVE, m.getIndividual(), false), Double::sum);
+            }
+        }
+        if (members.isEmpty()) {
+            tell(ctx.getSource(), "§e[주거]§r 거주 가구가 없다");
+            return 1;
+        }
+        int cramped = 0;
+        int blocked = 0;
+        java.util.List<java.util.Map.Entry<Long, Integer>> rows =
+                new java.util.ArrayList<>(members.entrySet());
+        rows.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+        tell(ctx.getSource(), String.format("§e[주거]§r 가구 %d", rows.size()));
+        for (var row : rows) {
+            BlockPos home = BlockPos.of(row.getKey());
+            HomeStore.Entry e = reg.entry(home);
+            if (e == null) {
+                continue;
+            }
+            int n = row.getValue();
+            var cur = com.evosim.mod.entity.HomeTemplate.Tier.of(e.design());
+            var want = com.evosim.mod.entity.HomeTemplate.Tier.smallestFor(n);
+            double stock = lar.get(home);
+            double res = com.evosim.mod.entity.HomeTemplate.reserve(need.getOrDefault(row.getKey(), 6.0));
+            String state;
+            if (want.ordinal() <= cur.ordinal()) {
+                state = "§a여유§r";
+            } else {
+                cramped++;
+                double want2 = want.buildCost + res;
+                if (stock >= want2) {
+                    state = "§e승격 대기(다음 새벽)§r"; // 조건 충족 — 다음 가구틱에 오른다
+                } else {
+                    blocked++;
+                    state = String.format("§c협소 · %s 필요 %.1f · %.1f 모자람§r",
+                            want, want2, want2 - stock);
+                }
+            }
+            tell(ctx.getSource(), String.format("  @%d,%d %s(수용%d) · 거주 %d명 · 저장고 %.1f · %s",
+                    home.getX(), home.getZ(), cur, cur.capacity, n, stock, state));
+        }
+        tell(ctx.getSource(), String.format(
+                "  → 협소 %d가구 중 %d가구가 §c자금 부족§r으로 못 올라감 (판정은 매 새벽 1회)",
+                cramped, blocked));
+        return 1;
+    }
+
     /**
      * <b>시설 등기 보고</b> — 누가 세웠고, 누가 일하고, 얼마를 벌었는가.
      *

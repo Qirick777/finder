@@ -4538,6 +4538,14 @@ public class MimicEntity extends PathfinderMob {
             if (larder >= need.buildCost + res) {
                 moveUp(sl, fam, need, larder, res, String.format("협소(가구 %d > 수용 %d)",
                         fam.size(), cur.capacity));
+            } else {
+                // <b>못 올라간 것도 기록한다.</b> 종전에는 조용히 넘어가서, 밖에서 보면 이사가
+                // 고장인지 그냥 가난한 것인지 구분할 수 없었다("6명이 소형 집에 사는데
+                // 작동하는 게 맞나"). 하루 1회 판정이므로 로그가 넘치지 않는다.
+                com.evosim.mod.log.SimEvents.event(this, "협소", String.format(
+                        "가구 %d > 수용 %d — %s 로 못 올라감(필요 %.1f · 저장고 %.1f · %.1f 모자람)",
+                        fam.size(), cur.capacity, need, need.buildCost + res, larder,
+                        need.buildCost + res - larder));
             }
             return;
         }
@@ -4645,11 +4653,36 @@ public class MimicEntity extends PathfinderMob {
                 movers.add(m);
             }
         }
+        // <b>유아는 업고 간다</b> — 기근 이주(migrate)와 같은 규칙. 종전에는 승격 이사만 이것이
+        // 빠져 있어, 유아에게 새 주소만 찍고 알아서 걸어오게 뒀다. 그런데 어미는 <b>거처</b>
+        // 기준으로 육아 반경에 묶이므로 어미는 새 집으로 가고 유아는 옛 자리에 남는다 — 걸어올
+        // 때까지 방치된다. 어미 우선, 여럿이면 순환 배정(부모가 나눠 업음), 성년 여성이 없는
+        // 가구도 아버지가 업어 좌초가 없다. 내려놓기는 기존 도착 판정(isHome)이 그대로 맡는다.
+        MimicEntity mother = firstAdultFemale(movers);
+        List<MimicEntity> carriers = new ArrayList<>();
+        if (mother != null) {
+            carriers.add(mother);
+        }
+        for (MimicEntity m : movers) {
+            if ((m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
+                    && m != mother) {
+                carriers.add(m);
+            }
+        }
         int builders = 0;
+        int nextCarrier = 0;
         for (MimicEntity m : movers) {
             m.setHomePos(dest);
             m.adoptDesign(design, rot, mir);
-            if (reuse == null && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
+            if (m.getStage() == LifeStage.INFANT && !carriers.isEmpty()) {
+                MimicEntity own = motherIn(movers, m);
+                MimicEntity ride = (own != null && own.getPassengers().isEmpty()) ? own
+                        : carriers.get(nextCarrier++ % carriers.size());
+                if (ride != m) {
+                    m.startRiding(ride, true);
+                }
+            } else if (reuse == null
+                    && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
                     && builders < 2) {
                 m.building = true;
                 m.buildReachTicks = 0;

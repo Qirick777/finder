@@ -1164,6 +1164,7 @@ public class MimicEntity extends PathfinderMob {
         super.tick();
         if (!level().isClientSide) {
             trackJam();
+            trackGoalChurn();
             if (birthPos == null) {
                 birthPos = blockPosition(); // 스폰 위치 확정(1세대 정착 기준)
             }
@@ -5923,6 +5924,55 @@ public class MimicEntity extends PathfinderMob {
      * 거처 옆 정원의 익은 베리만 수확(MimicForageGoal). 외부 노동은 해제된 배우자의 몫 —
      * 종전 이진 스위치가 부모 양쪽을 완전 정지시켜 가구 경제가 동결되던 실측 결함의 수정.
      */
+    // ── goal 갈아타기 기록 ────────────────────────────────────────────────────────────
+    // "움찔거린다"의 정체를 <b>추측하지 않기 위한</b> 장치다. 10초 간격으로 표본을 뜨면 그 사이
+    // 뒤집혔다 되돌아온 왕복이 통째로 안 잡힌다(실측: 육아왕복 0인데 움찔 10.4%). 그래서
+    // 매 틱 "지금 선점 중인 최상위 goal"을 보고, 바뀔 때마다 전이쌍(A→B)을 센다. 무엇과 무엇
+    // 사이를 오가는지가 바로 나오므로 어느 문턱을 고쳐야 하는지 코드가 직접 말해 준다.
+
+    /** 전이쌍(A→B) → 횟수. 전 개체 합산 — 개체별로 나눠 봐야 표본이 안 모인다. */
+    private static final java.util.Map<String, Integer> GOAL_CHURN =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static long churnSinceTick = -1L;
+
+    private String lastGoal = "";
+
+    public static java.util.Map<String, Integer> goalChurn() {
+        return GOAL_CHURN;
+    }
+
+    public static long churnSince() {
+        return churnSinceTick;
+    }
+
+    public static void resetGoalChurn(long nowTick) {
+        GOAL_CHURN.clear();
+        churnSinceTick = nowTick;
+    }
+
+    private void trackGoalChurn() {
+        if (individual == null || churnSinceTick < 0) {
+            return; // 명시적으로 켜기 전에는 아무 비용도 들이지 않는다
+        }
+        String cur = "";
+        for (var w : goalSelector.getRunningGoals().toList()) {
+            String n = w.getGoal().getClass().getSimpleName()
+                    .replace("Mimic", "").replace("Goal", "");
+            // 최상위(먼저 나오는) 하나만 — 이동을 실제로 지시하는 것이 그것이다.
+            if (cur.isEmpty()) {
+                cur = n;
+            }
+        }
+        if (!cur.equals(lastGoal)) {
+            if (!lastGoal.isEmpty() || !cur.isEmpty()) {
+                GOAL_CHURN.merge((lastGoal.isEmpty() ? "―" : lastGoal)
+                        + "→" + (cur.isEmpty() ? "―" : cur), 1, Integer::sum);
+            }
+            lastGoal = cur;
+        }
+    }
+
     /**
      * 지금 육아 goal 이 <b>실제로 돌고 있는가</b> — 계측 전용.
      *

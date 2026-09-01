@@ -241,6 +241,14 @@ public final class EvoSimCommand {
                                                 IntegerArgumentType.getInteger(ctx, "tiles"),
                                                 IntegerArgumentType.getInteger(ctx, "tenants"), true))))))
                 .then(Commands.literal("carestat").executes(EvoSimCommand::careStat))
+                .then(Commands.literal("goalchurn")
+                        .executes(EvoSimCommand::goalChurn)
+                        .then(Commands.literal("reset").executes(ctx -> {
+                            MimicEntity.resetGoalChurn(
+                                    com.evosim.mod.entity.SimTime.tick(ctx.getSource().getLevel()));
+                            tell(ctx.getSource(), "goal 갈아타기 기록 시작(0부터)");
+                            return 1;
+                        })))
                 .then(Commands.literal("jamphase")
                         .then(Commands.literal("on").executes(ctx -> {
                             MimicEntity.setJamPhase(true);
@@ -1672,6 +1680,37 @@ public final class EvoSimCommand {
      *
      * <p>목표가 없는(navigation done) 개체는 재조준할 것이 없으므로 분모에서 뺀다.
      */
+    /**
+     * goal 갈아타기 상위 목록 — "무엇과 무엇 사이를 오가는가"를 그대로 보여 준다.
+     *
+     * <p>왕복은 <b>쌍</b>으로 나타난다: A→B 와 B→A 가 나란히 상위에 있으면 그 둘이 서로를
+     * 선점하며 진동하는 것이다. 한쪽만 많으면 정상적인 하루 흐름(예: 밭→귀가)이다.
+     */
+    private static int goalChurn(CommandContext<CommandSourceStack> ctx) {
+        long since = MimicEntity.churnSince();
+        if (since < 0) {
+            tell(ctx.getSource(), "§e[갈아타기]§r 기록이 꺼져 있다 — 'evosim goalchurn reset' 으로 시작");
+            return 1;
+        }
+        long dt = com.evosim.mod.entity.SimTime.tick(ctx.getSource().getLevel()) - since;
+        var top = MimicEntity.goalChurn().entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(14).toList();
+        tell(ctx.getSource(), String.format(
+                "§e[갈아타기]§r %d틱 동안 전이 %d종 · 총 %d회", dt, MimicEntity.goalChurn().size(),
+                MimicEntity.goalChurn().values().stream().mapToInt(Integer::intValue).sum()));
+        for (var e : top) {
+            // 역방향이 함께 잦으면 진동 — 그 쌍에 표시를 단다.
+            String[] ab = e.getKey().split("→");
+            int back = ab.length == 2
+                    ? MimicEntity.goalChurn().getOrDefault(ab[1] + "→" + ab[0], 0) : 0;
+            boolean osc = back > 0 && Math.min(back, e.getValue()) * 3 >= Math.max(back, e.getValue());
+            tell(ctx.getSource(), String.format("  %s%-28s %5d회 (역방향 %d)%s",
+                    osc ? "§c왕복 " : "     ", e.getKey(), e.getValue(), back, osc ? "§r" : ""));
+        }
+        return 1;
+    }
+
     private static int jitterProbe(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         long now = level.getGameTime();

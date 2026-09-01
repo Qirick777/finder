@@ -252,6 +252,17 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "끼임 해소 OFF — 종전 거동(끝까지 서로 민다)");
                             return 1;
                         })))
+                .then(Commands.literal("carehyst")
+                        .then(Commands.literal("on").executes(ctx -> {
+                            com.evosim.mod.entity.MimicParentingGoal.setHysteresis(true);
+                            tell(ctx.getSource(), "육아 이력현상 ON — 견인 1.35×반경, 해제 1.0×반경");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            com.evosim.mod.entity.MimicParentingGoal.setHysteresis(false);
+                            tell(ctx.getSource(), "육아 이력현상 OFF — 종전 거동(문턱 하나, 1.0×반경)");
+                            return 1;
+                        })))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
                 .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
                 .then(Commands.literal("farmbond").executes(EvoSimCommand::farmBondDemo))
@@ -1671,17 +1682,36 @@ public final class EvoSimCommand {
         int retargeted = 0;
         int jitter = 0;
         int jam = 0;                       // 끼임 — 경로는 있는데 못 감(문 앞 정체 등)
+        int careSeen = 0;                  // 돌봄 구속 개체 중 두 표본 모두에 잡힌 수
+        int careFlip = 0;                  // 그 사이 육아 goal 선점 여부가 뒤집힌 수
         long dtTicks = 0;
         StringBuilder who = new StringBuilder();
         StringBuilder jamWho = new StringBuilder();
+        StringBuilder flipWho = new StringBuilder();
         for (MimicEntity m : all) {
             var path = m.getNavigation().getPath();
             double tx = path == null || path.getTarget() == null ? Double.NaN
                     : path.getTarget().getX();
             double tz = path == null || path.getTarget() == null ? Double.NaN
                     : path.getTarget().getZ();
+            boolean parenting = m.isParentingRunning();
             double[] prev = JITTER_SNAP.get(m.getId());
-            JITTER_SNAP.put(m.getId(), new double[] {m.getX(), m.getZ(), tx, tz, now});
+            JITTER_SNAP.put(m.getId(), new double[] {m.getX(), m.getZ(), tx, tz, now,
+                    parenting ? 1 : 0, m.isCaregiverBound() ? 1 : 0});
+            // <b>육아 뒤집힘</b> — 돌봄 구속 개체에서 육아 goal 의 선점 여부가 표본 사이에
+            // 바뀌었다. 위치만 보는 움찔 지표는 이걸 놓친다(왕복하는 개체는 "움직였다"로
+            // 분류된다). 육안 관측 "육아와 밭일이 계속 반복되며 왔다갔다"의 직접 계측이다.
+            if (prev != null && prev.length >= 7 && prev[4] < now && prev[6] > 0.5
+                    && m.isCaregiverBound()) {
+                careSeen++;
+                if ((prev[5] > 0.5) != parenting) {
+                    careFlip++;
+                    if (flipWho.length() < 160) {
+                        flipWho.append(String.format("%s@%d,%d ", m.getIndividual().shortName(),
+                                m.blockPosition().getX(), m.blockPosition().getZ()));
+                    }
+                }
+            }
             if (prev == null || prev[4] >= now) {
                 continue; // 첫 표본(또는 같은 틱 재호출) — 비교할 것이 없다
             }
@@ -1737,6 +1767,14 @@ public final class EvoSimCommand {
                 jam == 0 ? "§a" : "§c", jam, 100.0 * jam / seen));
         if (jam > 0) {
             tell(ctx.getSource(), "  " + jamWho.toString().trim());
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[육아왕복]§r 돌봄구속 %d명 중 육아↔노동 선점이 뒤집힌 개체 %s%d명(%.0f%%)§r · 이력현상 %s",
+                careSeen, careFlip == 0 ? "§a" : "§c", careFlip,
+                careSeen == 0 ? 0.0 : 100.0 * careFlip / careSeen,
+                com.evosim.mod.entity.MimicParentingGoal.hysteresis() ? "ON" : "OFF"));
+        if (careFlip > 0) {
+            tell(ctx.getSource(), "  " + flipWho.toString().trim());
         }
         return 1;
     }

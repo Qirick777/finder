@@ -48,6 +48,24 @@ public class MimicParentingGoal extends Goal {
     /** 해제 문턱 — 노동 반경 안으로 되돌아오면 푼다(그 자리에서 바로 다시 일할 수 있다). */
     private static final double RELEASE_FACTOR = 1.0;
 
+    /**
+     * A/B 스위치 — 끄면 발동·해제가 모두 1.0× 가 되어 <b>종전(문턱 하나)</b> 거동을 그대로
+     * 재현한다. 같은 런 안에서 번갈아 켜고 끄며 재려고 둔다(끼임 가설을 기각했던 방식과 동일).
+     */
+    private static boolean hysteresis = true;
+
+    public static void setHysteresis(boolean on) {
+        hysteresis = on;
+    }
+
+    public static boolean hysteresis() {
+        return hysteresis;
+    }
+
+    private static double engageFactor() {
+        return hysteresis ? ENGAGE_FACTOR : 1.0;
+    }
+
     private final MimicEntity mob;
 
     public MimicParentingGoal(MimicEntity mob) {
@@ -62,7 +80,7 @@ public class MimicParentingGoal extends Goal {
         if (!mob.isCaregiverBound() || mob.getHomePos() == null || mob.getIndividual() == null) {
             return false;
         }
-        double r = workRadius(mob.getIndividual()) * ENGAGE_FACTOR;
+        double r = workRadius(mob.getIndividual()) * engageFactor();
         return mob.blockPosition().distSqr(mob.getHomePos()) > r * r; // 견인 문턱 이탈
     }
 

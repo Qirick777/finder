@@ -1963,12 +1963,31 @@ public final class FarmTicker {
         return true;
     }
 
-    /** 확보한 발자국의 원목(테두리·길)을 깐다 — 이미 원목인 칸은 건너뛴다. */
+    /**
+     * 확보한 발자국을 깐다 — 비재배 칸은 원목(테두리·길), <b>아직 안 심은 재배 칸은 흙바닥</b>.
+     *
+     * <p>종전에는 원목만 깔았다. 재배 칸의 바닥은 {@code plantAt} 이 심는 순간에야 놓이므로,
+     * 발자국은 확보됐는데 아직 안 심은 칸은 {@code baseY+1} 이 비어 있었다 — 둘레 원목이 한 칸
+     * 위에 서 있으니 그 자리가 <b>1칸 깊이 구덩이</b>로 보인다(육안 관측). 노동이 하루 몇 칸이라
+     * 이 상태가 며칠씩 간다.
+     *
+     * <p>{@code FarmLayout.isCrop} 이 선언한 불변식이 여기서 깨지고 있었다: "발자국 안에 빈
+     * 잔디는 없다 — 모든 칸이 재배 아니면 원목이다". 바닥을 먼저 깔아 그 말을 지킨다. 심는
+     * 것은 그대로 노동에 달렸다 — 바뀌는 것은 <b>보이는 모습뿐</b>이고 경제는 건드리지 않는다.
+     */
     private static void layLogs(ServerLevel level, FarmStore.Plot p) {
         int[] fp = com.evosim.core.FarmLayout.footprint(p.beds, p.rows);
         for (int c = 0; c < fp[0]; c++) {
             for (int r = 0; r < fp[1]; r++) {
                 if (com.evosim.core.FarmLayout.isCrop(c, r, p.beds, p.rows)) {
+                    // 재배 칸 — 바닥만 채운다. 이미 무언가 서 있으면(심긴 흙·베리) 손대지 않는다.
+                    int[] cxz = colOf(p, c, r);
+                    BlockPos soil = new BlockPos(cxz[0], p.baseY + 1, cxz[1]);
+                    var cur = level.getBlockState(soil);
+                    if (cur.isAir() || cur.canBeReplaced()) {
+                        level.setBlockAndUpdate(soil, net.minecraft.world.level.block.Blocks
+                                .GRASS_BLOCK.defaultBlockState());
+                    }
                     continue;
                 }
                 int[] xz = colOf(p, c, r);
@@ -3047,6 +3066,12 @@ public final class FarmTicker {
                 if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) < 3) {
                     level.setBlockAndUpdate(pos, st.setValue(SweetBerryBushBlock.AGE, 3));
                 }
+            }
+            // 발자국 정비 — 다섯 스캔에 한 번(1000틱). layLogs 는 착공·단계승격 때만 돌아서,
+            // 그 사이에 생긴 빈 칸(지형 붕괴·밟힘, 그리고 <b>이미 파인 채로 저장된 구세계</b>)은
+            // 다음 승격까지 구덩이로 남는다. 멱등한 작업이라 반복해도 값이 변하지 않는다.
+            if (nowTick % 1000L == 0L) {
+                layLogs(level, p);
             }
             refreshLists(level, p); // 익힌 직후에 목록을 다시 만든다 — 순서가 뒤바뀌면 한 스캔 늦는다
         }

@@ -20,6 +20,35 @@ import net.minecraftforge.fml.common.Mod;
 public final class FarmTicker {
 
     private static final int SCAN_INTERVAL = 200;
+
+    /**
+     * <b>작물 관리 명부</b> — 엔티티id → {구획id, 마지막 보고 틱, 케어범위×100}. 휘발(저장 안 함).
+     *
+     * <p>수확 goal 이 관리 중인 매 틱 {@link #reportTending} 을 부르고, 스캔이 유효한 항목만
+     * 합산해 커버리지를 낸다. 마지막 보고가 한 스캔보다 오래됐으면 지운다 — 죽거나 그만둔
+     * 개체가 명부에 남아 유령 가속을 만들지 않게.
+     */
+    private static final java.util.Map<Integer, long[]> TENDING = new java.util.HashMap<>();
+
+    /** 관리 중임을 알린다(수확 goal 이 매 틱 호출). care = 이 개체의 케어범위(타일). */
+    public static void reportTending(int entityId, long plotId, long nowTick, double care) {
+        TENDING.put(entityId, new long[] {plotId, nowTick, (long) (care * 100.0)});
+    }
+
+    /** 구획별 {관리 인원, 커버리지} — 보고용. 스캔과 같은 유효성 기준을 쓴다. */
+    public static double[] careOf(ServerLevel level, FarmStore.Plot plot) {
+        long now = com.evosim.mod.entity.SimTime.tick(level);
+        int n = 0;
+        double covered = 0.0;
+        for (long[] v : TENDING.values()) {
+            if (v[0] == plot.id && now - v[1] <= SCAN_INTERVAL) {
+                n++;
+                covered += v[2] / 100.0;
+            }
+        }
+        int tiles = Math.max(1, plot.tiles.length);
+        return new double[] {n, Math.min(1.0, covered / tiles)};
+    }
     private static final double COMMUTE = 48.0;              // 통근 도달 기대(블록) — 안전판 기준
     private static final double DISSOLVE_DIST = 128.0;       // 상시 소작 해제 거리(이 밖 이주 시)
     /** 그날 배정표(휘발 — 재접속 시 하루 공침 허용, 계획 F6): entityId → plotId. */
@@ -2947,9 +2976,30 @@ public final class FarmTicker {
         protectTenants(level);
         emergencyHire(level); // 구휼(기존 소작) 다음 — 아직 소작이 아닌 위급자의 입구
         expireVacant(level);
+        // ── 작물 관리 가속 ── 관리 중인 개체의 케어범위 합이 구획을 덮는 비율만큼, 미익은 타일의
+        // 심은시각을 뒤로 당긴다(= 진행 가속). 시각을 옮기는 방식이라 세이브 형식이 그대로다.
+        long nowTick = com.evosim.mod.entity.SimTime.tick(level);
+        TENDING.entrySet().removeIf(e -> nowTick - e.getValue()[1] > SCAN_INTERVAL);
+        java.util.Map<Long, Double> coveredBy = new java.util.HashMap<>();
+        for (long[] v : TENDING.values()) {
+            coveredBy.merge(v[0], v[2] / 100.0, Double::sum);
+        }
+        for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+            double covered = coveredBy.getOrDefault(p.id, 0.0);
+            if (covered <= 0.0 || p.tiles.length == 0) {
+                continue;
+            }
+            double coverage = Math.min(1.0, covered / p.tiles.length);
+            long bonus = (long) (SCAN_INTERVAL * FarmEconomy.CARE_MAX_BOOST * coverage);
+            if (bonus <= 0) {
+                continue;
+            }
+            p.careBonus += bonus; // 익음은 가상 시각(지금 + careBonus)으로 판정 — Plot.careBonus 주석
+            FarmStore.get(level).setDirty();
+        }
         for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
-                if (p.planted[i] < 0 || com.evosim.mod.entity.SimTime.tick(level) - p.planted[i] < FarmEconomy.RIPEN_TICKS) {
+                if (p.planted[i] < 0 || FarmStore.careNow(level, p) - p.planted[i] < FarmEconomy.RIPEN_TICKS) {
                     continue;
                 }
                 BlockPos pos = BlockPos.of(p.tiles[i]);

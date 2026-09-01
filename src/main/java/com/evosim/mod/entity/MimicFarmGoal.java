@@ -72,7 +72,22 @@ public class MimicFarmGoal extends Goal {
         }
         target = nearestWorkRipe();
         if (target != null) {
+            tendTarget = null; // 익은 게 있으면 언제나 수확이 먼저
             return true;
+        }
+        // ── 딸 게 없으면 놀지 않고 <b>밭을 돌본다</b> ──────────────────────────────────
+        // 종전에는 여기서 앵커만 남기고 비활성이 되어, 출근한 소작이 하루의 남은 시간을 버렸다
+        // (실측 가동률 72% — 용량 8 중 5.8타일만 땀). 그 시간을 관리에 쓰면 익음이 빨라져
+        // 다음 날의 공급이 는다. 수확 용량은 소모하지 않는다 — 어차피 비던 시간이다.
+        tendPlot = tendablePlot();
+        if (tendPlot != 0L) {
+            if (tendTarget == null || --tendHold <= 0) {
+                tendTarget = pickTendTile(tendPlot);
+                tendHold = TEND_HOLD_TICKS; // 한 자리에 머무는 시간 — 매 틱 재선택하면 움찔거린다
+            }
+            if (tendTarget != null) {
+                return true;
+            }
         }
         // 표적이 <b>지금</b> 없을 뿐 아직 배정된 노동일이 남았다면 출근 앵커를 유지한 채 비활성만
         // 된다. 여기서 idle()로 앵커를 지우면 우선순위 2인 리시(MimicLeashGoal)가 즉시 거처로
@@ -106,6 +121,103 @@ public class MimicFarmGoal extends Goal {
         return false;
     }
 
+    /** 한 관리 자리에 머무는 틱 — 매 틱 다시 고르면 목표가 계속 바뀌어 제자리 움찔이 된다. */
+    private static final int TEND_HOLD_TICKS = 40;
+
+    private BlockPos tendTarget;
+    private int tendHold;
+    private long tendPlot;
+
+    /**
+     * 돌볼 구획 — 배정된 소작 밭이 먼저고, 없으면 <b>제 밭</b>(배우자 명의 포함)이나 맡은 마름
+     * 구획이다.
+     *
+     * <p>배정만 보면 <b>지주가 제 밭을 못 돌본다</b>. 실측(caretest): 딸 것도 없고 관리도 못 해
+     * 집 근처에서 목표만 바꾸며 떠는 개체로 잡혔다(움찔 2명 중 하나가 지주 본인). 돌봄은
+     * 고용 관계가 아니라 그 밭에 이해가 걸린 사람의 일이다.
+     */
+    private long tendablePlot() {
+        long assigned = FarmTicker.assignedPlot(mob.getId());
+        if (assigned != 0L) {
+            return assigned;
+        }
+        if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return 0L;
+        }
+        FarmStore fs = FarmStore.get(sl);
+        long id = mob.getIndividual().id();
+        long mine = fs.newestOwnedPlot(id);
+        if (mine != 0L) {
+            return mine;
+        }
+        long steward = fs.stewardOf(id);
+        if (steward != 0L) {
+            return steward;
+        }
+        for (FarmStore.Plot p : fs.all().values()) {
+            if (p.ownerId != 0L && mob.marriedTo(p.ownerId)) {
+                return p.id; // 배우자 명의 밭 — 가구 노동은 수확과 같은 기준(양방향 혼인)
+            }
+        }
+        return 0L;
+    }
+
+    /**
+     * 관리할 타일 고르기 — 배정 구획의 <b>아직 안 익은</b> 칸 중 가까운 쪽. 익은 칸은 수확이
+     * 가져가므로 여기서는 제외한다(같은 칸을 두고 두 행동이 서로 뺏으면 움찔거린다).
+     */
+    private BlockPos pickTendTile(long plotId) {
+        if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return null;
+        }
+        FarmStore.Plot p = FarmStore.get(sl).get(plotId);
+        if (p == null || p.tiles.length == 0) {
+            return null;
+        }
+        long now = FarmStore.careNow(sl, p);
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (int i = 0; i < p.tiles.length; i++) {
+            if (p.planted[i] < 0 || now - p.planted[i] >= FarmEconomy.RIPEN_TICKS) {
+                continue; // 미설치·이미 익음
+            }
+            BlockPos t = BlockPos.of(p.tiles[i]);
+            double d = mob.blockPosition().distSqr(t);
+            if (d < bd) {
+                bd = d;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 관리 행동 — 자리로 가서 팔을 휘두르고, 관리 중임을 알린다. 알린 만큼만 익음이 빨라진다
+     * ({@link FarmTicker#reportTending}). 자리에 도착하지 못했으면 알리지 않는다 — 걸어가는
+     * 중에 가속이 붙으면 "밭 근처에 있기만 해도 자란다"가 되어 연출과 수치가 어긋난다.
+     */
+    private void tendTick() {
+        if (tendTarget == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return;
+        }
+        mob.setWorkAnchor(tendTarget); // 리시가 거처로 되끌지 않게 — 수확 경로와 같은 이유
+        if (!mob.blockPosition().closerThan(tendTarget, 2.5)) {
+            mob.getNavigation().moveTo(tendTarget.getX() + 0.5, tendTarget.getY(),
+                    tendTarget.getZ() + 0.5, 1.0);
+            return;
+        }
+        if (tendPlot == 0L) {
+            tendTarget = null;
+            return;
+        }
+        FarmTicker.reportTending(mob.getId(), tendPlot,
+                com.evosim.mod.entity.SimTime.tick(sl),
+                FarmEconomy.careRange(mob.getIndividual()));
+        if (mob.tickCount % 10 == 0) {
+            mob.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        }
+    }
+
     @Override
     public void tick() {
         if (cooldown > 0) {
@@ -113,6 +225,7 @@ public class MimicFarmGoal extends Goal {
             return;
         }
         if (target == null) {
+            tendTick();
             return;
         }
         // 출근 앵커(F1) — 표적 보유 동안 리시 앵커를 작업 타일로: 활동반경(기본 32·애향 16) 밖
@@ -325,7 +438,7 @@ public class MimicFarmGoal extends Goal {
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
             for (int i = 0; i < p.tiles.length; i++) {
                 if (p.tiles[i] == pos.asLong()) {
-                    p.planted[i] = com.evosim.mod.entity.SimTime.tick(sl);
+                    p.planted[i] = FarmStore.careNow(sl, p); // 수확 리셋도 가상 시각으로
                     FarmStore.get(sl).setDirty();
                     return;
                 }

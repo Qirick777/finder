@@ -114,6 +114,17 @@ public class FarmStore extends SavedData {
          */
         public double wageCarry;
 
+        /**
+         * <b>관리로 벌어들인 시간</b>(틱) — 작물 관리가 익음을 앞당긴 누적분. 익음 판정은
+         * 실제 시각이 아니라 <b>가상 시각</b> {@code 지금 + careBonus} 로 한다.
+         *
+         * <p>심은시각을 직접 뒤로 당기는 방식은 쓸 수 없다. {@code planted < 0} 이 "미설치"
+         * 표지라 갓 만든 월드(tick 이 0 근처)에서 음수로 새고, 0 에서 막으면 이번엔 가속이
+         * 통째로 죽는다 — 둘 다 실측으로 확인했다(caretest). 절대 시각을 빼는 대신 번 시간을
+         * 따로 적립하면 월드 나이와 무관하게 성립한다.
+         */
+        public long careBonus = 0L;
+
         // ── fee 분할(E11) — 지주 몫 초과분(누진분)의 잠금 축장. 밭 계정과 별도라 확장(growFarms)이
         //    건드리지 않는다. 밤 정산 때 정수 유닛만 지주 저장고로(L 정수성, 소수 이월). ──
         public double excessHoard = 0.0;
@@ -133,6 +144,15 @@ public class FarmStore extends SavedData {
             this.ownerId = ownerId;
             this.founderId = ownerId;
         }
+    }
+
+    /**
+     * <b>가상 시각</b> — 실제 시각에 그 구획이 관리로 번 시간({@link Plot#careBonus})을 더한 값.
+     * 익음 판정과 수확 리셋은 전부 이 값을 쓴다(정본 하나). 실제 시각으로 재면 관리 가속이
+     * 반영되지 않고, 심은시각을 직접 당기면 월드 초반에 음수로 새거나 0 에 막힌다.
+     */
+    public static long careNow(ServerLevel level, Plot p) {
+        return com.evosim.mod.entity.SimTime.tick(level) + (p == null ? 0L : p.careBonus);
     }
 
     /**
@@ -934,6 +954,7 @@ public class FarmStore extends SavedData {
             p.stewarded = c.getBoolean("StwEver");
             p.stewardDebt = c.getDouble("StwDebt");
             p.wageCarry = c.getDouble("WageCarry");
+            p.careBonus = c.getLong("CareBonus");
             p.excessHoard = c.getDouble("ExHrd"); // fee 분할(E11) — 구세계 로드는 0
             p.totalSpentExpand = c.getDouble("SpentExp");
             s.plots.put(p.id, p);
@@ -991,6 +1012,7 @@ public class FarmStore extends SavedData {
             c.putBoolean("StwEver", p.stewarded);
             c.putDouble("StwDebt", p.stewardDebt);
             c.putDouble("WageCarry", p.wageCarry);
+            c.putLong("CareBonus", p.careBonus);
             c.putDouble("ExHrd", p.excessHoard);
             c.putDouble("SpentExp", p.totalSpentExpand);
             list.add(c);

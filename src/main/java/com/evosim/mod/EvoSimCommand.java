@@ -230,6 +230,14 @@ public final class EvoSimCommand {
                 .then(Commands.literal("estates").executes(EvoSimCommand::estates))
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
                 .then(Commands.literal("farmhire").executes(EvoSimCommand::farmHireDemo))
+                .then(Commands.literal("caretest")
+                        .executes(ctx -> careTest(ctx, 36, 4))
+                        .then(Commands.argument("tiles", IntegerArgumentType.integer(6, 200))
+                                .then(Commands.argument("tenants", IntegerArgumentType.integer(1, 12))
+                                        .executes(ctx -> careTest(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "tiles"),
+                                                IntegerArgumentType.getInteger(ctx, "tenants"))))))
+                .then(Commands.literal("carestat").executes(EvoSimCommand::careStat))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
                 .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
                 .then(Commands.literal("farmbond").executes(EvoSimCommand::farmBondDemo))
@@ -1258,6 +1266,113 @@ public final class EvoSimCommand {
     }
 
     /** M9 관문 ② 개간 노동 개체 상한(R3) — 2구획 지주도 하루 합산 +3타일만(18→21) ∧ 저장고 30→21. */
+    /**
+     * <b>작물 관리 즉석 무대</b> — 지주 1 + 밭 + 소작 n 을 그 자리에 세우고, 밭을 통째로
+     * <b>수확 직후</b>(안 익음) 상태로 둔다. 그러면 소작은 딸 것이 하나도 없으므로, 관리를
+     * 하는지 안 하는지만 남는다.
+     *
+     * <p>긴 런을 돌려 우연히 그 상황이 오기를 기다릴 이유가 없다 — 보고 싶은 것은
+     * "익은 게 없을 때 무엇을 하는가" 하나뿐이다.
+     */
+    private static int careTest(CommandContext<CommandSourceStack> ctx, int tiles, int tenants) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        FarmTicker.clearAssignments();
+        BlockPos anchor = groundAt(level, ctx.getSource().getPosition(), 10, 0);
+        BlockPos ownerHome = groundAt(level, ctx.getSource().getPosition(), -14, 0);
+        MimicEntity owner = spawnAdult(level, Vec3.atBottomCenterOf(ownerHome), Sex.MALE);
+        owner.debugSettleWithTent(ownerHome, Direction.NORTH);
+        LarderStore.get(level).set(ownerHome, 60.0);
+        FarmStore.Plot plot = buildDemoPlot(level, anchor, owner.getIndividual().id(), tiles);
+
+        // 밭 전체를 수확 직후로 — 블록도 age 1, 장부의 익음 시계도 지금으로.
+        long now = com.evosim.mod.entity.SimTime.tick(level);
+        for (int i = 0; i < plot.tiles.length; i++) {
+            plot.planted[i] = now;
+            BlockPos p = BlockPos.of(plot.tiles[i]);
+            var st = level.getBlockState(p);
+            if (st.is(Blocks.SWEET_BERRY_BUSH)) {
+                level.setBlockAndUpdate(p, st.setValue(SweetBerryBushBlock.AGE, 1));
+            }
+        }
+        FarmStore.get(level).setDirty();
+
+        // 소작 — 거처를 따로 주고 그 구획에 상시 배정(구인 사슬을 기다리지 않는다).
+        for (int i = 0; i < tenants; i++) {
+            double ang = 2.0 * Math.PI * i / tenants;
+            BlockPos h = groundAt(level, ctx.getSource().getPosition(),
+                    (int) Math.round(-26 + 10 * Math.cos(ang)),
+                    (int) Math.round(14 * Math.sin(ang)));
+            MimicEntity t = spawnAdult(level, Vec3.atBottomCenterOf(h),
+                    i % 2 == 0 ? Sex.MALE : Sex.FEMALE);
+            t.debugSettleWithTent(h, Direction.NORTH);
+            LarderStore.get(level).set(h, 12.0);
+            t.setTenant(plot.id, 9);
+        }
+        level.setDayTime(2000L); // 근무 구간 한복판 — 관리 goal 이 바로 켜지도록
+        double[] c = FarmTicker.careOf(level, plot);
+        tell(ctx.getSource(), String.format(
+                "§e[관리무대]§r 구획 %d · 타일 %d(전부 수확 직후) · 지주 %s · 소작 %d명 @%d,%d",
+                plot.id, plot.tiles.length, owner.getIndividual().shortName(), tenants,
+                anchor.getX(), anchor.getZ()));
+        tell(ctx.getSource(), String.format(
+                "  1인 케어범위 %.0f타일 → 만석에 필요한 인원 %.1f명 · 지금 커버리지 %.0f%%",
+                com.evosim.core.FarmEconomy.CARE_BASE,
+                plot.tiles.length / com.evosim.core.FarmEconomy.CARE_BASE, c[1] * 100.0));
+        tell(ctx.getSource(), "  ※ 잠시 뒤 /evosim carestat 으로 관리 인원·커버리지·익음 진척을 본다");
+        return 1;
+    }
+
+    /** 관리 진행 상황 — 구획별 관리 인원·커버리지·익은 타일 수. 무대의 판정 창구. */
+    private static int careStat(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+            long now = FarmStore.careNow(level, p); // 익음은 가상 시각 기준
+            double[] c = FarmTicker.careOf(level, p);
+            int ripe = 0;
+            long minLeft = Long.MAX_VALUE;
+            for (int i = 0; i < p.tiles.length; i++) {
+                if (p.planted[i] < 0) {
+                    continue;
+                }
+                long age = now - p.planted[i];
+                if (age >= com.evosim.core.FarmEconomy.RIPEN_TICKS) {
+                    ripe++;
+                } else {
+                    minLeft = Math.min(minLeft, com.evosim.core.FarmEconomy.RIPEN_TICKS - age);
+                }
+            }
+            tell(ctx.getSource(), String.format(
+                    "  구획 %d · 타일 %d · §e관리중 %d명 · 커버리지 %.0f%%§r → 익음 배속 ×%.2f"
+                            + " · 익은 타일 %d · 가장 빠른 익음까지 %s틱",
+                    p.id, p.tiles.length, (int) c[0], c[1] * 100.0,
+                    1.0 + com.evosim.core.FarmEconomy.CARE_MAX_BOOST * c[1], ripe,
+                    minLeft == Long.MAX_VALUE ? "-" : String.valueOf(minLeft)));
+        }
+        // 개체별 — "누가 왜 노는가"를 무대가 직접 말하게 한다. 이게 없으면 움찔 지표가 이름만
+        // 던지고 사유는 추측이 된다.
+        for (MimicEntity m : level.getEntities(ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            long asg = FarmTicker.assignedPlot(m.getId());
+            long ten = m.getTenantFarm();
+            int owned = FarmStore.get(level).ownedTiles(m.getIndividual().id());
+            boolean tending = false;
+            for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+                if (FarmTicker.careOf(level, p)[0] > 0 && p.id == (asg != 0 ? asg : ten)) {
+                    tending = true;
+                    break;
+                }
+            }
+            tell(ctx.getSource(), String.format(
+                    "    %s @%d,%d · 배정%d · 계약소작%d · 소유타일%d · 만족%s · 위급%s%s",
+                    m.getIndividual().shortName(), m.blockPosition().getX(),
+                    m.blockPosition().getZ(), asg, ten, owned,
+                    m.isSatisfiedToday() ? "O" : "X", m.isCritical() ? "O" : "X",
+                    tending ? " · 관리권" : ""));
+        }
+        return 1;
+    }
+
     private static int farmLaborDemo(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         LiveCheck.cancelAll();

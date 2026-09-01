@@ -378,8 +378,8 @@ public final class FarmTicker {
             //
             // 이 파일의 다른 세 곳이 이미 "확장은 소작농의 일"이라고 말하고 있었다: 확장 주체는
             // grower = 소작 우선(위 "확장권 이전"), 하루 확장량은 EXPAND_PER_DAY×(1+소작수)로
-            // 소작 수에 비례, 자금은 소작 밭이면 plot.account 만 쓴다(아래 nTen==0 분기 — 지주
-            // 저장고를 건드리지 않는다). 바로 위 주석조차 "소작농의 만족은 무관"이라고 적는다.
+            // 소작 수에 비례, 자금은 성숙 밭이면 plot.account 만 쓴다(아래 bootstrap 분기 —
+            // 지주 저장고를 건드리지 않는다). 바로 위 주석조차 "소작농의 만족은 무관"이라고 적는다.
             // 그런데 종전에는 <b>지주</b>의 만족이 그 전부를 멈췄다 — 지주가 배부르면 소작농이
             // 지대 계정으로 하는 개간까지 정지했다.
             //
@@ -411,11 +411,11 @@ public final class FarmTicker {
             if (room <= 0) {
                 continue;
             }
-            // 자금(fee 분할 E11 ②③ + 부트스트랩 예외): 소작 밭(nTen>0, 계정 소득 있음)은 <b>계정만</b>
-            // 으로 — 성숙 지주의 저장고 축장을 확장이 못 갉게 격리(누수 B 차단, 격차 생전 지속).
-            // 자영 밭(nTen==0)은 계정이 0이라(주인 수확은 본인 몫) 저장고가 유일 연료 — 9→24 성숙
-            // 부트스트랩을 저장고로 굴린다(격리하면 신생 밭이 영구 동결). 자영 밭은 초과분 축장이
-            // 없으므로 저장고를 써도 격차에 무관.
+            // 자금(fee 분할 E11 ②③ + 부트스트랩 예외): 성숙 밭(24타일 이상 — 계정 소득이 도는
+            // 규모)은 <b>계정만</b>으로 — 성숙 지주의 저장고 축장을 확장이 못 갉게 격리(누수 B
+            // 차단, 격차 생전 지속). 미성숙 밭은 계정이 얇아 저장고가 유일 연료 — 9→24 성숙
+            // 부트스트랩을 저장고로 굴린다(격리하면 신생 밭이 영구 동결). 미성숙 밭은 초과분
+            // 축장이 거의 없으므로 저장고를 써도 격차에 무관.
             //
             // 재투자 캡(MATURE_REINVEST_SHARE) 복원 — "폐지 유지"가 규칙5를 구조적으로 불가능하게
             // 하고 있었다. 계정 <b>전액</b>을 타일로 바꾸면 지대가 저장고에 닿기 전에 확장이
@@ -428,7 +428,30 @@ public final class FarmTicker {
             int afford = com.evosim.core.FarmEconomy.reinvestTiles(
                     plot.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE, plot.steps + 1);
             double ownerFunds = 0.0;
-            if (nTen == 0) { // 부트스트랩(자영) — 저장고 예비 위 잉여를 폴백 재원으로
+            // 부트스트랩의 조건은 <b>소작 유무가 아니라 밭의 나이</b>다.
+            //
+            // 종전 조건은 nTen == 0 이었다. 그것이 오래 맞아떨어진 이유는 승격 경로가 고장나
+            // 상시소작이 <b>구조적으로 0</b>이었기 때문이다 — 어린 밭에 소작이 붙는 상황 자체가
+            // 발생하지 않아, 타일을 안 보고도 우연히 "어린 밭 = 소작 0"이 성립했다. 승격을
+            // 고치자(긴급고용 연속 카운터) 그 우연이 깨졌다: 10타일짜리 밭에 소작 하나만 붙어도
+            // 다 큰 밭 취급을 받아 지주 지원이 끊기고, 계정 30%(실측 5.41×0.3 = 1.6 → 3칸)만
+            // 남아 d4·d5 에 +2씩 넣고 멈췄다. 확장 이력이 그대로 증거다.
+            //
+            // 두 갈래의 <b>본래 이유</b>는 이렇다. 부트스트랩이 필요한 쪽은 "밭이 어려서 계정이
+            // 비었다"이고(격리하면 신생 밭이 영구 동결 — 아래 원 주석), 격리가 필요한 쪽은
+            // "성숙한 지주의 축장을 확장이 갉지 않게"다. 둘 다 <b>밭의 크기</b>로 갈리는 말이지
+            // 소작 수로 갈리는 말이 아니었다.
+            //
+            // 그래서 다음 밭 자격 판정(nextFarmBlock)이 이미 쓰고 있는 그 기준을 그대로 쓴다 —
+            // 두 곳이 같은 성숙 정의를 보게 되어 어긋날 수 없다. MATURE_TILES 주석도 그 수를
+            // "소작이 붙는 규모"라고 적어 두었다: 24타일 전에는 소작이 붙어도 어린 밭이다.
+            //
+            // <b>한 번만 판정해서 붙든다.</b> plot.tiles.length 는 아래 심기 루프에서 늘어나므로,
+            // 지불 시점에 다시 재면 경계(22→24타일)에서 재원 산정과 차감 판정이 어긋난다 —
+            // 재원에는 저장고를 더해 놓고 차감은 건너뛰어 타일이 공짜로 생긴다.
+            boolean bootstrap = plot.tiles.length < com.evosim.core.FarmEconomy.MATURE_TILES;
+            if (bootstrap) {
+                // 부트스트랩(미성숙) — 저장고 예비 위 잉여를 폴백 재원으로
                 ownerFunds = ownerEnt.getHomePos() != null
                         ? larders.get(ownerEnt.getHomePos()) : 0.0;
                 boolean eligible = nextFarmEligible(store, adults, plot.ownerId);
@@ -483,14 +506,20 @@ public final class FarmTicker {
                 store.setDirty();
             }
             if (placed > 0) {
-                // 지불: 밭 계정 먼저 소진, 잔여는 자영 밭 한정 주인 저장고(부트스트랩). 소작 밭은
-                // afford=내림(계정)이라 fromLarder=0(저장고 무손실 — 축장 보호). 회계 합 = placed×cost.
+                // 지불: 밭 계정 먼저 소진, 잔여는 미성숙 밭 한정 주인 저장고(부트스트랩). 성숙
+                // 밭은 afford=내림(계정)이라 fromLarder=0(저장고 무손실 — 축장 보호).
+                // 회계 합 = placed×cost.
+                //
+                // <b>이 조건은 위 afford 산정과 반드시 같아야 한다.</b> 재원에 저장고를 더해
+                // 놓고 여기서 안 빼면 그만큼 타일이 공짜로 생긴다(무에서 식량 창조 — 감사
+                // 항등식 파괴). 종전에는 둘 다 nTen == 0 이라 짝이 맞았고, 위를 성숙 기준으로
+                // 바꿨으니 여기도 같이 바꾼다.
                 double bill = placed * com.evosim.core.FarmEconomy.expandCost(plot.steps + 1);
                 plot.totalSpentExpand += bill; // 부양력 계산의 입력 — 번 것 중 되돌린 몫
                 double fromAccount = Math.min(plot.account, bill);
                 plot.account -= fromAccount;
                 double fromLarder = bill - fromAccount;
-                if (fromLarder > 0 && nTen == 0 && ownerEnt.getHomePos() != null) {
+                if (fromLarder > 0 && bootstrap && ownerEnt.getHomePos() != null) {
                     larders.set(ownerEnt.getHomePos(), Math.max(0.0,
                             larders.get(ownerEnt.getHomePos()) - fromLarder));
                 }
@@ -3229,7 +3258,15 @@ public final class FarmTicker {
                 // 저장고가 0~27 을 오가며 한 푼도 쌓이지 않는다. 그 결과 막사·교회·학교가 전부
                 // "저장고 20 < 문턱 48/66/76"으로 영영 보류된다 — 군인을 얹을 토대 자체가
                 // 서지 않는다.
-                if (m.getTenantFarm() == 0L) {
+                //
+                // 단, <b>정원초과로 밀어 넣은 배정은 승격시키지 않는다</b>(open != null 일 때만).
+                // 초과 경로의 유일한 상한은 타일/MIN_JOB(2)인데, 그것은 "같은 칸을 두고 몸으로
+                // 비비지는 말자"는 물리적 방어선이지 적정 인력이 아니다 — 하루 붙였다 떼는
+                // 임시 배정이라 문제가 안 됐다. 거기에 승격을 달면 임시 상한이 그대로 상시
+                // 정원이 된다: 10타일 밭에 상시 5명(실측 스크린샷 — 소작 기여 40%로 얇아짐).
+                // 같은 밭의 "여유" 기준은 바로 위에 이미 있다 — 타일 > C_BASE(8)×(1+인원).
+                // 10타일이면 첫 한 명만 그 조건을 통과한다.
+                if (open != null && m.getTenantFarm() == 0L) {
                     int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == best.id
                             ? m.getTenantStreak() + 1 : 1;
                     if (streak >= com.evosim.core.FarmEconomy.PROMOTE_DAYS) {

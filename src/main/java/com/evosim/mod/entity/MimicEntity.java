@@ -5934,12 +5934,32 @@ public class MimicEntity extends PathfinderMob {
     private static final java.util.Map<String, Integer> GOAL_CHURN =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * 그중 <b>짧게 머물다 갈아탄</b> 것만 따로. 이쪽이 진짜 움찔이다.
+     *
+     * <p>처음엔 전이 횟수만 셌는데, 그러면 정상적인 하루 순환(채집→귀가→채집)이 왕복과 똑같이
+     * 상위에 올라온다 — 실측 1회차에서 Forage↔Return 이 그렇게 잡혔고, 이건 일과이지 결함이
+     * 아니다. 구분 기준은 <b>머문 시간</b>이다: 집까지 300틱을 걸어간 뒤 바뀌었으면 일을 한
+     * 것이고, 15틱 만에 되돌아왔으면 문턱 위에서 떤 것이다.
+     */
+    private static final java.util.Map<String, Integer> GOAL_FLICK =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 이 틱수 안에 갈아타면 "짧게 머물다"로 본다(≈0.75초). */
+    private static final long FLICK_TICKS = 20L;
+
     private static long churnSinceTick = -1L;
 
     private String lastGoal = "";
 
+    private long lastGoalStart = 0L;
+
     public static java.util.Map<String, Integer> goalChurn() {
         return GOAL_CHURN;
+    }
+
+    public static java.util.Map<String, Integer> goalFlick() {
+        return GOAL_FLICK;
     }
 
     public static long churnSince() {
@@ -5948,6 +5968,7 @@ public class MimicEntity extends PathfinderMob {
 
     public static void resetGoalChurn(long nowTick) {
         GOAL_CHURN.clear();
+        GOAL_FLICK.clear();
         churnSinceTick = nowTick;
     }
 
@@ -5957,6 +5978,13 @@ public class MimicEntity extends PathfinderMob {
         }
         String cur = "";
         for (var w : goalSelector.getRunningGoals().toList()) {
+            // <b>이동을 지시하는 goal 만</b> 본다. 시선 goal(RandomLookAround 등)은 MOVE 를 쥐지
+            // 않아 걸음에 영향이 없는데, 켜졌다 꺼졌다를 반복해 목록을 통째로 덮는다(실측
+            // 1회차 상위 두 줄이 전부 그것이었다).
+            if (!w.getGoal().getFlags()
+                    .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
+                continue;
+            }
             String n = w.getGoal().getClass().getSimpleName()
                     .replace("Mimic", "").replace("Goal", "");
             // 최상위(먼저 나오는) 하나만 — 이동을 실제로 지시하는 것이 그것이다.
@@ -5965,11 +5993,17 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         if (!cur.equals(lastGoal)) {
+            long now = com.evosim.mod.entity.SimTime.tick(level());
             if (!lastGoal.isEmpty() || !cur.isEmpty()) {
-                GOAL_CHURN.merge((lastGoal.isEmpty() ? "―" : lastGoal)
-                        + "→" + (cur.isEmpty() ? "―" : cur), 1, Integer::sum);
+                String key = (lastGoal.isEmpty() ? "―" : lastGoal)
+                        + "→" + (cur.isEmpty() ? "―" : cur);
+                GOAL_CHURN.merge(key, 1, Integer::sum);
+                if (lastGoalStart > 0 && now - lastGoalStart < FLICK_TICKS) {
+                    GOAL_FLICK.merge(key, 1, Integer::sum);
+                }
             }
             lastGoal = cur;
+            lastGoalStart = now;
         }
     }
 

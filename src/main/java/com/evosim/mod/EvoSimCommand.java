@@ -1693,21 +1693,32 @@ public final class EvoSimCommand {
             return 1;
         }
         long dt = com.evosim.mod.entity.SimTime.tick(ctx.getSource().getLevel()) - since;
-        var top = MimicEntity.goalChurn().entrySet().stream()
-                .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(14).toList();
+        int total = MimicEntity.goalChurn().values().stream().mapToInt(Integer::intValue).sum();
+        int flicks = MimicEntity.goalFlick().values().stream().mapToInt(Integer::intValue).sum();
         tell(ctx.getSource(), String.format(
-                "§e[갈아타기]§r %d틱 동안 전이 %d종 · 총 %d회", dt, MimicEntity.goalChurn().size(),
-                MimicEntity.goalChurn().values().stream().mapToInt(Integer::intValue).sum()));
-        for (var e : top) {
-            // 역방향이 함께 잦으면 진동 — 그 쌍에 표시를 단다.
-            String[] ab = e.getKey().split("→");
-            int back = ab.length == 2
-                    ? MimicEntity.goalChurn().getOrDefault(ab[1] + "→" + ab[0], 0) : 0;
-            boolean osc = back > 0 && Math.min(back, e.getValue()) * 3 >= Math.max(back, e.getValue());
-            tell(ctx.getSource(), String.format("  %s%-28s %5d회 (역방향 %d)%s",
-                    osc ? "§c왕복 " : "     ", e.getKey(), e.getValue(), back, osc ? "§r" : ""));
+                "§e[갈아타기]§r %d틱 · 전이 %d종 %d회 · 그중 §c짧게 머물다 갈아탐 %d회(%.0f%%)§r",
+                dt, MimicEntity.goalChurn().size(), total, flicks,
+                total == 0 ? 0.0 : 100.0 * flicks / total));
+        // <b>짧게 머문 것</b>부터 보여 준다 — 정상적인 하루 순환(채집→귀가→채집)도 전이 횟수만
+        // 보면 왕복과 똑같이 상위에 오르므로, 그 목록만으로는 결함을 가릴 수 없다.
+        tell(ctx.getSource(), "§7 ── 짧게 머물다 갈아탄 것(진짜 움찔) ──");
+        MimicEntity.goalFlick().entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(8).forEach(e -> {
+                    String[] ab = e.getKey().split("→");
+                    int back = ab.length == 2
+                            ? MimicEntity.goalFlick().getOrDefault(ab[1] + "→" + ab[0], 0) : 0;
+                    tell(ctx.getSource(), String.format("  §c%-26s %5d회 (역방향 %d)§r",
+                            e.getKey(), e.getValue(), back));
+                });
+        if (flicks == 0) {
+            tell(ctx.getSource(), "  §a없음§r");
         }
+        tell(ctx.getSource(), "§7 ── 전체 전이(참고 — 일과 포함) ──");
+        MimicEntity.goalChurn().entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(8).forEach(e -> tell(ctx.getSource(),
+                        String.format("  %-26s %5d회", e.getKey(), e.getValue())));
         return 1;
     }
 

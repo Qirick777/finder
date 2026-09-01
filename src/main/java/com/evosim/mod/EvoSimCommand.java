@@ -262,6 +262,7 @@ public final class EvoSimCommand {
                         })))
                 .then(Commands.literal("church").executes(EvoSimCommand::churchReport))
                 .then(Commands.literal("homes").executes(EvoSimCommand::homesReport))
+                .then(Commands.literal("farms").executes(EvoSimCommand::farmsReport))
                 .then(Commands.literal("visitfix")
                         .then(Commands.literal("on").executes(ctx -> {
                             com.evosim.mod.entity.MimicVisitGoal.setHoldOnPreempt(true);
@@ -1753,6 +1754,61 @@ public final class EvoSimCommand {
      * <p>왕복은 <b>쌍</b>으로 나타난다: A→B 와 B→A 가 나란히 상위에 있으면 그 둘이 서로를
      * 선점하며 진동하는 것이다. 한쪽만 많으면 정상적인 하루 흐름(예: 밭→귀가)이다.
      */
+    /**
+     * <b>밭 보고</b> — 구획마다 무엇이 확장을 막고 있는가.
+     *
+     * <p>확장은 세 상한의 최솟값이라(노동·자금·타일상한) 밖에서는 왜 멈췄는지 알 수 없었다 —
+     * "48타일 밭에 50이 쌓이는데 안 커진다"를 코드만 읽고 추측해야 했다. 셋을 나란히 찍고
+     * <b>지금 발목을 잡는 것</b>에 표시를 단다.
+     */
+    private static int farmsReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore store = FarmStore.get(level);
+        var fl = com.evosim.mod.entity.FamilyLedger.get(level);
+        if (store.all().isEmpty()) {
+            tell(ctx.getSource(), "§e[밭]§r 등록된 구획이 없다");
+            return 1;
+        }
+        java.util.List<FarmStore.Plot> plots = new java.util.ArrayList<>(store.all().values());
+        plots.sort((a, b) -> Integer.compare(b.tiles.length, a.tiles.length));
+        tell(ctx.getSource(), String.format("§e[밭]§r 구획 %d", plots.size()));
+        for (FarmStore.Plot p : plots) {
+            int nTen = FarmTicker.assignedToPlot(p.id);
+            int fol = FarmTicker.followersOf(p.ownerId);
+            int cap = com.evosim.core.FarmEconomy.plotTileCap(fol);
+            int capRoom = Math.max(0, cap - p.tiles.length);
+            int labor = Math.min(com.evosim.core.FarmEconomy.EXPAND_DAY_MAX,
+                    com.evosim.core.FarmEconomy.EXPAND_PER_DAY * (1 + nTen));
+            int afford = com.evosim.core.FarmEconomy.reinvestTiles(
+                    p.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE, p.steps + 1);
+            int k = Math.min(Math.min(labor, afford), capRoom);
+            String bind;
+            if (capRoom == 0) {
+                bind = String.format("§c상한 도달§r — 추종자 1명 더 있어야 %d칸까지",
+                        cap + com.evosim.core.FarmEconomy.PLOT_TILE_PER_FOLLOWER);
+            } else if (afford <= 0) {
+                bind = String.format("§e자금 부족§r — 1칸에 %.1f 필요, 쓸 수 있는 몫 %.1f"
+                        + "(계정 %.1f × %.0f%%)",
+                        com.evosim.core.FarmEconomy.expandCost(p.steps + 1),
+                        p.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE, p.account,
+                        com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE * 100);
+            } else if (afford <= labor && afford <= capRoom) {
+                bind = String.format("§a자금이 한도§r — 오늘 %d칸", k);
+            } else if (labor <= capRoom) {
+                bind = String.format("§a노동이 한도§r — 오늘 %d칸(소작 %d명)", k, nTen);
+            } else {
+                bind = String.format("§a상한이 한도§r — 오늘 %d칸", k);
+            }
+            var owner = fl.get(p.ownerId);
+            tell(ctx.getSource(), String.format(
+                    "  구획%d @%d,%d · %d타일 · 계정 %.1f · 소작 %d · 주인 §a%s§r 추종자 %d → 상한 %d",
+                    p.id, p.anchor.getX(), p.anchor.getZ(), p.tiles.length, p.account, nTen,
+                    owner != null && owner.name != null ? owner.name : "#" + p.ownerId, fol, cap));
+            tell(ctx.getSource(), "     → " + bind);
+        }
+        return 1;
+    }
+
     /**
      * <b>주거 보고</b> — 가구마다 인원·등급·수용·저장고, 그리고 <b>승격에 얼마가 모자란가</b>.
      *

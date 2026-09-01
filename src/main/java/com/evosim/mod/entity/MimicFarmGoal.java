@@ -27,11 +27,21 @@ public class MimicFarmGoal extends Goal {
     private int harvestedToday;
     private long day = -1;
     private BlockPos target;
-    private BlockPos stuckPos;  // 무진전 감지 — 표적 추적 중 마지막 위치(ForageGoal R-5 와 동형)
     private int stuckTicks;
 
-    /** 표적 무진전이 이 틱 지속되면 도달 불가로 보고 배정을 반납한다. */
-    private static final int STUCK_DROP_TICKS = 60;
+    /** 지금 진전을 재고 있는 표적 — 바뀌면 최근접 기록을 새로 시작한다. */
+    private BlockPos progressTarget;
+
+    /** 그 표적까지 <b>지금까지 가장 가까이</b> 갔던 거리². */
+    private double bestDistSqr = Double.MAX_VALUE;
+
+    /**
+     * 표적에 더 가까워지지 못한 채 이 틱이 지나면 도달 불가로 보고 배정을 반납한다.
+     *
+     * <p>종전 60틱은 <b>좌표가 정확히 같은</b> 경우에만 세는 값이라 짧아도 됐다. 이제는 왕복도
+     * 잡는데, 길이 크게 돌아가는 정상 통근이 여기 걸리면 멀쩡한 출근을 끊는다 — 넉넉히 준다.
+     */
+    private static final int NO_PROGRESS_DROP_TICKS = 200;
 
     public MimicFarmGoal(MimicEntity mob) {
         this.mob = mob;
@@ -486,17 +496,38 @@ public class MimicFarmGoal extends Goal {
             // 길이 끊긴 밭에 배정될 수 있다. 그러면 이 goal 이 우선순위 6으로 채집(7)을 선점한 채
             // 제자리에 서서 굶어 죽는다(구제하려던 개체를 더 빨리 죽이는 역효과). 일정 틱 제자리면
             // 배정을 반납해 그날은 다른 밭·채집으로 돌아가게 한다.
-            if (mob.blockPosition().equals(stuckPos)) {
-                if (++stuckTicks >= STUCK_DROP_TICKS) {
-                    FarmStore.Plot p = plotOf(target);
-                    FarmTicker.reportUnreachable(mob.getId(), p != null ? p.id : 0L);
-                    target = null;
-                    stuckTicks = 0;
-                    mob.setWorkAnchor(null);
-                }
-            } else {
-                stuckPos = mob.blockPosition();
+            // <b>가까워지고 있는가</b>로 본다 — 좌표가 같은지가 아니라.
+            //
+            // 종전에는 blockPosition 이 <b>정확히 같을 때만</b> 무진전으로 셌다. 그러면 제자리에
+            // 얼어붙은 개체는 잡지만, <b>왔다 갔다 하는</b> 개체는 좌표가 매번 달라 영영 안
+            // 걸린다. 육안 관측이 그 경우다: 위급해진 개체가 먼 밭으로 배정받으면, 가는 도중
+            // 소지가 떨어져 귀가(우선순위 3)가 밭일(6)을 선점해 집으로 끌고 오고, 인출하면 다시
+            // 밭으로 나서기를 반복한다 — 왕복 거리가 지고 갈 수 있는 식량보다 길어 <b>영원히
+            // 도착하지 못한다</b>. 그동안 배정을 쥐고 있으니 다른 일도 못 한다.
+            //
+            // 지금까지 <b>가장 가까이 갔던 거리</b>를 기억하고, 그보다 나아지지 않는 상태가
+            // 이어지면 도달 불가로 본다. 집에 다녀오면 거리가 나빠지므로 왕복이 그대로 잡힌다.
+            // 표적이 바뀌면 기록을 새로 시작한다.
+            double d = mob.blockPosition().distSqr(target);
+            if (!target.equals(progressTarget)) {
+                progressTarget = target;
+                bestDistSqr = d;
                 stuckTicks = 0;
+            } else if (d < bestDistSqr - 1.0) {
+                bestDistSqr = d; // 한 발이라도 가까워졌다 — 진행 중
+                stuckTicks = 0;
+            } else if (++stuckTicks >= NO_PROGRESS_DROP_TICKS) {
+                FarmStore.Plot p = plotOf(target);
+                FarmTicker.reportUnreachable(mob.getId(), p != null ? p.id : 0L);
+                SimEvents.event(mob, "출근포기", String.format(
+                        "구획%d 까지 %.0f블록 — %d틱 동안 더 가까워지지 못해 배정을 반납한다"
+                                + "(최근접 %.0f블록%s)",
+                        p != null ? p.id : 0L, Math.sqrt(d), stuckTicks, Math.sqrt(bestDistSqr),
+                        mob.isCritical() ? " · 위급" : ""));
+                target = null;
+                progressTarget = null;
+                stuckTicks = 0;
+                mob.setWorkAnchor(null);
             }
             return;
         }

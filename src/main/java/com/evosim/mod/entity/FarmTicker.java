@@ -724,6 +724,31 @@ public final class FarmTicker {
                         nextFarmBlock(level, m.getIndividual().id())));
                 continue; // 성숙 트리거(P6) — nextFarmEligible 참조(확장 예비 산정과 단일 출처)
             }
+            // <b>가구 우회 차단</b> — 성숙 트리거는 개인 단위인데 <b>돈은 가구 공동</b>이다.
+            //
+            // 그래서 가장이 트리거에 걸려 있는 동안, 밭이 없는 배우자·첩이 <b>같은 저장고</b>로
+            // 자기 명의 밭을 열 수 있었다(육안 관측: "엘리트가 첩을 들이면 첩이 남편 돈으로
+            // 자기 명의 밭과 학교를 만들어버림"). 그러면 성숙 트리거가 통째로 무력해진다 —
+            // 가구원 수만큼 우회로가 있는 셈이다.
+            //
+            // 그 뒤가 더 크다. 밭을 가지면 추종자가 붙고, 시설 창건자는 <b>가구에서 추종자가
+            // 가장 많은 사람</b>으로 뽑히므로(considerFacility), 학교·교회도 첩 명의가 된다.
+            // 그러면 온 마을이 남편을 따르는데 시설 주인은 첩이라 아무도 쓰지 않는다.
+            //
+            // 가구의 주 지주가 다음 밭 자격을 얻기 전에는 그 가구가 밭을 더 열지 못하게 한다.
+            // 주 지주 본인이 자격을 갖추면 위 정렬(수확 능력 내림차순)에서 그가 먼저 걸리므로,
+            // 이 조항이 정상적인 확장을 막지는 않는다.
+            if (headTiles > 0 && headId != m.getIndividual().id()
+                    && !nextFarmEligible(store, adults, headId)) {
+                FamilyLedger.Rec hr = FamilyLedger.get(level).get(headId);
+                com.evosim.mod.log.SimEvents.event(m, "개간보류", String.format(
+                        "자금 %.0f ≥ 문턱 %.0f 인데 — 같은 가구의 주 지주 %s 가 아직 %s"
+                                + "(가구는 한 번에 한 명의로만 넓힌다)",
+                        funds, cost + reserve,
+                        hr != null && hr.name != null ? hr.name : "#" + headId,
+                        nextFarmBlock(level, headId)));
+                continue;
+            }
             int[] spot = findFootprint(level, store, m.getHomePos(), adults);
             if (spot == null) {
                 com.evosim.mod.log.SimEvents.event(m, "개간보류", String.format(

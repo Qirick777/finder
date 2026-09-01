@@ -1398,15 +1398,15 @@ public final class FarmTicker {
                 if (SCHOOL_OF.containsKey(b.getId())) {
                     continue; // 한 아이는 한 학교만
                 }
-                boolean headFollows = Long.valueOf(sc.ownerId)
-                        .equals(patrons.get(householdPatronKey(b, adults)));
+                boolean headFollows = ownerSide(owner, sc.ownerId,
+                        patrons.get(householdPatronKey(b, adults)));
                 boolean anyFollows = headFollows;
                 if (!anyFollows) {
                     for (MimicEntity a : adults) {
                         if (a.getIndividual() != null && a.getHomePos() != null
                                 && a.getHomePos().equals(b.getHomePos())
-                                && Long.valueOf(sc.ownerId)
-                                        .equals(patrons.get(a.getIndividual().id()))) {
+                                && ownerSide(owner, sc.ownerId,
+                                        patrons.get(a.getIndividual().id()))) {
                             anyFollows = true;
                             break;
                         }
@@ -1592,6 +1592,29 @@ public final class FarmTicker {
      * <p>지주의 아들이 다니면 <b>지주</b>가 신세를 져야 지주 간 사슬이 생긴다. 아이 본인에게
      * 달면 아이는 이미 태생적 추종자라 아무것도 바뀌지 않는다. 성년이 없으면 아이 자신이다.
      */
+    /**
+     * 이 추종 대상이 <b>시설 주인 쪽</b>인가 — 주인 본인이거나 그 배우자면 참.
+     *
+     * <p>육안 관측: "야망가 수컷이 벌어온 걸 마누라가 받아서 학교를 지으니, 다들 추종은 수컷인데
+     * 지은 사람이 마누라여서 학교 사용을 안 함."
+     *
+     * <p>학생 자격은 이미 <b>가구 단위</b>로 넓혀 두었다 — 어머니가 따르고 아버지가 안 따르는
+     * 집이 통째로 빠지던 실측 결함을 고치면서, 그 주석이 이유까지 적어 두었다("저장고가 가구
+     * 공동이니 자격도 가구 것으로 봐야 앞뒤가 맞는다"). 그런데 그 논리를 <b>학생 쪽에만</b>
+     * 적용했다. 주인 쪽은 여전히 한 사람이라, 건축비를 낸 저장고가 부부 공동인데도 배우자
+     * 명의로 등기되면 온 마을이 남남이 된다.
+     *
+     * <p>같은 이유이므로 같은 처방을 한다. {@code MimicFarmGoal} 이 배우자 소유 밭을 양방향
+     * ({@code marriedTo})으로 보는 것과 같은 장치다 — 그쪽도 단방향일 때 "첩 소유 밭이 남의
+     * 밭으로 잡혀 자기 가구 수확이 새어 나가는" 같은 병을 앓았다.
+     */
+    private static boolean ownerSide(MimicEntity owner, long ownerId, Long patron) {
+        if (patron == null) {
+            return false;
+        }
+        return patron == ownerId || (owner != null && owner.marriedTo(patron));
+    }
+
     private static long householdPatronKey(MimicEntity boy, java.util.List<MimicEntity> adults) {
         long best = boy.getIndividual().id();
         int bestTiles = -1;

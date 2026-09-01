@@ -1843,11 +1843,16 @@ public final class EvoSimCommand {
         for (var e : all) {
             var owner = fl.get(e.ownerId);
             var staff = e.staffId == 0L ? null : fl.get(e.staffId);
+            // <b>주인의 추종자 수</b>를 같이 낸다. 시설은 그 주인을 따르는 가구만 쓰므로,
+            // 추종자 0인 사람 명의로 등기되면 아무도 못 쓴다 — 실측된 그 상황("야망가가 벌고
+            // 마누라가 지어 다들 못 씀")이 여기서 한눈에 보여야 한다.
+            int fol = FarmTicker.followersOf(e.ownerId);
             tell(ctx.getSource(), String.format(
-                    "  %s @%d,%d · 세운이 §a%s§r(d%d) · 일꾼 %s · 건축비 %.1f 수입 %.1f · 주인 밭 %d타일",
+                    "  %s @%d,%d · 세운이 §a%s§r(d%d) · %s추종자 %d명§r · 일꾼 %s"
+                            + " · 건축비 %.1f 수입 %.1f · 주인 밭 %d타일",
                     e.kind, e.pos.getX(), e.pos.getZ(),
                     owner != null && owner.name != null ? owner.name : "#" + e.ownerId,
-                    e.foundedDay,
+                    e.foundedDay, fol == 0 ? "§c" : "§a", fol,
                     staff != null && staff.name != null ? staff.name : (e.staffId == 0L ? "없음"
                             : "#" + e.staffId),
                     e.spent, e.earned, fs.ownedTiles(e.ownerId)));

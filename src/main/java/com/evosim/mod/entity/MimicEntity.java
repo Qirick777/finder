@@ -1165,6 +1165,7 @@ public class MimicEntity extends PathfinderMob {
         if (!level().isClientSide) {
             trackJam();
             trackGoalChurn();
+            tickLabel();
             if (birthPos == null) {
                 birthPos = blockPosition(); // 스폰 위치 확정(1세대 정착 기준)
             }
@@ -5924,6 +5925,75 @@ public class MimicEntity extends PathfinderMob {
      * 거처 옆 정원의 익은 베리만 수확(MimicForageGoal). 외부 노동은 해제된 배우자의 몫 —
      * 종전 이진 스위치가 부모 양쪽을 완전 정지시켜 가구 경제가 동결되던 실측 결함의 수정.
      */
+    // ── 머리 위 활동 표시 ──────────────────────────────────────────────────────────────
+    // "관리중인지 무엇인지 확인할 수도 없다" — 육안 관측의 절반은 <b>무엇을 하는 중인지 모른다</b>
+    // 는 문제였다. 로그로 사유를 좁히는 것보다 머리 위에 띄우는 편이 빠르고 확실하다.
+    // 기본은 꺼 둔다(연출용 월드에서 이름표가 떠 있으면 방해).
+
+    private static boolean labelEnabled;
+
+    private String activity = "";
+
+    public static void setLabel(boolean on) {
+        labelEnabled = on;
+    }
+
+    public static boolean label() {
+        return labelEnabled;
+    }
+
+    /** 지금 무엇을 하는 중인가 — goal 이 판단 지점마다 적어 둔다. */
+    public void setActivity(String s) {
+        this.activity = s == null ? "" : s;
+    }
+
+    public String activity() {
+        return activity;
+    }
+
+    private void tickLabel() {
+        if (!labelEnabled) {
+            if (isCustomNameVisible()) {
+                setCustomNameVisible(false);
+            }
+            return;
+        }
+        if (tickCount % 10 != 0) {
+            return; // 매 틱 갱신할 이유가 없다 — 이름표는 사람이 읽는 속도면 족하다
+        }
+        String act = activity.isEmpty() ? topMoveGoalLabel() : activity;
+        setCustomName(net.minecraft.network.chat.Component.literal(
+                (individual == null ? "?" : individual.shortName()) + " · " + act));
+        setCustomNameVisible(true);
+    }
+
+    /** 지금 걸음을 지시하는 goal 의 짧은 이름 — 밭 goal 이 활동을 안 적어 둔 경우의 대체. */
+    private String topMoveGoalLabel() {
+        for (var w : goalSelector.getRunningGoals().toList()) {
+            if (w.getGoal() instanceof RandomLookAroundGoal
+                    || w.getGoal() instanceof LookAtPlayerGoal
+                    || !w.getGoal().getFlags()
+                            .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
+                continue;
+            }
+            String n = w.getGoal().getClass().getSimpleName()
+                    .replace("Mimic", "").replace("Goal", "");
+            return switch (n) {
+                case "Farm" -> "밭일";
+                case "Forage" -> "채집";
+                case "Return" -> "귀가";
+                case "Parenting" -> "육아";
+                case "Rest" -> "취침";
+                case "Build" -> "건축";
+                case "Leash" -> "복귀";
+                case "Home" -> "귀소";
+                case "Stroll", "WaterAvoidingRandomStroll" -> "배회";
+                default -> n;
+            };
+        }
+        return "정지";
+    }
+
     // ── goal 갈아타기 기록 ────────────────────────────────────────────────────────────
     // "움찔거린다"의 정체를 <b>추측하지 않기 위한</b> 장치다. 10초 간격으로 표본을 뜨면 그 사이
     // 뒤집혔다 되돌아온 왕복이 통째로 안 잡힌다(실측: 육아왕복 0인데 움찔 10.4%). 그래서

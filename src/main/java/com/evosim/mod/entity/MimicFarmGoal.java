@@ -87,6 +87,8 @@ public class MimicFarmGoal extends Goal {
         target = harvestBlocked ? null : nearestWorkRipe();
         if (target != null) {
             tendTarget = null; // 익은 게 있으면 언제나 수확이 먼저
+            mob.setActivity("수확 " + harvestedToday + "/"
+                    + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()));
             return true;
         }
         // 사유는 <b>여기서 적어만 두고</b>, 실제로 노는 경로에 닿았을 때만 내보낸다. 곧장
@@ -115,6 +117,7 @@ public class MimicFarmGoal extends Goal {
                 tendStay = 0;
             }
             if (tendTarget != null) {
+                mob.setActivity("관리중");
                 return true;
             }
         }
@@ -124,7 +127,19 @@ public class MimicFarmGoal extends Goal {
         // 출근→밭일→배회(리시 복귀)→출근 의 무한 왕복이 되고, 그 사이 아무것도 못 먹는다
         // (실측: 위기 상태로 이 순환을 반복하다 사망). 앵커를 남기면 밭 근처에 머물며
         // 채집(우선순위 7)으로 시간을 쓰고, 타일이 익는 즉시 그 자리에서 수확한다.
+        if (harvestBlocked) {
+            // <b>오늘은 여기서 할 일이 없다</b> — 앵커를 놓고 물러난다. 위 주석의 왕복 우려는
+            // "잠시 딸 게 없을 뿐"인 경우의 이야기다: 용량을 채운 뒤에는 타일이 익어도 못 따므로
+            // 되돌아올 일이 없어 진동하지 않는다. 앵커를 쥔 채 서 있으면 육안으로 본 그 장면이
+            // 된다 — "밭에 익은 덤불이 있는데 안 따고 그냥 밭 중앙에 머무른다". 관리도 못 하는
+            // 이유는 관리가 <b>안 익은 타일</b>만 대상이기 때문이다(익은 것은 더 익힐 게 없다).
+            // 남은 타일이 전부 익은 밭에서는 관리 자리가 아예 없다.
+            mob.setActivity("퇴근(" + why + ")");
+            idleWhy(why + " · 관리할 안 익은 타일도 없음 — 오늘 노동 종료");
+            return idle();
+        }
         if (FarmTicker.assignedPlot(mob.getId()) != 0L) {
+            mob.setActivity("대기(딸 것 없음)");
             idleWhy(why + " · 관리 자리도 없음");
             return false; // 앵커 유지 — 하루 노동이 끝난 게 아니라 잠시 딸 게 없을 뿐
         }
@@ -149,6 +164,7 @@ public class MimicFarmGoal extends Goal {
     /** 밭일 자연 종료 — 출근 앵커 해제 후 비활성(리시 앵커가 거처로 복원). */
     private boolean idle() {
         mob.setWorkAnchor(null);
+        mob.setActivity(""); // 밭일이 끝났으니 표시는 다른 goal 에 넘긴다
         return false;
     }
 

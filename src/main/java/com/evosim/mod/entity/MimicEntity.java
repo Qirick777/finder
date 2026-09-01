@@ -1087,10 +1087,48 @@ public class MimicEntity extends PathfinderMob {
         heal((float) (REGEN_BASE * Physique.recovery(individual)));
     }
 
+    // ── 끼임 풀기 ────────────────────────────────────────────────────────────────
+    //
+    // 마크 몹은 서로 <b>밀기</b>로만 부딪힌다(단단한 충돌이 아니다). 그래서 폭 1칸 문을 둘이
+    // 동시에 지나려 하면 서로 밀어내며 제자리에서 비비는 교착이 생긴다 — 사용자 육안 관측.
+    // 목표는 그대로라 종전 움찔 지표(제자리 + 목표바뀜)가 이 경우를 통째로 놓쳤다.
+    //
+    // 막혀 있는 <b>동안만</b> 밀기를 끄면 둘이 겹쳐 지나가고 교착이 풀린다. 평상시에는 그대로
+    // 밀리므로 군집 거동은 변하지 않는다.
+    private static final int JAM_TICKS_TO_PHASE = 20; // 1초 — 이보다 짧으면 정상 멈춤과 구분 안 됨
+    private static final double JAM_MOVE_EPS = 0.02;  // 한 틱에 이만큼도 못 움직이면 정지로 본다
+    private int jamTicks;
+    private double lastJamX;
+    private double lastJamZ;
+
+    private void trackJam() {
+        boolean pathing = getNavigation().isInProgress();
+        double dx = getX() - lastJamX;
+        double dz = getZ() - lastJamZ;
+        lastJamX = getX();
+        lastJamZ = getZ();
+        if (pathing && Math.hypot(dx, dz) < JAM_MOVE_EPS) {
+            jamTicks++;
+        } else {
+            jamTicks = 0;
+        }
+    }
+
+    /** 끼여 있는가 — 갈 곳이 있는데 못 가고 있다(보고·판정 공용). */
+    public boolean isJammed() {
+        return jamTicks >= JAM_TICKS_TO_PHASE;
+    }
+
+    @Override
+    public boolean isPushable() {
+        return !isJammed() && super.isPushable();
+    }
+
     @Override
     public void tick() {
         super.tick();
         if (!level().isClientSide) {
+            trackJam();
             if (birthPos == null) {
                 birthPos = blockPosition(); // 스폰 위치 확정(1세대 정착 기준)
             }

@@ -1653,8 +1653,10 @@ public final class EvoSimCommand {
         int stuck = 0;
         int retargeted = 0;
         int jitter = 0;
+        int jam = 0;                       // 끼임 — 경로는 있는데 못 감(문 앞 정체 등)
         long dtTicks = 0;
         StringBuilder who = new StringBuilder();
+        StringBuilder jamWho = new StringBuilder();
         for (MimicEntity m : all) {
             var path = m.getNavigation().getPath();
             double tx = path == null || path.getTarget() == null ? Double.NaN
@@ -1688,6 +1690,17 @@ public final class EvoSimCommand {
                             m.blockPosition().getX(), m.blockPosition().getZ()));
                 }
             }
+            // <b>끼임</b> — 갈 곳이 정해져 있고(경로 진행 중) 목표도 그대로인데 못 갔다.
+            // 움찔(목표 churn)과는 다른 병이다: 문 하나를 두 명이 동시에 지나려다 서로 밀며
+            // 비비는 경우가 여기 해당한다. 종전 지표는 "목표가 바뀌었는가"를 요구해 이 경우를
+            // 통째로 놓쳤고(정상으로 분류), 그 수를 근거로 "정상"이라 보고했다.
+            if (moved < 0.5 && !changed && !Double.isNaN(tx) && m.getNavigation().isInProgress()) {
+                jam++;
+                if (jamWho.length() < 160) {
+                    jamWho.append(String.format("%s@%d,%d ", m.getIndividual().shortName(),
+                            m.blockPosition().getX(), m.blockPosition().getZ()));
+                }
+            }
         }
         if (seen == 0) {
             tell(ctx.getSource(), String.format(
@@ -1701,6 +1714,12 @@ public final class EvoSimCommand {
                 100.0 * jitter / seen));
         if (jitter > 0) {
             tell(ctx.getSource(), "  " + who.toString().trim());
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[끼임]§r 경로는 있는데 못 간 개체 %s%d명(%.0f%%)§r — 문 하나를 여럿이 지나려는 정체 등",
+                jam == 0 ? "§a" : "§c", jam, 100.0 * jam / seen));
+        if (jam > 0) {
+            tell(ctx.getSource(), "  " + jamWho.toString().trim());
         }
         return 1;
     }

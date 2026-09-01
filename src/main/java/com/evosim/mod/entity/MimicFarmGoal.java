@@ -89,12 +89,16 @@ public class MimicFarmGoal extends Goal {
             tendTarget = null; // 익은 게 있으면 언제나 수확이 먼저
             return true;
         }
-        if (harvestBlocked && tendAfterCap) {
-            idleWhy(harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())
-                    ? "하루 수확 용량 소진(" + harvestedToday + "/"
-                            + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()) + ")"
-                    : "노년 쿼터 소진");
-        } else if (harvestBlocked) {
+        // 사유는 <b>여기서 적어만 두고</b>, 실제로 노는 경로에 닿았을 때만 내보낸다. 곧장
+        // 찍었더니 관리하러 가는 개체까지 "익은 걸 안 딴다"로 잡혀 47건이 쏟아졌다 — 일하는
+        // 중인데 결함으로 세는 거짓 양성이다.
+        String why = harvestBlocked
+                ? (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())
+                        ? "하루 수확 용량 소진(" + harvestedToday + "/"
+                                + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()) + ")"
+                        : "노년 쿼터 소진")
+                : "익은 표적을 못 찾음(돌봄 반경 밖이거나 남의 밭)";
+        if (harvestBlocked && !tendAfterCap) {
             idleWhy("수확 상한(용량·쿼터) 소진 — 관리 이관 꺼짐");
             return idle(); // A/B 의 종전 거동
         }
@@ -119,10 +123,10 @@ public class MimicFarmGoal extends Goal {
         // (실측: 위기 상태로 이 순환을 반복하다 사망). 앵커를 남기면 밭 근처에 머물며
         // 채집(우선순위 7)으로 시간을 쓰고, 타일이 익는 즉시 그 자리에서 수확한다.
         if (FarmTicker.assignedPlot(mob.getId()) != 0L) {
-            idleWhy("익은 표적을 못 찾음(돌봄 반경 밖이거나 남의 밭) · 관리 자리도 없음");
+            idleWhy(why + " · 관리 자리도 없음");
             return false; // 앵커 유지 — 하루 노동이 끝난 게 아니라 잠시 딸 게 없을 뿐
         }
-        idleWhy("배정도 소유도 없음");
+        idleWhy(why + " · 배정도 소유도 없음");
         return idle();
     }
 

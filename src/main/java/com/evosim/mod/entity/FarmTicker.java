@@ -618,6 +618,10 @@ public final class FarmTicker {
         founders.sort(java.util.Comparator.comparingDouble(
                 (MimicEntity e) -> -com.evosim.core.FarmEconomy.tileYield(e.getIndividual()))
                 .thenComparingInt(MimicEntity::getId));
+        // 문턱에 가장 가까운 후보(자금 미달) — 루프가 끝난 뒤 한 줄만 남긴다.
+        MimicEntity foundNear = null;
+        String foundNearText = null;
+        double foundNearGap = -Double.MAX_VALUE;
         for (MimicEntity m : founders) {
             if (m.getHomePos() == null) {
                 continue;
@@ -688,6 +692,17 @@ public final class FarmTicker {
             // 하루 한 번, <b>가장 부유한 무산 후보</b>에게만 찍는다(전원 매일이면 도배된다).
             // 자금 미달은 정상 상태라 조용히 두고, 자금을 넘긴 뒤 막히는 것만 남긴다.
             if (funds < cost + reserve) {
+                // 자금 미달은 정상 상태지만 <b>얼마나 모자란지</b>는 남겨야 한다. 이 수가 없으면
+                // "아무도 개간을 안 한다"에서 문턱이 높은 건지 벌이가 없는 건지 가릴 수 없다
+                // (실측: d5 까지 밭 0 · 세계 최고 저장고 25 인데 문턱을 몰라 추측만 했다).
+                // 하루 한 번, 문턱에 <b>가장 가까운</b> 한 명만 찍는다 — 전원 매일이면 도배된다.
+                if (funds - (cost + reserve) > foundNearGap) {
+                    foundNearGap = funds - (cost + reserve);
+                    foundNear = m;
+                    foundNearText = String.format(
+                            "저장고 %.0f < 문턱 %.0f (착공비 %.0f + 예비 %.0f — 가구 하루소모 %.1f)",
+                            funds, cost + reserve, cost, reserve, famNeed);
+                }
                 continue; // 자금(주 지주·단독 가구면 저장고≥30/39…)
             }
             if (owned > 0 && !nextFarmEligible(store, adults, m.getIndividual().id())) {
@@ -782,7 +797,12 @@ public final class FarmTicker {
                     }
                 }
             }
+            foundNear = null; // 오늘은 착공이 있었다 — 보류 사유를 남기지 않는다
             break; // 하루 1건
+        }
+        // 오늘 아무도 착공하지 못했다면, 문턱에 가장 가까웠던 한 명의 수를 남긴다.
+        if (foundNear != null && foundNearText != null) {
+            com.evosim.mod.log.SimEvents.event(foundNear, "개간보류", foundNearText);
         }
     }
 

@@ -495,6 +495,15 @@ public final class FarmTicker {
                 // 방향 전환(turnDir)은 뜻이 없어졌다: 도면이 매번 네 방향을 본다.
                 plot.blockedDays++;
                 store.setDirty();
+                // <b>막힌 사유를 남긴다.</b> 이 카운터가 1 이 되면 nextFarmBlock 이 크기를 안 보고
+                // 다음 밭 자격을 열어 준다 — 즉 이 한 줄이 "12칸 밭을 두고 새 밭을 판다"의
+                // 방아쇠다. 그런데 종전에는 조용히 증가만 해서, 사방이 빈 풀밭인데 막힌 것을
+                // 육안으로 보고도 원인을 짚을 수 없었다.
+                com.evosim.mod.log.SimEvents.note(level, "밭막힘", String.format(
+                        "구획 %d(%d타일 · %d단계) 확장 실패 %d일째 — 마지막 거부: %s"
+                                + " (자금 %d칸분 · 노동 %d칸분은 있었다)",
+                        plot.id, plot.tiles.length, plot.steps + 1, plot.blockedDays,
+                        lastBoxFault, afford, room));
             } else if (plot.blockedDays != 0) {
                 plot.blockedDays = 0;
                 store.setDirty();
@@ -2220,6 +2229,15 @@ public final class FarmTicker {
      *
      * @param baseY 요구 지면 높이(-1 이면 첫 칸의 높이를 기준으로 삼는다)
      */
+    /**
+     * <b>거부한 관문의 이름과 자리</b> — {@link #boxUsable} 가 false 를 돌릴 때마다 갱신된다.
+     *
+     * <p>밭이 왜 안 자라는지 물었을 때 "자리가 없다"고만 답할 수 있었다. 실제로는 사방이
+     * 빈 풀밭인데 막혀 있었고(육안), 그러면 남는 것은 추측뿐이다. 어느 관문이 어느 칸에서
+     * 걸었는지 남긴다 — 판정과 같은 코드가 남기므로 어긋날 수 없다.
+     */
+    private static String lastBoxFault = "?";
+
     private static boolean boxUsable(ServerLevel level, FarmStore store, long selfId,
                                      int x0, int z0, int w, int d, int baseY,
                                      java.util.List<MimicEntity> adults) {
@@ -2228,29 +2246,44 @@ public final class FarmTicker {
             for (int z = z0; z < z0 + d; z++) {
                 int y = RoadPlanner.surfaceY(level, x, z);
                 if (y == Integer.MIN_VALUE) {
+                    lastBoxFault = String.format("지표 없음 @%d,%d", x, z);
                     return false;
                 }
                 if (want < 0) {
                     want = y;
                 } else if (y != want) {
+                    lastBoxFault = String.format("높이 어긋남 @%d,%d (y%d, 기준 y%d)", x, z, y, want);
                     return false; // 평평하지 않다 — 한 칸이라도 어긋나면 밭이 계단이 된다
                 }
                 BlockPos gp = new BlockPos(x, y + 1, z);
                 if (!level.isLoaded(gp)) {
+                    lastBoxFault = String.format("미로드 @%d,%d", x, z);
                     return false;
                 }
                 if (store.nearOtherBody(selfId, x, z, PLOT_GAP)) {
+                    lastBoxFault = String.format("다른 밭이 %d칸 안 @%d,%d", PLOT_GAP, x, z);
                     return false;
                 }
-                if (nearSomeHome(level, adults, gp, PLANT_CLEAR) || nearFacility(level, gp)
-                        || nearStreet(level, gp)) {
+                if (nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
+                    lastBoxFault = String.format("거처가 %.0f칸 안 @%d,%d", PLANT_CLEAR, x, z);
+                    return false;
+                }
+                if (nearFacility(level, gp)) {
+                    lastBoxFault = String.format("시설이 가까움 @%d,%d", x, z);
+                    return false;
+                }
+                if (nearStreet(level, gp)) {
+                    lastBoxFault = String.format("가로수·분수가 가까움 @%d,%d", x, z);
                     return false;
                 }
                 if (RoadStore.get(level).has(x, z)) {
+                    lastBoxFault = String.format("등기된 길 @%d,%d", x, z);
                     return false; // 등기된 마을 길 위에는 안 놓는다
                 }
                 var at = level.getBlockState(gp);
                 if (!(at.isAir() || at.canBeReplaced() || weed(at))) {
+                    lastBoxFault = String.format("%s 이(가) 서 있음 @%d,%d",
+                            at.getBlock().getName().getString(), x, z);
                     return false;
                 }
             }

@@ -680,14 +680,29 @@ public final class FarmTicker {
                 // 비야망가 선발(①)+만족의 덫(②)+근속 수당(③)을 뚫는 예외(유산 유입 등)를 봉쇄.
                 reserve *= com.evosim.core.FarmEconomy.STEWARD_FOUND_RESERVE_MULT;
             }
+            // <b>막힌 사유를 남긴다.</b> 종전에는 세 관문 전부 조용히 continue 해서, 저장고가
+            // 문턱을 넘은 야망가가 며칠째 개간을 안 해도 로그에 단서가 한 줄도 없었다(실측:
+            // 엘리트 저장고 29 · 문턱 ~21 · d5 까지 밭 0). 막사 쪽에서 같은 침묵으로 원인을
+            // 못 찾은 적이 있다 — 침묵은 진단이 아니다.
+            //
+            // 하루 한 번, <b>가장 부유한 무산 후보</b>에게만 찍는다(전원 매일이면 도배된다).
+            // 자금 미달은 정상 상태라 조용히 두고, 자금을 넘긴 뒤 막히는 것만 남긴다.
             if (funds < cost + reserve) {
                 continue; // 자금(주 지주·단독 가구면 저장고≥30/39…)
             }
             if (owned > 0 && !nextFarmEligible(store, adults, m.getIndividual().id())) {
+                com.evosim.mod.log.SimEvents.event(m, "개간보류", String.format(
+                        "자금 %.0f ≥ 문턱 %.0f 인데 — %s", funds, cost + reserve,
+                        nextFarmBlock(level, m.getIndividual().id())));
                 continue; // 성숙 트리거(P6) — nextFarmEligible 참조(확장 예비 산정과 단일 출처)
             }
             int[] spot = findFootprint(level, store, m.getHomePos(), adults);
             if (spot == null) {
+                com.evosim.mod.log.SimEvents.event(m, "개간보류", String.format(
+                        "자금 %.0f ≥ 문턱 %.0f 인데 — 거처 @%d,%d 주변에 1단계 발자국이 들어갈"
+                                + " 빈 자리가 없다(집·밭·물·낙차로 전부 거부)",
+                        funds, cost + reserve,
+                        m.getHomePos().getX(), m.getHomePos().getZ()));
                 continue; // 1단계 발자국(4×5)이 들어갈 자리가 없다
             }
             BlockPos site = new BlockPos(spot[0], spot[3] + 1, spot[1]);

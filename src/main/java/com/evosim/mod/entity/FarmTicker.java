@@ -473,20 +473,24 @@ public final class FarmTicker {
             if (plot.beds <= 0) {
                 continue; // 구세계 구획(칸 수열로 자란 옛 밭) — 모양을 건드리지 않는다
             }
+            // <b>남은 칸이 전부 막혔으면 다음 단계를 연다.</b>
+            //
+            // 종전에는 reserveNext(= 다음 발자국 예약 = 네 방향 시도)를 <b>todo 가 빌 때만</b>
+            // 불렀다. 그래서 발자국 안에 못 심는 칸이 하나라도 남아 있으면 todo 가 영영 안 비고,
+            // 밭은 <b>바깥을 쳐다보지도 못한 채</b> 매일 그 칸에만 헛손질하다 placed==0 으로
+            // 막힘 처리됐다. 사방이 빈 풀밭인데 12타일에서 멈추고 새 밭을 파던 것이 이것이다
+            // (육안 관측) — 확장할 방향이 남아 있어도 시도할 기회 자체가 없었다.
+            //
+            // 그래서 두 번 본다: 먼저 남은 칸을 심어 보고, 한 칸도 못 심었으면 그 칸들은
+            // 영구히 막힌 것으로 보고 다음 단계를 열어 그쪽에 심는다. 막힌 칸은 발자국 안에
+            // 그대로 남지만(도면은 유지) 성장을 더는 붙들지 않는다.
             java.util.List<int[]> todo = unplanted(store, plot);
             if (todo.isEmpty() && reserveNext(level, store, plot, adults)) {
                 todo = unplanted(store, plot);
             }
-            for (int[] cr : todo) {
-                if (placed >= k) {
-                    break;
-                }
-                if (plantAt(level, store, plot, cr[0], cr[1])) {
-                    int[] xz = colOf(plot, cr[0], cr[1]);
-                    com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, plot,
-                            new BlockPos(xz[0], plot.baseY + 2, xz[1]));
-                    placed++;
-                }
+            placed = plantFrom(level, store, plot, ownerEnt, todo, k);
+            if (placed == 0 && reserveNext(level, store, plot, adults)) {
+                placed = plantFrom(level, store, plot, ownerEnt, unplanted(store, plot), k);
             }
             // 공간 포화 감지 — 자금·노동은 있었는데 한 칸도 못 심음. 2일 연속이면 성숙 간주(막힌
             // 밭도 다음 밭을 연다 — 교착 방지). 심었으면 리셋.
@@ -2371,6 +2375,24 @@ public final class FarmTicker {
     }
 
     /** 아직 안 심은 재배 칸 — {@code FarmLayout.cropOrder} 순(위 줄부터, 줄 안은 왼쪽부터). */
+    /** 목록의 칸을 상한까지 심고 <b>실제로 심은 수</b>를 돌려준다(성장 루프의 단일 심기 경로). */
+    private static int plantFrom(ServerLevel level, FarmStore store, FarmStore.Plot plot,
+                                 MimicEntity ownerEnt, java.util.List<int[]> todo, int k) {
+        int n = 0;
+        for (int[] cr : todo) {
+            if (n >= k) {
+                break;
+            }
+            if (plantAt(level, store, plot, cr[0], cr[1])) {
+                int[] xz = colOf(plot, cr[0], cr[1]);
+                com.evosim.mod.entity.MimicEntity.farmTookRoad(level, ownerEnt, plot,
+                        new BlockPos(xz[0], plot.baseY + 2, xz[1]));
+                n++;
+            }
+        }
+        return n;
+    }
+
     private static java.util.List<int[]> unplanted(FarmStore store, FarmStore.Plot p) {
         java.util.List<int[]> out = new java.util.ArrayList<>();
         for (int[] cr : com.evosim.core.FarmLayout.cropOrder(p.beds, p.rows)) {

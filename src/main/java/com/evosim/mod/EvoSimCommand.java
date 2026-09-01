@@ -371,15 +371,28 @@ public final class EvoSimCommand {
         Vec3 base = ctx.getSource().getPosition();
         StringBuilder names = new StringBuilder();
         for (int i = 0; i < count; i++) {
+            // 명석을 <b>뺀다</b>. 명석은 "할 일이 있으면 배회 시간에도 일한다"(명석 D 여가 컷)라
+            // 시드가 남들과 다른 시간표로 돌아간다 — 관측 런에서 엘리트가 앞서는 이유가 능력이
+            // 아니라 노동 시간이 되어, 봉건 사슬의 원인을 흐린다.
+            //
+            // 약초학자(GATHER_SKILL) 대신 채집꾼Ⅴ(ACQUISITION). 밭 수확 배율은
+            // FoodEconomy.forageYieldMult 가 읽는 획득 계열이라, 개간→지대 사슬을 직접 굴리는
+            // 쪽이 채집꾼이다.
             MimicEntity e = spawnMatingReady(level, scatter(level, base), Sex.MALE,
-                    Trait.AMBITIOUS, Trait.HERBALIST);
+                    java.util.Set.of(Trait.BRIGHT), Trait.AMBITIOUS, Trait.GATHERER);
             if (e != null && e.getIndividual() != null) {
+                // 육아 무시 — 평범이면 유아가 생기는 순간 <b>육아 구속</b>에 걸려(비무시 성인
+                // 전원이 구속 대상) 시드가 개간·확장을 멈춘다. 관측하려는 것이 그 사람의
+                // 노동이므로 거기서 풀어 준다. 남성 슬롯만 바꾼다 — 여성 슬롯은 딸에게
+                // 유전되는 값이라 건드리면 인구 전체의 육아 성향이 시드로 오염된다.
+                e.getIndividual().setParentingCareMale(
+                        com.evosim.core.ParentingClass.NEGLECTFUL);
                 names.append(names.length() > 0 ? ", " : "").append(e.getIndividual().shortName());
-                SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ 관측 시드");
+                SimEvents.event(e, "엘리트투입", "야망가+채집꾼Ⅴ · 명석 없음 · 육아 무시 관측 시드");
             }
         }
-        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ ♂): " + names
-                + " — 구애·정착·개간은 전부 자연 경로.");
+        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+채집꾼Ⅴ · 명석X · 육아무시 ♂): "
+                + names + " — 구애·정착·개간은 전부 자연 경로.");
         return count;
     }
 
@@ -9874,6 +9887,17 @@ public final class EvoSimCommand {
      * 부여(관측 런의 엘리트는 최상급 기준 — 이정표 수식이 Ⅴ 수치로 역산돼 있음).
      */
     private static MimicEntity spawnMatingReady(ServerLevel level, Vec3 pos, Sex sex, Trait... extra) {
+        return spawnMatingReady(level, pos, sex, java.util.Set.of(), extra);
+    }
+
+    /**
+     * 위와 같되 {@code omit} 의 기본 특성은 <b>주지 않는다</b>.
+     *
+     * <p>종전에는 "빼기"를 표현할 방법이 없었다 — {@code extra} 에 넣으면 Ⅴ등급으로 <b>더</b>
+     * 세게 붙고, 안 넣으면 기본으로 붙는다. 엘리트에게서 명석을 빼려면 그 사이가 필요하다.
+     */
+    private static MimicEntity spawnMatingReady(ServerLevel level, Vec3 pos, Sex sex,
+                                                java.util.Set<Trait> omit, Trait... extra) {
         MimicEntity e = ModEntities.MIMIC.get().create(level);
         if (e == null) {
             return null;
@@ -9887,13 +9911,13 @@ public final class EvoSimCommand {
         ind.addTrait(TraitInstance.of(Trait.PREF_STRENGTH));
         ind.addTrait(TraitInstance.of(Trait.PREF_ABILITY));
         ind.addTrait(TraitInstance.of(Trait.PREF_VITALITY));
-        if (!ex.contains(Trait.STRONG)) {
+        if (!ex.contains(Trait.STRONG) && !omit.contains(Trait.STRONG)) {
             ind.addTrait(TraitInstance.of(Trait.STRONG));
         }
-        if (!ex.contains(Trait.BRIGHT)) {
+        if (!ex.contains(Trait.BRIGHT) && !omit.contains(Trait.BRIGHT)) {
             ind.addTrait(TraitInstance.of(Trait.BRIGHT));
         }
-        if (!ex.contains(Trait.NIMBLE)) {
+        if (!ex.contains(Trait.NIMBLE) && !omit.contains(Trait.NIMBLE)) {
             ind.addTrait(TraitInstance.of(Trait.NIMBLE));
         }
         for (Trait t : extra) {

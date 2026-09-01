@@ -938,14 +938,22 @@ public final class FarmTicker {
         if (newestPlot == null) {
             return "밭 없음";
         }
-        if (newestPlot.blockedDays >= 1) {
-            return ""; // 공간 포화 — 막힌 밭도 다음 밭을 연다(교착 방지). 성숙 2→1(2배속)
-        }
+        // <b>교착 탈출은 사흘 연속 막혔을 때만.</b>
+        //
+        // 종전은 blockedDays >= 1 — <b>하루</b> 못 자란 밭이 곧바로 크기 조건(24타일)을
+        // 통째로 건너뛰고 다음 밭 자격을 얻었다. 그래서 12타일짜리 밭을 두고 새 밭을 파는
+        // 장면이 나온다(육안 관측). 게다가 새 밭이 최신 구획이 되면 직영지 원칙에 따라
+        // 주인의 자가 노동이 그 빈 밭으로 옮겨가, 옛 밭도 새 밭도 아무도 안 돌보게 된다.
+        //
+        // 하루 막힌 것과 사흘 연속 막힌 것은 다르다. 확장은 자금·노동·지형이 그날 다 맞아야
+        // 하는 일이라 하루쯤 어긋나는 것은 흔하고, 그것은 포화가 아니다. 탈출구 자체는 남긴다
+        // — 진짜로 사방이 막힌 밭이 왕조를 영구 정지시키면 안 된다는 원 취지는 그대로다.
+        boolean stuck = newestPlot.blockedDays >= BLOCKED_ESCAPE_DAYS;
         int tiles = newestPlot.tiles.length;
-        if (tiles < com.evosim.core.FarmEconomy.MATURE_TILES) {
+        if (!stuck && tiles < com.evosim.core.FarmEconomy.MATURE_TILES) {
             return String.format("성숙 %d/%d타일", tiles, com.evosim.core.FarmEconomy.MATURE_TILES);
         }
-        if (permTenants < 1) {
+        if (!stuck && permTenants < 1) {
             return "상시 소작 필요";
         }
         return "";
@@ -2237,6 +2245,15 @@ public final class FarmTicker {
      * 걸었는지 남긴다 — 판정과 같은 코드가 남기므로 어긋날 수 없다.
      */
     private static String lastBoxFault = "?";
+
+    /**
+     * 교착 탈출 문턱 — 이 일수만큼 <b>연속으로</b> 한 칸도 못 심어야 "진짜 포화"로 본다.
+     *
+     * <p>1 이었다. 하루 못 자란 밭이 곧바로 크기 조건을 건너뛰어 다음 밭 자격을 얻었고,
+     * 12타일 밭을 두고 새 밭을 파는 장면이 나왔다(육안 관측). 확장은 자금·노동·지형이 그날
+     * 다 맞아야 하는 일이라 하루쯤 어긋나는 것은 흔하다 — 그것은 포화가 아니다.
+     */
+    private static final int BLOCKED_ESCAPE_DAYS = 3;
 
     private static boolean boxUsable(ServerLevel level, FarmStore store, long selfId,
                                      int x0, int z0, int w, int d, int baseY,

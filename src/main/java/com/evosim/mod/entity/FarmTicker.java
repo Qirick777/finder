@@ -1558,6 +1558,12 @@ public final class FarmTicker {
             reg.earn(bk, taxIn);
             GUARD_SUM[2] += taxIn;
             // ③ 배속 — 추종하는 무전(無田) 성년, 가까운 순, 정원만큼.
+            // 후보 탈락 사유 집계 — 선발 조건을 바꾼 뒤 "병사가 왜 이 사람들인가"를 수치로
+            // 확인할 수 있어야 한다. 성별 편향을 고친 변경이라 더욱 그렇다.
+            int rejLand = 0;      // 가구가 밭 보유
+            int rejNotHead = 0;   // 가구 부양자가 아님
+            int rejPatron = 0;    // 이 주인을 따르지 않음
+            int rejFar = 0;       // 통근 한계 밖
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
                 if (m.getIndividual() == null || m.getHomePos() == null
@@ -1568,12 +1574,37 @@ public final class FarmTicker {
                 if (mid == bk.ownerId || fs.ownedTiles(mid) > 0) {
                     continue; // 지주 자신·제 땅 가진 자는 군인이 되지 않는다(자영농 층 보존)
                 }
+                // <b>땅 판정은 가구 단위로.</b> 종전에는 개인 명의만 봐서, 밭을 가진 가구의
+                // <b>아내·첩</b>이 후보에 남았다(그들의 ownedTiles 는 0이다). 지배자 본인의
+                // 아내조차 그의 병사가 될 수 있었다 — 주인 본인만 걸러냈기 때문이다.
+                //
+                // 그 결과가 "군인이 싹 다 여자"다(육안 관측). 경제 전체에서 성별이 들어가는
+                // 곳은 MALE_FORAGE 1.5 / FEMALE_FORAGE 0.5 하나뿐인데, 그 3배 차이가 남성을
+                // 개간 문턱 너머로 보내 지주로 만들고(후보 제외), 여성은 자립을 못 해 무전으로
+                // 남긴다. 거기에 지주의 아내까지 얹히면 후보 풀이 통째로 여성이 된다.
+                //
+                // 저장고도 가구 공동이고 개간 우회로도 같은 이유로 가구 기준으로 막았다.
+                // ownsFarm() 이 이미 "자기 or 배우자"를 보는 캐시라 그대로 쓴다.
+                if (m.ownsFarm()) {
+                    rejLand++;
+                    continue; // 가구가 밭을 가졌다 — 가난해서 창을 드는 자리가 아니다
+                }
+                // <b>군인은 가구를 먹여 살리는 사람이 나가는 일</b>이다 — 봉급이 그 가구의 주
+                // 소득을 대체한다. isProviderRole 은 혼인 링크상 가장이라, 부부에서는 남편이
+                // 걸리고 사별·미혼 1인 가구에서는 그 사람 본인이 걸린다(여성도 가능).
+                // 성별 규칙을 한 줄도 쓰지 않고, 벌이 3배라는 기존 비대칭이 결과를 만든다.
+                if (!m.isProviderRole()) {
+                    rejNotHead++;
+                    continue;
+                }
                 if (!Long.valueOf(bk.ownerId).equals(patrons.get(mid))
                         && !owner.marriedTo(patrons.getOrDefault(mid, 0L))) {
+                    rejPatron++;
                     continue; // 이 주인(또는 그 배우자)을 따르는 자만
                 }
                 if (m.getHomePos().distSqr(bk.pos)
                         > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    rejFar++;
                     continue;
                 }
                 pick.add(m);
@@ -1582,6 +1613,7 @@ public final class FarmTicker {
                     (MimicEntity m) -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             int seated = 0;
+            int seatedM = 0;
             for (MimicEntity s : pick) {
                 if (seated >= cap) {
                     break;
@@ -1632,14 +1664,20 @@ public final class FarmTicker {
                 GUARD_SEAT.put(s.getId(),
                         bk.pos.offset(tpl.get().seats().get(seated % tpl.get().seats().size())));
                 s.setSoldierGear(true); // 무장은 배속의 표시 — 값도 내구도도 없다
+                if (s.getIndividual().sex() == com.evosim.core.Sex.MALE) {
+                    seatedM++;
+                }
                 seated++;
                 GUARD_SUM[0]++;
             }
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
-                    "막사 @%d,%d — 지킬가구 %d → 정원 %d · 배속 %d명 · 세수 %.1f · 봉급 %.1f"
-                            + " · 주인 저장고 %.1f",
-                    bk.pos.getX(), bk.pos.getZ(), guarded.size(), cap, seated, taxIn,
-                    GUARD_SUM[1], larders.get(owner.getHomePos())));
+                    "막사 @%d,%d — 지킬가구 %d → 정원 %d · 배속 %d명(남%d 여%d) · 세수 %.1f"
+                            + " · 봉급 %.1f · 주인 저장고 %.1f | 후보 %d명 · 탈락: 유전가구 %d ·"
+                            + " 비부양자 %d · 타주인 %d · 원거리 %d",
+                    bk.pos.getX(), bk.pos.getZ(), guarded.size(), cap, seated,
+                    seatedM, seated - seatedM, taxIn,
+                    GUARD_SUM[1], larders.get(owner.getHomePos()),
+                    pick.size(), rejLand, rejNotHead, rejPatron, rejFar));
         }
         // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
         for (MimicEntity m : adults) {

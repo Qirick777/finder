@@ -128,6 +128,9 @@ public class MimicForageGoal extends Goal {
             long tod = mob.level().getDayTime() % 24000L;
             return phase == Schedule.Phase.WORK && tod < Elder.WORK_END && !mob.elderQuotaMet();
         }
+        if (phase != Schedule.Phase.WORK && phase != Schedule.Phase.WANDER) {
+            return gardenWhy("근무·배회 시간이 아님(" + phase + ")");
+        }
         if (phase == Schedule.Phase.WORK) {
             // 농사 집중(수렵채집→농사 전환) — 자기(배우자) 밭을 가진 provider 는 저장고가 넉넉하면
             // 채집으로 이탈하지 않는다: 밭 익은 타일은 MimicFarmGoal(우선순위 6)이 하루 용량까지
@@ -135,16 +138,52 @@ public class MimicForageGoal extends Goal {
             // 지대)이 채집(9.0/일)을 대체 — 소작을 들일수록 지주로 굳는다. 넉넉선 미만이면(대가족·
             // 흉작) 채집 보충 허용(생계 안전판) — 이때도 밭 goal 이 익은 타일을 먼저 가져간다.
             if (mob.ownsFarm() && mob.larderComfortable()) {
-                return false;
+                return gardenWhy("밭 소유 + 저장고 넉넉 — 농사 집중(채집 이탈 금지)");
             }
-            return mob.isProviderRole() || !mob.larderComfortable(); // R4: 넉넉하면 비제공자는 쉼
+            if (mob.isProviderRole() || !mob.larderComfortable()) {
+                return true;
+            }
+            return gardenWhy("비제공자 + 저장고 넉넉 — R4 휴식");
         }
         if (phase == Schedule.Phase.WANDER) {
             // R4 확장: 저장고 궁하면 배회시간에도 채집 + 경쟁(M7): 이웃 우위까지 쉼 없이 노동(밤잠만 잠)
             // 명석 D(여가 컷): 명석 발현자는 배회 시간에도 할 일이 있으면 일한다 — 배회 낭비의
             // 결정론적 회수(전원 공통 조건부 규칙, 경쟁 특성과 같은 경로. 구애·급식은 별도 goal이라 불침해).
-            return !mob.larderComfortable() || mob.isCompetitiveDriven() || mob.isBrightDriven();
+            if (!mob.larderComfortable() || mob.isCompetitiveDriven() || mob.isBrightDriven()) {
+                return true;
+            }
+            return gardenWhy("배회 시간 + 저장고 넉넉 · 경쟁·명석 아님");
         }
+        return gardenWhy("해당 없음");
+    }
+
+    private long lastGardenWhyTick = -9999L;
+
+    /**
+     * <b>제 집 정원에 익은 게 있는데 안 딴다</b> — 그 사유를 로그로 뱉는다.
+     *
+     * <p>밭 쪽에 같은 진단기를 달아 "하루 수확 용량 소진"을 잡아냈는데, 그것은 {@code FarmStore}
+     * 구획만 훑는다. 육안으로 본 장면이 <b>집에 딸린 정원</b>이면 그 진단기는 영영 0을 찍는다 —
+     * 정원 수확은 이 goal 소관이고 문지기가 통째로 다르기 때문이다(농사 집중·R4 휴식·시간대).
+     * 어느 관문인지 추측하지 않으려면 여기서도 코드가 직접 말해야 한다.
+     *
+     * <p>항상 {@code false} 를 돌려준다 — 판정을 바꾸지 않는 순수 계측이다.
+     */
+    private boolean gardenWhy(String reason) {
+        if (!(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return false;
+        }
+        long now = com.evosim.mod.entity.SimTime.tick(sl);
+        if (now - lastGardenWhyTick < 200L) {
+            return false;
+        }
+        lastGardenWhyTick = now; // 훑기 자체를 묶는다 — 이벤트 때만 갱신하면 매 틱 훑게 된다
+        BlockPos b = ripeHomeBerry();
+        if (b == null || mob.blockPosition().distSqr(b) > 16.0) {
+            return false; // 코앞(4블록)에 익은 정원이 있을 때만 — 멀리 있는 것은 장면이 아니다
+        }
+        SimEvents.event(mob, "정원멍", String.format(
+                "코앞(%d,%d)에 익은 정원 덤불이 있는데 안 딴다 — 사유: %s", b.getX(), b.getZ(), reason));
         return false;
     }
 

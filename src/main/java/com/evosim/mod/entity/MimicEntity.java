@@ -5978,11 +5978,16 @@ public class MimicEntity extends PathfinderMob {
         }
         String cur = "";
         for (var w : goalSelector.getRunningGoals().toList()) {
-            // <b>이동을 지시하는 goal 만</b> 본다. 시선 goal(RandomLookAround 등)은 MOVE 를 쥐지
-            // 않아 걸음에 영향이 없는데, 켜졌다 꺼졌다를 반복해 목록을 통째로 덮는다(실측
-            // 1회차 상위 두 줄이 전부 그것이었다).
-            if (!w.getGoal().getFlags()
-                    .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
+            // <b>이동을 지시하는 goal 만</b> 본다. 시선 goal 은 걸음에 영향이 없는데 켜졌다
+            // 꺼졌다를 반복해 목록을 통째로 덮는다(실측 1회차 상위 두 줄이 전부 그것이었다).
+            //
+            // MOVE 플래그만으로 걸렀더니 RandomLookAround 가 그대로 통과했다 — 이 빌드에서
+            // 그 goal 의 플래그가 예상과 다르다는 뜻이다. 원인을 더 추측하지 않고 등록된 시선
+            // goal 둘을 클래스로 명시 제외한다(MimicEntity 의 우선순위 11·12).
+            if (w.getGoal() instanceof RandomLookAroundGoal
+                    || w.getGoal() instanceof LookAtPlayerGoal
+                    || !w.getGoal().getFlags()
+                            .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
                 continue;
             }
             String n = w.getGoal().getClass().getSimpleName()

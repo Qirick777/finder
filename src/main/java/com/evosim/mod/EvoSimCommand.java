@@ -260,6 +260,7 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "끼임 해소 OFF — 종전 거동(끝까지 서로 민다)");
                             return 1;
                         })))
+                .then(Commands.literal("church").executes(EvoSimCommand::churchReport))
                 .then(Commands.literal("visitfix")
                         .then(Commands.literal("on").executes(ctx -> {
                             com.evosim.mod.entity.MimicVisitGoal.setHoldOnPreempt(true);
@@ -1751,6 +1752,38 @@ public final class EvoSimCommand {
      * <p>왕복은 <b>쌍</b>으로 나타난다: A→B 와 B→A 가 나란히 상위에 있으면 그 둘이 서로를
      * 선점하며 진동하는 것이다. 한쪽만 많으면 정상적인 하루 흐름(예: 밭→귀가)이다.
      */
+    /**
+     * <b>시설 등기 보고</b> — 누가 세웠고, 누가 일하고, 얼마를 벌었는가.
+     *
+     * <p>"교회 설립자가 누군지 알 수 없음"에 대한 답이다. 세운 자({@code ownerId})는 등기에
+     * 이미 있는데 밖으로 내보내는 길이 없었다. 사용료 수입·건축비도 같이 보여야 "저 건물이
+     * 누구에게 무엇을 벌어 주는가"가 한눈에 들어온다.
+     */
+    private static int churchReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var fl = com.evosim.mod.entity.FamilyLedger.get(level);
+        var fs = FarmStore.get(level);
+        var all = com.evosim.mod.entity.FacilityStore.get(level).all();
+        if (all.isEmpty()) {
+            tell(ctx.getSource(), "§e[시설]§r 등기된 시설이 없다");
+            return 1;
+        }
+        tell(ctx.getSource(), String.format("§e[시설]§r 등기 %d곳", all.size()));
+        for (var e : all) {
+            var owner = fl.get(e.ownerId);
+            var staff = e.staffId == 0L ? null : fl.get(e.staffId);
+            tell(ctx.getSource(), String.format(
+                    "  %s @%d,%d · 세운이 §a%s§r(d%d) · 일꾼 %s · 건축비 %.1f 수입 %.1f · 주인 밭 %d타일",
+                    e.kind, e.pos.getX(), e.pos.getZ(),
+                    owner != null && owner.name != null ? owner.name : "#" + e.ownerId,
+                    e.foundedDay,
+                    staff != null && staff.name != null ? staff.name : (e.staffId == 0L ? "없음"
+                            : "#" + e.staffId),
+                    e.spent, e.earned, fs.ownedTiles(e.ownerId)));
+        }
+        return 1;
+    }
+
     private static int goalChurn(CommandContext<CommandSourceStack> ctx) {
         long since = MimicEntity.churnSince();
         if (since < 0) {

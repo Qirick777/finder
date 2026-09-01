@@ -5963,9 +5963,37 @@ public class MimicEntity extends PathfinderMob {
         }
         String act = activity.isEmpty() ? topMoveGoalLabel() : activity;
         setCustomName(net.minecraft.network.chat.Component.literal(
-                (individual == null ? "?" : individual.shortName()) + " · " + act));
+                (individual == null ? "?" : individual.shortName()) + " · " + act + patronTag()));
         setCustomNameVisible(true);
     }
+
+    /**
+     * 이름표에 붙는 <b>추종 대상</b> — "누굴 추종하는지 알 수 없다"는 관측에 대한 답.
+     *
+     * <p>추종은 저장되지 않는 파생값(신세 합계 최대 상대)이라 밖에서 보이지 않았다. 이름표를
+     * 켠 동안만 200틱 간격으로 다시 구한다 — 매번 원장을 훑을 값이 아니다.
+     */
+    private String patronTag() {
+        if (!(level() instanceof ServerLevel sl) || individual == null) {
+            return "";
+        }
+        long now = com.evosim.mod.entity.SimTime.tick(sl);
+        if (now - patronTagTick >= 200L) {
+            patronTagTick = now;
+            long pid = AllegianceStore.get(sl).patronOf(individual.id(),
+                    FarmStore.get(sl).ownedTiles(individual.id()));
+            if (pid == 0L) {
+                patronTagText = "";
+            } else {
+                FamilyLedger.Rec r = FamilyLedger.get(sl).get(pid);
+                patronTagText = " §7▸" + (r != null && r.name != null ? r.name : "#" + pid) + "§r";
+            }
+        }
+        return patronTagText;
+    }
+
+    private long patronTagTick = -9999L;
+    private String patronTagText = "";
 
     /** 지금 걸음을 지시하는 goal 의 짧은 이름 — 밭 goal 이 활동을 안 적어 둔 경우의 대체. */
     private String topMoveGoalLabel() {

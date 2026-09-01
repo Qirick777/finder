@@ -29,6 +29,29 @@ public class FarmStore extends SavedData {
         public long[] tiles = new long[0];
         public long[] planted = new long[0];
         public double account = 0.0;
+
+        // ── 익음 목록(단일 출처) ───────────────────────────────────────────────
+        /**
+         * <b>밭이 스스로 무엇이 익었는지 알고 있는다.</b> 수확과 관리가 각자 밭을 훑어 판단하던
+         * 것을 여기로 모은다.
+         *
+         * <p>종전에는 수확이 <b>블록</b>(AGE≥3)을, 관리가 <b>장부</b>(careNow−planted)를 따로
+         * 봤다. 같은 밭을 보면서 서로 다른 답을 내니, 이미 열매가 달린 덤불이 관리 대상으로
+         * 잡혔다 — 육안 관측 "익은게 있어도 관리를 하는 경우". 목록 둘이 배타적이면 그 일이
+         * 구성적으로 불가능해진다.
+         *
+         * <p>부수 효과로 비용도 준다. 종전에는 미믹마다 매 틱 전 구획 × 전 타일을 훑었다
+         * (50명 × 500타일 = 틱당 25,000회 블록 조회). 이제 밭이 스캔마다 한 번 계산하고
+         * 미믹은 읽기만 한다.
+         *
+         * <p>저장하지 않는다 — 블록에서 언제든 다시 만들 수 있는 파생물이다.
+         */
+        public transient long[] ripe = new long[0];
+
+        public transient long[] unripe = new long[0];
+
+        /** 목록을 마지막으로 갱신한 틱(-1 = 아직 계산 전). */
+        public transient long listTick = -1L;
         public int blockedDays = 0; // 자금·노동 있는데 배치 0칸이던 연속 일수 — 1일이면 성숙 간주(공간 포화, 2배속)
         /**
          * <b>성장 방향</b> — bit0=+x 대신 −x, bit1=+z 대신 −z. 착공 때 앵커 둘레의 빈 공간을 재서

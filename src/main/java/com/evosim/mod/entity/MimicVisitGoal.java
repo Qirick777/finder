@@ -131,23 +131,29 @@ public class MimicVisitGoal extends Goal {
         // 그래서 우선순위를 채집 위로 올리는데, 그것만 하면 <b>배고픈 개체가 채집 대신 예배를
         // 가서 굶는다</b>. 여유 조건을 함께 걸어야 "먹을 것이 없으면 일하고, 남으면 나선다"가
         // 되어 순서가 뒤집히지 않는다.
+        // <b>이미 나선 마실은 도중에 무르지 않는다.</b> 아래 둘은 "지금 새로 나설 것인가"를
+        // 묻는 조건이지 "가던 길을 되돌릴 것인가"가 아니다. 특히 저장고 여유는 문턱 근처에서
+        // 틱마다 참·거짓을 오갈 수 있는데, 그때마다 abandon 하면 목적지를 놓았다 다시 뽑게 되고
+        // — 교회가 서면 목적지 후보가 교회↔이웃으로 갈려 그 흔들림이 눈에 보인다. 육안 관측
+        // "교회가 생기니 visit 과 방문이 틱마다 바뀌며 움찔거림"이 이것이다.
+        //
+        // 위의 딱딱한 조건들(위급·건축·구혼여행·돌봄구속·시간대)은 그대로 무른다 — 그쪽은
+        // 흔들리는 값이 아니라 상태가 실제로 바뀐 것이다.
+        if (dest != null) {
+            return true;
+        }
         if (!mob.larderComfortable()) {
-            return abandon();
+            return false;
         }
         long gameDay = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
         if (gameDay - mob.lastVisitDay() < VISIT_COOLDOWN_DAYS) {
-            return abandon(); // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변
+            return false; // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변
         }
         // 좌석 장부는 새벽 시계(dayTime 일) — 하루 생활 리듬(배정·배회)과 같은 축이고,
         // 무대가 setDayTime 으로 고정할 수 있어 결정론(단조 시계면 무대 중 일경계 통과 시
         // 장부가 초기화돼 만석 감시가 간헐 붕괴 — 실측 플레이크).
         long seatKey = mob.level().getDayTime() / 24000L;
         rollDay(seatKey);
-        // <b>리시가 데려다 주는 중이면 같은 목적지로 이어 간다.</b> 여기서 다시 뽑으면 표적이
-        // 매번 바뀌어 제자리 움찔이 된다(stop 주석의 그 현상이 선점 경로로도 일어난다).
-        if (dest != null) {
-            return true;
-        }
         dest = pickDest(gameDay);
         return dest != null;
     }

@@ -231,14 +231,17 @@ public class MimicFarmGoal extends Goal {
     /** 한 관리 자리에 <b>도착한 뒤</b> 머무는 틱 — 여기까지 채우면 다음 자리로 옮긴다(≈3초). */
     private static final int TEND_STAY_TICKS = 60;
 
-    /** 다음 자리는 지금 자리에서 최소 이만큼 떨어진 곳으로(3블록²) — 제자리 반복 방지. */
-    private static final double TEND_STEP_SQR = 9.0;
+    /** 커서에서 이 개수까지 훑어 다음 칸을 찾는다 — 전부 멀면 가까운 칸으로 붙는다. */
+    private static final int TEND_SCAN_SPAN = 24;
 
-    /** 그중 가까운 이 개수에서 무작위 — 밭을 가로질러 뛰지 않으면서 자리가 매번 달라진다. */
-    private static final int TEND_PICK_SPAN = 5;
+    /** 다음 칸이 이보다 멀면 건너뛴다(16블록²) — 밭을 가로질러 뛰는 그림 방지. */
+    private static final double TEND_FAR_SQR = 256.0;
 
     /** 관리 자리에 도착해 머문 틱. */
     private int tendStay;
+
+    /** 안 익은 목록에서 지금 도는 위치(-1 = 아직 시작 안 함 — 개체별 시작점을 잡는다). */
+    private int tendCursor = -1;
 
     private BlockPos tendTarget;
     private long tendPlot;
@@ -295,35 +298,49 @@ public class MimicFarmGoal extends Goal {
         if (FarmTicker.careOf(sl, p, mob.getId())[1] >= 1.0) {
             return null;
         }
-        // <b>가장 가까운 타일을 고르면 안 된다.</b> 이미 그 앞에 서 있으므로 다시 골라도 같은
-        // 타일이 나오고, 미믹은 제자리에서 팔만 휘두른다(육안 관측). 지시 사양은 "밭 돌아다니며
-        // 관리하는 듯한 행동 연출"이다. 그래서 <b>지금 자리에서 떨어진</b> 타일 중에서 고르되,
-        // 밭을 가로질러 뛰지 않게 그중 가까운 쪽 몇 개에서 무작위로 뽑는다 — 짧게 옮겨 다니는
-        // 걸음이 된다. 여럿이 같이 있어도 무작위라 서로 다른 자리로 흩어진다.
-        long now = FarmStore.careNow(sl, p);
-        java.util.List<BlockPos> far = new java.util.ArrayList<>();
-        java.util.List<BlockPos> any = new java.util.ArrayList<>();
+        // <b>안 익은 목록을 커서로 순회한다.</b>
+        //
+        // 종전에는 매번 "가장 가까운" 안 익은 타일을 골랐다. 이미 그 앞에 서 있으므로 다시
+        // 골라도 같은 타일이 나오고, 미믹은 제자리에서 팔만 휘두른다(육안 관측). 무작위로
+        // 바꿔 봤지만 그것은 왔다 갔다 할 뿐 <b>순회하는 느낌</b>이 아니다.
+        //
+        // 목록 순서는 밭을 깐 순서(줄 단위)라, 그대로 돌면 <b>이랑을 따라 걸어가는</b> 그림이
+        // 된다. 시작점을 개체마다 다르게 주어(id 기준) 여럿이 붙어도 서로 다른 구역에서
+        // 시작해 각자 제 쪽을 돈다 — 줄줄이 따라다니지 않는다.
+        long[] list = p.unripe;
+        if (list.length == 0) {
+            return null; // 전부 익었다 — 돌볼 것이 없다(그러면 밭일은 물러난다)
+        }
         BlockPos me = mob.blockPosition();
-        for (int i = 0; i < p.tiles.length; i++) {
-            if (p.planted[i] < 0 || now - p.planted[i] >= FarmEconomy.RIPEN_TICKS) {
-                continue; // 미설치·이미 익음
-            }
-            BlockPos t = BlockPos.of(p.tiles[i]);
+        if (tendCursor < 0) {
+            tendCursor = (int) Math.floorMod(mob.getIndividual().id(), list.length);
+        }
+        int span = Math.min(list.length, TEND_SCAN_SPAN);
+        for (int k = 0; k < span; k++) {
+            int idx = Math.floorMod(tendCursor + k, list.length);
+            BlockPos t = BlockPos.of(list[idx]);
             if (t.equals(tendTarget)) {
-                continue; // 방금 돌본 자리 — 같은 곳에 다시 서지 않는다
+                continue; // 방금 돌본 자리는 건너뛴다
             }
-            any.add(t);
-            if (me.distSqr(t) >= TEND_STEP_SQR) {
-                far.add(t);
+            if (me.distSqr(t) > TEND_FAR_SQR) {
+                continue; // 너무 멀다 — 밭을 가로질러 뛰지 않는다. 가까운 칸이 먼저 걸린다
+            }
+            tendCursor = idx + 1;
+            return t;
+        }
+        // 반경 안에 다음 칸이 없다 — 커서를 그대로 두고 목록에서 가장 가까운 칸으로 붙는다
+        // (밭 밖에서 막 출근한 경우가 이쪽이다).
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (long l : list) {
+            BlockPos t = BlockPos.of(l);
+            double d = me.distSqr(t);
+            if (d < bd) {
+                bd = d;
+                best = t;
             }
         }
-        java.util.List<BlockPos> pool = far.isEmpty() ? any : far;
-        if (pool.isEmpty()) {
-            return null;
-        }
-        pool.sort(java.util.Comparator.comparingDouble(me::distSqr));
-        int span = Math.min(TEND_PICK_SPAN, pool.size());
-        return pool.get(mob.getRandom().nextInt(span));
+        return best;
     }
 
     /**
@@ -357,8 +374,15 @@ public class MimicFarmGoal extends Goal {
         // 도착 — 잠깐 손질하고(팔 휘두르기) 다음 이랑으로 옮긴다. 이 "머물다 옮기기"가
         // 지시 사양의 <b>밭 돌아다니며 관리하는 연출</b>이다.
         mob.getNavigation().stop();
+        mob.getLookControl().setLookAt(tendTarget.getX() + 0.5, tendTarget.getY() + 0.5,
+                tendTarget.getZ() + 0.5); // 손질하는 칸을 내려다본다
         if (mob.tickCount % 10 == 0) {
             mob.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+            // 지금 <b>어느 칸을</b> 만지고 있는지 멀리서도 보이게. 팔 동작만으로는 무엇을 하는
+            // 중인지 분간이 안 된다는 것이 육안 관측이었다.
+            sl.sendParticles(net.minecraft.core.particles.ParticleTypes.HAPPY_VILLAGER,
+                    tendTarget.getX() + 0.5, tendTarget.getY() + 0.6, tendTarget.getZ() + 0.5,
+                    3, 0.25, 0.2, 0.25, 0.0);
         }
         if (++tendStay >= TEND_STAY_TICKS) {
             tendTarget = null; // 다음 자리는 canUse 가 고른다
@@ -545,21 +569,18 @@ public class MimicFarmGoal extends Goal {
             if (spouses && p.id != fs.newestOwnedPlot(p.ownerId) && p.id != assigned) {
                 continue;
             }
-            for (long l : p.tiles) {
+            // <b>밭이 세어 둔 익음 목록</b>만 본다 — 여기서 다시 블록을 훑으면 관리 쪽 판단과
+            // 어긋날 수 있고(그 어긋남이 "익은 걸 두고 관리하는" 장면이었다), 미믹마다 매 틱
+            // 전 타일을 훑는 비용도 그대로 남는다.
+            for (long l : p.ripe) {
                 BlockPos pos = BlockPos.of(l);
-                if (!sl.isLoaded(pos)) {
-                    continue;
-                }
                 if (careR >= 0.0 && pos.distSqr(mob.getHomePos()) > careR * careR) {
                     continue; // 돌봄 반경 밖 — 표적으로 잡으면 육아 goal 과 경계 진동(위 주석)
                 }
-                var st = sl.getBlockState(pos);
-                if (st.is(Blocks.SWEET_BERRY_BUSH) && st.getValue(SweetBerryBushBlock.AGE) >= 3) {
-                    double d = mob.blockPosition().distSqr(pos);
-                    if (d < bd) {
-                        bd = d;
-                        best = pos;
-                    }
+                double d = mob.blockPosition().distSqr(pos);
+                if (d < bd) {
+                    bd = d;
+                    best = pos;
                 }
             }
         }
@@ -588,6 +609,9 @@ public class MimicFarmGoal extends Goal {
             for (int i = 0; i < p.tiles.length; i++) {
                 if (p.tiles[i] == pos.asLong()) {
                     p.planted[i] = FarmStore.careNow(sl, p); // 수확 리셋도 가상 시각으로
+                    // 목록도 <b>그 자리에서</b> 옮긴다. 다음 스캔(200틱)을 기다리면 방금 딴
+                    // 타일이 최대 10초간 익은 목록에 남아 같은 자리를 계속 노린다.
+                    FarmTicker.markHarvested(sl, p, pos.asLong());
                     FarmStore.get(sl).setDirty();
                     return;
                 }

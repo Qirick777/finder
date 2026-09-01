@@ -3048,6 +3048,69 @@ public final class FarmTicker {
                     level.setBlockAndUpdate(pos, st.setValue(SweetBerryBushBlock.AGE, 3));
                 }
             }
+            refreshLists(level, p); // 익힌 직후에 목록을 다시 만든다 — 순서가 뒤바뀌면 한 스캔 늦는다
         }
+    }
+
+    /**
+     * <b>밭이 무엇이 익었는지 스스로 세어 둔다</b> — 수확·관리의 단일 출처.
+     *
+     * <p>익음의 정의는 하나다: <b>블록에 열매가 달렸는가</b>. 실제로 딸 수 있고 눈에 보이는
+     * 그것이다. 장부 시계(planted + careBonus)는 판정이 아니라 <b>익히는 장치</b>로만 남는다 —
+     * 위 순회가 장부를 보고 블록을 익힌다. 그래서 바닐라가 먼저 익혀도 모순이 없다: 익었으면
+     * 익은 목록에 들어가고, 딸 수 있고, 관리 대상이 아니다.
+     */
+    static void refreshLists(ServerLevel level, FarmStore.Plot p) {
+        long[] ripe = new long[p.tiles.length];
+        long[] unripe = new long[p.tiles.length];
+        int r = 0;
+        int u = 0;
+        for (int i = 0; i < p.tiles.length; i++) {
+            if (p.planted[i] < 0) {
+                continue; // 미설치 — 어느 목록에도 없다
+            }
+            BlockPos pos = BlockPos.of(p.tiles[i]);
+            if (!level.isLoaded(pos)) {
+                continue;
+            }
+            var st = level.getBlockState(pos);
+            if (!st.is(Blocks.SWEET_BERRY_BUSH)) {
+                continue; // 덤불이 아니다(밟혀 사라짐 등) — 다음 스캔이 다시 심는다
+            }
+            if (st.getValue(SweetBerryBushBlock.AGE) >= 3) {
+                ripe[r++] = p.tiles[i];
+            } else {
+                unripe[u++] = p.tiles[i];
+            }
+        }
+        p.ripe = java.util.Arrays.copyOf(ripe, r);
+        p.unripe = java.util.Arrays.copyOf(unripe, u);
+        p.listTick = com.evosim.mod.entity.SimTime.tick(level);
+    }
+
+    /**
+     * 한 타일이 방금 수확됐음을 목록에 즉시 반영한다.
+     *
+     * <p>스캔(200틱)을 기다리면 방금 딴 타일이 최대 10초간 "익은 목록"에 남아, 미믹이 같은
+     * 자리를 계속 노린다 — 제자리 움찔이 된다.
+     */
+    static void markHarvested(ServerLevel level, FarmStore.Plot p, long tile) {
+        int idx = -1;
+        for (int i = 0; i < p.ripe.length; i++) {
+            if (p.ripe[i] == tile) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) {
+            return;
+        }
+        long[] nr = new long[p.ripe.length - 1];
+        System.arraycopy(p.ripe, 0, nr, 0, idx);
+        System.arraycopy(p.ripe, idx + 1, nr, idx, p.ripe.length - idx - 1);
+        p.ripe = nr;
+        long[] nu = java.util.Arrays.copyOf(p.unripe, p.unripe.length + 1);
+        nu[p.unripe.length] = tile;
+        p.unripe = nu;
     }
 }

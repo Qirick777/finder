@@ -260,6 +260,17 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "끼임 해소 OFF — 종전 거동(끝까지 서로 민다)");
                             return 1;
                         })))
+                .then(Commands.literal("tendcap")
+                        .then(Commands.literal("on").executes(ctx -> {
+                            com.evosim.mod.entity.MimicFarmGoal.setTendAfterCap(true);
+                            tell(ctx.getSource(), "수확 상한 후 관리 이관 ON");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            com.evosim.mod.entity.MimicFarmGoal.setTendAfterCap(false);
+                            tell(ctx.getSource(), "수확 상한 후 관리 이관 OFF — 종전 거동(그 자리에서 논다)");
+                            return 1;
+                        })))
                 .then(Commands.literal("hirecap")
                         .then(Commands.literal("on").executes(ctx -> {
                             FarmTicker.setHireCap(true);

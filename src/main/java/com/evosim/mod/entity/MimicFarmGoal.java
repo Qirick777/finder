@@ -58,26 +58,45 @@ public class MimicFarmGoal extends Goal {
             day = today;
             harvestedToday = 0; // 일일 용량 리셋
         }
+        // ── 수확 문턱과 노동 문턱은 다르다 ────────────────────────────────────────────
+        // 아래 둘은 <b>수확만</b> 막는다. 종전에는 여기서 곧장 idle() 로 빠져, 익은 타일이
+        // 널린 밭 한복판에 선 채로 남은 근무시간을 통째로 버렸다 — 실측(관리무대, 54타일
+        // 전부 익음): "수전 파커 코앞(7,-2)에 익은 타일이 있는데 안 딴다 — 사유: 하루 수확
+        // 용량 소진(8/8)". 육안으로 본 "다 익었는데 못 따고 멍때린다"가 바로 이것이다.
+        //
+        // 용량은 <b>딸 수 있는 양</b>의 상한이지 <b>일할 수 있는 시간</b>의 상한이 아니다.
+        // 더 못 딴다는 것은 그 사람에게 "딸 게 없다"와 같으므로, 지시 사양대로 관리로 넘긴다
+        // ("출근하면 수확 + 수확할 게 없어도 놀지 않고 작물관리"). 관리는 수확량·소득을
+        // 만들지 않으므로 용량·쿼터가 지키려는 것(수취 상한·노년 지원 누수)은 그대로 지켜진다.
+        boolean harvestBlocked = false;
         if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
-            idleWhy("하루 수확 용량 소진(" + harvestedToday + "/"
-                    + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()) + ")");
-            return idle(); // 전담창 소진 — 나머지 시간은 기존 채집/배회
+            harvestBlocked = true; // 전담창 소진 — 수확은 끝, 관리는 가능
         }
         if (!urgent && mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
             // 노년 노동의 단일 상한 = 쿼터(노년 확장 산출 ㉵) — 밭 수확도 addHarvest 로 dayGathered 에
             // 누적되므로 여기서 막지 않으면 용량(6타일=4.5/일)까지 뚫려 자식 지원 누수가 재발한다.
             // 잔여 익은 타일은 부족분 게시 → 소작(2세대 일자리)으로 자연 이관.
-            idleWhy("노년 쿼터 소진");
-            return idle();
+            harvestBlocked = true;
         }
         if (mob.isSatisfiedToday() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
+            // 만족(M7)은 <b>출근 자체를 안 하는</b> 것이라 관리로도 넘기지 않는다 — 자기 밭
+            // 노동 정지가 사다리 분화의 장치이고, 여기를 열면 만족한 지주가 계속 일하게 된다.
             idleWhy("만족 상태이고 배정 없음");
-            return idle(); // 만족(M7) — 자기 밭 노동 정지. 소작 출근(배정)은 계약 의무라 유지
+            return idle(); // 소작 출근(배정)은 계약 의무라 유지
         }
-        target = nearestWorkRipe();
+        target = harvestBlocked ? null : nearestWorkRipe();
         if (target != null) {
             tendTarget = null; // 익은 게 있으면 언제나 수확이 먼저
             return true;
+        }
+        if (harvestBlocked && tendAfterCap) {
+            idleWhy(harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())
+                    ? "하루 수확 용량 소진(" + harvestedToday + "/"
+                            + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()) + ")"
+                    : "노년 쿼터 소진");
+        } else if (harvestBlocked) {
+            idleWhy("수확 상한(용량·쿼터) 소진 — 관리 이관 꺼짐");
+            return idle(); // A/B 의 종전 거동
         }
         // ── 딸 게 없으면 놀지 않고 <b>밭을 돌본다</b> ──────────────────────────────────
         // 종전에는 여기서 앵커만 남기고 비활성이 되어, 출근한 소작이 하루의 남은 시간을 버렸다
@@ -169,6 +188,22 @@ public class MimicFarmGoal extends Goal {
             }
         }
         return false;
+    }
+
+    /**
+     * 수확 상한을 채운 뒤 관리로 넘길 것인가 — A/B 스위치. 끄면 종전 거동(그 자리에서 논다).
+     *
+     * <p>켜면 커버리지가 오르고 익음이 빨라져 <b>생산이 는다</b>. 지시 3번("시간이 쌓이면서
+     * 소작농이 역전하거나 너무 부유해져서는 안 된다")에 걸리는 변경이라 껐다 켜며 재야 한다.
+     */
+    private static boolean tendAfterCap = true;
+
+    public static void setTendAfterCap(boolean on) {
+        tendAfterCap = on;
+    }
+
+    public static boolean tendAfterCap() {
+        return tendAfterCap;
     }
 
     /** 한 관리 자리에 머무는 틱 — 매 틱 다시 고르면 목표가 계속 바뀌어 제자리 움찔이 된다. */

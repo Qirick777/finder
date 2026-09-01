@@ -1096,6 +1096,26 @@ public class MimicEntity extends PathfinderMob {
     // 막혀 있는 <b>동안만</b> 밀기를 끄면 둘이 겹쳐 지나가고 교착이 풀린다. 평상시에는 그대로
     // 밀리므로 군집 거동은 변하지 않는다.
     private static final int JAM_TICKS_TO_PHASE = 20; // 1초 — 이보다 짧으면 정상 멈춤과 구분 안 됨
+    /**
+     * 끼임 해소 on/off — <b>기본 꺼짐</b>. 가설이 실측으로 기각됐다.
+     *
+     * <p>"문 앞 교착은 서로 미는 탓"이라 보고 막힌 동안 밀기를 끄는 수정을 넣었으나, 같은 런에서
+     * 번갈아 켜고 끄며 잰 결과 차이가 없었다: 회차1 OFF 20.5% / ON 20.0% · 회차2 OFF 17.5% /
+     * ON 22.5% · 회차3 양쪽 0%. 원인이 밀기가 아니라는 뜻이다.
+     *
+     * <p>코드와 스위치는 남겨 둔다 — 원인을 다시 좁힐 때 대조군으로 바로 쓸 수 있다. 다만
+     * 효과가 없는 변경을 기본 거동으로 켜 두지는 않는다.
+     */
+    private static volatile boolean jamPhaseEnabled = false;
+
+    public static void setJamPhase(boolean on) {
+        jamPhaseEnabled = on;
+    }
+
+    public static boolean jamPhase() {
+        return jamPhaseEnabled;
+    }
+
     private static final double JAM_MOVE_EPS = 0.02;  // 한 틱에 이만큼도 못 움직이면 정지로 본다
     private int jamTicks;
     private double lastJamX;
@@ -1121,7 +1141,22 @@ public class MimicEntity extends PathfinderMob {
 
     @Override
     public boolean isPushable() {
-        return !isJammed() && super.isPushable();
+        return !(jamPhaseEnabled && isJammed()) && super.isPushable();
+    }
+
+    /**
+     * 끼인 동안에는 <b>남도 밀지 않는다</b>.
+     *
+     * <p>{@code isPushable} 만 끄면 한쪽 방향뿐이다 — 끼인 개체가 안 밀리게 되니 상대가 그를
+     * 비켜세우지 못해 문을 더 막았다(실측: 끼임 6.6% → 14.7%로 <b>악화</b>). 밀기는 양쪽이
+     * 함께 멎어야 서로 겹쳐 지나간다.
+     */
+    @Override
+    protected void doPush(net.minecraft.world.entity.Entity entity) {
+        if (jamPhaseEnabled && isJammed()) {
+            return;
+        }
+        super.doPush(entity);
     }
 
     @Override

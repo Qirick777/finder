@@ -238,6 +238,17 @@ public final class EvoSimCommand {
                                                 IntegerArgumentType.getInteger(ctx, "tiles"),
                                                 IntegerArgumentType.getInteger(ctx, "tenants"))))))
                 .then(Commands.literal("carestat").executes(EvoSimCommand::careStat))
+                .then(Commands.literal("jamphase")
+                        .then(Commands.literal("on").executes(ctx -> {
+                            MimicEntity.setJamPhase(true);
+                            tell(ctx.getSource(), "끼임 해소 ON — 1초 넘게 막힌 개체는 밀기를 끈다");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            MimicEntity.setJamPhase(false);
+                            tell(ctx.getSource(), "끼임 해소 OFF — 종전 거동(끝까지 서로 민다)");
+                            return 1;
+                        })))
                 .then(Commands.literal("farmguard").executes(EvoSimCommand::farmGuardDemo))
                 .then(Commands.literal("farmrent").executes(EvoSimCommand::farmRentDemo))
                 .then(Commands.literal("farmbond").executes(EvoSimCommand::farmBondDemo))

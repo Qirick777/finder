@@ -260,6 +260,17 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "끼임 해소 OFF — 종전 거동(끝까지 서로 민다)");
                             return 1;
                         })))
+                .then(Commands.literal("visitfix")
+                        .then(Commands.literal("on").executes(ctx -> {
+                            com.evosim.mod.entity.MimicVisitGoal.setHoldOnPreempt(true);
+                            tell(ctx.getSource(), "마실 앵커 유지 ON — 리시에 선점돼도 목적지를 놓지 않는다");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            com.evosim.mod.entity.MimicVisitGoal.setHoldOnPreempt(false);
+                            tell(ctx.getSource(), "마실 앵커 유지 OFF — 종전 거동(선점마다 전부 놓음)");
+                            return 1;
+                        })))
                 .then(Commands.literal("label")
                         .then(Commands.literal("on").executes(ctx -> {
                             MimicEntity.setLabel(true);

@@ -37,12 +37,24 @@ public class MimicVisitGoal extends Goal {
     private static final Map<Long, Integer> SEATS = new HashMap<>();
     private static long seatDay = -1L;
 
+    /** 선점 시 앵커를 쥐고 있을 것인가 — 끄면 종전 거동(선점마다 전부 놓아 무한 왕복). */
+    private static boolean holdOnPreempt = true;
+
+    public static void setHoldOnPreempt(boolean on) {
+        holdOnPreempt = on;
+    }
+
+    public static boolean holdOnPreempt() {
+        return holdOnPreempt;
+    }
+
     private final MimicEntity mob;
     private BlockPos dest;
     private boolean atChurch;          // 이번 목적지가 교회인가 — 도착 처리가 갈린다
     private BlockPos churchPos;        // 그 교회의 등기 좌표(자리가 아니라 앵커)
     private int chatLeft;
     private boolean began;
+    private boolean reserved;   // 좌석을 이미 잡았는가 — 선점 후 재개 시 중복 예약 방지
 
     public MimicVisitGoal(MimicEntity mob) {
         this.mob = mob;
@@ -102,11 +114,11 @@ public class MimicVisitGoal extends Goal {
         if (mob.getStage() != LifeStage.ADULT || mob.getIndividual() == null
                 || mob.getHomePos() == null || mob.isBuilding() || mob.isFastSettle()
                 || mob.isCourtTravel() || mob.isCritical() || mob.isCaregiverBound()) {
-            return false;
+            return abandon();
         }
         if (Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
                 != Schedule.Phase.WANDER) {
-            return false;
+            return abandon();
         }
         // <b>여유가 있어야 마실·예배를 간다.</b>
         //
@@ -120,17 +132,22 @@ public class MimicVisitGoal extends Goal {
         // 가서 굶는다</b>. 여유 조건을 함께 걸어야 "먹을 것이 없으면 일하고, 남으면 나선다"가
         // 되어 순서가 뒤집히지 않는다.
         if (!mob.larderComfortable()) {
-            return false;
+            return abandon();
         }
         long gameDay = com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L;
         if (gameDay - mob.lastVisitDay() < VISIT_COOLDOWN_DAYS) {
-            return false; // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변
+            return abandon(); // 개체 쿨다운은 단조 시계(gameTime 일) — 수면 스킵·무대 시간 조작에 불변
         }
         // 좌석 장부는 새벽 시계(dayTime 일) — 하루 생활 리듬(배정·배회)과 같은 축이고,
         // 무대가 setDayTime 으로 고정할 수 있어 결정론(단조 시계면 무대 중 일경계 통과 시
         // 장부가 초기화돼 만석 감시가 간헐 붕괴 — 실측 플레이크).
         long seatKey = mob.level().getDayTime() / 24000L;
         rollDay(seatKey);
+        // <b>리시가 데려다 주는 중이면 같은 목적지로 이어 간다.</b> 여기서 다시 뽑으면 표적이
+        // 매번 바뀌어 제자리 움찔이 된다(stop 주석의 그 현상이 선점 경로로도 일어난다).
+        if (dest != null) {
+            return true;
+        }
         dest = pickDest(gameDay);
         return dest != null;
     }
@@ -158,7 +175,12 @@ public class MimicVisitGoal extends Goal {
             // 목적지가 <b>건물 안의 한 자리</b>라 자리 좌표로 세면 한 자리에 한 명씩 세는 꼴이
             // 되어 건물 상한({@link Facilities#CHURCH_CAP})이 영영 차지 않는다 —
             // {@code pickChurch} 가 앵커로 확인하므로 세는 쪽도 앵커여야 한다.
-            SEATS.merge(atChurch ? churchPos.asLong() : dest.asLong(), 1, Integer::sum);
+            // 좌석은 <b>한 번만</b> 잡는다. 리시에 선점됐다 다시 서는 경우 stop 이 반납하지
+            // 않았으므로(위 주석), 여기서 또 더하면 한 사람이 정원을 둘 이상 먹는다.
+            if (!reserved) {
+                SEATS.merge(atChurch ? churchPos.asLong() : dest.asLong(), 1, Integer::sum);
+                reserved = true;
+            }
             mob.setVisitAnchor(dest);
         }
     }
@@ -223,15 +245,51 @@ public class MimicVisitGoal extends Goal {
         // 아이가 어디 못 가고 움찔거리는 모양이 된다.
         //
         // 도착한 뒤(began)에는 반납하지 않는다 — 그 자리는 실제로 쓰인 것이다.
+        // <b>리시에 선점된 것뿐이면 아무것도 놓지 않는다.</b> 이 goal 은 활동반경 밖 이웃을
+        // 리시(우선순위 2)가 끌고 가 주도록 visitAnchor 를 건다. 그런데 리시가 그 앵커 때문에
+        // 발동해 이 goal(6)을 선점하면 stop 이 돌고, 여기서 앵커를 지우면 앵커가 집으로
+        // 돌아가 리시가 즉시 해제된다 → 마실이 다시 서서 목적지를 새로 뽑는다 → 리시 발동 …
+        // 틱 단위 무한 루프다. 육안 관측 "마실/복귀가 초간격으로 반복되며 움찔거린다"가 이것이고,
+        // 데려다 주라고 만든 장치가 스스로를 무너뜨리고 있었다.
+        //
+        // 선점과 진짜 종료는 canContinueToUse 로 가른다 — 아직 이어 갈 수 있으면 선점이다.
+        if (holdOnPreempt && dest != null && !began && canContinueToUse()) {
+            return; // 예약·앵커·목적지 유지 — 리시가 데려다 주는 중
+        }
+        // <b>도착 못 하고 물러나면 예약을 반납한다.</b>
         if (!began && dest != null) {
             long key = atChurch && churchPos != null ? churchPos.asLong() : dest.asLong();
             SEATS.computeIfPresent(key, (k, v) -> v <= 1 ? null : v - 1);
         }
         dest = null;
         began = false;
+        reserved = false;
         atChurch = false;
         churchPos = null;
         mob.setVisitAnchor(null);
+    }
+
+    /**
+     * 문지기에서 막혔을 때 <b>들고 있던 예약·앵커를 놓는다</b> — 항상 {@code false}.
+     *
+     * <p>{@code stop} 이 선점 때 아무것도 놓지 않게 바꿨으므로, 놓는 책임이 여기로 온다.
+     * 리시가 데려가는 도중에 조건이 바뀌면(배회 시간 종료·저장고 부족·위급) goal 이 다시 서지
+     * 않아 {@code stop} 이 불릴 일이 없고, 그러면 앵커가 영영 남아 리시가 그 집으로 계속 끈다.
+     */
+    private boolean abandon() {
+        if (dest != null) {
+            if (!began) {
+                long key = atChurch && churchPos != null ? churchPos.asLong() : dest.asLong();
+                SEATS.computeIfPresent(key, (k, v) -> v <= 1 ? null : v - 1);
+            }
+            dest = null;
+            began = false;
+            reserved = false;
+            atChurch = false;
+            churchPos = null;
+            mob.setVisitAnchor(null);
+        }
+        return false;
     }
 
     /** 목적지 — 8~48블록 내 타 가구 켜진 모닥불(거처 좌표) 중 (id+날) 결정론 선택 + 좌석 확인. */

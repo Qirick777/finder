@@ -2355,10 +2355,24 @@ public final class FarmTicker {
             for (int r = 0; r < fp[1]; r++) {
                 if (com.evosim.core.FarmLayout.isCrop(c, r, p.beds, p.rows)) {
                     // 재배 칸 — 바닥만 채운다. 이미 무언가 서 있으면(심긴 흙·베리) 손대지 않는다.
+                    //
+                    // <b>단, 옛 테두리 원목은 걷어낸다.</b> 단계가 오르면 footprint 가 커져
+                    // 어제까지 테두리였던 줄(r == fp[1]-1 등)이 오늘은 안쪽 재배 칸이 된다.
+                    // 그런데 아래 조건(비었을 때만 흙을 깔기)은 심긴 베리를 지키려는 것인데
+                    // <b>옛 원목까지 같이 지켜</b>, 밭 한복판에 원목 기둥이 한 줄 남는다
+                    // (육안 관측). 철거를 plantAt 에만 맡겨 두었더니 그것은 하루 k칸(자금·노동
+                    // 한도)이라 며칠씩 남고, 자금이 마르면 영영 남는다.
+                    //
+                    // layLogs 는 <b>도면대로 까는 멱등 함수</b>다. 도면이 재배 칸이라고 말하는
+                    // 자리에 원목이 서 있으면 그것을 치우는 것이 이 함수의 본래 일이다.
+                    // 베리는 baseY+2 라 여기서 건드리지 않고, 타일 등기도 그 덤불 기준이라
+                    // 그대로다 — 이 칸은 여전히 "안 심긴 칸"이고 plantAt 이 정상적으로 심는다.
+                    // 가로등 기둥은 참나무 <b>울타리</b>(LampPlanner)라 이 조건에 걸리지 않는다.
                     int[] cxz = colOf(p, c, r);
                     BlockPos soil = new BlockPos(cxz[0], p.baseY + 1, cxz[1]);
                     var cur = level.getBlockState(soil);
-                    if (cur.isAir() || cur.canBeReplaced()) {
+                    if (cur.isAir() || cur.canBeReplaced()
+                            || cur.is(net.minecraft.world.level.block.Blocks.OAK_LOG)) {
                         level.setBlockAndUpdate(soil, net.minecraft.world.level.block.Blocks
                                 .GRASS_BLOCK.defaultBlockState());
                     }

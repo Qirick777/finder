@@ -328,7 +328,11 @@ public final class EvoSimCommand {
                 .then(Commands.literal("wartest").executes(EvoSimCommand::warTest))
                 .then(Commands.literal("foetest").executes(EvoSimCommand::foeTest))
                 .then(Commands.literal("medictest").executes(EvoSimCommand::medicTest))
-                .then(Commands.literal("wound").executes(EvoSimCommand::woundSoldiers))
+                .then(Commands.literal("wound").executes(EvoSimCommand::woundSoldiers)
+                        // 인자 = 막사 X 좌표. 그 막사 병사만 눕힌다(점령은 성한 적이 있어야 센다).
+                        .then(Commands.argument("postX", IntegerArgumentType.integer(-9999, 9999))
+                                .executes(c -> woundSoldiers(c,
+                                        IntegerArgumentType.getInteger(c, "postX")))))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2464,10 +2468,24 @@ public final class EvoSimCommand {
      * 복귀, 그리고 지갑이 마른 쪽의 점령.
      */
     private static int woundSoldiers(CommandContext<CommandSourceStack> ctx) {
+        return woundSoldiers(ctx, Integer.MIN_VALUE);
+    }
+
+    /**
+     * @param onlyPostX {@link Integer#MIN_VALUE} 면 전원, 아니면 <b>그 X 좌표의 막사에 배속된</b>
+     *                  병사만. 점령은 "전투 가능 병사 0 + 반경 안의 성한 적"이 성립해야 세는데,
+     *                  양쪽을 같이 눕히면 성한 적이 없어 판정 자체가 안 열린다 — 한쪽만 눕혀야
+     *                  점령 경로를 밟을 수 있다.
+     */
+    private static int woundSoldiers(CommandContext<CommandSourceStack> ctx, int onlyPostX) {
         ServerLevel level = ctx.getSource().getLevel();
         int n = 0;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && FarmTicker.isSoldier(e))) {
+            BlockPos pp = FarmTicker.postOf(m);
+            if (onlyPostX != Integer.MIN_VALUE && (pp == null || pp.getX() != onlyPostX)) {
+                continue;
+            }
             m.setHealth((float) (m.getMaxHealth() * 0.2)); // 퇴각선(30%) 아래
             // <b>소지 식량도 비운다.</b> 급양은 배부른 병사에게 아무것도 하지 않고
             // (medicate 의 첫 줄), 회복도 holding > 0 에서만 돈다(regenTick). 봉급을 쥔
@@ -2475,13 +2493,12 @@ public final class EvoSimCommand {
             // 지갑이 마른 부상병이야말로 이 설계가 재려는 상황이다 — 결과를 꾸미는 게
             // 아니라 <b>재려는 상황을 만드는 것</b>이다.
             m.setDayHarvest(0.0);
-            var post = FarmTicker.postOf(m);
             tell(ctx.getSource(), String.format(
                     "  #%d @%d,%d → 체력 %.0f%% · 소지 0.0 · 막사 %s",
                     m.getIndividual() == null ? 0 : m.getIndividual().id(),
                     m.blockPosition().getX(), m.blockPosition().getZ(),
                     100.0 * m.getHealth() / m.getMaxHealth(),
-                    post == null ? "없음" : (post.getX() + "," + post.getZ())));
+                    pp == null ? "없음" : (pp.getX() + "," + pp.getZ())));
             n++;
         }
         tell(ctx.getSource(), String.format(
@@ -2521,11 +2538,17 @@ public final class EvoSimCommand {
             // 병사의 집이 가운데 있어야 순찰·귀가 어느 쪽이든 적과 마주친다. 첫 조성은
             // 병사를 붙여 놓고 집만 20블록 밖에 둬서, 곧장 흩어져 전투가 0건이었다.
             for (int i = 0; i < 4; i++) {
-                // <b>두 세력의 가구를 뒤섞는다.</b> 좌우로 갈라 두면 병사들이 거울처럼
-                // 제 쪽만 돌아 인지 거리(8) 안으로 영영 안 들어온다(실측: -12,5 ↔ 12,5 ·
-                // -8,2 ↔ 8,2 — 최소 16블록). 한 마을에 두 세력의 사람이 섞여 사는 것이
-                // 애초에 그리려던 상황이기도 하다.
-                int hx = -7 + i * 4 + k * 2;
+                // <b>간격 8.</b> 거처 발자국은 x −3..+3(폭 7)이라 그보다 촘촘하면 나중에 선
+                // 벽이 앞 거처 실내를 메워 개체가 갇힌다. 직전 조성은 두 세력을 인지 거리(8)
+                // 안에 넣겠다고 2블록 간격으로 뒤섞었는데, 그 결과 병사 둘이 자기 집 좌표에서
+                // 8분간 정지했다 — 후송·급양·점령 전부 0건. "안 만난다"를 고치려다 "못
+                // 움직인다"로 바꿔 놓은 셈이다.
+                //
+                // P5 는 <b>전투 조우가 필요 없다</b>. 부상은 evosim wound 로 직접 만들고, 여기서
+                // 재는 것은 그 뒤의 사슬(후송→급양→회복→복귀)과 점령이다. 조우를 억지로
+                // 만들 이유가 없으므로 좌우로 갈라 놓고 간격만 확실히 벌린다. 세력이 실제로
+                // 맞붙는 배치는 P6(증원·배치)에서 다룬다.
+                int hx = -26 + (k * 4 + i) * 8;
                 BlockPos h = groundAt(level, ctx.getSource().getPosition(), hx, 4);
                 MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
                 f.debugSettleWithTent(h, Direction.NORTH);
@@ -2545,11 +2568,13 @@ public final class EvoSimCommand {
                 "§e[후송시험]§r 부자 막사 @%d,%d(저장고 600) · 빈자 막사 @%d,%d(저장고 6)",
                 posts[0].getX(), posts[0].getZ(), posts[1].getX(), posts[1].getZ()));
         tell(ctx.getSource(), String.format(
-                "  두 세력 추종 4호를 z=4 에 <b>뒤섞어</b> 배치(2블록 간격) —"
-                        + " 인지 8 안이라 병사가 마주친다 · 급양 1회 %.1f · 점령 %d일",
+                "  두 세력 추종 4호씩을 z=4 에 <b>간격 8</b>로 배치(x −26..30) —"
+                        + " 발자국 폭 7 이라 그보다 촘촘하면 벽이 실내를 막아 갇힌다"
+                        + " · 급양 1회 %.1f · 점령 %d일",
                 com.evosim.mod.entity.Facilities.MEDIC_RATION,
                 com.evosim.mod.entity.Facilities.OCCUPY_DAYS));
-        tell(ctx.getSource(), "  → '후송'·'점령' 이벤트로 급양이 끊기는 쪽과 넘어가는 막사를 본다");
+        tell(ctx.getSource(), "  → 'evosim wound' 로 부상을 만든 뒤 후송→급양→회복→복귀와"
+                + " 지갑이 마르는 쪽의 점령을 본다");
         return 1;
     }
 

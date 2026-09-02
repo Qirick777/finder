@@ -965,6 +965,7 @@ public class MimicEntity extends PathfinderMob {
         adoptDesign(HomeStore.TENT, (byte) facing.get2DDataValue(), false);
         building = false;
         if (level() instanceof ServerLevel sl) {
+            warnIfCrowded(sl, home);
             for (HomeBlueprint.Placement p : HomeBlueprint.of(sl, home, HomeStore.TENT,
                     (byte) facing.get2DDataValue(), false).plan()) {
                 sl.setBlockAndUpdate(p.pos(), p.state());
@@ -972,6 +973,36 @@ public class MimicEntity extends PathfinderMob {
             // 등기 — 마실·구혼여행 목적지 후보가 되는 경로가 이제 등기부다(종전 모닥불 전역 목록).
             HomeStore.get(sl).register(home, HomeStore.TENT, (byte) facing.get2DDataValue(),
                     false, individual != null ? individual.id() : 0L, today());
+        }
+    }
+
+    /**
+     * <b>조성 거처가 이미 선 거처와 겹치는가</b> — 겹치면 경고만 남긴다(배치는 그대로 한다).
+     *
+     * <p>조성 명령은 좌표를 손으로 적는다. 거처 발자국은 x −3..+3(폭 7)인데 좌표를 그보다
+     * 촘촘히 주면 <b>나중에 선 벽이 앞 거처 실내를 메운다</b>. 그러면 그 안의 개체는 목적지로
+     * moveTo 를 매 틱 부르면서도 한 발짝을 못 나가고, 겉으로는 "goal 은 도는데 안 움직인다"로만
+     * 보인다 — 원인이 조성에 있다는 단서가 어디에도 안 뜬다.
+     *
+     * <p>실측(P5 후송시험): 집을 2블록 간격으로 8채 세웠더니 병사 둘이 자기 집 좌표에서 8분간
+     * 정지했다. 후송·급양·점령이 전부 0건이었고, 그 원인을 찾는 데 런 하나를 통째로 썼다.
+     * 자동 교정은 하지 않는다 — 조성자가 의도한 좌표를 말없이 옮기면 그것대로 시험이 어긋난다.
+     */
+    private static void warnIfCrowded(ServerLevel sl, BlockPos home) {
+        // 발자국 반폭: x ±3, z −2..+3 → 두 거처는 |dx| ≤ 6 이고 |dz| ≤ 5 면 겹칠 수 있다.
+        for (BlockPos other : HomeStore.get(sl).positions()) {
+            if (other.equals(home)) {
+                continue; // 같은 집(부부 합류)은 겹침이 아니다
+            }
+            int dx = Math.abs(other.getX() - home.getX());
+            int dz = Math.abs(other.getZ() - home.getZ());
+            if (dx <= 6 && dz <= 5) {
+                com.mojang.logging.LogUtils.getLogger().warn(
+                        "[EvoSim 조성] 거처 겹침 — @{},{} 가 이미 선 @{},{} 와 (dx {} · dz {})"
+                                + " 겹친다. 발자국 폭 7 이라 벽이 실내를 막아 개체가 갇힐 수 있다.",
+                        home.getX(), home.getZ(), other.getX(), other.getZ(), dx, dz);
+                return;
+            }
         }
     }
 

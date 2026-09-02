@@ -64,7 +64,18 @@ public class MimicGarrisonGoal extends Goal {
             stand = 0;
         }
         if (spot == null) {
-            spot = night ? patrolSpot() : FarmTicker.guardSeatOf(mob);
+            // <b>낮에는 압박만, 밤에는 전 구역 순찰.</b>
+            //
+            // 종전에는 낮이면 무조건 제 자리에 앉았다. 그런데 야간 순찰은 밤 스킵과 정면으로
+            // 부딪힌다: night 는 tod ≥ 14000(SLEEP)인데 밤 스킵이 tod 14100 에서 기상으로
+            // 점프하므로 순찰 창이 <b>100틱</b>뿐이다(실측). 52블록을 걷는 데 편도 190틱이
+            // 필요하니 표적에 닿을 수가 없다 — 관측 런은 전부 스킵을 켜므로, 야간 순찰은
+            // 사실상 한 번도 작동한 적이 없다.
+            //
+            // 압박을 거기 묶어 두면 같은 이유로 영영 발동하지 않는다. 그래서 <b>표적이 있으면
+            // 낮에도 나간다</b>. 시위는 오히려 대낮에 보여야 뜻이 맞고, 눈으로 확인하기도 쉽다.
+            // 표적이 없으면 종전대로 제 자리에 앉는다 — 평시 막사가 비지 않는다.
+            spot = night ? patrolSpot() : dayPost();
             if (spot == null) {
                 spot = post;
             }
@@ -116,8 +127,37 @@ public class MimicGarrisonGoal extends Goal {
             }
             return;
         }
-        // 휴식 — 제 자리에 머문다. 밤이 오면 canUse 가 표적을 바꾼다.
+        // 낮 — 압박 표적 앞이면 잠시 서 있다가 다음 표적으로. 제 자리면 그대로 머문다.
+        if (!FarmTicker.pressureHomesOf(post).isEmpty()) {
+            if (++stand >= STAND_TICKS) {
+                spot = dayPost();
+                stand = 0;
+            }
+            return;
+        }
         stand = 0;
+    }
+
+    /**
+     * 낮 근무지 — 압박 표적이 있으면 그 집 앞, 없으면 제 자리.
+     *
+     * <p>표적을 도는 순서는 {@link #cursor} 를 그대로 쓴다. 병사마다 다른 표적에서 시작해
+     * 여럿이 한 집에 몰리지 않는다.
+     */
+    private BlockPos dayPost() {
+        if (post == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel)) {
+            return FarmTicker.guardSeatOf(mob);
+        }
+        java.util.List<BlockPos> targets = FarmTicker.pressureHomesOf(post);
+        if (targets.isEmpty()) {
+            return FarmTicker.guardSeatOf(mob);
+        }
+        if (cursor < 0) {
+            cursor = (int) Math.floorMod(mob.getIndividual().id(), targets.size());
+        }
+        BlockPos home = targets.get(Math.floorMod(cursor, targets.size()));
+        cursor++;
+        return home;
     }
 
     /**

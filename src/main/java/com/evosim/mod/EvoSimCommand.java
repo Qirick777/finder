@@ -2301,7 +2301,6 @@ public final class EvoSimCommand {
 
         BlockPos lordHome = groundAt(level, ctx.getSource().getPosition(), -20, -20);
         BlockPos bkSite = groundAt(level, ctx.getSource().getPosition(), -10, -20);
-        BlockPos sldHome = groundAt(level, ctx.getSource().getPosition(), -20, -12);
         BlockPos rivalHome = groundAt(level, ctx.getSource().getPosition(), 24, 20);
         BlockPos vassalHome = groundAt(level, ctx.getSource().getPosition(), 30, 20);
 
@@ -2309,9 +2308,21 @@ public final class EvoSimCommand {
         lord.debugSettleWithTent(lordHome, Direction.NORTH);
         LarderStore.get(level).set(lordHome, 400.0); // 봉급을 밀지 않을 만큼
 
-        MimicEntity soldier = spawnAdult(level, Vec3.atBottomCenterOf(sldHome), Sex.MALE);
-        soldier.debugSettleWithTent(sldHome, Direction.NORTH);
-        LarderStore.get(level).set(sldHome, 8.0);
+        // <b>추종 가구를 4호 세운다.</b> 정원이 min(좌석, 지킬가구/HOUSEHOLDS_PER_SOLDIER 4)
+        // 이라, 추종자가 하나면 정원이 0 이 되어 병사가 아예 안 뽑힌다 — 압박은 병사가
+        // 순찰해야 성립하므로 그러면 시험 자체가 성립하지 않는다.
+        MimicEntity soldier = null;
+        java.util.List<MimicEntity> retinue = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            BlockPos h = groundAt(level, ctx.getSource().getPosition(), -20 + i * 6, -12);
+            MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+            f.debugSettleWithTent(h, Direction.NORTH);
+            LarderStore.get(level).set(h, 8.0);
+            retinue.add(f);
+            if (i == 0) {
+                soldier = f;
+            }
+        }
 
         MimicEntity rival = spawnAdult(level, Vec3.atBottomCenterOf(rivalHome), Sex.MALE);
         rival.debugSettleWithTent(rivalHome, Direction.NORTH);
@@ -2324,7 +2335,9 @@ public final class EvoSimCommand {
         long lordId = lord.getIndividual().id();
         long rivalId = rival.getIndividual().id();
         // 신세를 심어 추종을 성립시킨다 — 병사는 A 를, 봉신은 B 를 따른다.
-        led.record(soldier.getIndividual().id(), lordId, 40.0, 0.0, day);
+        for (MimicEntity f : retinue) {
+            led.record(f.getIndividual().id(), lordId, 40.0, 0.0, day);
+        }
         led.record(vassal.getIndividual().id(), rivalId, 40.0, 0.0, day);
 
         // 막사 — 구조물을 세우고 등기한다.
@@ -2343,9 +2356,9 @@ public final class EvoSimCommand {
                 FarmStore.get(level).ownedTiles(rivalId)
                         * com.evosim.mod.entity.AllegianceStore.TILE_WORTH);
         tell(ctx.getSource(), String.format(
-                "§e[압박시험]§r 영주 #%d @%d,%d 저장고 400 · 막사 @%d,%d · 병사 #%d",
+                "§e[압박시험]§r 영주 #%d @%d,%d 저장고 400 · 막사 @%d,%d · 추종 4호(정원 1)",
                 lord.getId(), lordHome.getX(), lordHome.getZ(),
-                bkSite.getX(), bkSite.getZ(), soldier.getId()));
+                bkSite.getX(), bkSite.getZ()));
         tell(ctx.getSource(), String.format(
                 "  독자세력 머리 #%d @%d,%d (막사 없음 · 추종자 1) — 막사에서 %.0f블록 · 굴복 문턱 %.1f",
                 rival.getId(), rivalHome.getX(), rivalHome.getZ(),

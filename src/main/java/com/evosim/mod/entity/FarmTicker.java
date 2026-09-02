@@ -1765,6 +1765,19 @@ public final class FarmTicker {
                 post.getX(), post.getZ(), pay, want, have, have - pay));
     }
 
+    /**
+     * 점검용 — 개체를 그 막사 소속 병사로 못박는다(/evosim foetest).
+     *
+     * <p>일일 정산을 기다리지 않고 적 판정({@link #hostileSoldiers})과 교전을 그 자리에서
+     * 확인하기 위한 것이다. 세계가 자라며 추종 가구가 사방으로 퍼지면 순찰 경로가 적 근처를
+     * 지나지 않아 조우 자체가 운에 매달린다 — 바꾼 것(표적 선정)만 따로 재려면 조우를
+     * 조성해야 한다.
+     */
+    public static void debugAssignPost(MimicEntity m, BlockPos barracks, long ownerId) {
+        POST_OF.put(m.getId(), barracks);
+        POST_OWNER.put(barracks.asLong(), ownerId);
+    }
+
     public static BlockPos postOf(MimicEntity m) {
         return POST_OF.get(m.getId());
     }

@@ -326,6 +326,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("hitgear").executes(EvoSimCommand::hitGear))
                 .then(Commands.literal("presstest").executes(EvoSimCommand::pressTest))
                 .then(Commands.literal("wartest").executes(EvoSimCommand::warTest))
+                .then(Commands.literal("foetest").executes(EvoSimCommand::foeTest))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2423,6 +2424,50 @@ public final class EvoSimCommand {
      * 겁쟁이는 즉시 도주 · 신중은 체력 30%에 퇴각 · 무모는 안 물러나 죽는다. 여기서
      * <b>무모 분포를 처음 실측한다</b>(사망률 예측의 유일한 근거).
      */
+    /**
+     * <b>P4 직접 확인 — 적 병사 둘을 마주 세운다.</b>
+     *
+     * <p>{@code wartest} 는 두 세력을 세우고 순찰이 겹치기를 기다리는데, 세계가 자라며 추종
+     * 가구가 사방으로 퍼지면 순찰 경로가 적 근처를 지나지 않는다(실측: 병사가 막사에서
+     * 61블록 떨어진 집을 돌고 있었다). 조우가 운에 매달리면 <b>바꾼 것</b>(표적 선정)이
+     * 되는지 안 되는지를 가릴 수 없다.
+     *
+     * <p>그래서 조우를 조성한다 — 서로 다른 막사 소속으로 못박은 병사 둘을 3블록 간격으로
+     * 세우고, 적 판정과 교전을 그 자리에서 확인한다. P0(타격 시험)에서 통한 방식이다.
+     */
+    private static int foeTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos aHome = groundAt(level, ctx.getSource().getPosition(), -2, 0);
+        BlockPos bHome = groundAt(level, ctx.getSource().getPosition(), 2, 0);
+        BlockPos aPost = groundAt(level, ctx.getSource().getPosition(), -8, 0);
+        BlockPos bPost = groundAt(level, ctx.getSource().getPosition(), 8, 0);
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(aHome), Sex.MALE);
+        MimicEntity b = spawnAdult(level, Vec3.atBottomCenterOf(bHome), Sex.MALE);
+        a.debugSettleWithTent(aHome, Direction.NORTH);
+        b.debugSettleWithTent(bHome, Direction.NORTH);
+        LarderStore.get(level).set(aHome, 40.0);
+        LarderStore.get(level).set(bHome, 40.0);
+        // 서로 다른 막사·다른 주인 — 주인 id 는 자기 자신으로 둔다(추종 명부에 없으므로
+        // factionRootOf 가 각각 자기 자신을 뿌리로 돌려준다 = 서로 다른 세력).
+        FarmTicker.debugAssignPost(a, aPost, a.getIndividual().id());
+        FarmTicker.debugAssignPost(b, bPost, b.getIndividual().id());
+        a.setSoldierGear(true);
+        b.setSoldierGear(true);
+        boolean hostile = FarmTicker.hostileSoldiers(a, b);
+        tell(ctx.getSource(), String.format(
+                "§e[적판정]§r 병사 #%d(막사 @%d,%d) vs #%d(막사 @%d,%d) — 적 판정 %s",
+                a.getId(), aPost.getX(), aPost.getZ(), b.getId(), bPost.getX(), bPost.getZ(),
+                hostile ? "§aO§r" : "§cX§r"));
+        tell(ctx.getSource(), String.format(
+                "  병사 여부 %s/%s · 거리 %.1f블록 · 기본 인지 8 — 몇 초 뒤 '전투' 이벤트를 본다",
+                FarmTicker.isSoldier(a) ? "O" : "X", FarmTicker.isSoldier(b) ? "O" : "X",
+                Math.sqrt(a.blockPosition().distSqr(b.blockPosition()))));
+        if (!hostile) {
+            tell(ctx.getSource(), "  §c→ 적 판정이 서지 않는다. 교전은 여기서 이미 불가능하다§r");
+        }
+        return 1;
+    }
+
     private static int warTest(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         var led = com.evosim.mod.entity.AllegianceStore.get(level);

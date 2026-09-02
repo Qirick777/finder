@@ -1850,9 +1850,14 @@ public final class EvoSimCommand {
                 e -> e.isAlive() && FarmTicker.isSoldier(e))) {
             soldiers++;
             if (soldiers <= 12) {
-                tell(ctx.getSource(), String.format("    병사 %s · 저장고 %.1f · 소지 %.1f%s",
+                // 체력을 함께 찍는다 — 후송·급양·회복은 <b>체력이 오르는가</b>로만 확인된다.
+                // 이벤트 로그의 급양 한 줄은 "줬다"까지고, 그 뒤 회복은 여기서만 보인다.
+                tell(ctx.getSource(), String.format(
+                        "    병사 %s · 저장고 %.1f · 소지 %.1f · §b체력 %.0f%%§r%s%s",
                         m.getIndividual() == null ? "?" : m.getIndividual().shortName(),
                         m.getHomePos() == null ? 0.0 : lar.get(m.getHomePos()), m.getHolding(),
+                        100.0 * m.getHealth() / m.getMaxHealth(),
+                        m.isWounded() ? " §c전투불가§r" : (m.isHealed() ? " §a복귀선§r" : ""),
                         m.isCritical() ? " §c위급§r" : ""));
                 // <b>무엇이 이 병사를 쥐고 있는가.</b> "표적은 잡혔는데 안 간다"의 원인은
                 // 실행 중인 goal 과 지금의 앵커에 전부 적혀 있다 — 추론으로 좁히다 네 번
@@ -2464,11 +2469,24 @@ public final class EvoSimCommand {
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && FarmTicker.isSoldier(e))) {
             m.setHealth((float) (m.getMaxHealth() * 0.2)); // 퇴각선(30%) 아래
+            // <b>소지 식량도 비운다.</b> 급양은 배부른 병사에게 아무것도 하지 않고
+            // (medicate 의 첫 줄), 회복도 holding > 0 에서만 돈다(regenTick). 봉급을 쥔
+            // 채로 다치면 제 힘으로 나아 버려 후송·급양 가지가 통째로 안 열린다.
+            // 지갑이 마른 부상병이야말로 이 설계가 재려는 상황이다 — 결과를 꾸미는 게
+            // 아니라 <b>재려는 상황을 만드는 것</b>이다.
+            m.setDayHarvest(0.0);
+            var post = FarmTicker.postOf(m);
+            tell(ctx.getSource(), String.format(
+                    "  #%d @%d,%d → 체력 %.0f%% · 소지 0.0 · 막사 %s",
+                    m.getIndividual() == null ? 0 : m.getIndividual().id(),
+                    m.blockPosition().getX(), m.blockPosition().getZ(),
+                    100.0 * m.getHealth() / m.getMaxHealth(),
+                    post == null ? "없음" : (post.getX() + "," + post.getZ())));
             n++;
         }
         tell(ctx.getSource(), String.format(
-                "§e[부상]§r 배속 병사 %d명을 체력 20%%로 — 전투불가(퇴각선 30%%) 진입", n));
-        return n > 0 ? 1 : 0;
+                "§e[부상]§r 배속 병사 %d명을 체력 20%%·소지 0 으로 — 전투불가(퇴각선 30%%) 진입", n));
+        return n;
     }
 
     private static int medicTest(CommandContext<CommandSourceStack> ctx) {

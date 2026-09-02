@@ -2118,6 +2118,11 @@ public final class EvoSimCommand {
             if (fs.ownedTiles(m.getIndividual().id()) > 0) {
                 continue; // 지주는 놔둔다 — 굶기는 것이 목적이 아니다
             }
+            if (FarmTicker.assignedPlotOf(m.getId()) != 0L || m.getTenantFarm() != 0L) {
+                continue; // <b>일자리가 있는 사람도 놔둔다</b> — 이 시험이 세우려는 전제는
+                // "일자리를 못 얻은 자"이지 "온 마을이 굶는다"가 아니다. 자리를 채운 소작까지
+                // 굶기면 그도 구걸을 떠나 밭이 비고, 정작 물으려던 것이 흐려진다.
+            }
             m.debugForageDry();
             n++;
         }
@@ -2130,6 +2135,22 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format(
                 "§e[구걸시험]§r 무토지 성인 %d명을 굶김(H 0 · 채집시계 마름) → 정산 후 구걸자 %d명",
                 n, walking));
+        // <b>관문 값을 그대로 찍는다.</b> "왜 발동을 안 하는가"를 추측으로 좁히다 두 번 틀렸다 —
+        // 긴급고용이 사람을 고르는 조건은 다섯 개뿐이니 그 다섯을 한 줄에 내놓으면 끝난다.
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            tell(ctx.getSource(), String.format(
+                    "  #%d %s H %.2f · 위급 %s · 채집마름 %s · 오늘일감 %s · 소유타일 %d"
+                            + " · 상시소작 %s · 구걸지 %s",
+                    m.getId(), m.getStage(), m.getHolding(),
+                    m.isCritical() ? "§aO§r" : "§cX§r",
+                    m.forageDry() ? "§aO§r" : "§cX§r",
+                    FarmTicker.assignedPlotOf(m.getId()) == 0L ? "§a없음§r"
+                            : "§c구획" + FarmTicker.assignedPlotOf(m.getId()) + "§r",
+                    fs.ownedTiles(m.getIndividual().id()),
+                    m.getTenantFarm() == 0L ? "§a아님§r" : "§c구획" + m.getTenantFarm() + "§r",
+                    m.getBegHome() == null ? "§c없음§r" : "§a있음§r"));
+        }
         return 1;
     }
 
@@ -2147,6 +2168,16 @@ public final class EvoSimCommand {
         // 신세가 한 간선에 모인다(원장의 상위 K 에 흩어지지 않게).
         FarmStore.Plot plot = buildDemoPlot(level, plotAt, rich.getIndividual().id(), 6);
 
+        // <b>자리를 채우는 소작 하나.</b> 이게 없으면 시험이 성립하지 않는다 — 실측으로 확인한
+        // 것: 저장고 60 인 지주는 <b>만족</b>이라 노동 예산이 0 이 되고(assignDawn 의
+        // "만족 구성원 제외"), 6타일이 통째로 구인 게시되어 226블록 밖의 거지가 <b>정상 배정</b>
+        // 으로 뽑혀 간다. 긴급고용까지 갈 일이 없었다. 밭 옆에 한 명을 두면 그가 부족분 6을
+        // 다 덮고(성인 용량 8), 그때 비로소 "일자리 없음"이 만들어진다.
+        BlockPos fillHome = groundAt(level, ctx.getSource().getPosition(), dist + 6, dist);
+        MimicEntity filler = spawnAdult(level, Vec3.atBottomCenterOf(fillHome), Sex.MALE);
+        filler.debugSettleWithTent(fillHome, Direction.NORTH);
+        LarderStore.get(level).set(fillHome, 6.0); // 만족은 아니되 굶지도 않게 — 후보에서 안 빠지도록
+
         MimicEntity poor = spawnAdult(level, Vec3.atBottomCenterOf(poorHome), Sex.FEMALE);
         poor.debugSettleWithTent(poorHome, Direction.NORTH);
         LarderStore.get(level).set(poorHome, 0.0); // 꺼낼 것이 없어야 복귀(3)가 구걸(3)을 안 가로챈다
@@ -2158,6 +2189,9 @@ public final class EvoSimCommand {
         var fl = com.evosim.mod.entity.FamilyLedger.get(level);
         var rn = fl.get(rich.getIndividual().id());
         var pn = fl.get(poor.getIndividual().id());
+        tell(ctx.getSource(), String.format(
+                "  자리채움 #%d @%d,%d — 이 사람이 부족분을 덮어야 '일자리 없음'이 성립한다",
+                filler.getId(), fillHome.getX(), fillHome.getZ()));
         tell(ctx.getSource(), String.format(
                 "§e[구걸시험]§r 부자 §a%s§r#%d @%d,%d 저장고 60 · 밭 %d타일(구조상 항상 만석)",
                 rn != null && rn.name != null ? rn.name : "#" + rich.getIndividual().id(),

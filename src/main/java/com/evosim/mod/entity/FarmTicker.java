@@ -174,6 +174,11 @@ public final class FarmTicker {
 
     private static long almsDay = Long.MIN_VALUE;
 
+    /** 이 개체가 오늘 배정된 구획(0 = 없음) — 진단용. */
+    public static long assignedPlotOf(int entityId) {
+        return ASSIGNED.getOrDefault(entityId, 0L);
+    }
+
     public static int assignedToPlot(long plotId) {
         int n = 0;
         for (long v : ASSIGNED.values()) {

@@ -103,6 +103,10 @@ public class MimicGarrisonGoal extends Goal {
             return;
         }
         mob.getNavigation().stop();
+        // 도착 — 표적이면 그날의 압박으로 기록된다(표적이 아니면 안에서 곧바로 돌아온다).
+        if (mob.level() instanceof net.minecraft.server.level.ServerLevel sl2 && post != null) {
+            FarmTicker.reportPressureVisit(post, spot);
+        }
         if (night) {
             // 경계 — 둘레를 둘러본다. 다 서 있으면 다음 지점으로.
             mob.getLookControl().setLookAt(post.getX() + 0.5, post.getY() + 1.0, post.getZ() + 0.5);
@@ -141,7 +145,12 @@ public class MimicGarrisonGoal extends Goal {
         if (post == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return null;
         }
-        java.util.List<BlockPos> route = guardedHomes(sl);
+        // 지킬 집 + <b>압박 표적</b>. 표적을 경로에 얹는 것이 압박의 전부다 — 병사가 실제로
+        // 그 집 앞에 서고, 그 사실이 그날의 신세가 된다(FarmTicker.reportPressureVisit).
+        // 새 순찰 종류를 만들지 않고 같은 순회에 넣는 이유: 따로 두면 병사가 둘 사이를
+        // 오가며 목표를 갈아탄다 — 이 프로젝트가 거듭 데인 그 진동이다.
+        java.util.List<BlockPos> route = new java.util.ArrayList<>(guardedHomes(sl));
+        route.addAll(FarmTicker.pressureHomesOf(post));
         if (!route.isEmpty()) {
             if (cursor < 0) {
                 cursor = (int) Math.floorMod(mob.getIndividual().id(), route.size());

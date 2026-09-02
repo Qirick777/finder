@@ -3566,6 +3566,11 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /** 시설을 세운다 — 평탄화 → 비우기 → 배치 → 모양 정착. 거처 건축과 <b>같은 순서</b>다. */
+    /** 점검용 — 시설 구조물을 그 자리에 세운다(/evosim presstest 조성). */
+    public static void debugRaiseFacility(ServerLevel sl, BlockPos site, FacilityTemplate tpl) {
+        raiseFacility(sl, site, tpl);
+    }
+
     private static void raiseFacility(ServerLevel sl, BlockPos site, FacilityTemplate tpl) {
         int target = site.getY() - BASE_LIFT;
         int course = site.getY() - 1;

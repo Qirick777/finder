@@ -1522,6 +1522,63 @@ public final class FarmTicker {
     /** [배속, 지급총액, 세수총액, 이탈, 구휼] — 보고용 누계. */
     private static final double[] GUARD_SUM = new double[5];
 
+    // ── 압박(WAR-PLAN.md P3) ─────────────────────────────────────────────
+    /**
+     * 막사 → {표적 거처 → 표적 개체 id}. 하루에 한 번 새로 짠다.
+     *
+     * <p><b>표적은 무장하지 않은 독자세력 머리뿐이다</b> — ① 추종자가 있고 ② 주인이 없고
+     * ③ 제 막사가 없는 자. ③이 두 경로를 가른다: 막사를 가진 상대는 전투로 갈리므로
+     * 여기 들어오지 않는다. 그래서 세력권이 겹쳐도 압박 표적이 중복되지 않는다.
+     */
+    private static final java.util.Map<Long, java.util.Map<Long, Long>> PRESSURE_TARGETS =
+            new java.util.HashMap<>();
+
+    /** 막사 → 어제 정산 이후 병사가 <b>실제로 닿은</b> 표적 거처. 순찰 goal 이 채운다. */
+    private static final java.util.Map<Long, java.util.Set<Long>> PRESSURE_REACHED =
+            new java.util.HashMap<>();
+
+    /** 이 사람 명의의 막사가 있는가 — 있으면 무장 세력이라 압박이 아니라 전투 대상이다. */
+    private static boolean barracksOwnedBy(FacilityStore reg, long id) {
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.ownerId == id
+                    && e.kind.group == FacilityTemplate.Group.BARRACKS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 이 막사의 압박 표적 거처 목록 — 순찰 경로가 읽는다(읽기 전용). */
+    public static java.util.List<BlockPos> pressureHomesOf(BlockPos barracks) {
+        var m = PRESSURE_TARGETS.get(barracks.asLong());
+        if (m == null || m.isEmpty()) {
+            return java.util.List.of();
+        }
+        java.util.List<BlockPos> out = new java.util.ArrayList<>();
+        for (long h : m.keySet()) {
+            out.add(BlockPos.of(h));
+        }
+        // 커서가 매일 같은 순서를 돌도록 좌표로 정렬(람다 타입을 명시해야 추론된다).
+        out.sort(java.util.Comparator.comparingInt((BlockPos p) -> p.getX())
+                .thenComparingInt((BlockPos p) -> p.getZ()));
+        return out;
+    }
+
+    /**
+     * <b>병사가 표적 집 앞에 섰다</b> — 순찰 goal 이 도착했을 때 부른다.
+     *
+     * <p>신세는 여기서 적립하지 <b>않는다</b>. 도착은 밤새 여러 번 일어날 수 있어, 여기서
+     * 적립하면 순찰 횟수가 압박의 세기가 되어 버린다(병사가 많을수록·빠를수록 빨리 굴복).
+     * 압박은 "그날 병사가 왔는가"의 문제이므로 표시만 하고, 적립은 하루 한 번 정산이 한다.
+     */
+    public static void reportPressureVisit(BlockPos barracks, BlockPos home) {
+        if (PRESSURE_TARGETS.getOrDefault(barracks.asLong(), java.util.Map.of())
+                .containsKey(home.asLong())) {
+            PRESSURE_REACHED.computeIfAbsent(barracks.asLong(),
+                    k -> new java.util.HashSet<>()).add(home.asLong());
+        }
+    }
+
     /**
      * <b>전사자 유족 보상</b> — 배속된 군인이 죽으면 그 가구에 영주가 식량을 넣는다.
      *
@@ -1771,6 +1828,74 @@ public final class FarmTicker {
             larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + taxIn);
             reg.earn(bk, taxIn);
             GUARD_SUM[2] += taxIn;
+
+            // ②-b 압박 — 어제 병사가 닿은 표적에게 신세를 적립하고, 오늘의 표적을 새로 짠다.
+            //
+            // <b>순서가 중요하다</b>: 적립을 먼저 하고 명부를 다시 짠다. 반대로 하면 어제
+            // 표적이었다가 오늘 굴복해 명단에서 빠진 자가 마지막 하루치를 못 받는다.
+            long bkKey = bk.pos.asLong();
+            java.util.Map<Long, Long> yday =
+                    PRESSURE_TARGETS.getOrDefault(bkKey, java.util.Map.of());
+            java.util.Set<Long> reached =
+                    PRESSURE_REACHED.getOrDefault(bkKey, java.util.Set.of());
+            for (var e : yday.entrySet()) {
+                if (!reached.contains(e.getKey())) {
+                    continue; // 병사가 못 갔다 — 압박은 <b>발이 닿은</b> 날에만 있다
+                }
+                long tid = e.getValue();
+                MimicEntity tgt = null;
+                for (MimicEntity m : adults) {
+                    if (m.getIndividual().id() == tid) {
+                        tgt = m;
+                        break;
+                    }
+                }
+                if (tgt == null) {
+                    continue;
+                }
+                double before = ledger.bondTo(tid, bk.ownerId);
+                ledger.record(tid, bk.ownerId,
+                        Facilities.W_PRESSURE * AllegianceStore.rapport(tgt.getIndividual()),
+                        0.0, day);
+                double after = ledger.bondTo(tid, bk.ownerId);
+                int tiles = fs.ownedTiles(tid);
+                double gate = Math.max(AllegianceStore.MIN_BOND,
+                        tiles * AllegianceStore.TILE_WORTH);
+                com.evosim.mod.log.SimEvents.event(tgt, "압박", String.format(
+                        "막사 @%d,%d 의 병사가 문 앞에 섰다 — 신세 %.1f→%.1f(문턱 %.1f · %d타일)%s",
+                        bk.pos.getX(), bk.pos.getZ(), before, after, gate, tiles,
+                        after >= gate ? " · §c굴복§r" : ""));
+            }
+            PRESSURE_REACHED.remove(bkKey);
+
+            // 오늘의 표적 — 경계 반경 안의 <b>무장하지 않은</b> 독자세력 머리.
+            java.util.Map<Long, Long> targets = new java.util.LinkedHashMap<>();
+            for (MimicEntity m : adults) {
+                if (m.getIndividual() == null || m.getHomePos() == null) {
+                    continue;
+                }
+                long mid = m.getIndividual().id();
+                if (mid == bk.ownerId || patrons.containsKey(mid)) {
+                    continue; // 나 자신이거나, 이미 주인이 있다
+                }
+                if (!patrons.containsValue(mid)) {
+                    continue; // 따르는 자가 없다 — 세력 머리가 아니다
+                }
+                if (barracksOwnedBy(reg, mid)) {
+                    continue; // 무장 세력 — 전투로 갈린다(P4). 압박 표적이 아니다
+                }
+                if (m.getHomePos().distSqr(bk.pos)
+                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    continue;
+                }
+                targets.put(m.getHomePos().asLong(), mid);
+            }
+            if (targets.isEmpty()) {
+                PRESSURE_TARGETS.remove(bkKey);
+            } else {
+                PRESSURE_TARGETS.put(bkKey, targets);
+            }
+
             // ③ 배속 — 추종하는 무전(無田) 성년, 가까운 순, 정원만큼.
             // 후보 탈락 사유 집계 — 선발 조건을 바꾼 뒤 "병사가 왜 이 사람들인가"를 수치로
             // 확인할 수 있어야 한다. 성별 편향을 고친 변경이라 더욱 그렇다.

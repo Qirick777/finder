@@ -324,6 +324,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("begdry").executes(EvoSimCommand::begDry))
                 .then(Commands.literal("hittest").executes(EvoSimCommand::hitTest))
                 .then(Commands.literal("hitgear").executes(EvoSimCommand::hitGear))
+                .then(Commands.literal("presstest").executes(EvoSimCommand::pressTest))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2273,6 +2274,86 @@ public final class EvoSimCommand {
         discard(atk, def);
         HIT_PAIR[0] = null;
         HIT_PAIR[1] = null;
+        return 1;
+    }
+
+    /**
+     * <b>P3 — 압박 순찰과 굴복</b>(WAR-PLAN.md). 전투 없이 단독으로 검증한다.
+     *
+     * <p>조성 넷:
+     * <ul>
+     *   <li><b>영주 A</b> — 막사 보유, 저장고 넉넉(봉급을 밀지 않게)</li>
+     *   <li><b>병사</b> — A 를 따르는 무전 성년. 배속되어 순찰을 돈다</li>
+     *   <li><b>독자세력 머리 B</b> — 추종자가 있고 주인이 없고 <b>막사가 없다</b>.
+     *       A 의 경계 반경 안에 산다 → 압박 표적의 정확한 정의</li>
+     *   <li><b>B 의 추종자</b> — B 를 세력 머리로 만들어 주는 한 명</li>
+     * </ul>
+     *
+     * <p>합격 조건: B 의 신세가 <b>하루 1.5씩</b> 오르고, 제 문턱
+     * ({@code max(4, 타일×0.2)})을 넘는 날 A 를 따르게 된다. 병사가 B 의 집 앞에 실제로
+     * 서는 것도 육안으로 확인할 수 있어야 한다 — 신세만 오르고 발이 안 닿으면 유령 기능이다.
+     */
+    private static int pressTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var fl = com.evosim.mod.entity.FamilyLedger.get(level);
+        var led = com.evosim.mod.entity.AllegianceStore.get(level);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+
+        BlockPos lordHome = groundAt(level, ctx.getSource().getPosition(), -20, -20);
+        BlockPos bkSite = groundAt(level, ctx.getSource().getPosition(), -10, -20);
+        BlockPos sldHome = groundAt(level, ctx.getSource().getPosition(), -20, -12);
+        BlockPos rivalHome = groundAt(level, ctx.getSource().getPosition(), 24, 20);
+        BlockPos vassalHome = groundAt(level, ctx.getSource().getPosition(), 30, 20);
+
+        MimicEntity lord = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE);
+        lord.debugSettleWithTent(lordHome, Direction.NORTH);
+        LarderStore.get(level).set(lordHome, 400.0); // 봉급을 밀지 않을 만큼
+
+        MimicEntity soldier = spawnAdult(level, Vec3.atBottomCenterOf(sldHome), Sex.MALE);
+        soldier.debugSettleWithTent(sldHome, Direction.NORTH);
+        LarderStore.get(level).set(sldHome, 8.0);
+
+        MimicEntity rival = spawnAdult(level, Vec3.atBottomCenterOf(rivalHome), Sex.MALE);
+        rival.debugSettleWithTent(rivalHome, Direction.NORTH);
+        LarderStore.get(level).set(rivalHome, 30.0);
+
+        MimicEntity vassal = spawnAdult(level, Vec3.atBottomCenterOf(vassalHome), Sex.FEMALE);
+        vassal.debugSettleWithTent(vassalHome, Direction.NORTH);
+        LarderStore.get(level).set(vassalHome, 8.0);
+
+        long lordId = lord.getIndividual().id();
+        long rivalId = rival.getIndividual().id();
+        // 신세를 심어 추종을 성립시킨다 — 병사는 A 를, 봉신은 B 를 따른다.
+        led.record(soldier.getIndividual().id(), lordId, 40.0, 0.0, day);
+        led.record(vassal.getIndividual().id(), rivalId, 40.0, 0.0, day);
+
+        // 막사 — 구조물을 세우고 등기한다.
+        var reg = com.evosim.mod.entity.FacilityStore.get(level);
+        var tpl = com.evosim.mod.entity.FacilityTemplate.of(level,
+                com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false);
+        if (tpl.isEmpty()) {
+            tell(ctx.getSource(), "§c[압박시험]§r 막사 도면을 못 읽었다 — home files/barracks.nbt 확인");
+            return 1;
+        }
+        MimicEntity.debugRaiseFacility(level, bkSite, tpl.get());
+        reg.register(bkSite, com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS,
+                (byte) 0, false, lordId, day, com.evosim.mod.entity.Facilities.BARRACKS_COST);
+
+        double gate = Math.max(com.evosim.mod.entity.AllegianceStore.MIN_BOND,
+                FarmStore.get(level).ownedTiles(rivalId)
+                        * com.evosim.mod.entity.AllegianceStore.TILE_WORTH);
+        tell(ctx.getSource(), String.format(
+                "§e[압박시험]§r 영주 #%d @%d,%d 저장고 400 · 막사 @%d,%d · 병사 #%d",
+                lord.getId(), lordHome.getX(), lordHome.getZ(),
+                bkSite.getX(), bkSite.getZ(), soldier.getId()));
+        tell(ctx.getSource(), String.format(
+                "  독자세력 머리 #%d @%d,%d (막사 없음 · 추종자 1) — 막사에서 %.0f블록 · 굴복 문턱 %.1f",
+                rival.getId(), rivalHome.getX(), rivalHome.getZ(),
+                Math.sqrt(rivalHome.distSqr(bkSite)), gate));
+        tell(ctx.getSource(), String.format(
+                "  → 하루 %.1f 씩 오르면 약 %d일에 굴복. 'evosim feud'·'압박' 이벤트로 본다",
+                com.evosim.mod.entity.Facilities.W_PRESSURE,
+                (int) Math.ceil(gate / com.evosim.mod.entity.Facilities.W_PRESSURE)));
         return 1;
     }
 

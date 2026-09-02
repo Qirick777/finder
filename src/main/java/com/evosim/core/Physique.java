@@ -64,11 +64,11 @@ public final class Physique {
     /** 행동 쿨다운 배수(채집 간격·타격 간격) — 재빠름 −4%/등급·굼뜸 +4%/등급(부수 효과:
      *  이동 속도에 더해 손놀림도 빠르다). Ⅴ = 쿨다운 ×0.8(행동량 +25%). 성장 가속 패키지. */
     public static double actionCooldown(Individual ind) {
-        int g = ExpressionResolver.expressedGrade(ind, Trait.NIMBLE);
+        int g = grade(ind, Trait.NIMBLE);
         if (g > 0) {
             return Math.max(0.5, 1.0 - 0.04 * g);
         }
-        g = ExpressionResolver.expressedGrade(ind, Trait.SLUGGISH);
+        g = grade(ind, Trait.SLUGGISH);
         if (g > 0) {
             return 1.0 + 0.04 * g;
         }
@@ -80,14 +80,69 @@ public final class Physique {
      * 없으면 1.0. 축이 반발이라 동시 발동은 없다.
      */
     private static double factor(Individual ind, Trait up, double upPer, Trait down, double downPer) {
-        int g = ExpressionResolver.expressedGrade(ind, up);
+        int g = grade(ind, up);
         if (g > 0) {
             return 1.0 + upPer * g;
         }
-        g = ExpressionResolver.expressedGrade(ind, down);
+        g = grade(ind, down);
         if (g > 0) {
             return Math.max(0.1, 1.0 - downPer * g);
         }
         return 1.0;
+    }
+
+    /** 신체 양(+) 특성 — 단련이 미는 대상. 음(−)은 밀지 않는다(단련이 약함을 키우면 안 된다). */
+    private static final Trait[] PHYSICAL_UP = {
+        Trait.STRONG, Trait.TOUGH, Trait.NIMBLE,
+        Trait.FARSIGHTED, Trait.GOOD_SPATIAL, Trait.HARDY,
+    };
+
+    /**
+     * <b>신체 등급 — 단련·쇠약을 반영한 실효 등급.</b>
+     *
+     * <p>안목(눈썰미·무딤)이 능력 축에 하는 일을 신체 축에 한다. 종전에는 능력 쪽에만 촉매가
+     * 있고 신체 쪽은 비어 있었다.
+     *
+     * <p><b>최고 등급 하나만</b> 민다({@link Multipliers#manageAbilityGrade} 가 최고 등급
+     * 하나만 보는 것과 대칭). 보유한 신체 특성 전부를 올리면 특성 셋 가진 자가 셋 다 이득이라
+     * 촉매치고 너무 세다.
+     *
+     * <p>음(−) 특성은 밀지 않는다 — 단련이 약함·굼뜸을 키우거나 쇠약이 그것을 덜어 주면
+     * 방향이 뒤집힌다. 단련은 <b>가진 강점 하나를 벼리는 것</b>이다.
+     */
+    public static int grade(Individual ind, Trait trait) {
+        int g = ExpressionResolver.expressedGrade(ind, trait);
+        if (g <= 0) {
+            return g;
+        }
+        boolean up = false;
+        for (Trait t : PHYSICAL_UP) {
+            if (t == trait) {
+                up = true;
+                break;
+            }
+        }
+        if (!up) {
+            return g; // 음(−) 신체 특성 — 촉매 대상이 아니다
+        }
+        int best = 0;
+        Trait bestTrait = null;
+        for (Trait t : PHYSICAL_UP) {
+            int tg = ExpressionResolver.expressedGrade(ind, t);
+            if (tg > best) {
+                best = tg;
+                bestTrait = t;
+            }
+        }
+        if (bestTrait != trait) {
+            return g; // 최고가 아닌 특성 — 그대로
+        }
+        if (ExpressionResolver.isExpressed(ind, Trait.CONDITIONED)) {
+            return Math.min(5, g + 1);
+        }
+        if (ExpressionResolver.isExpressed(ind, Trait.DECONDITIONED)) {
+            return Math.max(0, g - 1);
+        }
+        return g;
     }
 }

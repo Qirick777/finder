@@ -82,7 +82,24 @@ public enum Axis {
     /** 안목: 눈썰미 / 무딤 — 관리 능력 실효 등급 ±1. <b>능력이 하나라도 있을 때만</b> 적용되어
      *  무능력자에겐 효과가 정확히 0(명석의 best&gt;0 가드와 동일 구조). 착공 시기를 앞당기는
      *  촉매이자, 관리용량(8+g³) 상승으로 대영지 수확 붕괴까지 함께 완화한다. */
-    PERCEPTION(Category.AUXILIARY, true);
+    PERCEPTION(Category.AUXILIARY, true),
+    /** 단련: 단련 / 쇠약 — <b>보유한 신체 특성 중 최고 등급</b>만 ±1. 안목(PERCEPTION)이
+     *  능력 축에 하는 일을 신체 축에 한다 — 그쪽만 촉매가 있고 이쪽은 비어 있었다.
+     *  신체 특성이 하나도 없으면 올릴 등급이 없어 효과가 정확히 0(best&gt;0 가드). */
+    CONDITIONING(Category.AUXILIARY, true),
+    /** 보완: 보완 / 악화 — <b>감소형 특성의 계수</b>만 완화하거나 심화한다. 감소형을 하나도
+     *  안 가졌으면 깎을 것이 없어 효과 0. 안목이 <b>등급</b>을 밀고 이쪽은 <b>계수</b>를
+     *  미는 것이라 축이 겹치지 않는다. */
+    COMPENSATION(Category.AUXILIARY, true),
+    /** 근성: 끈기 / 변덕 — <b>연속으로 세는 날수</b>의 요구치를 ∓1. 상시소작 승격(연속 출근),
+     *  군인 봉급 미납 인내가 그 대상이다. 일자리·직위가 없으면 셀 것이 없어 효과 0. */
+    PERSISTENCE(Category.AUXILIARY, true),
+    /** 붙임성: 넉살 / 서먹 — <b>신세(예속·호의) 적립</b> 배율. 같은 도움을 받아도 넉살은 더
+     *  빨리 마음이 기울고 서먹은 더디다. 관계가 없으면 적립 자체가 없어 효과 0. */
+    RAPPORT(Category.AUXILIARY, true),
+    /** 위엄: 위엄 / 물렁 — <b>사람이 따르는 문턱</b>을 내리거나 올린다(patronOf 의 gate).
+     *  거느릴 사람이 없으면 효과 0. 봉건 축과 직접 맞물리는 촉매다. */
+    COMMAND(Category.AUXILIARY, true);
 
     private final Category category;
     private final boolean exclusive;

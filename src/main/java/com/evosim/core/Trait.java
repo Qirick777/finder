@@ -131,7 +131,28 @@ public enum Trait {
      *  정확히 0(명석과 같은 best>0 가드). 촉매형 보조의 표준형. */
     KEEN_EYE(Axis.PERCEPTION, "눈썰미"),
     /** 무딤 — 같은 조건에서 실효 등급 −1(하한 0). 능력자만 손해, 무능력자 무영향. */
-    DULL_EYE(Axis.PERCEPTION, "무딤");
+    DULL_EYE(Axis.PERCEPTION, "무딤"),
+    /** 단련 — 보유한 신체 특성 중 <b>최고 등급 하나만</b> +1(상한 Ⅴ). 신체 특성이 없으면
+     *  정확히 0. 안목이 능력 축에 하는 일을 신체 축에 한다. */
+    CONDITIONED(Axis.CONDITIONING, "단련"),
+    /** 쇠약 — 같은 조건에서 최고 등급 −1(하한 0). 신체 특성 보유자만 손해. */
+    DECONDITIONED(Axis.CONDITIONING, "쇠약"),
+    /** 보완 — 감소형 특성의 계수를 완화한다. 감소형이 없으면 정확히 0. */
+    COMPENSATOR(Axis.COMPENSATION, "보완"),
+    /** 악화 — 감소형 특성의 계수를 심화한다. */
+    AGGRAVATOR(Axis.COMPENSATION, "악화"),
+    /** 끈기 — 연속 일수 요구치 −1(하한 1). 셀 일자리가 없으면 정확히 0. */
+    TENACIOUS(Axis.PERSISTENCE, "끈기"),
+    /** 변덕 — 연속 일수 요구치 +1. */
+    FICKLE(Axis.PERSISTENCE, "변덕"),
+    /** 넉살 — 신세 적립 배율 상향. 관계가 없으면 정확히 0. */
+    AFFABLE(Axis.RAPPORT, "넉살"),
+    /** 서먹 — 신세 적립 배율 하향. */
+    STANDOFFISH(Axis.RAPPORT, "서먹"),
+    /** 위엄 — 사람이 따르는 문턱 하향(더 잘 따른다). 거느릴 사람이 없으면 정확히 0. */
+    COMMANDING(Axis.COMMAND, "위엄"),
+    /** 물렁 — 사람이 따르는 문턱 상향(잘 안 따른다). */
+    MEEK(Axis.COMMAND, "물렁");
 
     private final Axis axis;
     private final String koreanName;

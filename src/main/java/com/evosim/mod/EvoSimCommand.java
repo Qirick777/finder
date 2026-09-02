@@ -377,9 +377,14 @@ public final class EvoSimCommand {
             //
             // 능력은 약초학자Ⅴ(GATHER_SKILL)에 채집꾼Ⅴ(ACQUISITION)를 <b>더한다</b> — 축이
             // 달라 겹치지 않는다.
+            // 보조 축 둘을 함께 준다 — 자수성가(만족선 σ 3.5)와 눈썰미(관리 실효등급 +1).
+            // 둘 다 촉매라 능력이 없으면 효과가 0인데, 이 시드는 약초Ⅴ·채집꾼Ⅴ를 가졌으므로
+            // 실제로 발동한다: 만족의 덫을 늦게 만나고(멈추지 않고 계속 번다), 관리 등급이
+            // 한 칸 올라 정원 배율·관리용량·착공 시기가 함께 움직인다.
             MimicEntity e = spawnMatingReady(level, scatter(level, base), Sex.MALE,
                     java.util.Set.of(Trait.BRIGHT),
-                    Trait.AMBITIOUS, Trait.HERBALIST, Trait.GATHERER);
+                    Trait.AMBITIOUS, Trait.HERBALIST, Trait.GATHERER,
+                    Trait.SELF_MADE, Trait.KEEN_EYE);
             if (e != null && e.getIndividual() != null) {
                 // 육아 무시 — 평범이면 유아가 생기는 순간 <b>육아 구속</b>에 걸려(비무시 성인
                 // 전원이 구속 대상) 시드가 개간·확장을 멈춘다. 관측하려는 것이 그 사람의
@@ -388,7 +393,7 @@ public final class EvoSimCommand {
                 e.getIndividual().setParentingCareMale(
                         com.evosim.core.ParentingClass.NEGLECTFUL);
                 names.append(names.length() > 0 ? ", " : "").append(e.getIndividual().shortName());
-                SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ+채집꾼Ⅴ · 명석 없음 · 육아 무시 관측 시드");
+                SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ+채집꾼Ⅴ+자수성가+눈썰미 · 명석 없음 · 육아 무시 관측 시드");
             }
             // <b>성비를 맞춘다.</b> wildpairs 는 남녀를 쌍으로 넣는데 엘리트는 남성만 더하므로,
             // 엘리트가 매 런 짝짓기에서 <b>남는 한 명</b>이 될 수 있는 자리에 선다(남 9 · 여 8).
@@ -400,7 +405,7 @@ public final class EvoSimCommand {
             // 경로다 — 엘리트에게 특정 상대를 붙여 주는 것이 아니라 선택지를 한 명 되돌린다.
             spawnWild(level, scatter(level, base), Sex.FEMALE);
         }
-        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ+채집꾼Ⅴ · 명석X · 육아무시 ♂, 성비용 야생 여성 " + count + "명 동반): "
+        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ+채집꾼Ⅴ+자수성가+눈썰미 · 명석X · 육아무시 ♂, 성비용 야생 여성 " + count + "명 동반): "
                 + names + " — 구애·정착·개간은 전부 자연 경로.");
         return count;
     }

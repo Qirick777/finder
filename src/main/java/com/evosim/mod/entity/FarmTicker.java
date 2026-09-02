@@ -315,7 +315,14 @@ public final class FarmTicker {
             }
             // 세력 크기 — 밭 상한이 여기에 연동된다(목표 1·2·9 를 한 장치로).
             // 추종 판정은 소유 타일에 비례한 임계를 쓰므로 원장에서 한 번에 구한다.
-            java.util.Map<Long, Long> patrons = ledger.patronMap(id -> store.ownedTiles(id));
+            // 위엄·물렁(보조) — 추종 문턱은 <b>거느리는 쪽</b>의 성질이라 후보 주인의 특성을
+            // 봐야 한다. 원장은 id 만 알므로 해결자를 넘긴다.
+            java.util.Map<Long, com.evosim.core.Individual> byId = new java.util.HashMap<>();
+            for (MimicEntity m : everyone) {
+                byId.putIfAbsent(m.getIndividual().id(), m.getIndividual());
+            }
+            java.util.Map<Long, Long> patrons =
+                    ledger.patronMap(id -> store.ownedTiles(id), byId::get);
             FOLLOWERS.clear();
             FOLLOWER_HOMES.clear();
             for (long p : patrons.values()) {
@@ -1456,6 +1463,42 @@ public final class FarmTicker {
         return GUARD_SEAT.get(m.getId());
     }
 
+    /**
+     * <b>상시소작 승격에 필요한 연속 출근일</b> — 끈기 −1(하한 1) · 변덕 +1.
+     *
+     * <p>근성(보조)이 붙는 자리다. 일자리가 없으면 셀 것이 없어 효과가 정확히 0이다.
+     */
+    private static int promoteDays(MimicEntity m) {
+        int d = com.evosim.core.FarmEconomy.PROMOTE_DAYS;
+        var ind = m.getIndividual();
+        if (ind == null) {
+            return d;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.TENACIOUS)) {
+            return Math.max(1, d - 1);
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.FICKLE)) {
+            return d + 1;
+        }
+        return d;
+    }
+
+    /** <b>군인이 봉급 미납을 참는 날수</b> — 끈기 +1 · 변덕 −1(하한 1). 배속이 없으면 효과 0. */
+    private static int desertDays(MimicEntity m) {
+        int d = Facilities.SOLDIER_DESERT_DAYS;
+        var ind = m.getIndividual();
+        if (ind == null) {
+            return d;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.TENACIOUS)) {
+            return d + 1;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.FICKLE)) {
+            return Math.max(1, d - 1);
+        }
+        return d;
+    }
+
     public static boolean isSoldier(MimicEntity m) {
         return POST_OF.containsKey(m.getId());
     }
@@ -1646,7 +1689,7 @@ public final class FarmTicker {
                 }
                 if (paid < wage - 1.0E-9) {
                     int miss = UNPAID_DAYS.merge(sid, 1, Integer::sum);
-                    if (miss >= Facilities.SOLDIER_DESERT_DAYS) {
+                    if (miss >= desertDays(s)) {
                         UNPAID_DAYS.remove(sid);
                         GUARD_SUM[3]++;
                         com.evosim.mod.log.SimEvents.event(s, "이탈", String.format(
@@ -1659,7 +1702,9 @@ public final class FarmTicker {
                     UNPAID_DAYS.remove(sid);
                 }
                 // ⑤ 신세 — 봉급은 지주→군인 방향으로 예속을 쌓는다(소작 임금과 같은 구조).
-                ledger.record(sid, bk.ownerId, AllegianceStore.W_TENANCY, 0.0, day);
+                ledger.record(sid, bk.ownerId,
+                        AllegianceStore.W_TENANCY * AllegianceStore.rapport(s.getIndividual()),
+                        0.0, day);
                 POST_OF.put(s.getId(), bk.pos);
                 GUARD_SEAT.put(s.getId(),
                         bk.pos.offset(tpl.get().seats().get(seated % tpl.get().seats().size())));
@@ -3260,7 +3305,7 @@ public final class FarmTicker {
                         ownerRec != null && ownerRec.name != null ? ownerRec.name
                                 : (plot.ownerId == 0 ? "무주지" : "?"), streak));
                 if (m.getTenantFarm() == 0L) {
-                    if (streak >= com.evosim.core.FarmEconomy.PROMOTE_DAYS) {
+                    if (streak >= promoteDays(m)) {
                         m.setTenant(plot.id, streak);
                         com.evosim.mod.log.SimEvents.event(m, "상시소작", String.format(
                                 "%d일 연속 출근 — 구획 %d 예약석 승격", streak, plot.id));
@@ -3499,7 +3544,7 @@ public final class FarmTicker {
                 if (open != null && m.getTenantFarm() == 0L) {
                     int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == best.id
                             ? m.getTenantStreak() + 1 : 1;
-                    if (streak >= com.evosim.core.FarmEconomy.PROMOTE_DAYS) {
+                    if (streak >= promoteDays(m)) {
                         m.setTenant(best.id, streak);
                         com.evosim.mod.log.SimEvents.event(m, "상시소작", String.format(
                                 "%d일 연속 출근(긴급 경유) — 구획 %d 예약석 승격", streak, best.id));
@@ -3509,7 +3554,7 @@ public final class FarmTicker {
                 }
                 // 신세 — 굶던 자에게 일자리를 준 것. 1회성이지만 무겁다.
                 AllegianceStore.get(level).record(m.getIndividual().id(), best.ownerId,
-                        AllegianceStore.W_HIRE, 0.0,
+                        AllegianceStore.W_HIRE * AllegianceStore.rapport(m.getIndividual()), 0.0,
                         com.evosim.mod.entity.SimTime.tick(level) / 24000L);
                 com.evosim.mod.log.SimEvents.event(m, "긴급고용", String.format(
                         "위급(H %.2f) — 구획 %d 즉시 배정(%d타일 · 오늘 %d명 · %.0f블록%s)",

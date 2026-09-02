@@ -114,11 +114,34 @@ public final class Multipliers {
     }
 
     /** 특성 보너스 한 항 — 능력 축이면 등급 비례(×g/5), 무등급 축(성향·지능 등)이면 만액 그대로. */
+    /**
+     * 보완이 감소형 계수를 깎는 비율 / 악화가 더하는 비율 — 0.35.
+     *
+     * <p>패널티를 <b>없애지는 않는다</b>. 식물혼동Ⅴ(−0.5)를 −0.325 로 만드는 정도라, 감소형을
+     * 가진 자가 안 가진 자를 앞지르지 못한다 — 촉매는 순위를 뒤집지 않는다는 원칙.
+     */
+    public static final double COMPENSATION_RELIEF = 0.35;
+
+    /**
+     * 특성 계수 — 능력 축이면 등급 비례(×g/5), 아니면 만액.
+     *
+     * <p><b>감소형(atV &lt; 0)에만</b> 보완·악화가 붙는다. 양(+)에 붙이면 그것은 촉매가 아니라
+     * 또 하나의 능력이 되어, 안목(등급을 미는 축)과도 겹친다. 감소형을 하나도 안 가진 개체에겐
+     * 곱할 대상이 없어 효과가 정확히 0이다.
+     */
     private static double scaled(Individual ind, Set<Trait> t, Trait trait, double atV) {
         if (!t.contains(trait)) {
             return 0.0;
         }
-        return trait.isAbility() ? atV * abilityGrade(ind, trait) / 5.0 : atV;
+        double v = trait.isAbility() ? atV * abilityGrade(ind, trait) / 5.0 : atV;
+        if (v < 0.0) {
+            if (t.contains(Trait.COMPENSATOR)) {
+                v *= 1.0 - COMPENSATION_RELIEF;
+            } else if (t.contains(Trait.AGGRAVATOR)) {
+                v *= 1.0 + COMPENSATION_RELIEF;
+            }
+        }
+        return v;
     }
 
     /** 능력 특성의 실효 등급(1~5) — 무등급 인스턴스(구 세이브·수동 생성)는 중앙 Ⅲ 취급. 미발현 0. */

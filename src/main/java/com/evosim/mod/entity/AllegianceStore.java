@@ -379,6 +379,63 @@ public class AllegianceStore extends SavedData {
      *
      * @param ownedTiles 이 개체가 소유한 밭 타일 수 — 임계가 여기에 비례한다.
      */
+    /** 위엄이 문턱을 깎는 비율 / 물렁이 더하는 비율 — 0.25. 순위를 뒤집지 않는 폭. */
+    public static final double COMMAND_GATE = 0.25;
+
+    /** 넉살이 신세 적립을 키우는 비율 / 서먹이 줄이는 비율 — 0.30. */
+    public static final double RAPPORT_GAIN = 0.30;
+
+    /**
+     * <b>추종 문턱 배수</b> — 위엄이면 낮추고 물렁이면 올린다. 이 문턱은 <b>따르는 쪽</b>이
+     * 아니라 <b>거느리는 쪽</b>의 성질이라야 뜻이 맞는데, patronOf 는 채무자 기준으로 돌므로
+     * 여기서는 <b>가장 유력한 후보(주인)</b>의 특성을 본다.
+     *
+     * <p>거느릴 사람이 없으면 이 함수가 불릴 일 자체가 없어 효과가 정확히 0이다.
+     */
+    private double commandGate(long debtorId,
+                               java.util.function.LongFunction<com.evosim.core.Individual> who) {
+        if (who == null) {
+            return 1.0; // 해결자를 안 준 호출(보고용) — 촉매 없이 원래 문턱
+        }
+        long best = 0L;
+        double bestVal = 0.0;
+        for (Bond b : bondsOf(debtorId)) {
+            if (b.total() > bestVal) {
+                bestVal = b.total();
+                best = b.patronId;
+            }
+        }
+        com.evosim.core.Individual p = best == 0L ? null : who.apply(best);
+        if (p == null) {
+            return 1.0;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(p, com.evosim.core.Trait.COMMANDING)) {
+            return 1.0 - COMMAND_GATE;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(p, com.evosim.core.Trait.MEEK)) {
+            return 1.0 + COMMAND_GATE;
+        }
+        return 1.0;
+    }
+
+    /**
+     * <b>신세 적립 배수</b> — 넉살이면 크게, 서먹이면 작게. 호출부가 채무자의 Individual 을
+     * 알고 있을 때 가중치에 곱해 쓴다. 관계가 없으면 적립 자체가 없어 효과 0.
+     */
+    public static double rapport(com.evosim.core.Individual debtor) {
+        if (debtor == null) {
+            return 1.0;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(debtor, com.evosim.core.Trait.AFFABLE)) {
+            return 1.0 + RAPPORT_GAIN;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(debtor,
+                com.evosim.core.Trait.STANDOFFISH)) {
+            return 1.0 - RAPPORT_GAIN;
+        }
+        return 1.0;
+    }
+
     public long patronOf(long debtorId, int ownedTiles) {
         return patronOf(debtorId, ownedTiles, false);
     }
@@ -389,7 +446,14 @@ public class AllegianceStore extends SavedData {
      * 시뮬 결정에는 쓰지 않는다(보고 전용).
      */
     public long patronOf(long debtorId, int ownedTiles, boolean withoutChurch) {
+        return patronOf(debtorId, ownedTiles, withoutChurch, null);
+    }
+
+    /** 위엄·물렁을 반영하는 판정 — {@code who} 가 id → Individual 해결자다(없으면 촉매 없음). */
+    public long patronOf(long debtorId, int ownedTiles, boolean withoutChurch,
+                         java.util.function.LongFunction<com.evosim.core.Individual> who) {
         double gate = Math.max(MIN_BOND, ownedTiles * TILE_WORTH);
+        gate *= commandGate(debtorId, who);
         long best = 0L;
         double bestVal = 0.0;
         for (Bond b : bondsOf(debtorId)) {
@@ -527,9 +591,15 @@ public class AllegianceStore extends SavedData {
      * @param ownedTiles 개체 id → 소유 밭 타일 수
      */
     public Map<Long, Long> patronMap(java.util.function.LongUnaryOperator ownedTiles) {
+        return patronMap(ownedTiles, null);
+    }
+
+    /** 위엄·물렁을 반영하는 추종 명부 — {@code who} 가 id → Individual 해결자다. */
+    public Map<Long, Long> patronMap(java.util.function.LongUnaryOperator ownedTiles,
+            java.util.function.LongFunction<com.evosim.core.Individual> who) {
         Map<Long, Long> out = new HashMap<>();
         for (long debtor : bonds.keySet()) {
-            long p = patronOf(debtor, (int) ownedTiles.applyAsLong(debtor));
+            long p = patronOf(debtor, (int) ownedTiles.applyAsLong(debtor), false, who);
             if (p != 0L) {
                 out.put(debtor, p);
             }

@@ -155,7 +155,13 @@ public class MimicGarrisonGoal extends Goal {
             return new BlockPos(home.getX(), y, home.getZ());
         }
         double ang = mob.getRandom().nextDouble() * Math.PI * 2.0;
-        double rad = PATROL_RADIUS * (0.4 + 0.6 * mob.getRandom().nextDouble());
+        // 경계가 좋은 병사가 넓은 구역을 맡는다 — 용감(인지 8→14)이면 반경 ×1.32.
+        // <b>√로 누른다</b>: 반경에 그대로 비례시키면 덮는 면적이 인지거리의 제곱으로 늘어
+        // 한 명이 마을을 다 도는 그림이 된다. 순찰 반경은 보호세·정원과 무관한(그쪽은 막사
+        // 기준 통근반경으로 센다) 순수 거동이지만, 그래도 눈에 그럴듯해야 한다.
+        double keen = Math.sqrt(Math.max(0.25,
+                com.evosim.core.Combat.detectionRange(mob.getIndividual()) / 8.0));
+        double rad = PATROL_RADIUS * keen * (0.4 + 0.6 * mob.getRandom().nextDouble());
         int x = post.getX() + (int) Math.round(Math.cos(ang) * rad);
         int z = post.getZ() + (int) Math.round(Math.sin(ang) * rad);
         int y = sl.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,

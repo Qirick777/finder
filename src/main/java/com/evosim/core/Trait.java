@@ -90,6 +90,16 @@ public enum Trait {
     RAW_EATER(Axis.COOKING, "날로먹기"), // 구명 BAD_COOK(요리치) — NBT 레거시 별칭은 IndividualNbt
     ELOQUENT(Axis.ELOQUENCE, "달변가"),
     INARTICULATE(Axis.ELOQUENCE, "눌변가"),
+    /** 몰입 — 한 가지에 붙어 있어 벌이가 좋다. 대가로 활동반경이 좁다. */
+    FOCUSED(Axis.FOCUS, "몰입"),
+    /** 산만 — 채집·사냥을 못 한다. 대신 <b>넓게 돌고 멀리 본다</b>(반경 ×1.5 · 인지 +4).
+     *  혼자서는 못 먹고살아 구걸로 밀리지만, 경계가 값어치라 초병으로 뽑힌다. */
+    SCATTERED(Axis.FOCUS, "산만"),
+    /** 섬세 — 손이 좋아 벌이가 낫다. 대가로 몸이 약하다. */
+    REFINED(Axis.CRUDENESS, "섬세"),
+    /** 단순무식 — 벌이가 나쁜 대신 힘이 세다. 소모는 힘센(4%/등급)의 <b>절반</b>만 오른다 —
+     *  같은 비율이면 Ⅴ등급에서 하루 소모가 시혜 1유닛에 붙어 굶어 죽는다. */
+    BRUTISH(Axis.CRUDENESS, "단순무식"),
 
     // ── 선호 ──
     PREF_STRENGTH(Axis.STRENGTH_PREF, "강함선호"),
@@ -139,8 +149,17 @@ public enum Trait {
     DECONDITIONED(Axis.CONDITIONING, "쇠약"),
     /** 보완 — 감소형 특성의 계수를 완화한다. 감소형이 없으면 정확히 0. */
     COMPENSATOR(Axis.COMPENSATION, "보완"),
-    /** 악화 — 감소형 특성의 계수를 심화한다. */
-    AGGRAVATOR(Axis.COMPENSATION, "악화"),
+    /**
+     * 야성 — 감소형 계수를 <b>미량</b> 심화하되, 그렇게 깎인 <b>결손만큼 힘을 돌려받는다</b>.
+     *
+     * <p>순수 하위 특성이던 "악화"를 거래로 바꾼 것이다. 핵심 성질은 <b>결손이 없으면 효과도
+     * 없다</b>는 것 — 능력이 멀쩡한 자가 이걸 들면 증폭할 감소형이 없어 힘도 안 붙는다.
+     * 이미 망가진 자에게만 보상이 가므로, 신분으로 분기하지 않고 산술로만 갈린다.
+     *
+     * <p>enum 이름은 {@code AGGRAVATOR} 그대로다 — 특성은 NBT 에 {@code name()} 으로 저장되므로
+     * (IndividualNbt) 이름을 바꾸면 기존 세이브에서 이 특성이 통째로 사라진다.
+     */
+    AGGRAVATOR(Axis.COMPENSATION, "야성"),
     /** 끈기 — 연속 일수 요구치 −1(하한 1). 셀 일자리가 없으면 정확히 0. */
     TENACIOUS(Axis.PERSISTENCE, "끈기"),
     /** 변덕 — 연속 일수 요구치 +1. */

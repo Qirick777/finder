@@ -48,6 +48,10 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
         m += amp * scaled(ind, t, Trait.GATHERER, 0.4);   // 채집꾼 0.3→0.4 — tileYield G 직결(성장 가속)
         m += scaled(ind, t, Trait.HUNTER, -0.1);          // 사냥꾼 채집딜레이
+        m += scaled(ind, t, Trait.SCATTERED, -0.3);       // 산만 — 한자리에 못 붙어 있다
+        m += amp * scaled(ind, t, Trait.FOCUSED, 0.15);   // 몰입 — 붙어 있는 만큼 번다
+        m += scaled(ind, t, Trait.BRUTISH, -0.35);        // 단순무식 — 손이 굵다
+        m += amp * scaled(ind, t, Trait.REFINED, 0.15);   // 섬세 — 손이 곱다
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
         // 획득 교육 — 유전 기본교육(+0.1)의 아래에 둔다. 증폭기를 탄다(명석이 더 크게 쓴다).
@@ -105,6 +109,10 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
         m += amp * scaled(ind, t, Trait.HUNTER, 0.3);     // 사냥꾼 동물데미지↑
         m += scaled(ind, t, Trait.GATHERER, -0.3);        // 채집꾼 데미지↓
+        m += scaled(ind, t, Trait.SCATTERED, -0.3);       // 산만 — 추적을 못 이어간다
+        m += amp * scaled(ind, t, Trait.FOCUSED, 0.15);   // 몰입
+        m += scaled(ind, t, Trait.BRUTISH, -0.35);        // 단순무식 — 몰이만 할 줄 안다
+        m += amp * scaled(ind, t, Trait.REFINED, 0.15);   // 섬세
         m += scaled(ind, t, Trait.COMPETITIVE, 0.2);      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
@@ -120,7 +128,45 @@ public final class Multipliers {
      * <p>패널티를 <b>없애지는 않는다</b>. 식물혼동Ⅴ(−0.5)를 −0.325 로 만드는 정도라, 감소형을
      * 가진 자가 안 가진 자를 앞지르지 못한다 — 촉매는 순위를 뒤집지 않는다는 원칙.
      */
-    public static final double COMPENSATION_RELIEF = 0.35;
+    /**
+     * 보완이 감소형 계수를 깎는 비율 / 야성이 키우는 비율.
+     *
+     * <p>0.35 → 0.15. 야성이 <b>순수 손해</b>이던 시절에는 0.35 가 그 특성의 전부였지만, 이제는
+     * 키운 결손만큼 힘으로 돌려받는 <b>거래</b>다({@link #feralStrength}). 증폭이 크면 거래가
+     * 아니라 도박이 되고, 채집·사냥이 둘 다 반토막 난 개체가 구걸에 닿기 전에 굶어 죽는다.
+     * "미량 증폭"이 설계 의도다.
+     */
+    public static final double COMPENSATION_RELIEF = 0.15;
+
+    /** 결손 1.0(채집·사냥이 완전히 0)당 힘 가산. 결손 0.5 면 힘 ×1.25. */
+    public static final double FERAL_STRENGTH = 0.5;
+
+    /**
+     * <b>능력 결손</b> — 중립(1.0) 대비 채집·사냥 평균이 얼마나 깎였는가. 0(멀쩡) ~ 1(전무).
+     *
+     * <p>{@link #gather}·{@link #hunt} 를 그대로 읽는다. 감소형 항 목록을 여기 다시 적으면
+     * 두 벌이 되어 언젠가 어긋나므로, <b>단일 출처를 다시 부르는</b> 쪽을 택했다. 두 함수는
+     * 힘에 의존하지 않으므로 순환이 없다.
+     */
+    public static double deficit(Individual ind) {
+        return Math.max(0.0, 1.0 - (gather(ind) + hunt(ind)) / 2.0);
+    }
+
+    /**
+     * <b>야성의 힘 배수</b> — 결손에 비례해 공격력만 올린다(소모에는 얹지 않는다).
+     *
+     * <p>결손이 0 이면 정확히 1.0 이다. 능력이 멀쩡한 자가 야성을 들어도 <b>아무 일도 일어나지
+     * 않는다</b> — 이미 망가진 자에게만 보상이 가는 것이 이 특성의 전부다.
+     *
+     * <p>소모를 안 올리는 이유: 대가는 이미 위 증폭된 결손으로 치렀다. 거기에 식욕까지 얹으면
+     * "못 번다 × 많이 먹는다 × 전투 보상은 미지급"의 삼중고가 되어 구걸에 닿기 전에 죽는다.
+     */
+    public static double feralStrength(Individual ind) {
+        if (!ExpressionResolver.isExpressed(ind, Trait.AGGRAVATOR)) {
+            return 1.0;
+        }
+        return 1.0 + FERAL_STRENGTH * deficit(ind);
+    }
 
     /**
      * 특성 계수 — 능력 축이면 등급 비례(×g/5), 아니면 만액.

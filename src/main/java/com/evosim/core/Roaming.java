@@ -32,6 +32,13 @@ public final class Roaming {
         } else if (t.contains(Trait.HOMEBOUND)) {
             r *= 0.5;          // 애향심: 고향 근처
         }
+        // 산만은 <b>넓게 돈다</b> — 채집·사냥 패널티의 반대급부. 활동반경은 리시가 쓰는 값이고
+        // 채집 탐지거리(Multipliers.forageRange)와는 별개라, 넓혀도 채집량이 늘지 않는다.
+        if (t.contains(Trait.SCATTERED)) {
+            r *= 1.5;
+        } else if (t.contains(Trait.FOCUSED)) {
+            r *= 0.8;          // 몰입: 한자리에 붙어 있다
+        }
         if (t.contains(Trait.SOLITARY)) {
             r *= 1.5;          // 고독: 홀로 넓게
         } else if (t.contains(Trait.GREGARIOUS)) {

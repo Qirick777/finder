@@ -1550,6 +1550,27 @@ public final class FarmTicker {
         return d;
     }
 
+    /**
+     * <b>군인 적합도</b> — 완력과 경계를 각각 중립 대비 배수로 재서 더한다(중립 = 2.0).
+     *
+     * <p>완력은 <b>맨몸</b>으로 잰다({@link com.evosim.core.Physique#barehandMight}). 철검이
+     * 공격력 +5 를 얹어 기본 2.0 을 7.0 으로 만들기 때문에, 무장 뒤 값으로 재면 힘 특성 차이가
+     * 10% 안으로 묻혀 단순무식·야성의 거래가 선발에서 사라진다.
+     *
+     * <p>경계는 {@link com.evosim.core.Combat#detectionRange} 를 기본값 8 로 나눈 것이다.
+     * 용감(+6)·산만(+4)·천리안이 여기 얹히고, 겁쟁이(−3)·멍청·근시안이 깎는다.
+     *
+     * <p>실측 눈금: 중립 2.00 · 용감 2.75 · 산만Ⅴ 2.50 · 단순무식Ⅴ 2.30 ·
+     * 단순무식Ⅴ+야성(결손 0.5) 2.63 · 멍청+겁쟁이 1.53.
+     */
+    private static double soldierFitness(com.evosim.core.Individual ind) {
+        if (ind == null) {
+            return 0.0;
+        }
+        return com.evosim.core.Physique.barehandMight(ind)
+                + com.evosim.core.Combat.detectionRange(ind) / 8.0;
+    }
+
     /** <b>군인이 봉급 미납을 참는 날수</b> — 끈기 +1 · 변덕 −1(하한 1). 배속이 없으면 효과 0. */
     private static int desertDays(MimicEntity m) {
         int d = Facilities.SOLDIER_DESERT_DAYS;
@@ -1719,8 +1740,16 @@ public final class FarmTicker {
                 }
                 pick.add(m);
             }
+            // <b>적합도 순</b> — 종전에는 거리순이라 능력을 아예 안 봤다. 완력과 경계를 각각
+            // 중립 대비 배수로 재서 더한다(둘 다 중립 1.0, 합 2.0). 두 항을 두는 것이 요점이다:
+            // 단순무식·야성은 앞항으로, 산만·용감은 뒷항으로 뽑힌다 — 창을 드는 길이 하나가
+            // 아니라 둘이라야 "경계에 능한 자"가 자리를 얻는다.
+            //
+            // 거리는 동률 갈림으로 내린다. 이미 통근 한계(COMMUTE_RANGE)로 잘려 있어 남은
+            // 후보는 전부 출근 가능하고, 거기서 더 가까운 것보다 더 쓸모 있는 것이 먼저다.
             pick.sort(java.util.Comparator.comparingDouble(
-                    (MimicEntity m) -> m.getHomePos().distSqr(bk.pos))
+                    (MimicEntity m) -> -soldierFitness(m.getIndividual()))
+                    .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             int seated = 0;
             int seatedM = 0;

@@ -53,6 +53,16 @@ public enum Axis {
     DIET(Category.DISPOSITION, true),                 // 채식 / 육식
     COOKING(Category.DISPOSITION, true),              // 요리: 요리사 / 날로먹기
     ELOQUENCE(Category.DISPOSITION, true),            // 언변: 달변가 / 눌변가 (기본 매력 ±1)
+    /**
+     * 집중: 몰입 / 산만 — 산만은 채집·사냥을 못 하는 대신 <b>넓게 돌고 멀리 본다</b>.
+     * 혼자서는 먹고살기 어려워 구걸·고용으로 밀리지만, 경계가 값어치라 초병으로 뽑힌다.
+     */
+    FOCUS(Category.DISPOSITION, true),
+    /**
+     * 조야: 섬세 / 단순무식 — 단순무식은 벌이가 나쁜 대신 힘이 세다(전위).
+     * 섬세는 그 반대 — 손은 좋고 몸은 약하다.
+     */
+    CRUDENESS(Category.DISPOSITION, true),
 
     // ── 선호 (PREFERENCE) — 반발 없음(exclusive=false), FAMILIARITY만 예외 ──
     STRENGTH_PREF(Category.PREFERENCE, false),        // 강함선호 / 효율선호

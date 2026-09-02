@@ -3989,7 +3989,27 @@ public class MimicEntity extends PathfinderMob {
             setItemSlot(EquipmentSlot.HEAD, helm);
             setDropChance(EquipmentSlot.HEAD, 0.0F);
         }
+        // <b>방패는 속성으로 우긴다.</b> 바닐라에서 몹은 방패를 자동으로 쓰지 않는다 —
+        // 피글린처럼 전용 AI 가 있어야 하고, 일반 PathfinderMob 은 들고만 있다. 지금 방어
+        // 자세를 넣어 봐야 몬스터가 없어 한 번도 발동하지 않으므로(무장비를 봉급에서 퉁친
+        // 것과 같은 논리로) 방어값만 직접 얹는다. 검·갑옷은 장비 속성 수정치가 자동
+        // 적용되므로(LivingEntity.handleEquipmentChanges) 손댈 필요가 없다.
+        var armor = getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
+        if (armor != null) {
+            armor.removeModifier(SHIELD_ARMOR_ID);
+            if (on) {
+                armor.addPermanentModifier(new net.minecraft.world.entity.ai.attributes
+                        .AttributeModifier(SHIELD_ARMOR_ID, "evosim_shield", SHIELD_ARMOR,
+                        net.minecraft.world.entity.ai.attributes.AttributeModifier
+                                .Operation.ADDITION));
+            }
+        }
     }
+
+    /** 방패 몫 방어 — 사슬(7)에 더해 총 11(피해 약 44% 감소). 전원 같은 값이라 선발엔 무관. */
+    private static final double SHIELD_ARMOR = 4.0;
+    private static final java.util.UUID SHIELD_ARMOR_ID =
+            java.util.UUID.fromString("7e9a2c14-3b6d-4f18-9c05-2a71d8e4b3f6");
 
     /** 손에 든 블럭을 치운다(건축 종료·대기). */
     private void clearBuildItem() {

@@ -115,6 +115,7 @@ public final class EvoTest {
             case "matehome" -> matehome(report);
             case "homeresolution" -> homeresolution(report);
             case "physique" -> physique(report);
+            case "beggar" -> beggar(report);
             case "roaming" -> roaming(report);
             case "ability" -> ability(report);
             case "berry" -> berry(report);
@@ -131,7 +132,7 @@ public final class EvoTest {
             case "encounter" -> encounter(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | caregiving | encounter | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | beggar | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | caregiving | encounter | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -157,6 +158,7 @@ public final class EvoTest {
         matehome(report);
         homeresolution(report);
         physique(report);
+        beggar(report);
         roaming(report);
         ability(report);
         lineage(report);
@@ -1476,6 +1478,85 @@ public final class EvoTest {
     // ──────────────────────────────────────────────────────────────
     // /evotest physique — 신체 등급(I~V) 강도·등급 선호 매칭 (설계서 §14)
     // ──────────────────────────────────────────────────────────────
+    /**
+     * /evotest beggar — 거지 계열 특성(산만·단순무식·야성)과 군인 적합도를 손계산 대조.
+     *
+     * <p>이 묶음의 <b>핵심 합격 조건은 야성의 무효</b>다: 능력이 멀쩡한 자가 야성을 들면
+     * 힘이 정확히 1.0 이어야 한다. 그것이 깨지면 "이미 망가진 자에게만 보상이 간다"는 설계가
+     * 무너지고, 잘사는 자까지 힘을 얻어 군인 선발을 쓸어간다.
+     */
+    private static void beggar(Report report) {
+        Individual plain = one(Sex.MALE);
+        Individual feralOnly = one(Sex.MALE, TraitInstance.of(Trait.AGGRAVATOR));
+        // ① 야성 단독 = 무효. 결손이 0 이므로 힘도 소모도 중립이어야 한다.
+        boolean inert = close(Multipliers.deficit(plain), 0.0)
+                && close(Multipliers.deficit(feralOnly), 0.0)
+                && close(Multipliers.feralStrength(feralOnly), 1.0)
+                && close(Physique.strength(feralOnly), Physique.strength(plain));
+        report.add("beggar/야성무효", inert,
+                "결손 0 인 개체는 야성을 들어도 힘이 안 변한다",
+                inert ? "1.000" : String.format("힘 %.3f (기대 %.3f)",
+                        Physique.strength(feralOnly), Physique.strength(plain)));
+
+        // ② 결손이 있으면 힘이 붙는다 — 단순무식Ⅴ 는 채집·사냥 −0.35 씩.
+        Individual brute = graded(Sex.MALE, Trait.BRUTISH, 5);
+        Individual bruteFeral = one(Sex.MALE, TraitInstance.graded(Trait.BRUTISH, 5),
+                TraitInstance.of(Trait.AGGRAVATOR));
+        double dBrute = Multipliers.deficit(brute);
+        double dFeral = Multipliers.deficit(bruteFeral);
+        boolean grows = dBrute > 0.0 && dFeral > dBrute   // 야성이 감소형을 더 키운다
+                && Physique.strength(bruteFeral) > Physique.strength(brute);
+        report.add("beggar/야성거래", grows,
+                "결손이 있으면 야성이 결손을 키우고 그만큼 힘을 돌려준다",
+                String.format("결손 %.3f→%.3f · 힘 %.3f→%.3f", dBrute, dFeral,
+                        Physique.strength(brute), Physique.strength(bruteFeral)));
+
+        // ③ 단순무식 소모는 힘센의 <b>절반</b>. 같은 비율이면 시혜 1유닛에 붙어 굶어 죽는다.
+        boolean appetite = close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)), 1.20)
+                && close(Physique.appetite(brute), 1.10)
+                && close(Physique.appetite(feralOnly), 1.0); // 야성은 소모에 안 얹힌다
+        report.add("beggar/소모절반", appetite,
+                "단순무식Ⅴ 소모 1.10(힘센Ⅴ 1.20 의 절반폭) · 야성은 소모 무관",
+                String.format("힘센 %.3f · 단순무식 %.3f · 야성 %.3f",
+                        Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)),
+                        Physique.appetite(brute), Physique.appetite(feralOnly)));
+
+        // ④ 산만: 채집·사냥은 깎이되 반경과 인지는 는다. 셋이 서로 다른 손잡이여야 한다.
+        Individual adhd = graded(Sex.MALE, Trait.SCATTERED, 5);
+        boolean scat = Multipliers.gather(adhd) < Multipliers.gather(plain)
+                && Multipliers.hunt(adhd) < Multipliers.hunt(plain)
+                && close(Roaming.radius(adhd), Roaming.BASE_RADIUS * 1.5)
+                && close(Combat.detectionRange(adhd), 12.0)
+                // 반경을 넓혀도 <b>채집 탐지거리</b>는 안 변한다(둘은 별개 손잡이).
+                && close(Multipliers.forageRange(adhd), Multipliers.forageRange(plain));
+        report.add("beggar/산만", scat,
+                "채집·사냥 ↓ · 반경 ×1.5 · 인지 8→12 · 채집탐지거리는 불변",
+                String.format("채집 %.3f · 반경 %.0f · 인지 %.0f",
+                        Multipliers.gather(adhd), Roaming.radius(adhd),
+                        Combat.detectionRange(adhd)));
+
+        // ⑤ 군인 적합도 — 완력·경계 두 항이 <b>각각</b> 사람을 뽑아 올려야 한다.
+        double fPlain = fitness(plain);
+        double fBrave = fitness(one(Sex.MALE, TraitInstance.of(Trait.BRAVE)));
+        double fAdhd = fitness(adhd);
+        double fBrute = fitness(brute);
+        double fCoward = fitness(one(Sex.MALE, TraitInstance.of(Trait.COWARD),
+                TraitInstance.of(Trait.DULL)));
+        boolean fit = close(fPlain, 2.0)
+                && fBrave > fPlain && fAdhd > fPlain   // 경계 항으로 오르는 둘
+                && fBrute > fPlain                     // 완력 항으로 오르는 하나
+                && fCoward < fPlain;
+        report.add("beggar/군인적합도", fit,
+                "중립 2.0 기준 — 용감·산만은 경계로, 단순무식은 완력으로 오른다",
+                String.format("중립 %.2f · 용감 %.2f · 산만 %.2f · 단순무식 %.2f · 겁쟁이+멍청 %.2f",
+                        fPlain, fBrave, fAdhd, fBrute, fCoward));
+    }
+
+    /** 군인 적합도 — FarmTicker.soldierFitness 와 <b>같은 식</b>(그쪽은 private). */
+    private static double fitness(Individual ind) {
+        return Physique.barehandMight(ind) + Combat.detectionRange(ind) / 8.0;
+    }
+
     private static void physique(Report report) {
         // 1) 등급 기반구조: clamp·roman·발동 등급 조회
         boolean infra = TraitInstance.clampGrade(0) == 1 && TraitInstance.clampGrade(9) == 5

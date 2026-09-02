@@ -72,6 +72,10 @@ public final class Combat {
         if (isExpr(ind, Trait.CAUTIOUS)) {
             r -= 3.0;
         }
+        if (isExpr(ind, Trait.SCATTERED)) {
+            r += 4.0; // 산만 — 한 곳에 못 붙어 있는 눈이 <b>경계</b>에서는 값어치가 된다.
+            // 이것이 산만의 군인 값어치다: 완력이 아니라 초병으로 뽑힌다.
+        }
         if (isExpr(ind, Trait.BLOOD_FEARFUL)) {
             r += 3.0; // 피공포 — 피를 무서워해 위협을 멀리서 경계(사냥 ×0.5의 반대급부). 겁쟁이 −3과 상쇄.
         }

@@ -27,6 +27,11 @@ public final class Physique {
     private static final double STRENGTH_UP = 0.08;   // 힘센 등급당 공격 +
     private static final double STRENGTH_DOWN = 0.06; // 약함 등급당 공격 −
     private static final double APPETITE_PER = 0.04;  // 힘/약 등급당 소모 ±(V등급 = 종전 고정 ×1.2/×0.8)
+    private static final double BRUTISH_UP = 0.06;    // 단순무식 등급당 공격 +(힘센 8%보다 낮게)
+    private static final double REFINED_DOWN = 0.04;  // 섬세 등급당 공격 −
+    /** 단순무식 등급당 소모 + — 힘센(4%)의 <b>절반</b>이다. 같은 비율이면 Ⅴ등급에서 하루
+     *  소모가 0.98 이 되어 시혜 1유닛/일에 붙는다: 구걸에 닿아도 굶어 죽는다. 2% 면 0.90. */
+    private static final double BRUTISH_APPETITE = 0.02;
 
     private Physique() {
     }
@@ -53,12 +58,29 @@ public final class Physique {
 
     /** 공격력 배수 — 힘센(+8%/등급)/약함(−6%/등급). "잘 싸우지만 많이 먹는" 트레이드오프의 효과 쪽. */
     public static double strength(Individual ind) {
-        return factor(ind, Trait.STRONG, STRENGTH_UP, Trait.WEAK, STRENGTH_DOWN);
+        // 세 축이 곱해진다 — 힘/약(신체) × 단순무식/섬세(조야) × 야성(결손 보상).
+        // 야성은 결손이 0 이면 정확히 1.0 이라, 멀쩡한 자에게는 아무 일도 안 일어난다.
+        return factor(ind, Trait.STRONG, STRENGTH_UP, Trait.WEAK, STRENGTH_DOWN)
+                * factor(ind, Trait.BRUTISH, BRUTISH_UP, Trait.REFINED, REFINED_DOWN)
+                * Multipliers.feralStrength(ind);
+    }
+
+    /**
+     * <b>무장을 뺀 맨몸 완력 배수</b> — 군인 선발이 쓴다.
+     *
+     * <p>{@link #strength} 와 같은 값이지만 이름으로 의도를 못박는다. 철검이 공격력 +5 를
+     * 얹으므로(기본 2.0 → 7.0) 무장 뒤 값으로 재면 힘 특성 차이가 10% 안으로 묻힌다 —
+     * 단순무식·야성의 트레이드오프가 선발에서 사라진다.
+     */
+    public static double barehandMight(Individual ind) {
+        return strength(ind);
     }
 
     /** 소모(식욕) 배수 — 힘셀수록 많이(+4%/등급)·약할수록 적게(−4%/등급) 먹는다(균형추 쪽). */
     public static double appetite(Individual ind) {
-        return factor(ind, Trait.STRONG, APPETITE_PER, Trait.WEAK, APPETITE_PER);
+        // 야성은 여기 안 얹는다 — 대가는 이미 증폭된 결손으로 치렀다(Multipliers.feralStrength).
+        return factor(ind, Trait.STRONG, APPETITE_PER, Trait.WEAK, APPETITE_PER)
+                * factor(ind, Trait.BRUTISH, BRUTISH_APPETITE, Trait.REFINED, BRUTISH_APPETITE);
     }
 
     /** 행동 쿨다운 배수(채집 간격·타격 간격) — 재빠름 −4%/등급·굼뜸 +4%/등급(부수 효과:

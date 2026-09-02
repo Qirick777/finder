@@ -487,6 +487,7 @@ public class MimicEntity extends PathfinderMob {
     /** 오늘의 구걸 목적지를 못박는다 — {@code untilTick} 까지 유효. */
     public void setBegTarget(BlockPos home, long patronId, long untilTick) {
         this.begAnchor = home;
+        this.begStep = null; // 새 여행 — 지난 구간을 물려받지 않는다
         this.begPatron = patronId;
         this.begUntil = untilTick;
     }
@@ -494,6 +495,7 @@ public class MimicEntity extends PathfinderMob {
     /** 수령·허탕·해질녘 — 어느 쪽이든 오늘 구걸은 끝. 재선택은 다음 새벽에만. */
     public void clearBeg() {
         this.begAnchor = null;
+        this.begStep = null;
         this.begPatron = 0L;
         this.begUntil = 0L;
     }
@@ -533,36 +535,63 @@ public class MimicEntity extends PathfinderMob {
      */
     public static final double BEG_STEP = 96.0;
 
+    /** 경유지에 이만큼 다가서면 다음 구간을 잡는다 — 도착 판정(5)보다 넉넉해 붙박이지 않게. */
+    private static final double BEG_STEP_ARRIVE = 12.0;
+
+    /** 지금 걷고 있는 구간의 <b>고정</b> 경유지(휘발) — 매 틱 다시 계산하지 않는다. */
+    private BlockPos begStep = null;
+
     /**
-     * 리시와 구걸 goal 이 <b>지금</b> 겨냥할 점 — 목적지가 멀면 그쪽으로 {@link #BEG_STEP} 만큼
-     * 나아간 경유지, 가까우면 목적지 그 자체.
+     * 리시와 구걸 goal 이 겨냥할 점 — 목적지가 멀면 그쪽으로 {@link #BEG_STEP} 만큼 나아간
+     * 경유지, 가까우면 목적지 그 자체.
      *
-     * <p>매 호출마다 현재 위치에서 다시 계산되므로 경유지는 걸을수록 앞으로 미끄러진다 — 멈춰
-     * 서서 "도착"하는 지점이 없어 리시가 풀렸다 걸렸다 하며 움찔거릴 여지가 없다. 목적지가
-     * 96 안에 들어온 순간부터는 진짜 목적지를 겨냥해 도착(5블록) 판정까지 이어진다.
+     * <p><b>경유지는 구간마다 한 번만 잡고 붙박아 둔다.</b> 처음에는 호출마다 현재 위치에서 다시
+     * 계산해 "걸을수록 앞으로 미끄러지게" 했는데, 그것이 개체를 완전히 멈춰 세웠다. 실측:
+     * <pre>
+     *   실행 goal: MimicLeashGoal(2) · 경로 69노드 · 이동중 진행 · 속도 0.28
+     *   남은 209블록 (9회 관측 전부 동일)
+     * </pre>
+     * 리시는 돌고 경로도 멀쩡한데 좌표만 안 변했다. 리시가 매 틱 {@code moveTo(roamAnchor())}
+     * 를 부르는데 마인크래프트의 {@code PathNavigation.moveTo} 는 목표가 달라지면 경로를 통째로
+     * 갈아 끼우고 <b>노드 인덱스를 0(제자리)으로 되돌린다</b>. 게다가 끼임 감지기까지 매 틱
+     * 리셋돼 탈출도 안 걸린다. 목표가 1블록씩 밀리니 영원히 첫 걸음만 뗀 것이다.
+     *
+     * <p>마실·구혼 앵커가 멀쩡히 작동해 온 이유가 여기 있다 — <b>그것들은 고정점</b>이다.
+     * 움직이는 목표를 넣은 것이 그 전제를 깼다. 그래서 구간을 고정하고, {@link #BEG_STEP_ARRIVE}
+     * 안에 들어왔을 때만 다음 구간을 잡는다.
      */
     @Nullable
     public BlockPos getBegAnchor() {
         if (begAnchor == null) {
             return null;
         }
+        if (horizontalDistTo(begAnchor) <= BEG_STEP) {
+            begStep = null;
+            return begAnchor; // 마지막 구간 — 목적지가 곧 고정점이다
+        }
+        if (begStep != null && horizontalDistTo(begStep) > BEG_STEP_ARRIVE) {
+            return begStep; // 가던 구간을 계속 간다
+        }
         double dx = begAnchor.getX() + 0.5 - getX();
         double dz = begAnchor.getZ() + 0.5 - getZ();
         double d = Math.sqrt(dx * dx + dz * dz);
-        if (d <= BEG_STEP) {
-            return begAnchor;
-        }
         double k = BEG_STEP / d;
         BlockPos flat = BlockPos.containing(getX() + dx * k, getY(), getZ() + dz * k);
         // 지형 높이는 <b>이미 로드된 청크에서만</b> 묻는다. 안 그러면 여행 경로의 청크를 줄줄이
         // 강제 로드하게 되는데, 이 모드는 그것을 피하도록 짜여 있다(FarmTicker 의 isLoaded 가드).
         // 미로드면 제 발 높이를 쓴다 — 길찾기가 몇 블록의 고저는 알아서 흡수한다.
-        if (level().hasChunkAt(flat)) {
-            return level().getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    flat);
-        }
-        return flat;
+        begStep = level().hasChunkAt(flat)
+                ? level().getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        flat)
+                : flat;
+        return begStep;
+    }
+
+    private double horizontalDistTo(BlockPos p) {
+        double dx = p.getX() + 0.5 - getX();
+        double dz = p.getZ() + 0.5 - getZ();
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     /** 구걸의 <b>최종</b> 목적지(은인의 거처) — 도착 판정·수령·보고가 쓴다. */

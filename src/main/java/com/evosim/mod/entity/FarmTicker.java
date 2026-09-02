@@ -1519,6 +1519,9 @@ public final class FarmTicker {
     private static final java.util.Map<Long, Long> POST_OWNER = new java.util.HashMap<>();
     private static final java.util.Map<Long, Long> PATRONS_TODAY = new java.util.HashMap<>();
 
+    /** 막사 → 전투 가능 병사가 없는 채로 적에게 둘러싸인 연속 일수. {@link Facilities#OCCUPY_DAYS} 에서 넘어간다. */
+    private static final java.util.Map<Long, Integer> OCCUPY_COUNT = new java.util.HashMap<>();
+
     /**
      * <b>세력의 뿌리</b> — 추종 사슬을 타고 올라간 최상위 주인. 자기 자신이면 독립이다.
      *
@@ -1778,6 +1781,96 @@ public final class FarmTicker {
         POST_OWNER.put(barracks.asLong(), ownerId);
     }
 
+    /**
+     * <b>가장 가까운 아군 막사</b> — 부상병이 후송될 곳. 소속 막사가 아니어도 된다.
+     *
+     * <p>아군 = 두 막사 주인의 {@link #factionRootOf 세력 뿌리}가 같을 것. 굴복해 봉신이
+     * 된 세력의 막사도 저절로 아군이 된다 — 적 판정과 같은 잣대를 쓴다.
+     */
+    public static BlockPos nearestFriendlyBarracks(ServerLevel level, MimicEntity m) {
+        BlockPos mine = POST_OF.get(m.getId());
+        if (mine == null) {
+            return null;
+        }
+        Long myOwner = POST_OWNER.get(mine.asLong());
+        if (myOwner == null) {
+            return null;
+        }
+        long root = factionRootOf(myOwner);
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            if (e.kind.group != FacilityTemplate.Group.BARRACKS || e.ownerId == 0L
+                    || factionRootOf(e.ownerId) != root) {
+                continue;
+            }
+            double d = m.blockPosition().distSqr(e.pos);
+            if (d < bd) {
+                bd = d;
+                best = e.pos;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * <b>후송 급양</b> — 부상병이 아군 막사에 닿으면 영주 저장고에서 소지 식량을 채운다.
+     *
+     * <p>회복 자체는 새로 만들지 않는다. {@code MimicEntity.regenTick} 이 이미
+     * {@code holding > 0} 에서만 돌므로, 이 한 줄이 <b>지배자의 지갑을 전투지속력으로</b>
+     * 바꾼다: 적의 저장고가 마르면 급양이 끊기고 → 회복이 멎고 → 부상병이 계속 전투불가로
+     * 남고 → {@link Facilities#OCCUPY_DAYS} 뒤 막사가 넘어간다.
+     *
+     * <p>이미 배가 부르면 주지 않는다 — 매 틱 도착 판정이 도므로, 그러지 않으면 저장고가
+     * 순식간에 마른다.
+     */
+    public static void medicate(ServerLevel level, MimicEntity m, BlockPos barracks) {
+        if (m.getHolding() >= Facilities.MEDIC_RATION || m.getHomePos() == null) {
+            return;
+        }
+        FacilityStore.Entry bk = null;
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            if (barracks.equals(e.pos)) {
+                bk = e;
+                break;
+            }
+        }
+        if (bk == null || bk.ownerId == 0L) {
+            return;
+        }
+        MimicEntity owner = null;
+        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getIndividual().id() == bk2Id(barracks))) {
+            owner = o;
+        }
+        if (owner == null || owner.getHomePos() == null) {
+            return;
+        }
+        LarderStore larders = LarderStore.get(level);
+        double have = larders.get(owner.getHomePos());
+        double pay = Math.min(Facilities.MEDIC_RATION, Math.max(0.0, have));
+        if (pay <= 0.0) {
+            com.evosim.mod.log.SimEvents.event(m, "후송", String.format(
+                    "막사 @%d,%d 에 닿았으나 영주 저장고가 말랐다(%.1f) — 회복 없음 · 체력 %.0f%%",
+                    barracks.getX(), barracks.getZ(), have,
+                    100.0 * m.getHealth() / m.getMaxHealth()));
+            return;
+        }
+        larders.set(owner.getHomePos(), have - pay);
+        m.setDayHarvest(m.getHolding() + pay);
+        FacilityStore.get(level).spend(bk, pay);
+        com.evosim.mod.log.SimEvents.event(m, "후송", String.format(
+                "막사 @%d,%d 급양 %.1f — 체력 %.0f%% · 영주 저장고 %.1f→%.1f",
+                barracks.getX(), barracks.getZ(), pay,
+                100.0 * m.getHealth() / m.getMaxHealth(), have, have - pay));
+    }
+
+    private static long bk2Id(BlockPos barracks) {
+        Long o = POST_OWNER.get(barracks.asLong());
+        return o == null ? 0L : o;
+    }
+
     public static BlockPos postOf(MimicEntity m) {
         return POST_OF.get(m.getId());
     }
@@ -1949,6 +2042,60 @@ public final class FarmTicker {
             GUARD_SUM[2] += taxIn;
 
             POST_OWNER.put(bk.pos.asLong(), bk.ownerId);
+
+            // ②-a 점령 — 전투 가능 병사가 없고 적 병사가 반경 안에 있는 날을 센다.
+            //
+            // <b>칼이 아니라 곳간으로 갈린다.</b> 부상병은 아군 막사에서 급양을 받아야 낫는데
+            // (medicate → regenTick), 영주 저장고가 마르면 급양이 끊기고 회복이 멎어 계속
+            // 전투불가로 남는다. 그 상태가 OCCUPY_DAYS 지속되면 주권이 넘어간다.
+            //
+            // 하루가 아니라 이틀인 이유: 무장 군인끼리는 한 대에 4.9 라 결판이 빠르다(P0 실측).
+            // 하루 판정이면 증원(P6)이 96블록을 걸어오는 사이 늘 끝나 버린다.
+            long okey = bk.pos.asLong();
+            boolean capable = false;
+            for (MimicEntity s2 : adults) {
+                if (bk.pos.equals(POST_OF.get(s2.getId())) && !s2.isWounded()) {
+                    capable = true;
+                    break;
+                }
+            }
+            MimicEntity foe = null;
+            for (MimicEntity o : adults) {
+                BlockPos op = POST_OF.get(o.getId());
+                if (op == null || op.equals(bk.pos) || o.isWounded()) {
+                    continue;
+                }
+                Long oo = POST_OWNER.get(op.asLong());
+                if (oo == null || factionRootOf(oo) == factionRootOf(bk.ownerId)) {
+                    continue;
+                }
+                if (o.blockPosition().distSqr(bk.pos)
+                        <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    foe = o;
+                    break;
+                }
+            }
+            if (!capable && foe != null) {
+                int n = OCCUPY_COUNT.merge(okey, 1, Integer::sum);
+                Long newOwner = POST_OWNER.get(POST_OF.get(foe.getId()).asLong());
+                com.evosim.mod.log.SimEvents.note(level, "점령", String.format(
+                        "막사 @%d,%d — 전투 가능 병사 0 · 적 병사 반경 안 · %d/%d일",
+                        bk.pos.getX(), bk.pos.getZ(), n, Facilities.OCCUPY_DAYS));
+                if (n >= Facilities.OCCUPY_DAYS && newOwner != null && newOwner != 0L) {
+                    long old = bk.ownerId;
+                    bk.ownerId = newOwner;
+                    reg.setDirty();
+                    OCCUPY_COUNT.remove(okey);
+                    POST_OWNER.put(okey, newOwner);
+                    com.evosim.mod.log.SimEvents.note(level, "점령", String.format(
+                            "막사 @%d,%d 주인 #%d → #%d — 주권이 넘어갔다."
+                                    + " 땅은 그대로다(패자는 이제 압박 표적이 된다)",
+                            bk.pos.getX(), bk.pos.getZ(), old, newOwner));
+                    continue; // 오늘의 배속·세수는 새 주인 기준으로 내일부터
+                }
+            } else {
+                OCCUPY_COUNT.remove(okey);
+            }
             // ②-b 압박 — 어제 병사가 닿은 표적에게 신세를 적립하고, 오늘의 표적을 새로 짠다.
             //
             // <b>순서가 중요하다</b>: 적립을 먼저 하고 명부를 다시 짠다. 반대로 하면 어제

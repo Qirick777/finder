@@ -327,6 +327,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("presstest").executes(EvoSimCommand::pressTest))
                 .then(Commands.literal("wartest").executes(EvoSimCommand::warTest))
                 .then(Commands.literal("foetest").executes(EvoSimCommand::foeTest))
+                .then(Commands.literal("medictest").executes(EvoSimCommand::medicTest))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2435,6 +2436,70 @@ public final class EvoSimCommand {
      * <p>그래서 조우를 조성한다 — 서로 다른 막사 소속으로 못박은 병사 둘을 3블록 간격으로
      * 세우고, 적 판정과 교전을 그 자리에서 확인한다. P0(타격 시험)에서 통한 방식이다.
      */
+    /**
+     * <b>P5 — 후송·급양·점령</b>(WAR-PLAN.md). 부자와 빈자를 마주 세운다.
+     *
+     * <p>이 설계의 주장은 "지배자의 지갑이 곧 전투지속력"이다. 그것을 재려면 <b>지갑만</b>
+     * 달라야 한다 — 병사 수·거리·장비를 같게 두고 저장고만 600 대 6 으로 벌린다.
+     *
+     * <p>예상 사슬: 부상 → 아군 막사로 후송 → 급양(MEDIC_RATION) → 회복 → 복귀.
+     * 빈자는 급양이 끊겨 회복이 멎고, 전투 가능 병사가 0 인 날이 OCCUPY_DAYS 지속되면
+     * 막사가 넘어간다.
+     */
+    private static int medicTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos richPost = groundAt(level, ctx.getSource().getPosition(), -10, 0);
+        BlockPos poorPost = groundAt(level, ctx.getSource().getPosition(), 10, 0);
+        BlockPos richHome = groundAt(level, ctx.getSource().getPosition(), -16, -8);
+        BlockPos poorHome = groundAt(level, ctx.getSource().getPosition(), 16, -8);
+        MimicEntity rich = spawnAdult(level, Vec3.atBottomCenterOf(richHome), Sex.MALE);
+        MimicEntity poor = spawnAdult(level, Vec3.atBottomCenterOf(poorHome), Sex.MALE);
+        rich.debugSettleWithTent(richHome, Direction.NORTH);
+        poor.debugSettleWithTent(poorHome, Direction.NORTH);
+        LarderStore.get(level).set(richHome, 600.0);
+        LarderStore.get(level).set(poorHome, 6.0); // 급양 세 번이면 마른다
+
+        var reg = com.evosim.mod.entity.FacilityStore.get(level);
+        var tpl = com.evosim.mod.entity.FacilityTemplate.of(level,
+                com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false);
+        if (tpl.isEmpty()) {
+            tell(ctx.getSource(), "§c[후송시험]§r 막사 도면을 못 읽었다");
+            return 1;
+        }
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        long rid = rich.getIndividual().id();
+        long pid = poor.getIndividual().id();
+        for (var pair : new Object[][] {{richPost, rid}, {poorPost, pid}}) {
+            MimicEntity.debugRaiseFacility(level, (BlockPos) pair[0], tpl.get());
+            reg.register((BlockPos) pair[0], com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS,
+                    (byte) 0, false, (Long) pair[1], day,
+                    com.evosim.mod.entity.Facilities.BARRACKS_COST);
+        }
+        // 병사 둘을 3블록 간격으로 — 조우를 운에 맡기지 않는다(P4 에서 배운 것).
+        BlockPos aAt = groundAt(level, ctx.getSource().getPosition(), -2, 4);
+        BlockPos bAt = groundAt(level, ctx.getSource().getPosition(), 2, 4);
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(aAt), Sex.MALE);
+        MimicEntity b = spawnAdult(level, Vec3.atBottomCenterOf(bAt), Sex.MALE);
+        a.debugSettleWithTent(groundAt(level, ctx.getSource().getPosition(), -20, 8),
+                Direction.NORTH);
+        b.debugSettleWithTent(groundAt(level, ctx.getSource().getPosition(), 20, 8),
+                Direction.NORTH);
+        FarmTicker.debugAssignPost(a, richPost, rid);
+        FarmTicker.debugAssignPost(b, poorPost, pid);
+        a.setSoldierGear(true);
+        b.setSoldierGear(true);
+        tell(ctx.getSource(), String.format(
+                "§e[후송시험]§r 부자 막사 @%d,%d(저장고 600) · 빈자 막사 @%d,%d(저장고 6)",
+                richPost.getX(), richPost.getZ(), poorPost.getX(), poorPost.getZ()));
+        tell(ctx.getSource(), String.format(
+                "  병사 #%d(부자) vs #%d(빈자) — 거리 %.0f · 적 판정 %s · 급양 1회 %.1f",
+                a.getId(), b.getId(), Math.sqrt(aAt.distSqr(bAt)),
+                FarmTicker.hostileSoldiers(a, b) ? "O" : "X",
+                com.evosim.mod.entity.Facilities.MEDIC_RATION));
+        tell(ctx.getSource(), "  → '후송'·'점령' 이벤트로 급양이 끊기는 쪽과 넘어가는 막사를 본다");
+        return 1;
+    }
+
     private static int foeTest(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         BlockPos aHome = groundAt(level, ctx.getSource().getPosition(), -2, 0);

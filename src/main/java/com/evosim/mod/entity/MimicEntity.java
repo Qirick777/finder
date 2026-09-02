@@ -6151,6 +6151,19 @@ public class MimicEntity extends PathfinderMob {
         return holding;
     }
 
+    /** <b>전투불가</b> — 체력이 퇴각선({@link Combat#RETREAT_HP} 30%) 이하. 새 부상 상태를
+     *  만들지 않는다: 이미 있는 체력과 퇴각선만 읽는다. */
+    public boolean isWounded() {
+        double max = getMaxHealth();
+        return max > 0.0 && getHealth() / max <= com.evosim.core.Combat.RETREAT_HP;
+    }
+
+    /** 복귀선({@link Combat#RETURN_HP} 70%)까지 나았는가 — 후송 병사가 제 자리로 돌아갈 때. */
+    public boolean isHealed() {
+        double max = getMaxHealth();
+        return max <= 0.0 || getHealth() / max >= com.evosim.core.Combat.RETURN_HP;
+    }
+
     /** 위급(R6) — 소지 식량 고갈 임박. */
     public boolean isCritical() {
         return holding < FoodEconomy.CRITICAL;

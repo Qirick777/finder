@@ -35,6 +35,7 @@ public class MimicGarrisonGoal extends Goal {
     private BlockPos spot;      // 지금 가는 곳(낮=제 자리, 밤=순찰 지점)
     private int stand;
     private boolean night;
+    private boolean wounded;
     private int cursor = -1;    // 순찰 경로 커서 — id 기준 시작점(병사마다 다른 구역)
 
     public MimicGarrisonGoal(MimicEntity mob) {
@@ -57,6 +58,12 @@ public class MimicGarrisonGoal extends Goal {
         if (mob.isCritical()) {
             return false;
         }
+        // 다치거나 나으면 근무지를 다시 고른다 — 후송 ↔ 근무 전환점.
+        if (wounded != mob.isWounded()) {
+            wounded = mob.isWounded();
+            spot = null;
+            stand = 0;
+        }
         boolean sleep = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
                 == Schedule.Phase.SLEEP;
         if (sleep != night) {
@@ -76,7 +83,12 @@ public class MimicGarrisonGoal extends Goal {
             // 압박을 거기 묶어 두면 같은 이유로 영영 발동하지 않는다. 그래서 <b>표적이 있으면
             // 낮에도 나간다</b>. 시위는 오히려 대낮에 보여야 뜻이 맞고, 눈으로 확인하기도 쉽다.
             // 표적이 없으면 종전대로 제 자리에 앉는다 — 평시 막사가 비지 않는다.
-            spot = night ? patrolSpot() : dayPost();
+            // <b>부상병은 근무보다 후송이 먼저다.</b> 회복은 소지 식량에 물려 있으므로
+            // (regenTick), 아군 막사에서 급양을 받아야 다시 싸울 수 있다. 복귀선(70%)까지
+            // 나으면 아래 평소 근무지로 돌아간다.
+            spot = mob.isWounded()
+                    ? FarmTicker.nearestFriendlyBarracks(sl0(), mob)
+                    : (night ? patrolSpot() : dayPost());
             if (spot == null) {
                 spot = post;
             }
@@ -132,6 +144,10 @@ public class MimicGarrisonGoal extends Goal {
             return;
         }
         mob.getNavigation().stop();
+        // 후송 도착 — 아군 막사에서 급양을 받는다(배부르면 안에서 곧바로 돌아온다).
+        if (mob.isWounded() && mob.level() instanceof net.minecraft.server.level.ServerLevel ms) {
+            FarmTicker.medicate(ms, mob, spot);
+        }
         if (night) {
             // 경계 — 둘레를 둘러본다. 다 서 있으면 다음 지점으로.
             mob.getLookControl().setLookAt(post.getX() + 0.5, post.getY() + 1.0, post.getZ() + 0.5);
@@ -158,6 +174,10 @@ public class MimicGarrisonGoal extends Goal {
      * <p>표적을 도는 순서는 {@link #cursor} 를 그대로 쓴다. 병사마다 다른 표적에서 시작해
      * 여럿이 한 집에 몰리지 않는다.
      */
+    private net.minecraft.server.level.ServerLevel sl0() {
+        return (net.minecraft.server.level.ServerLevel) mob.level();
+    }
+
     private BlockPos dayPost() {
         if (post == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel)) {
             return FarmTicker.guardSeatOf(mob);

@@ -2478,7 +2478,11 @@ public final class EvoSimCommand {
             // 병사의 집이 가운데 있어야 순찰·귀가 어느 쪽이든 적과 마주친다. 첫 조성은
             // 병사를 붙여 놓고 집만 20블록 밖에 둬서, 곧장 흩어져 전투가 0건이었다.
             for (int i = 0; i < 4; i++) {
-                int hx = (bx[k] < 0 ? -2 - i * 3 : 2 + i * 3);
+                // <b>두 세력의 가구를 뒤섞는다.</b> 좌우로 갈라 두면 병사들이 거울처럼
+                // 제 쪽만 돌아 인지 거리(8) 안으로 영영 안 들어온다(실측: -12,5 ↔ 12,5 ·
+                // -8,2 ↔ 8,2 — 최소 16블록). 한 마을에 두 세력의 사람이 섞여 사는 것이
+                // 애초에 그리려던 상황이기도 하다.
+                int hx = -7 + i * 4 + k * 2;
                 BlockPos h = groundAt(level, ctx.getSource().getPosition(), hx, 4);
                 MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
                 f.debugSettleWithTent(h, Direction.NORTH);
@@ -2498,7 +2502,7 @@ public final class EvoSimCommand {
                 "§e[후송시험]§r 부자 막사 @%d,%d(저장고 600) · 빈자 막사 @%d,%d(저장고 6)",
                 posts[0].getX(), posts[0].getZ(), posts[1].getX(), posts[1].getZ()));
         tell(ctx.getSource(), String.format(
-                "  각 세력 추종 4호를 가운데(z=4)에 배치 — 가장 가까운 두 집이 4블록,"
+                "  두 세력 추종 4호를 z=4 에 <b>뒤섞어</b> 배치(2블록 간격) —"
                         + " 인지 8 안이라 병사가 마주친다 · 급양 1회 %.1f · 점령 %d일",
                 com.evosim.mod.entity.Facilities.MEDIC_RATION,
                 com.evosim.mod.entity.Facilities.OCCUPY_DAYS));

@@ -2077,6 +2077,26 @@ public final class EvoSimCommand {
                     led.bondTo(m.getIndividual().id(), m.getBegPatron()),
                     // 리시가 실제로 그 점을 보고 있는가 — "왔다리갔다리" 의 유일한 판정.
                     step != null && step.equals(m.roamAnchor()) ? "§a호위 중§r" : "§c딴 곳§r"));
+            // <b>지금 무엇이 이 개체를 쥐고 있는가.</b> 리시가 목적지를 제대로 보는데도 한 걸음도
+            // 안 움직이면 남은 후보는 하나뿐이다 — 더 높은 우선순위의 goal 이 MOVE 를 물고
+            // 있거나, 길찾기가 경로를 못 내고 있거나. 둘 다 여기서 갈린다.
+            StringBuilder run = new StringBuilder();
+            for (var w : m.goalSelector.getAvailableGoals()) {
+                if (w.isRunning()) {
+                    run.append(run.length() == 0 ? "" : " + ")
+                            .append(w.getGoal().getClass().getSimpleName())
+                            .append('(').append(w.getPriority()).append(')');
+                }
+            }
+            var nav = m.getNavigation();
+            tell(ctx.getSource(), String.format(
+                    "     실행 goal: %s · 경로 %s · 이동중 %s · 속도 %.2f",
+                    run.length() == 0 ? "§c없음§r" : run,
+                    nav.getPath() == null ? "§c없음§r"
+                            : "§a" + nav.getPath().getNodeCount() + "노드§r",
+                    nav.isDone() ? "§c정지§r" : "§a진행§r",
+                    m.getAttributeValue(
+                            net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED)));
         }
         tell(ctx.getSource(), String.format("  길 위 구걸자 %d명", walking));
         return 1;

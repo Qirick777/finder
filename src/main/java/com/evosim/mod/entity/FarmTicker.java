@@ -3504,6 +3504,17 @@ public final class FarmTicker {
         return n;
     }
 
+    /**
+     * 점검용 — 긴급고용·구걸 정산을 <b>지금</b> 한 번 돈다(/evosim begdry).
+     *
+     * <p>다른 코드가 아니라 {@link #emergencyHire} 그 자체다. 200틱 스캔을 기다리면 그 사이
+     * 개체가 풀 한 포기를 뜯어 관문이 닫히는 <b>경합</b>이 생겨, 시험이 발동하고 안 하고가
+     * 운에 매달린다. 조건을 세운 그 틱에 바로 돌리면 그 운이 사라진다.
+     */
+    public static void emergencyHireNow(ServerLevel level) {
+        emergencyHire(level);
+    }
+
     private static void emergencyHire(ServerLevel level) {
         FarmStore store = FarmStore.get(level);
         // 시혜 장부는 밭이 없어도 비워야 한다 — 밭 없는 세계에서도 구걸은 돈다.
@@ -3519,7 +3530,7 @@ public final class FarmTicker {
             // 새벽에 지우면 오늘의 형편(더 가까운 집이 생겼는지)으로 다시 고른다.
             if (begOn) {
                 for (MimicEntity e : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                        x -> x.isAlive() && x.getBegAnchor() != null)) {
+                        x -> x.isAlive() && x.getBegHome() != null)) {
                     e.clearBeg();
                 }
             }
@@ -3528,7 +3539,7 @@ public final class FarmTicker {
         // 오가며 정확히 그 "목표가 계속 바뀌며 움찔거리는" 모양이 된다.
         if (begOn) {
             for (MimicEntity e : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                    x -> x.isAlive() && x.getBegAnchor() != null
+                    x -> x.isAlive() && x.getBegHome() != null
                             && ASSIGNED.containsKey(x.getId()))) {
                 e.clearBeg();
             }
@@ -3555,7 +3566,7 @@ public final class FarmTicker {
             // 여기서 매번 다시 고르면 후보 저장고가 출렁일 때마다 목표가 갈려 길 위에서 방향만
             // 튼다 — 목적지를 밖에서 못박은 의미가 통째로 사라진다. 앵커는 수령·허탕(receiveAlms)
             // 이나 하루 만료로만 풀린다.
-            if (m.getBegAnchor() != null) {
+            if (m.getBegHome() != null) {
                 continue;
             }
             // 탐색은 <b>거리 무제한</b>(가까운 순) — 통근 한계 COMMUTE(48)는 평시 시장의 효율
@@ -3755,7 +3766,7 @@ public final class FarmTicker {
      * 돌며 움찔거린다. 다음 기회는 내일 새벽이다.
      */
     public static void receiveAlms(ServerLevel level, MimicEntity m) {
-        BlockPos h = m.getBegAnchor();
+        BlockPos h = m.getBegHome();
         long patron = m.getBegPatron();
         m.clearBeg();
         if (h == null || m.getIndividual() == null) {

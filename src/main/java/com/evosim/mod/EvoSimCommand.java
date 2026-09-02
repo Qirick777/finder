@@ -2053,24 +2053,28 @@ public final class EvoSimCommand {
                 com.evosim.mod.entity.AllegianceStore.SERF_BOND));
         int walking = 0;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                x -> x.isAlive() && x.getBegAnchor() != null && x.getIndividual() != null)) {
+                x -> x.isAlive() && x.getBegHome() != null && x.getIndividual() != null)) {
             walking++;
             if (walking > 10) {
                 continue;
             }
             var p = fl.get(m.getBegPatron());
             var mine = fl.get(m.getIndividual().id());
-            double d = Math.sqrt(m.blockPosition().distSqr(m.getBegAnchor()));
+            BlockPos home = m.getBegHome();
+            BlockPos step = m.getBegAnchor();
+            double d = Math.sqrt(m.blockPosition().distSqr(home));
             tell(ctx.getSource(), String.format(
-                    "  §e걷는 중§r %s#%d H %.2f → §a%s§r @%d,%d · 남은 %.0f블록"
-                            + " · 신세 %.1f · 앵커 %s",
+                    "  §e걷는 중§r %s#%d H %.2f → §a%s§r @%d,%d · 남은 §e%.0f§r블록"
+                            + " · 경유지 @%d,%d(%.0f) · 신세 %.1f · 리시 %s",
                     mine != null && mine.name != null ? mine.name
                             : "#" + m.getIndividual().id(), m.getId(), m.getHolding(),
                     p != null && p.name != null ? p.name : "#" + m.getBegPatron(),
-                    m.getBegAnchor().getX(), m.getBegAnchor().getZ(), d,
+                    home.getX(), home.getZ(), d,
+                    step == null ? 0 : step.getX(), step == null ? 0 : step.getZ(),
+                    step == null ? 0.0 : Math.sqrt(m.blockPosition().distSqr(step)),
                     led.bondTo(m.getIndividual().id(), m.getBegPatron()),
-                    // 리시가 실제로 이 목적지를 보고 있는가 — "왔다리갔다리" 의 유일한 판정.
-                    m.getBegAnchor().equals(m.roamAnchor()) ? "§a구걸지§r" : "§c다른 곳§r"));
+                    // 리시가 실제로 그 점을 보고 있는가 — "왔다리갔다리" 의 유일한 판정.
+                    step != null && step.equals(m.roamAnchor()) ? "§a호위 중§r" : "§c딴 곳§r"));
         }
         tell(ctx.getSource(), String.format("  길 위 구걸자 %d명", walking));
         return 1;
@@ -2117,7 +2121,15 @@ public final class EvoSimCommand {
             m.debugForageDry();
             n++;
         }
-        tell(ctx.getSource(), String.format("§e[구걸시험]§r 무토지 성인 %d명의 채집 시계를 마름으로", n));
+        FarmTicker.emergencyHireNow(level); // 같은 틱에 정산 — 200틱 대기 중 채집으로 관문이 닫히지 않게
+        int walking = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getBegHome() != null)) {
+            walking++;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[구걸시험]§r 무토지 성인 %d명을 굶김(H 0 · 채집시계 마름) → 정산 후 구걸자 %d명",
+                n, walking));
         return 1;
     }
 

@@ -58,13 +58,19 @@ public class MimicBegGoal extends Goal {
 
     @Override
     public void tick() {
-        BlockPos t = mob.getBegAnchor();
-        if (t == null) {
+        BlockPos home = mob.getBegHome();
+        if (home == null) {
             return;
         }
-        if (mob.blockPosition().distSqr(t) > ARRIVE_SQ) {
-            mob.getLookControl().setLookAt(t.getX() + 0.5, t.getY() + 1.0, t.getZ() + 0.5);
-            mob.getNavigation().moveTo(t.getX() + 0.5, t.getY(), t.getZ() + 0.5, 1.0);
+        // 도착 판정은 <b>최종 목적지</b>로, 걸음은 <b>경유지</b>로. 둘을 섞으면 96블록마다
+        // 도착으로 읽어 남의 집도 아닌 벌판에서 수령을 시도한다.
+        if (mob.blockPosition().distSqr(home) > ARRIVE_SQ) {
+            BlockPos step = mob.getBegAnchor();
+            if (step == null) {
+                return;
+            }
+            mob.getLookControl().setLookAt(step.getX() + 0.5, step.getY() + 1.0, step.getZ() + 0.5);
+            mob.getNavigation().moveTo(step.getX() + 0.5, step.getY(), step.getZ() + 0.5, 1.0);
             return;
         }
         FarmTicker.receiveAlms((ServerLevel) mob.level(), mob); // 수령·기록·해제 전부 여기서

@@ -507,8 +507,53 @@ public class MimicEntity extends PathfinderMob {
         return phase == Schedule.Phase.WORK || phase == Schedule.Phase.WANDER;
     }
 
+    /**
+     * 한 번에 겨냥하는 최대 거리 — 96. 임의로 고른 수가 아니라 이 개체의
+     * {@code FOLLOW_RANGE}(160)가 <b>덮도록 설계된</b> 여행 상한이다(그 속성 주석: "리시반경32·
+     * 구혼64·마실/이주96 커버(96×1.6)").
+     *
+     * <p>실측으로 확인한 벽이다: 233블록 떨어진 집을 목적지로 주면 경로가 아예 만들어지지 않아
+     * (탐색 반경이 followRange 로 잘린다) 리시가 MOVE 만 쥔 채 <b>30초 동안 한 블록도 안
+     * 움직였다</b>. 목적지를 지우는 대신 96씩 끊어 겨냥한다 — 거리로 후보를 자르면 "주변이 다
+     * 가난하다"는 이유로 굶어 죽는데, 그것이 구걸이 막으려는 상황이다.
+     */
+    public static final double BEG_STEP = 96.0;
+
+    /**
+     * 리시와 구걸 goal 이 <b>지금</b> 겨냥할 점 — 목적지가 멀면 그쪽으로 {@link #BEG_STEP} 만큼
+     * 나아간 경유지, 가까우면 목적지 그 자체.
+     *
+     * <p>매 호출마다 현재 위치에서 다시 계산되므로 경유지는 걸을수록 앞으로 미끄러진다 — 멈춰
+     * 서서 "도착"하는 지점이 없어 리시가 풀렸다 걸렸다 하며 움찔거릴 여지가 없다. 목적지가
+     * 96 안에 들어온 순간부터는 진짜 목적지를 겨냥해 도착(5블록) 판정까지 이어진다.
+     */
     @Nullable
     public BlockPos getBegAnchor() {
+        if (begAnchor == null) {
+            return null;
+        }
+        double dx = begAnchor.getX() + 0.5 - getX();
+        double dz = begAnchor.getZ() + 0.5 - getZ();
+        double d = Math.sqrt(dx * dx + dz * dz);
+        if (d <= BEG_STEP) {
+            return begAnchor;
+        }
+        double k = BEG_STEP / d;
+        BlockPos flat = BlockPos.containing(getX() + dx * k, getY(), getZ() + dz * k);
+        // 지형 높이는 <b>이미 로드된 청크에서만</b> 묻는다. 안 그러면 여행 경로의 청크를 줄줄이
+        // 강제 로드하게 되는데, 이 모드는 그것을 피하도록 짜여 있다(FarmTicker 의 isLoaded 가드).
+        // 미로드면 제 발 높이를 쓴다 — 길찾기가 몇 블록의 고저는 알아서 흡수한다.
+        if (level().hasChunkAt(flat)) {
+            return level().getHeightmapPos(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    flat);
+        }
+        return flat;
+    }
+
+    /** 구걸의 <b>최종</b> 목적지(은인의 거처) — 도착 판정·수령·보고가 쓴다. */
+    @Nullable
+    public BlockPos getBegHome() {
         return begAnchor;
     }
 
@@ -5430,8 +5475,14 @@ public class MimicEntity extends PathfinderMob {
      * 이주인지 갈리지 않게 된다. 여기서는 딱 한 가지, "주변에 먹을 게 없다"만 만든다.
      */
     public void debugForageDry() {
-        this.lastForageSuccessTick =
-                com.evosim.mod.entity.SimTime.tick(level()) - Famine.STARVE_WINDOW - 1000L;
+        // <b>뺄셈 음수 함정</b> — 신생 월드는 유효 틱이 0 부터라 여기서 그냥 빼면 음수가 되고,
+        // forageDry() 의 센티넬(lastForageSuccessTick > 0)에 걸려 <b>영영 거짓</b>이 된다.
+        // debugForceLonely 가 같은 이유로 뺄셈 트릭을 폐기했는데 여기서 되풀이했었다.
+        // 1 로 바닥을 잡으면 월드가 한 나절만 지나도 마름이 성립하고, 그 전에는 아래 위급
+        // (H 0)이 관문을 대신 연다.
+        this.lastForageSuccessTick = Math.max(1L,
+                com.evosim.mod.entity.SimTime.tick(level()) - Famine.STARVE_WINDOW - 1000L);
+        this.holding = 0.0; // 위급 — 신생 월드에서도 즉시 성립하는 쪽의 관문
     }
 
     /** 점검용 — 온 가족을 즉시 기근 조건으로(성공·정착 시각 과거화, 저장고 비움). /evosim exodus. */

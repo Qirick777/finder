@@ -434,8 +434,12 @@ public class MimicEntity extends PathfinderMob {
             return BlockPos.of(courtTravelTarget); // 리시가 그 마을까지 끌고 가는 캐러밴 엔진
         }
         if (isBegging()) {
-            return begAnchor; // 구걸 — 은인 집이 활동반경 밖이어도 리시가 끌고 간다(마실과 동일 패턴).
+            // <b>반드시 getBegAnchor()</b> — 원시 필드(begAnchor)는 최종 목적지라 멀면
+            // FOLLOW_RANGE(160) 밖이고, 그러면 리시가 경로를 못 만들어 그 자리에 얼어붙는다.
+            // 실측으로 두 번 같은 자리에 걸렸다: 경유지 계산을 getBegAnchor 에 넣어 두고도
+            // 여기서 필드를 그대로 읽어, 203블록 목적지가 리시에게 넘어가 한 걸음도 못 갔다.
             // 마실보다 <b>앞</b>인 이유: 구걸은 굶어서 가는 것이고 마실은 안 굶어야 가는 것이다.
+            return getBegAnchor();
         }
         if (visitAnchor != null) {
             return visitAnchor; // 노인 마실 — 활동반경 밖 자식 집도 리시가 끌고 간다(구혼 여행과 동일 패턴)

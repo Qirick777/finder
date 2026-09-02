@@ -50,7 +50,8 @@ public class MimicGarrisonGoal extends Goal {
         }
         post = FarmTicker.postOf(mob);
         if (post == null) {
-            return false; // 배속 없음 — 군인이 아니다
+            mob.setGuardAnchor(null); // 배속이 풀렸다 — <b>여기서만</b> 앵커를 놓는다
+            return false;
         }
         // 위급이면 물러난다 — 먹는 것이 먼저다. 고용주 구휼이 새벽에 채워 준다.
         if (mob.isCritical()) {
@@ -99,7 +100,16 @@ public class MimicGarrisonGoal extends Goal {
     public void stop() {
         spot = null;
         stand = 0;
-        mob.setGuardAnchor(null); // 근무 종료 — 리시 앵커를 거처로 되돌린다
+        // <b>앵커는 여기서 지우지 않는다.</b> 이 stop 의 대부분은 리시(2)가 MOVE 를 탈취해
+        // 생기는 선점이고, 그때 앵커를 지우면 리시가 볼 목적지가 사라져 병사를 막사로
+        // 되끌어 버린다 — 출발 → 선점 → 되끌림 → 재출발의 무한 왕복이 된다.
+        //
+        // 실측(압박 시험): 앵커 24,20(표적)으로 출발 → Leash(2) 선점 · 주둔앵커 없음 ·
+        // 앵커 -10,-20(막사) → 다시 Garrison(4) · 앵커 24,20. 최근접이 38~61 을 오갈 뿐
+        // 표적에 영영 못 닿았다.
+        //
+        // ElderVisitGoal 이 같은 함정을 이미 주석으로 남겨 뒀고 구걸에서도 지켰는데
+        // 여기서 되풀이했다. 해제는 배속이 풀렸을 때(canUse)만 한다.
     }
 
     @Override

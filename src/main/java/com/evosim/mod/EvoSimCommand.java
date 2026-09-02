@@ -2448,54 +2448,60 @@ public final class EvoSimCommand {
      */
     private static int medicTest(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
-        BlockPos richPost = groundAt(level, ctx.getSource().getPosition(), -10, 0);
-        BlockPos poorPost = groundAt(level, ctx.getSource().getPosition(), 10, 0);
-        BlockPos richHome = groundAt(level, ctx.getSource().getPosition(), -16, -8);
-        BlockPos poorHome = groundAt(level, ctx.getSource().getPosition(), 16, -8);
-        MimicEntity rich = spawnAdult(level, Vec3.atBottomCenterOf(richHome), Sex.MALE);
-        MimicEntity poor = spawnAdult(level, Vec3.atBottomCenterOf(poorHome), Sex.MALE);
-        rich.debugSettleWithTent(richHome, Direction.NORTH);
-        poor.debugSettleWithTent(poorHome, Direction.NORTH);
-        LarderStore.get(level).set(richHome, 600.0);
-        LarderStore.get(level).set(poorHome, 6.0); // 급양 세 번이면 마른다
-
         var reg = com.evosim.mod.entity.FacilityStore.get(level);
+        var led = com.evosim.mod.entity.AllegianceStore.get(level);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         var tpl = com.evosim.mod.entity.FacilityTemplate.of(level,
                 com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false);
         if (tpl.isEmpty()) {
             tell(ctx.getSource(), "§c[후송시험]§r 막사 도면을 못 읽었다");
             return 1;
         }
-        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
-        long rid = rich.getIndividual().id();
-        long pid = poor.getIndividual().id();
-        for (var pair : new Object[][] {{richPost, rid}, {poorPost, pid}}) {
-            MimicEntity.debugRaiseFacility(level, (BlockPos) pair[0], tpl.get());
-            reg.register((BlockPos) pair[0], com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS,
-                    (byte) 0, false, (Long) pair[1], day,
+        // 지갑만 다르게 둔다 — 병사 수·거리·장비를 같게 하고 저장고만 벌린다.
+        double[] purse = {600.0, 6.0};
+        int[] bx = {-14, 14};
+        long[] lordId = new long[2];
+        BlockPos[] posts = new BlockPos[2];
+        for (int k = 0; k < 2; k++) {
+            BlockPos lordHome = groundAt(level, ctx.getSource().getPosition(), bx[k], -16);
+            BlockPos bkSite = groundAt(level, ctx.getSource().getPosition(), bx[k], -6);
+            posts[k] = bkSite;
+            MimicEntity lord = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE);
+            lord.debugSettleWithTent(lordHome, Direction.NORTH);
+            MimicEntity lw = spawnAdult(level,
+                    Vec3.atBottomCenterOf(lordHome).add(1, 0, 0), Sex.FEMALE);
+            lw.debugSettleWithTent(lordHome, Direction.NORTH);
+            lord.debugMarryTo(lw);
+            LarderStore.get(level).set(lordHome, purse[k]);
+            lordId[k] = lord.getIndividual().id();
+            // <b>추종 4호를 두 세력 <em>사이</em>에 붙인다.</b> 정원(지킬가구/4)을 채우면서,
+            // 병사의 집이 가운데 있어야 순찰·귀가 어느 쪽이든 적과 마주친다. 첫 조성은
+            // 병사를 붙여 놓고 집만 20블록 밖에 둬서, 곧장 흩어져 전투가 0건이었다.
+            for (int i = 0; i < 4; i++) {
+                int hx = (bx[k] < 0 ? -2 - i * 3 : 2 + i * 3);
+                BlockPos h = groundAt(level, ctx.getSource().getPosition(), hx, 4);
+                MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+                f.debugSettleWithTent(h, Direction.NORTH);
+                MimicEntity w = spawnAdult(level,
+                        Vec3.atBottomCenterOf(h).add(1, 0, 0), Sex.FEMALE);
+                w.debugSettleWithTent(h, Direction.NORTH);
+                f.debugMarryTo(w);
+                LarderStore.get(level).set(h, 30.0);
+                led.record(f.getIndividual().id(), lordId[k], 40.0, 0.0, day);
+            }
+            MimicEntity.debugRaiseFacility(level, bkSite, tpl.get());
+            reg.register(bkSite, com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS,
+                    (byte) 0, false, lordId[k], day,
                     com.evosim.mod.entity.Facilities.BARRACKS_COST);
         }
-        // 병사 둘을 3블록 간격으로 — 조우를 운에 맡기지 않는다(P4 에서 배운 것).
-        BlockPos aAt = groundAt(level, ctx.getSource().getPosition(), -2, 4);
-        BlockPos bAt = groundAt(level, ctx.getSource().getPosition(), 2, 4);
-        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(aAt), Sex.MALE);
-        MimicEntity b = spawnAdult(level, Vec3.atBottomCenterOf(bAt), Sex.MALE);
-        a.debugSettleWithTent(groundAt(level, ctx.getSource().getPosition(), -20, 8),
-                Direction.NORTH);
-        b.debugSettleWithTent(groundAt(level, ctx.getSource().getPosition(), 20, 8),
-                Direction.NORTH);
-        FarmTicker.debugAssignPost(a, richPost, rid);
-        FarmTicker.debugAssignPost(b, poorPost, pid);
-        a.setSoldierGear(true);
-        b.setSoldierGear(true);
         tell(ctx.getSource(), String.format(
                 "§e[후송시험]§r 부자 막사 @%d,%d(저장고 600) · 빈자 막사 @%d,%d(저장고 6)",
-                richPost.getX(), richPost.getZ(), poorPost.getX(), poorPost.getZ()));
+                posts[0].getX(), posts[0].getZ(), posts[1].getX(), posts[1].getZ()));
         tell(ctx.getSource(), String.format(
-                "  병사 #%d(부자) vs #%d(빈자) — 거리 %.0f · 적 판정 %s · 급양 1회 %.1f",
-                a.getId(), b.getId(), Math.sqrt(aAt.distSqr(bAt)),
-                FarmTicker.hostileSoldiers(a, b) ? "O" : "X",
-                com.evosim.mod.entity.Facilities.MEDIC_RATION));
+                "  각 세력 추종 4호를 가운데(z=4)에 배치 — 가장 가까운 두 집이 4블록,"
+                        + " 인지 8 안이라 병사가 마주친다 · 급양 1회 %.1f · 점령 %d일",
+                com.evosim.mod.entity.Facilities.MEDIC_RATION,
+                com.evosim.mod.entity.Facilities.OCCUPY_DAYS));
         tell(ctx.getSource(), "  → '후송'·'점령' 이벤트로 급양이 끊기는 쪽과 넘어가는 막사를 본다");
         return 1;
     }

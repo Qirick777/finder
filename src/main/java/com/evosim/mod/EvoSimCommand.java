@@ -328,6 +328,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("wartest").executes(EvoSimCommand::warTest))
                 .then(Commands.literal("foetest").executes(EvoSimCommand::foeTest))
                 .then(Commands.literal("medictest").executes(EvoSimCommand::medicTest))
+                .then(Commands.literal("wound").executes(EvoSimCommand::woundSoldiers))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2446,6 +2447,30 @@ public final class EvoSimCommand {
      * 빈자는 급양이 끊겨 회복이 멎고, 전투 가능 병사가 0 인 날이 OCCUPY_DAYS 지속되면
      * 막사가 넘어간다.
      */
+    /**
+     * 점검용 — 배속된 병사 전원을 <b>전투불가</b>(체력 20%)로 만든다.
+     *
+     * <p>P5 가 검증할 것은 후송·급양·점령이지 <b>전투 발생</b>이 아니다. 교전이 실제로
+     * 일어나는 것은 P4 에서 확인했고(foetest: 쌍방 교전 진입 · 퇴각), 자연스러운 조우를
+     * 조성으로 만들려다 네 번 실패했다 — 병사들이 제 쪽 순찰만 돌아 인지 거리 안으로
+     * 들어오지 않는다(실측: 최소 14~28블록 유지). 그것은 배치·증원의 문제라 P6 에서 다룬다.
+     *
+     * <p>여기서는 부상을 직접 만들어 <b>그 뒤의 사슬</b>만 잰다: 후송 → 급양 → 회복 →
+     * 복귀, 그리고 지갑이 마른 쪽의 점령.
+     */
+    private static int woundSoldiers(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int n = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && FarmTicker.isSoldier(e))) {
+            m.setHealth((float) (m.getMaxHealth() * 0.2)); // 퇴각선(30%) 아래
+            n++;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[부상]§r 배속 병사 %d명을 체력 20%%로 — 전투불가(퇴각선 30%%) 진입", n));
+        return n > 0 ? 1 : 0;
+    }
+
     private static int medicTest(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         var reg = com.evosim.mod.entity.FacilityStore.get(level);

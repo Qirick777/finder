@@ -97,6 +97,69 @@ public class AllegianceStore extends SavedData {
      */
     public static final double W_TENANCY = 0.6;
 
+    // ── 적립 감쇠(체감) ────────────────────────────────────────────────────
+    /**
+     * <b>이 높이까지는 유입이 그대로 쌓인다.</b> 12 인 것은 우연이 아니라 <b>현행 소작 균형점</b>이다 —
+     * 감쇠 0.95 에 하루 유입 {@link #W_TENANCY}(0.6)이면 균형이 0.6/0.05 = 12 에서 선다.
+     *
+     * <p>즉 매일 소작만 하는 사람의 결속은 <b>지금과 정확히 같은 자리</b>에 머문다. 감쇠를 넣어도
+     * 기존 추종 관계가 하나도 안 흔들리는 이유가 이것이다 — 체감이 시작되는 지점을 현행 균형점에
+     * 맞췄기 때문에, 거기 도달한 적 없는 관계는 이 함수를 거쳐도 계수 1.0 을 곱한 것과 같다.
+     */
+    public static final double ACCRUE_FREE = 12.0;
+
+    /** 유입이 완전히 막히는 높이 — 여기 이상은 감쇠만 작동해 아래로 끌린다. */
+    public static final double ACCRUE_CAP = 60.0;
+
+    /**
+     * <b>왜 체감이 필요한가.</b> 종전에는 유입 W 에 대해 균형이 늘 {@code 20W} 라, 하루 3.0 씩
+     * 들어오는 구휼은 60 까지 <b>직선으로</b> 치솟았다. 그 값에서는 신뢰·충성·종속을 아무리
+     * 나눠도 구휼 한 번 받은 사람이 곧바로 최상단을 관통해 단계가 뜻을 잃는다.
+     *
+     * <p>체감을 넣으면 균형점이 유입에 따라 <b>다른 높이에서</b> 선다.
+     * 0.05·b = W·(1 − (b−12)/48) 을 풀면
+     * <ul>
+     *   <li>소작(W=0.6, 매일) → <b>12</b> — 신뢰. 지금과 같다.</li>
+     *   <li>구걸(W=3.0, 매일) → <b>33.3</b> — 종속. 상습 구걸자만 여기 닿는다.</li>
+     *   <li>교회 완화(감쇠 0.98)를 낀 소작 → <b>23</b> — 충성.</li>
+     * </ul>
+     * 단계가 산술로 갈린다 — 어느 값에도 신분 분기가 없다(규칙5).
+     */
+    private static double accrualDamp(double cur) {
+        if (cur <= ACCRUE_FREE) {
+            return 1.0;
+        }
+        if (cur >= ACCRUE_CAP) {
+            return 0.0;
+        }
+        return 1.0 - (cur - ACCRUE_FREE) / (ACCRUE_CAP - ACCRUE_FREE);
+    }
+
+    // ── 추종 3단계 ────────────────────────────────────────────────────────
+    /** <b>충성</b>의 문턱 — 정착. 소작만으로는(12) 닿지 않고 교회나 간헐적 구휼이 얹혀야 한다. */
+    public static final double LOYAL_BOND = 15.0;
+
+    /**
+     * <b>종속</b>의 문턱 — 사실상 벗어나지 못한다. 위 산술상 <b>매일 시혜를 받는 자</b>만 닿는다
+     * (균형 33.3). 땅이 있으면 아무리 신세를 져도 종속이 아니다 — 벗어날 수단이 있기 때문이다.
+     */
+    public static final double SERF_BOND = 30.0;
+
+    /** 추종의 깊이. 주인이 없으면 {@link #NONE}. */
+    public enum Tier {
+        NONE("무관"), TRUST("신뢰"), LOYAL("충성"), SERF("종속");
+
+        private final String label;
+
+        Tier(String label) {
+            this.label = label;
+        }
+
+        public String label() {
+            return label;
+        }
+    }
+
     /** 한 채무자가 한 은인에게 진 신세. */
     public static final class Bond {
         public final long patronId;
@@ -184,12 +247,15 @@ public class AllegianceStore extends SavedData {
             hit = new Bond(patronId, day);
             list.add(hit);
         }
-        hit.forgiven += forgivenAdd;
+        // <b>체감은 은혜에만.</b> 빚(owed)은 이자로 불어나는 반대 방향의 물건이라 같은 계수를
+        // 물리면 "많이 빌릴수록 덜 빚진다"가 되어 뜻이 뒤집힌다.
+        double add = forgivenAdd * accrualDamp(hit.total());
+        hit.forgiven += add;
         hit.owed += owedAdd;
         if (church) {
             // <b>탕감분만</b> 센다. 빚(owed)은 이자로 불어나고 탕감분은 감쇠로 줄어 dynamics 가
             // 반대라, 둘을 한 수에 섞으면 total()-fromChurch 가 음수로 새어 반사실이 깨진다.
-            hit.fromChurch += forgivenAdd;
+            hit.fromChurch += add; // 부분집합 — 합계와 같은 계수로 들어가야 반사실이 안 깨진다
         }
         hit.lastDay = day;
         trim(list);
@@ -464,6 +530,41 @@ public class AllegianceStore extends SavedData {
             }
         }
         return bestVal >= gate ? best : 0L;
+    }
+
+    /** 이 채무자가 <b>특정 은인</b>에게 진 신세 합. 없으면 0. */
+    public double bondTo(long debtorId, long patronId) {
+        for (Bond b : bondsOf(debtorId)) {
+            if (b.patronId == patronId) {
+                return b.total();
+            }
+        }
+        return 0.0;
+    }
+
+    /**
+     * <b>추종의 깊이</b>(파생) — 신뢰 / 충성 / 종속.
+     *
+     * <p><b>신뢰의 문턱은 새로 만들지 않았다.</b> 그것은 {@link #patronOf} 가 이미 쓰는 문턱
+     * ({@code max(MIN_BOND, 타일×TILE_WORTH)}) 그 자체다. 그래야 이 단계를 얹어도 추종자 수·세력
+     * 크기·밭 상한처럼 추종을 입력으로 쓰는 것들이 하나도 안 변한다. 위 두 단계만 <b>절대값</b>으로
+     * 얹는다 — 문턱이 재산에 비례하는데 단계까지 비례하면 부자의 종속과 빈자의 종속이 같은 이름으로
+     * 다른 물건이 되기 때문이다.
+     *
+     * <p>종속에 <b>무토지</b> 조건을 함께 거는 것도 같은 이유다. 땅이 있으면 아무리 신세를 져도
+     * 벗어날 수단이 남아 있고, 그 사람을 천민이라 부르면 {@link SocialRank} 의 정의와 어긋난다.
+     */
+    public Tier tierOf(long debtorId, int ownedTiles,
+                       java.util.function.LongFunction<com.evosim.core.Individual> who) {
+        long p = patronOf(debtorId, ownedTiles, false, who);
+        if (p == 0L) {
+            return Tier.NONE;
+        }
+        double v = bondTo(debtorId, p);
+        if (v >= SERF_BOND && ownedTiles == 0) {
+            return Tier.SERF;
+        }
+        return v >= LOYAL_BOND ? Tier.LOYAL : Tier.TRUST;
     }
 
     /**

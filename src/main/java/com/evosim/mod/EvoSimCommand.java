@@ -309,6 +309,23 @@ public final class EvoSimCommand {
                             tell(ctx.getSource(), "긴급고용 인원 상한 OFF — 종전 거동(초과 무제한)");
                             return 1;
                         })))
+                .then(Commands.literal("beg")
+                        .executes(EvoSimCommand::begReport)
+                        .then(Commands.literal("on").executes(ctx -> {
+                            FarmTicker.setBeg(true);
+                            tell(ctx.getSource(), "구걸 ON — 밭에 자리가 없으면 남의 문간으로 간다");
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(ctx -> {
+                            FarmTicker.setBeg(false);
+                            tell(ctx.getSource(), "구걸 OFF — 종전 거동(꽉 찬 밭에 초과 배정)");
+                            return 1;
+                        })))
+                .then(Commands.literal("begdry").executes(EvoSimCommand::begDry))
+                .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
+                        .then(Commands.argument("dist", IntegerArgumentType.integer(8, 200))
+                                .executes(ctx -> begTest(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "dist")))))
                 .then(Commands.literal("carehyst")
                         .then(Commands.literal("on").executes(ctx -> {
                             com.evosim.mod.entity.MimicParentingGoal.setHysteresis(true);
@@ -1999,6 +2016,149 @@ public final class EvoSimCommand {
      * 이미 있는데 밖으로 내보내는 길이 없었다. 사용료 수입·건축비도 같이 보여야 "저 건물이
      * 누구에게 무엇을 벌어 주는가"가 한눈에 들어온다.
      */
+    /**
+     * <b>구걸·추종 단계 보고.</b> 세 가지를 한 화면에 낸다 — 단계 분포, 지금 길 위에 있는
+     * 구걸자, 그리고 그들의 신세가 실제로 오르고 있는가.
+     *
+     * <p>마지막 항목이 핵심이다. 구걸이 "걷기만 하고 아무것도 안 바뀌는 유령 기능"이 아니라는
+     * 것은 <b>신세 수치가 오르는 것</b>으로만 말할 수 있다.
+     */
+    private static int begReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var led = com.evosim.mod.entity.AllegianceStore.get(level);
+        var farms = FarmStore.get(level);
+        var fl = com.evosim.mod.entity.FamilyLedger.get(level);
+        // 명부를 <b>한 번</b> 만든다. 결속마다 전체 엔티티를 훑으면 O(결속×인구)라 인구 70·
+        // 결속 수백인 세계에서 이 보고 한 줄이 서버를 세운다.
+        java.util.Map<Long, com.evosim.core.Individual> byId = new java.util.HashMap<>();
+        for (MimicEntity e : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                x -> x.isAlive() && x.getIndividual() != null)) {
+            byId.put(e.getIndividual().id(), e.getIndividual());
+        }
+        java.util.function.LongFunction<com.evosim.core.Individual> who = byId::get;
+        int[] tier = new int[4]; // 무관 / 신뢰 / 충성 / 종속
+        for (long d : led.all().keySet()) {
+            tier[led.tierOf(d, farms.ownedTiles(d), who).ordinal()]++;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[구걸]§r %s · 시혜 1회 %.1f · 가구 하루상한 %d유닛 · 적립체감 %.0f→%.0f",
+                FarmTicker.beg() ? "§aON§r" : "§cOFF§r", FarmTicker.ALMS_UNIT,
+                FarmTicker.ALMS_HOME_CAP,
+                com.evosim.mod.entity.AllegianceStore.ACCRUE_FREE,
+                com.evosim.mod.entity.AllegianceStore.ACCRUE_CAP));
+        tell(ctx.getSource(), String.format(
+                "  단계: 무관 %d · 신뢰 %d · 충성 %d(≥%.0f) · §c종속 %d§r(≥%.0f·무토지)",
+                tier[0], tier[1], tier[2],
+                com.evosim.mod.entity.AllegianceStore.LOYAL_BOND, tier[3],
+                com.evosim.mod.entity.AllegianceStore.SERF_BOND));
+        int walking = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                x -> x.isAlive() && x.getBegAnchor() != null && x.getIndividual() != null)) {
+            walking++;
+            if (walking > 10) {
+                continue;
+            }
+            var p = fl.get(m.getBegPatron());
+            var mine = fl.get(m.getIndividual().id());
+            double d = Math.sqrt(m.blockPosition().distSqr(m.getBegAnchor()));
+            tell(ctx.getSource(), String.format(
+                    "  §e걷는 중§r %s#%d H %.2f → §a%s§r @%d,%d · 남은 %.0f블록"
+                            + " · 신세 %.1f · 앵커 %s",
+                    mine != null && mine.name != null ? mine.name
+                            : "#" + m.getIndividual().id(), m.getId(), m.getHolding(),
+                    p != null && p.name != null ? p.name : "#" + m.getBegPatron(),
+                    m.getBegAnchor().getX(), m.getBegAnchor().getZ(), d,
+                    led.bondTo(m.getIndividual().id(), m.getBegPatron()),
+                    // 리시가 실제로 이 목적지를 보고 있는가 — "왔다리갔다리" 의 유일한 판정.
+                    m.getBegAnchor().equals(m.roamAnchor()) ? "§a구걸지§r" : "§c다른 곳§r"));
+        }
+        tell(ctx.getSource(), String.format("  길 위 구걸자 %d명", walking));
+        return 1;
+    }
+
+    /**
+     * <b>구걸 시험대</b> — D0 부터 세계를 돌리지 않고, 검증하려는 상황을 곧바로 조성한다.
+     *
+     * <p>세 조각을 놓는다.
+     * <ul>
+     *   <li><b>정원이 찬 밭</b> — 6타일. 빈자리 판정({@code 타일 > C_BASE(8)×(1+인원)})은 9타일
+     *       미만이면 인원 0 이어도 절대 참이 안 되므로, 이 밭은 <b>구조적으로 항상 만석</b>이다.
+     *       즉 "일자리 없음"을 확실히 만든다.</li>
+     *   <li><b>부유한 가구</b> — 저장고 60(확장예비 12 를 빼고도 48 여유). 밭 반대편에 둔다.</li>
+     *   <li><b>굶는 무직자</b> — H 0(위급), 제 저장고 0(그래서 귀가·인출로 새지 않는다),
+     *       부자 집에서 {@code dist}×2 블록 떨어진 반대편.</li>
+     * </ul>
+     *
+     * <p>이 셋이면 물어야 할 것이 전부 관측 가능해진다 — 걸어가는가(리시에 안 걸리는가),
+     * 받는가(저장고가 주는가), 신세가 오르는가.
+     */
+    /**
+     * <b>시험대 유지</b> — 무토지 성인의 채집 시계를 마르게 한다.
+     *
+     * <p>첫 시험이 발동조차 안 한 이유가 이것이었다. 긴급고용의 관문은
+     * {@code 위급(H<0.3) || 채집시계 마름} 인데, 갓 스폰한 개체는 시계가 0(미초기화)이라
+     * <b>마름 판정이 거짓</b>이고, 200틱 사이에 풀을 뜯어 위급도 풀린다. 조성은 "일자리 없음"만
+     * 만들었지 "굶주림"을 유지하지 못했다.
+     *
+     * <p>수치를 조작해 결과를 만드는 것이 아니라 <b>입력 조건을 붙잡는 것</b>이다 — 실제 세계에서
+     * 이 상태는 들풀이 다 뜯긴 마을에서 저절로 생기고, 그때 무엇이 일어나는지가 물음이다.
+     */
+    private static int begDry(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore fs = FarmStore.get(level);
+        int n = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            if (fs.ownedTiles(m.getIndividual().id()) > 0) {
+                continue; // 지주는 놔둔다 — 굶기는 것이 목적이 아니다
+            }
+            m.debugForageDry();
+            n++;
+        }
+        tell(ctx.getSource(), String.format("§e[구걸시험]§r 무토지 성인 %d명의 채집 시계를 마름으로", n));
+        return 1;
+    }
+
+    private static int begTest(CommandContext<CommandSourceStack> ctx, int dist) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmTicker.setBeg(true);
+        BlockPos richHome = groundAt(level, ctx.getSource().getPosition(), dist, dist);
+        BlockPos poorHome = groundAt(level, ctx.getSource().getPosition(), -dist, -dist);
+        BlockPos plotAt = groundAt(level, ctx.getSource().getPosition(), dist + 12, dist);
+
+        MimicEntity rich = spawnAdult(level, Vec3.atBottomCenterOf(richHome), Sex.MALE);
+        rich.debugSettleWithTent(richHome, Direction.NORTH);
+        LarderStore.get(level).set(richHome, 60.0);
+        // 밭은 부자 명의 — 그래야 "자리 없는 밭의 주인"과 "구걸 갈 부자"가 같은 사람이 되어
+        // 신세가 한 간선에 모인다(원장의 상위 K 에 흩어지지 않게).
+        FarmStore.Plot plot = buildDemoPlot(level, plotAt, rich.getIndividual().id(), 6);
+
+        MimicEntity poor = spawnAdult(level, Vec3.atBottomCenterOf(poorHome), Sex.FEMALE);
+        poor.debugSettleWithTent(poorHome, Direction.NORTH);
+        LarderStore.get(level).set(poorHome, 0.0); // 꺼낼 것이 없어야 복귀(3)가 구걸(3)을 안 가로챈다
+        poor.setDayHarvest(0.0);                   // H 0 = 위급 — 긴급고용 관문 통과
+        poor.debugForageDry();                     // 채집 시계도 마름 — 풀 한 포기에 관문이 닫히지 않게
+        level.setDayTime(2000L);                   // 노동 시간대 — 구걸은 낮에만 성립
+
+        double gap = Math.sqrt(poorHome.distSqr(richHome));
+        var fl = com.evosim.mod.entity.FamilyLedger.get(level);
+        var rn = fl.get(rich.getIndividual().id());
+        var pn = fl.get(poor.getIndividual().id());
+        tell(ctx.getSource(), String.format(
+                "§e[구걸시험]§r 부자 §a%s§r#%d @%d,%d 저장고 60 · 밭 %d타일(구조상 항상 만석)",
+                rn != null && rn.name != null ? rn.name : "#" + rich.getIndividual().id(),
+                rich.getId(), richHome.getX(), richHome.getZ(), plot.tiles.length));
+        tell(ctx.getSource(), String.format(
+                "  거지 §c%s§r#%d @%d,%d H 0 · 저장고 0 — 거리 §e%.0f블록§r(활동반경 %.0f)",
+                pn != null && pn.name != null ? pn.name : "#" + poor.getIndividual().id(),
+                poor.getId(), poorHome.getX(), poorHome.getZ(), gap, poor.roamRadius()));
+        tell(ctx.getSource(), "  → 'evosim beg' 로 걷는지·신세가 오르는지 본다"
+                + "(200틱마다 정산이 돈다)");
+        return 1;
+    }
+
     private static int churchReport(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         var fl = com.evosim.mod.entity.FamilyLedger.get(level);
@@ -4131,8 +4291,11 @@ public final class EvoSimCommand {
                 churchBonds, churchSum, patronNoCh.size(), depthNoCh, patron.size(), maxDepth));
 
         // ── 신분(파생) ── 판정식은 SocialRank 한 곳에만 있다. 여기서는 부르고 세기만 한다.
+        // 마지막 인자가 <b>종속</b> 경로다 — 제 주인에게 진 신세가 스스로 갚을 수 있는 크기를
+        // 넘었는가. patron 명부에 없는 사람은 0 이 들어가 종전 판정 그대로다.
         java.util.Map<Long, SocialRank> ranks = SocialRank.derive(
-                byId.keySet(), patron, farms::ownedTiles, led::owedOf, led::boundDays);
+                byId.keySet(), patron, farms::ownedTiles, led::owedOf, led::boundDays,
+                id -> led.bondTo(id, patron.getOrDefault(id, 0L)));
 
         java.util.Map<SocialRank, int[]> tally = new java.util.EnumMap<>(SocialRank.class);
         java.util.Map<SocialRank, double[]> sums = new java.util.EnumMap<>(SocialRank.class);

@@ -81,6 +81,21 @@ public enum SocialRank {
             LongUnaryOperator ownedTiles,
             LongToDoubleFunction owed,
             LongUnaryOperator boundDays) {
+        return derive(people, patron, ownedTiles, owed, boundDays, id -> 0.0);
+    }
+
+    /**
+     * @param patronBond id → <b>제 주인에게 진 신세 합</b>. 이것이
+     *        {@link AllegianceStore#SERF_BOND} 를 넘으면 예속 일수와 무관하게 천민이다.
+     *        구세계·보고용 호출은 위 5인자 판을 쓰면 0 이 들어가 종전 판정 그대로다.
+     */
+    public static Map<Long, SocialRank> derive(
+            Collection<Long> people,
+            Map<Long, Long> patron,
+            LongUnaryOperator ownedTiles,
+            LongToDoubleFunction owed,
+            LongUnaryOperator boundDays,
+            LongToDoubleFunction patronBond) {
 
         // 직속 추종자 수 — 주인 쪽에서 센다.
         Map<Long, Integer> direct = new HashMap<>();
@@ -104,7 +119,12 @@ public enum SocialRank {
             boolean insolvent = owed.applyAsDouble(id)
                     > Math.max(AllegianceStore.MIN_BOND, tiles * AllegianceStore.TILE_WORTH);
             boolean stuck = boundDays.applyAsLong(id) >= BOUND_DAYS;
-            out.put(id, bound && (insolvent || stuck) ? LOW : COMMON);
+            // <b>종속</b> — 신세가 스스로 갚을 수 있는 크기를 넘었다. 예속 일수가 "얼마나 오래
+            // 매였나"를 묻는 데 비해 이쪽은 "얼마나 깊이 매였나"를 묻는다. 둘은 다른 길이라
+            // 하나로 합치지 않고 나란히 둔다 — 하루만에 종속이 되는 길은 없고(적립 체감상
+            // 매일 시혜를 받아야 33 에 선다), 매일 나오는 소작은 12 에 머물러 여기 안 걸린다.
+            boolean serf = patronBond.applyAsDouble(id) >= AllegianceStore.SERF_BOND;
+            out.put(id, bound && (insolvent || stuck || serf) ? LOW : COMMON);
         }
         return out;
     }

@@ -344,6 +344,9 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(2, new MimicShareGoal(this));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
         this.goalSelector.addGoal(3, new ElderVisitGoal(this));     // 노인 방문: 자식 집 배달·마실 육아(Return보다 앞)
         this.goalSelector.addGoal(3, new MimicReturnGoal(this));    // 식량 귀가: 넣으러/꺼내러(v2, 밥이 구애보다 먼저)
+        // 구걸(3) — 복귀(3) <b>뒤</b>에 등록한다. 같은 우선순위에서는 먼저 등록된 쪽이 MOVE 를
+        // 먼저 집으므로, 제 저장고에 꺼낼 것이 남았으면 남의 집에 손 벌리기 전에 집으로 간다.
+        this.goalSelector.addGoal(3, new MimicBegGoal(this));
         this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
         this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
@@ -430,6 +433,10 @@ public class MimicEntity extends PathfinderMob {
         if (isCourtTravel()) {
             return BlockPos.of(courtTravelTarget); // 리시가 그 마을까지 끌고 가는 캐러밴 엔진
         }
+        if (isBegging()) {
+            return begAnchor; // 구걸 — 은인 집이 활동반경 밖이어도 리시가 끌고 간다(마실과 동일 패턴).
+            // 마실보다 <b>앞</b>인 이유: 구걸은 굶어서 가는 것이고 마실은 안 굶어야 가는 것이다.
+        }
         if (visitAnchor != null) {
             return visitAnchor; // 노인 마실 — 활동반경 밖 자식 집도 리시가 끌고 간다(구혼 여행과 동일 패턴)
         }
@@ -463,6 +470,50 @@ public class MimicEntity extends PathfinderMob {
 
     public boolean hasWorkAnchor() {
         return workAnchor != null;
+    }
+
+    // ── 구걸 여행(휘발 — FarmTicker 가 새벽에 정하고 그날 안에 소진) ────────────────────
+    // <b>목적지는 하루에 한 번, 밖에서 정해진다.</b> goal 이 매 틱 재선택하면 후보 저장고가
+    // 출렁일 때마다 목표가 갈려 제자리에서 움찔거린다(마실·복귀 진동과 같은 병). 여기 얹어
+    // 두면 리시(roamAnchor)와 goal 이 <b>같은 한 점</b>을 보므로 둘이 서로 밀지 않는다.
+    private BlockPos begAnchor = null;
+    private long begPatron = 0L;
+    private long begUntil = 0L;
+
+    /** 오늘의 구걸 목적지를 못박는다 — {@code untilTick} 까지 유효. */
+    public void setBegTarget(BlockPos home, long patronId, long untilTick) {
+        this.begAnchor = home;
+        this.begPatron = patronId;
+        this.begUntil = untilTick;
+    }
+
+    /** 수령·허탕·해질녘 — 어느 쪽이든 오늘 구걸은 끝. 재선택은 다음 새벽에만. */
+    public void clearBeg() {
+        this.begAnchor = null;
+        this.begPatron = 0L;
+        this.begUntil = 0L;
+    }
+
+    /**
+     * 구걸 여행 중인가. <b>낮(노동·배회)에만 참</b>이라, 해가 지면 앵커가 저절로 거처로 돌아가
+     * 리시가 밤새 은인 집으로 끌지 않는다(밭 출근 앵커가 WORK 단계만 유효한 것과 같은 장치).
+     */
+    public boolean isBegging() {
+        if (begAnchor == null || individual == null
+                || com.evosim.mod.entity.SimTime.tick(level()) >= begUntil) {
+            return false;
+        }
+        Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
+        return phase == Schedule.Phase.WORK || phase == Schedule.Phase.WANDER;
+    }
+
+    @Nullable
+    public BlockPos getBegAnchor() {
+        return begAnchor;
+    }
+
+    public long getBegPatron() {
+        return begPatron;
     }
 
     /** 활동반경(블록) — 특성별 차등({@link Roaming}). 개체 없으면 기본값. */
@@ -5369,6 +5420,18 @@ public class MimicEntity extends PathfinderMob {
         // 다음 mateTick 에서 실조건 충족 시 즉시 출발. lonelySinceTick 도 과거화(구세이브·노령 월드 경로).
         this.debugForceTravel = true;
         this.lonelySinceTick = com.evosim.mod.entity.SimTime.tick(level()) - Famine.LONELY_TRAVEL_AFTER - 1000L;
+    }
+
+    /**
+     * 점검용 — <b>채집 시계만</b> 마르게 한다(/evosim begdry).
+     *
+     * <p>{@link #debugForceFamine} 과 나누는 이유: 그쪽은 정착 쿨다운까지 풀어 개체가 이주를
+     * 떠난다. 구걸 시험대에서 그것은 <b>교란</b>이다 — "안 걸어갔다"의 원인이 구걸 결함인지
+     * 이주인지 갈리지 않게 된다. 여기서는 딱 한 가지, "주변에 먹을 게 없다"만 만든다.
+     */
+    public void debugForageDry() {
+        this.lastForageSuccessTick =
+                com.evosim.mod.entity.SimTime.tick(level()) - Famine.STARVE_WINDOW - 1000L;
     }
 
     /** 점검용 — 온 가족을 즉시 기근 조건으로(성공·정착 시각 과거화, 저장고 비움). /evosim exodus. */

@@ -127,6 +127,53 @@ public final class FarmTicker {
         return hireCap;
     }
 
+    // ── 구걸 ──────────────────────────────────────────────────────────────
+    /**
+     * 구걸 스위치 — 끄면 종전 거동(자리가 없어도 꽉 찬 밭에 밀어 넣기).
+     *
+     * <p>이것이 A/B 로 갈리는 것이 중요한 이유: 구걸로 돌리는 인원은 <b>밭이 요청한 인원이
+     * 아니다.</b> d11 실측에서 긴급고용 84건 중 71건이 "정원초과"(빈자리 경로 open 이 null)
+     * 였고, 그 71건은 이미 코드상 상시소작 승격도 막혀 있었다 — 하루 붙였다 떼는 잉여였다.
+     * 그것을 빼도 밭이 안 줄어든다는 주장은 스위치로 견주지 않으면 말이 안 된다.
+     */
+    private static boolean begOn = true;
+
+    public static void setBeg(boolean on) {
+        begOn = on;
+    }
+
+    public static boolean beg() {
+        return begOn;
+    }
+
+    /** 1회 시혜량 — 하루치를 겨우 넘기는 크기. 지원 폭격이 아니다. */
+    public static final double ALMS_UNIT = 1.0;
+
+    /** 한 가구가 하루에 내주는 상한(유닛) — 부자 한 집이 마을 전체를 먹여 살리지 못하게. */
+    public static final int ALMS_HOME_CAP = 3;
+
+    /** 거리 완충 — 점수가 {@code 잉여/(거리+K)} 라 먼 집도 <b>후보에서 지워지지는 않는다</b>.
+     *  반경으로 자르면 근처에 부자가 없다는 이유만으로 굶어 죽는다(긴급고용이 거리 무제한인 것과 같은 이유). */
+    private static final double BEG_DIST_K = 32.0;
+
+    /** 아는 집(이미 신세가 있는 상대) 가산 — 낯선 문을 두드리기보다 은인을 다시 찾는다. */
+    private static final double BEG_KNOWN_BONUS = 1.5;
+
+    /** 거처 → 오늘 내준 유닛 수. 하루가 바뀌면 비운다. */
+    private static final java.util.Map<Long, Integer> ALMS_GIVEN = new java.util.HashMap<>();
+
+    /**
+     * 오늘 이미 손을 벌린 사람(엔티티 id) — <b>하루 한 번</b>이 이것으로 강제된다.
+     *
+     * <p>없으면 안 되는 이유: 이 정산은 200틱마다 도는데, 1유닛을 받고 나면 위급(H&lt;0.3)은
+     * 풀려도 채집 시계({@code forageDry})는 그대로 말라 있다. 그러면 같은 사람이 하루에도
+     * 여남은 번 다시 발동해 한 집을 훑는다 — 지원 폭격이고, 신세 균형점도 33 이 아니라 47 로
+     * 뛰어 종속 문턱이 뜻을 잃는다. 성패와 무관하게 <b>목적지를 잡은 순간</b> 표시한다.
+     */
+    private static final java.util.Set<Integer> BEGGED_TODAY = new java.util.HashSet<>();
+
+    private static long almsDay = Long.MIN_VALUE;
+
     public static int assignedToPlot(long plotId) {
         int n = 0;
         for (long v : ASSIGNED.values()) {
@@ -3459,6 +3506,33 @@ public final class FarmTicker {
 
     private static void emergencyHire(ServerLevel level) {
         FarmStore store = FarmStore.get(level);
+        // 시혜 장부는 밭이 없어도 비워야 한다 — 밭 없는 세계에서도 구걸은 돈다.
+        long today = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        if (today != almsDay) {
+            almsDay = today;
+            ALMS_GIVEN.clear();
+            BEGGED_TODAY.clear();
+            // <b>어제의 목적지는 어제로 끝난다.</b> 안 그러면 야간 왕복 덫이 생긴다: 해가 지면
+            // isBegging() 이 거짓이 되어 앵커가 거처로 돌아가고 리시가 미도착 구걸자를 집까지
+            // <b>도로 끌고 온다</b>. 그런데 목적지가 남아 있으면(재선택 금지 가드) 다음 날 같은
+            // 먼 집으로 다시 출발해 영영 같은 길을 오간다 — 바로 그 "왔다리갔다리"다.
+            // 새벽에 지우면 오늘의 형편(더 가까운 집이 생겼는지)으로 다시 고른다.
+            if (begOn) {
+                for (MimicEntity e : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        x -> x.isAlive() && x.getBegAnchor() != null)) {
+                    e.clearBeg();
+                }
+            }
+        }
+        // 밭 일자리를 얻은 사람은 구걸을 접는다 — 둘을 동시에 들면 앵커가 밭과 남의 집을
+        // 오가며 정확히 그 "목표가 계속 바뀌며 움찔거리는" 모양이 된다.
+        if (begOn) {
+            for (MimicEntity e : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    x -> x.isAlive() && x.getBegAnchor() != null
+                            && ASSIGNED.containsKey(x.getId()))) {
+                e.clearBeg();
+            }
+        }
         if (store.all().isEmpty()) {
             return;
         }
@@ -3476,6 +3550,13 @@ public final class FarmTicker {
             if (ASSIGNED.containsKey(m.getId())
                     || store.ownedCount(m.getIndividual().id()) > 0) {
                 continue; // 이미 오늘 일감이 있거나, 제 밭을 가진 지주
+            }
+            // <b>가는 중인 사람의 목적지를 다시 고르지 않는다.</b> 이 정산은 200틱마다 도는데,
+            // 여기서 매번 다시 고르면 후보 저장고가 출렁일 때마다 목표가 갈려 길 위에서 방향만
+            // 튼다 — 목적지를 밖에서 못박은 의미가 통째로 사라진다. 앵커는 수령·허탕(receiveAlms)
+            // 이나 하루 만료로만 풀린다.
+            if (m.getBegAnchor() != null) {
+                continue;
             }
             // 탐색은 <b>거리 무제한</b>(가까운 순) — 통근 한계 COMMUTE(48)는 평시 시장의 효율
             // 기준이지 생사의 기준이 아니다. 반경을 걸면 근처에 밭이 없다는 이유만으로 죽는데,
@@ -3518,6 +3599,17 @@ public final class FarmTicker {
                     od = d;
                     open = p;
                 }
+            }
+            // <b>여기가 천민이 갈라져 나오는 곳이다.</b> open == null 은 "오늘 익은 밭 어디에도
+            // 내 자리가 없다"는 뜻이고, 종전에는 그런 사람을 꽉 찬 밭에 밀어 넣었다(d11 실측
+            // 71/84건). 그 배정은 아래 승격 조건(open != null)에 막혀 <b>영영 일용</b>이고, 남의
+            // 익은 칸을 나눠 먹어 기존 소작의 몫만 얇게 만들었다. 밭이 요청한 인원이 아니었다.
+            //
+            // 그 잉여를 밭 대신 남의 문간으로 돌린다. 밭 노동은 한 명도 안 준다(요청분은 위
+            // 정상 배정이 이미 채웠다). 대신 매일 쌓이는 시혜 신세가 이 사람을 종속으로 끌고
+            // 간다 — 하루짜리 고용 신세(1회성 W_HIRE)로는 결코 못 가던 자리다.
+            if (open == null && begOn && assignBeg(level, m)) {
+                continue;
             }
             FarmStore.Plot best = open != null ? open : any;
             if (best != null) {
@@ -3562,6 +3654,140 @@ public final class FarmTicker {
                         Math.sqrt(open != null ? od : ad), open != null ? "" : " · 정원초과"));
             }
         }
+    }
+
+    /**
+     * <b>오늘의 구걸 목적지를 정한다.</b> 하루 한 번, 여기서만. goal 은 이 결과를 걷기만 한다.
+     *
+     * <p>점수는 {@code (저장고 − 확장예비) ÷ (거리 + K)} 이고 아는 집이면 가산이 붙는다.
+     * 나눗셈이라 거리는 <b>순위를 낮출 뿐 후보를 지우지 않는다</b> — 근처에 여유 있는 집이
+     * 하나도 없으면 먼 집이라도 간다. 반경으로 자르면 "주변이 다 가난하다"는 이유 하나로
+     * 죽는데, 그것이야말로 구걸이 막으려는 상황이다.
+     *
+     * <p>빼는 것이 {@link FarmEconomy#INVEST_RESERVE} 인 것은 시혜가 <b>확장 자금을 갉지
+     * 않게</b> 하기 위해서다 — 갉으면 지주가 남 먹이느라 밭을 못 넓히는 역전이 생긴다.
+     *
+     * @return 목적지를 잡았으면 true(그러면 호출부는 밭 배정을 건너뛴다)
+     */
+    private static boolean assignBeg(ServerLevel level, MimicEntity m) {
+        if (m.getIndividual() == null || BEGGED_TODAY.contains(m.getId())) {
+            return false; // 오늘 몫은 끝 — 호출부의 종전 경로로 떨어진다(굶어 죽게 두지는 않는다)
+        }
+        long me = m.getIndividual().id();
+        BlockPos myHome = m.getHomePos();
+        LarderStore larders = LarderStore.get(level);
+        AllegianceStore ledger = AllegianceStore.get(level);
+
+        // 가구 대표 뽑기 — 제공자 우선, 동률이면 낮은 id(결정론). 대표가 신세의 상대가 된다.
+        java.util.Map<Long, BlockPos> homes = new java.util.HashMap<>();
+        java.util.Map<Long, long[]> head = new java.util.HashMap<>(); // home → {제공자?1:0, id}
+        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            BlockPos h = o.getHomePos();
+            if (myHome != null && myHome.equals(h)) {
+                continue; // 제 집에 구걸하지 않는다
+            }
+            long k = h.asLong();
+            homes.putIfAbsent(k, h);
+            long id = o.getIndividual().id();
+            long prov = o.isProviderRole() ? 1L : 0L;
+            long[] cur = head.get(k);
+            if (cur == null || prov > cur[0] || (prov == cur[0] && id < cur[1])) {
+                head.put(k, new long[] {prov, id});
+            }
+        }
+
+        BlockPos bestHome = null;
+        long bestPatron = 0L;
+        double bestScore = 0.0;
+        double bestSurplus = 0.0;
+        for (var e : homes.entrySet()) {
+            BlockPos h = e.getValue();
+            if (ALMS_GIVEN.getOrDefault(h.asLong(), 0) >= ALMS_HOME_CAP) {
+                continue; // 오늘 이 집은 할 만큼 했다
+            }
+            double surplus = larders.get(h) - FarmEconomy.INVEST_RESERVE;
+            if (surplus < ALMS_UNIT) {
+                continue; // 제 앞가림도 빠듯한 집 — 여기 손 벌려 봐야 서로 굶는다
+            }
+            long[] hd = head.get(h.asLong());
+            if (hd == null || hd[1] == me) {
+                continue;
+            }
+            double d = Math.sqrt(m.blockPosition().distSqr(h));
+            double score = surplus / (d + BEG_DIST_K);
+            if (ledger.bondTo(me, hd[1]) > 0.0) {
+                score *= BEG_KNOWN_BONUS;
+            }
+            // 동률은 거처 좌표로 가른다 — HashMap 순회 순서에 결과가 매달리지 않게.
+            if (score > bestScore + 1e-9
+                    || (Math.abs(score - bestScore) <= 1e-9 && bestHome != null
+                            && h.asLong() < bestHome.asLong())) {
+                bestScore = score;
+                bestHome = h;
+                bestPatron = hd[1];
+                bestSurplus = surplus;
+            }
+        }
+        if (bestHome == null) {
+            return false; // 마을에 내줄 집이 없다 — 호출부의 종전 경로(초과 배정)로 떨어진다
+        }
+        BEGGED_TODAY.add(m.getId());
+        m.setBegTarget(bestHome, bestPatron,
+                com.evosim.mod.entity.SimTime.tick(level) + 24000L);
+        var fl = FamilyLedger.get(level);
+        var pf = fl.get(bestPatron);
+        com.evosim.mod.log.SimEvents.event(m, "구걸출발", String.format(
+                "일자리 없음(H %.2f) — %s 의 집 @%d,%d 로(%.0f블록 · 여유 %.1f)",
+                m.getHolding(), pf != null && pf.name != null ? pf.name : "#" + bestPatron,
+                bestHome.getX(), bestHome.getZ(),
+                Math.sqrt(m.blockPosition().distSqr(bestHome)), bestSurplus));
+        return true;
+    }
+
+    /**
+     * <b>문간에서 받는다</b> — {@link MimicBegGoal} 이 도착하면 부른다.
+     *
+     * <p>성패와 무관하게 오늘 구걸은 여기서 끝난다({@code clearBeg}). 허탕이어도 다시 고르지
+     * 않는 이유: 재선택을 허용하면 "가 보니 비었다 → 다음 집 → 또 비었다" 로 하루 종일 마을을
+     * 돌며 움찔거린다. 다음 기회는 내일 새벽이다.
+     */
+    public static void receiveAlms(ServerLevel level, MimicEntity m) {
+        BlockPos h = m.getBegAnchor();
+        long patron = m.getBegPatron();
+        m.clearBeg();
+        if (h == null || m.getIndividual() == null) {
+            return;
+        }
+        LarderStore larders = LarderStore.get(level);
+        int given = ALMS_GIVEN.getOrDefault(h.asLong(), 0);
+        double room = larders.get(h) - FarmEconomy.INVEST_RESERVE;
+        double units = Math.min(ALMS_UNIT, Math.min(room, ALMS_HOME_CAP - given));
+        var fl = FamilyLedger.get(level);
+        var pf = fl.get(patron);
+        String who = pf != null && pf.name != null ? pf.name : "#" + patron;
+        if (units < ALMS_UNIT) {
+            com.evosim.mod.log.SimEvents.event(m, "구걸", String.format(
+                    "%s 의 집에서 허탕 — 여유 %.1f · 오늘 이미 %d 유닛 나감", who, room, given));
+            return;
+        }
+        larders.set(h, larders.get(h) - units);
+        m.setDayHarvest(m.getHolding() + units);
+        ALMS_GIVEN.merge(h.asLong(), (int) Math.ceil(units), Integer::sum);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        AllegianceStore ledger = AllegianceStore.get(level);
+        double before = ledger.bondTo(m.getIndividual().id(), patron);
+        // 구휼 가중치를 그대로 쓴다 — 굶는 자에게 먹을 것을 준 것이라 물건이 같다. 새 상수를
+        // 만들면 같은 행위가 두 이름으로 갈려 균형점 계산이 두 벌이 된다.
+        ledger.record(m.getIndividual().id(), patron,
+                AllegianceStore.W_RELIEF * units
+                        * AllegianceStore.rapport(m.getIndividual()), 0.0, day);
+        double after = ledger.bondTo(m.getIndividual().id(), patron);
+        com.evosim.mod.log.SimEvents.event(m, "구걸", String.format(
+                "%s 에게 %.1f 받음 — 신세 %.1f→%.1f(적립 +%.2f · 체감 후) · H %.2f",
+                who, units, before, after, after - before, m.getHolding()));
     }
 
     @SubscribeEvent

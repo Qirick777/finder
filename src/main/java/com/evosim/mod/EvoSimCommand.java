@@ -2436,7 +2436,7 @@ public final class EvoSimCommand {
         }
         // 두 세력을 마주 세운다. 막사 사이 60블록 — 통근 반경(96) 안이라 서로의 세력권에
         // 들고, 순찰 구역이 겹쳐 병사들이 실제로 마주친다.
-        int[][] side = {{-30, 0}, {30, 0}};
+        int[][] side = {{-12, 0}, {12, 0}};
         long[] lordIds = new long[2];
         for (int k = 0; k < 2; k++) {
             int bx = side[k][0];
@@ -2453,8 +2453,12 @@ public final class EvoSimCommand {
             long lid = lord.getIndividual().id();
             lordIds[k] = lid;
             for (int i = 0; i < 4; i++) {
-                BlockPos h = groundAt(level, ctx.getSource().getPosition(),
-                        bx + (i - 2) * 5, bz - 22);
+                // <b>추종 가구를 두 세력 사이에 둔다.</b> 첫 시험은 막사를 60블록 떼어 놓고
+                // 각자 뒤쪽에 가구를 뒀더니, 병사들이 제 쪽 집만 돌아 서로 마주치질 않았다
+                // (실측: d5 까지 전투 0건 · 두 병사가 막사에서 48·64블록 떨어진 채 각자 순찰).
+                // 인지 거리가 8 이므로, 순찰 경로가 그 안으로 겹치도록 안쪽에 붙인다.
+                int hx = bx + (bx < 0 ? -(i * 4) : (i * 4)) + (bx < 0 ? 10 : -10);
+                BlockPos h = groundAt(level, ctx.getSource().getPosition(), hx, bz + 14);
                 MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
                 f.debugSettleWithTent(h, Direction.NORTH);
                 MimicEntity w = spawnAdult(level,
@@ -2473,12 +2477,13 @@ public final class EvoSimCommand {
                     k + 1, lord.getId(), lordHome.getX(), lordHome.getZ(),
                     bkSite.getX(), bkSite.getZ()));
         }
-        double gap = Math.sqrt(groundAt(level, ctx.getSource().getPosition(), -30, 0)
-                .distSqr(groundAt(level, ctx.getSource().getPosition(), 30, 0)));
+        double gap = Math.sqrt(groundAt(level, ctx.getSource().getPosition(), -12, 0)
+                .distSqr(groundAt(level, ctx.getSource().getPosition(), 12, 0)));
         // detectionRange 에 null 을 넘기면 안 된다 — 특성 조회가 개체를 요구한다(첫 시도에서
         // 여기서 예외가 나 조성 전체가 실패한 것으로 보였다. 조성은 멀쩡했다).
         tell(ctx.getSource(), String.format(
-                "§e[전쟁시험]§r 막사 간 %.0f블록(통근 %d · 기본 인지 8) — 순찰 구역이 겹친다",
+                "§e[전쟁시험]§r 막사 간 %.0f블록(통근 %d · 기본 인지 8) — 추종 가구를 사이에 둬"
+                        + " 순찰 경로가 겹친다",
                 gap, (int) com.evosim.mod.entity.Facilities.COMMUTE_RANGE));
         tell(ctx.getSource(), "  → 'evosim guard'·'전투' 이벤트로 교전·퇴각·사망을 본다");
         return 1;

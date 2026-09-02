@@ -323,6 +323,7 @@ public final class EvoSimCommand {
                         })))
                 .then(Commands.literal("begdry").executes(EvoSimCommand::begDry))
                 .then(Commands.literal("hittest").executes(EvoSimCommand::hitTest))
+                .then(Commands.literal("hitgear").executes(EvoSimCommand::hitGear))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2222,24 +2223,56 @@ public final class EvoSimCommand {
                 before, afterBare, bareOk ? "§a" : "§c", before - afterBare,
                 bareOk ? "§a피해 들어감§r" : "§c피해 없음 — 전투 설계 전부 무효§r"));
 
-        // ② 무장 — 철검 +5 와 사슬+방패가 실제로 붙는지. 무적시간을 피해 즉시 해제한다.
-        def.invulnerableTime = 0;
+        // ② 무장은 <b>여기서 하고 때리지는 않는다.</b> 장비 속성 수정치는
+        // LivingEntity.tick 의 detectEquipmentUpdates 에서 붙으므로, 무장한 그 틱에 때리면
+        // 검·갑옷이 아직 안 붙어 있다(실측: 무장 직후 공격력이 맨몸과 같은 2.00 이었다).
+        // 몇 틱 지난 뒤 /evosim hitgear 로 다시 잰다.
         atk.setSoldierGear(true);
         def.setSoldierGear(true);
-        float before2 = def.getHealth();
-        double atk2 = atk.getAttributeValue(
-                net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
-        double arm2 = def.getAttributeValue(
-                net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
-        atk.doHurtTarget(def);
-        float after2 = def.getHealth();
-        tell(ctx.getSource(), String.format(
-                "  무장 타격 → 공격력 %.2f(맨몸 대비 +%.2f) · 방어 %.1f · 체력 %.2f → %.2f (%.2f 감소)",
-                atk2, atk2 - 2.0, arm2, before2, after2, before2 - after2));
+        HIT_PAIR[0] = atk;
+        HIT_PAIR[1] = def;
         tell(ctx.getSource(), bareOk
                 ? "  §a→ P0 통과: peaceful 에서도 몹 간 피해가 들어간다§r"
                 : "  §c→ P0 실패: 난이도 변경 없이는 전투 설계가 성립하지 않는다§r");
+        tell(ctx.getSource(), "  무장 완료 — 몇 초 뒤 §e/evosim hitgear§r 로 장비 효과를 잰다");
+        return 1;
+    }
+
+    /** {@link #hitTest} 가 남겨 둔 한 쌍 — 무장 효과를 <b>틱이 지난 뒤</b> 재기 위해. */
+    private static final MimicEntity[] HIT_PAIR = new MimicEntity[2];
+
+    /**
+     * P0 후속 — 무장한 쌍이 몇 틱 산 뒤에 장비 속성이 실제로 붙었는지 잰다.
+     *
+     * <p>철검 +5 · 사슬 갑옷+투구 +7 · 방패 몫 +4 가 기대값이다. 안 붙으면 군인의 전투력이
+     * 맨몸과 같다는 뜻이고, 그러면 무장은 외형뿐이라 전투 설계의 눈금을 다시 잡아야 한다.
+     */
+    private static int hitGear(CommandContext<CommandSourceStack> ctx) {
+        MimicEntity atk = HIT_PAIR[0];
+        MimicEntity def = HIT_PAIR[1];
+        if (atk == null || def == null || !atk.isAlive() || !def.isAlive()) {
+            tell(ctx.getSource(), "§c[타격시험]§r 대상이 없다 — 먼저 /evosim hittest");
+            return 1;
+        }
+        double dmg = atk.getAttributeValue(
+                net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
+        double arm = def.getAttributeValue(
+                net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
+        def.invulnerableTime = 0;
+        float before = def.getHealth();
+        atk.doHurtTarget(def);
+        float after = def.getHealth();
+        boolean swordOk = dmg > 2.0 + 1.0E-4;
+        boolean armorOk = arm > 4.0 + 1.0E-4; // 4.0 = 방패 몫만(속성 직접 부여)
+        tell(ctx.getSource(), String.format(
+                "§e[타격시험·무장]§r 공격력 %.2f(맨몸 2.00 · %s) · 방어 %.1f(방패몫 4.0 · %s)",
+                dmg, swordOk ? "§a검 붙음§r" : "§c검 안 붙음§r",
+                arm, armorOk ? "§a갑옷 붙음§r" : "§c갑옷 안 붙음§r"));
+        tell(ctx.getSource(), String.format(
+                "  체력 %.2f → %.2f (%.2f 감소)", before, after, before - after));
         discard(atk, def);
+        HIT_PAIR[0] = null;
+        HIT_PAIR[1] = null;
         return 1;
     }
 

@@ -156,25 +156,20 @@ public final class FarmTicker {
     private static final double BEG_DIST_K = 32.0;
 
     /**
-     * <b>구걸의 거리 상한 — 96.</b> 처음에는 상한을 안 뒀다. "근처에 부자가 없다는 이유로 굶어
-     * 죽게 할 수는 없다"는 이유였는데, 실측이 그 판단을 뒤집었다.
+     * <b>거리 상한은 두지 않는다.</b> 한때 96 을 걸었다가 되돌렸다 — 226블록에서 완주를 못 한
+     * 원인이 거리가 아니라 <b>밤에 앵커를 놓던 것</b>이었기 때문이다(구혼 여행처럼 마감만
+     * 보게 고쳤다: {@link MimicEntity#isBegging}). 원인을 고치기 전에 거리부터 줄이는 것은
+     * 문제를 푼 것이 아니라 작게 만든 것이다.
      *
-     * <p>226블록 떨어진 집을 목적지로 준 시험대에서:
-     * <pre>
-     *   d0 출발 @-78,-85 → 남은 228블록
-     *   d1 출발 @-66,-73 → 남은 211블록   (하루 종일 걸어 17블록, 수령 0건)
-     * </pre>
-     * d1 새벽 위치가 제 집에서 15블록이었다 — <b>낮에 나갔다가 밤에 리시가 집으로 도로 끌고
-     * 온다</b>. 구걸은 낮(노동·배회)에만 성립하므로 해가 지면 앵커가 거처로 돌아가고, 그 순간
-     * 리시에게 그는 그냥 멀리 나간 개체다. 하루 낮에 못 끝내는 거리는 <b>구조적으로 완주가
-     * 불가능</b>하고, 남는 것은 매일 나갔다 끌려오는 왕복뿐이다 — 경계하신 그 모양 그대로다.
+     * <p>여행이 실제로 되는 지금, 반경으로 자를 이유가 없다. 근처에 여유 있는 집이 하나도
+     * 없다는 이유로 굶어 죽는 것이야말로 구걸이 막으려는 상황이고, 점수식이 나눗셈
+     * ({@code 잉여/(거리+32)})이라 거리는 이미 순위를 강하게 누른다 — 200블록 밖의 집이
+     * 이기려면 코앞의 집보다 여유가 여섯 배는 많아야 한다.
      *
-     * <p>96 은 이 게임이 이미 쓰는 여행 반경이다(마실·이주와 같은 값, 통근 48의 두 배).
-     * 그리고 <b>굶어 죽는 문제는 상한이 아니라 대체 경로가 막는다</b>: 96 안에 내줄 집이 없으면
-     * {@code assignBeg} 가 false 를 돌려 호출부의 종전 경로(꽉 찬 밭에 초과 배정)로 떨어진다.
-     * 안전망은 그대로 있고, 여기서 거르는 것은 "가도 못 닿을 곳"뿐이다.
+     * <p>가도 못 닿는 경우의 안전판은 마감이다: {@link #BEG_TRAVEL} 이 지나면 앵커가 풀리고
+     * 다음 새벽에 그날 형편으로 다시 고른다.
      */
-    private static final double BEG_MAX_DIST = 96.0;
+    private static final long BEG_TRAVEL = com.evosim.core.Famine.TRAVEL_DURATION;
 
     /** 아는 집(이미 신세가 있는 상대) 가산 — 낯선 문을 두드리기보다 은인을 다시 찾는다. */
     private static final double BEG_KNOWN_BONUS = 1.5;
@@ -3548,15 +3543,13 @@ public final class FarmTicker {
             almsDay = today;
             ALMS_GIVEN.clear();
             BEGGED_TODAY.clear();
-            // <b>어제의 목적지는 어제로 끝난다.</b> 안 그러면 야간 왕복 덫이 생긴다: 해가 지면
-            // isBegging() 이 거짓이 되어 앵커가 거처로 돌아가고 리시가 미도착 구걸자를 집까지
-            // <b>도로 끌고 온다</b>. 그런데 목적지가 남아 있으면(재선택 금지 가드) 다음 날 같은
-            // 먼 집으로 다시 출발해 영영 같은 길을 오간다 — 바로 그 "왔다리갔다리"다.
-            // 새벽에 지우면 오늘의 형편(더 가까운 집이 생겼는지)으로 다시 고른다.
+            // <b>마감이 지난 것만</b> 지운다. 날이 바뀌었다고 일괄로 지우면 이틀짜리 여행
+            // (BEG_TRAVEL)을 첫날 밤에 끊어 버려, 원거리 구걸을 못 하게 만든 그 결함이
+            // 그대로 되살아난다. 마감이 남았으면 가던 길을 계속 간다 — 구혼 여행과 같다.
             if (begOn) {
                 for (MimicEntity e : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                        x -> x.isAlive() && x.getBegHome() != null)) {
-                    e.clearBeg();
+                        x -> x.isAlive() && x.getBegHome() != null && !x.isBegging())) {
+                    e.clearBeg(); // 만료 — 다음 정산에서 오늘 형편으로 다시 고른다
                 }
             }
         }
@@ -3753,9 +3746,6 @@ public final class FarmTicker {
                 continue;
             }
             double d = Math.sqrt(m.blockPosition().distSqr(h));
-            if (d > BEG_MAX_DIST) {
-                continue; // 하루 낮에 못 닿는다 — 보내면 매일 나갔다 끌려오는 왕복만 남는다
-            }
             double score = surplus / (d + BEG_DIST_K);
             if (ledger.bondTo(me, hd[1]) > 0.0) {
                 score *= BEG_KNOWN_BONUS;
@@ -3775,7 +3765,7 @@ public final class FarmTicker {
         }
         BEGGED_TODAY.add(m.getId());
         m.setBegTarget(bestHome, bestPatron,
-                com.evosim.mod.entity.SimTime.tick(level) + 24000L);
+                com.evosim.mod.entity.SimTime.tick(level) + BEG_TRAVEL);
         var fl = FamilyLedger.get(level);
         var pf = fl.get(bestPatron);
         com.evosim.mod.log.SimEvents.event(m, "구걸출발", String.format(

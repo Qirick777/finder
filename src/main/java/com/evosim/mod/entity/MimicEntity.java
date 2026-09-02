@@ -495,16 +495,26 @@ public class MimicEntity extends PathfinderMob {
     }
 
     /**
-     * 구걸 여행 중인가. <b>낮(노동·배회)에만 참</b>이라, 해가 지면 앵커가 저절로 거처로 돌아가
-     * 리시가 밤새 은인 집으로 끌지 않는다(밭 출근 앵커가 WORK 단계만 유효한 것과 같은 장치).
+     * 구걸 여행 중인가 — <b>시간대를 보지 않는다.</b> 마감({@code begUntil})만이 끝낸다.
+     *
+     * <p>처음에는 낮(노동·배회)에만 참으로 뒀다. 밤에 리시가 남의 집으로 끌고 다니지 않게
+     * 하려던 것인데, 실측이 그 장치가 여행 자체를 불가능하게 만든다는 것을 보였다:
+     * 226블록 조성에서 d0 출발 228블록 → d1 출발 211블록, 하루 종일 걸어 <b>17블록</b>.
+     * 해가 지면 앵커가 거처로 돌아가고 리시가 그를 <b>집까지 도로 끌고 오기</b> 때문이다
+     * (d1 새벽 위치가 제 집에서 15블록이었다). 매일 나갔다 끌려오는 왕복만 남았다.
+     *
+     * <p>이 게임은 이미 답을 갖고 있다 — <b>구혼 여행</b>({@link #isCourtTravel})은 시간대
+     * 관문이 없고 만료 시각만 본다. 그래서 타향까지 간다. 밭 출근 앵커가 WORK 단계만 유효한
+     * 것과는 성질이 다르다: 출근은 <b>매일 되풀이되는 왕복</b>이라 밤에 풀어야 귀가하지만,
+     * 여행은 <b>한 번 가서 끝나는 편도</b>라 중간에 풀면 영영 못 닿는다. 구걸은 여행 쪽이다.
+     *
+     * <p>대가로 도중에 밤을 맞으면 길 위에서 잔다. 구혼 여행이 이미 그렇고, 굶어서 남의 집에
+     * 손 벌리러 가는 사람에게는 그편이 사리에 맞는다. 수령하면 그 자리에서 풀려
+     * (receiveAlms → clearBeg) 평소 귀가·취침으로 돌아간다.
      */
     public boolean isBegging() {
-        if (begAnchor == null || individual == null
-                || com.evosim.mod.entity.SimTime.tick(level()) >= begUntil) {
-            return false;
-        }
-        Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
-        return phase == Schedule.Phase.WORK || phase == Schedule.Phase.WANDER;
+        return begAnchor != null && individual != null
+                && com.evosim.mod.entity.SimTime.tick(level()) < begUntil;
     }
 
     /**

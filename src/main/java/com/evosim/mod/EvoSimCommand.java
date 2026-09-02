@@ -2475,10 +2475,11 @@ public final class EvoSimCommand {
         }
         double gap = Math.sqrt(groundAt(level, ctx.getSource().getPosition(), -30, 0)
                 .distSqr(groundAt(level, ctx.getSource().getPosition(), 30, 0)));
+        // detectionRange 에 null 을 넘기면 안 된다 — 특성 조회가 개체를 요구한다(첫 시도에서
+        // 여기서 예외가 나 조성 전체가 실패한 것으로 보였다. 조성은 멀쩡했다).
         tell(ctx.getSource(), String.format(
-                "§e[전쟁시험]§r 막사 간 %.0f블록(통근 %d · 인지 %.0f) — 순찰 구역이 겹친다",
-                gap, (int) com.evosim.mod.entity.Facilities.COMMUTE_RANGE,
-                com.evosim.core.Combat.detectionRange(null)));
+                "§e[전쟁시험]§r 막사 간 %.0f블록(통근 %d · 기본 인지 8) — 순찰 구역이 겹친다",
+                gap, (int) com.evosim.mod.entity.Facilities.COMMUTE_RANGE));
         tell(ctx.getSource(), "  → 'evosim guard'·'전투' 이벤트로 교전·퇴각·사망을 본다");
         return 1;
     }

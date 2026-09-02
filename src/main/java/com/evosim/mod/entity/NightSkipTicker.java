@@ -59,6 +59,16 @@ public final class NightSkipTicker {
         if (anyCritical && tod < CRITICAL_GRACE_TOD) {
             return;
         }
+        // <b>압박이 걸린 밤은 지우지 않는다.</b> 이 클래스의 전제는 "취침은 소모 0 이라 시뮬
+        // 결과 불변"인데, 군인에게 밤은 근무 시간이라 그 전제가 깨진다 — 순찰이 도는 구간이
+        // night(tod ≥ 14000)인데 여기서 14100 에 점프하므로 창이 100틱뿐이고, 병사가 52블록
+        // 떨어진 표적에 갈 수가 없다(실측: 최근접 32~43블록에서 제자리 배회).
+        //
+        // 평시에는 여전히 지운다 — 표적이 있을 때만 막아 관측 속도의 손해를 전쟁 국면으로
+        // 한정한다. 위급자 유예와 같은 성격의 안전판이다.
+        if (FarmTicker.pressureActive()) {
+            return;
+        }
         long delta = 24000L - tod + WAKE_FIRST;
         level.setDayTime(level.getDayTime() + delta);
         SimTime.addSkip(level, delta);

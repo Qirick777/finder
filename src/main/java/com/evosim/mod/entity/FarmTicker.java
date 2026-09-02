@@ -1587,6 +1587,23 @@ public final class FarmTicker {
         return false;
     }
 
+    /**
+     * 지금 압박 중인 막사가 하나라도 있는가 — {@link NightSkipTicker} 가 읽는다.
+     *
+     * <p>밤 스킵의 전제는 "취침은 소모 0 이라 시뮬 결과 불변"인데, <b>군인에게 밤은 근무
+     * 시간</b>이라 그 전제가 깨진다. 압박이 걸린 밤을 지우면 병사가 표적 집에 갈 시간이
+     * 통째로 사라진다(실측: 순찰 창 100틱). 평시에는 여전히 지워도 되므로, 표적이 있을
+     * 때만 막는다 — 관측 속도의 손해를 전쟁 국면으로 한정한다.
+     */
+    public static boolean pressureActive() {
+        for (var e : PRESSURE_TARGETS.values()) {
+            if (!e.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 이 막사의 압박 표적 거처 목록 — 순찰 경로가 읽는다(읽기 전용). */
     public static java.util.List<BlockPos> pressureHomesOf(BlockPos barracks) {
         var m = PRESSURE_TARGETS.get(barracks.asLong());

@@ -2304,8 +2304,16 @@ public final class EvoSimCommand {
         BlockPos rivalHome = groundAt(level, ctx.getSource().getPosition(), 24, 20);
         BlockPos vassalHome = groundAt(level, ctx.getSource().getPosition(), 30, 20);
 
+        // <b>모두 짝을 지어 세운다.</b> 홀몸 성인은 구혼 여행(TRAVEL_DURATION 48000 = 이틀)을
+        // 떠나고, 그 길 위에서 굶어 죽는다 — 실측: 조성 인물 전원이 d2 에 집에서 40~70블록
+        // 떨어진 곳에서 아사했고, 저장고 400 을 둔 영주까지 그랬다. 그러면 막사 주인이
+        // 사라져 정원이 0 이 되고, 압박은 판정할 기회조차 못 얻는다.
         MimicEntity lord = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE);
         lord.debugSettleWithTent(lordHome, Direction.NORTH);
+        MimicEntity lordWife = spawnAdult(level,
+                Vec3.atBottomCenterOf(lordHome).add(1, 0, 0), Sex.FEMALE);
+        lordWife.debugSettleWithTent(lordHome, Direction.NORTH);
+        lord.debugMarryTo(lordWife);
         LarderStore.get(level).set(lordHome, 400.0); // 봉급을 밀지 않을 만큼
 
         // <b>추종 가구를 4호 세운다.</b> 정원이 min(좌석, 지킬가구/HOUSEHOLDS_PER_SOLDIER 4)
@@ -2317,7 +2325,10 @@ public final class EvoSimCommand {
             BlockPos h = groundAt(level, ctx.getSource().getPosition(), -20 + i * 6, -12);
             MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
             f.debugSettleWithTent(h, Direction.NORTH);
-            LarderStore.get(level).set(h, 8.0);
+            MimicEntity w = spawnAdult(level, Vec3.atBottomCenterOf(h).add(1, 0, 0), Sex.FEMALE);
+            w.debugSettleWithTent(h, Direction.NORTH);
+            f.debugMarryTo(w);
+            LarderStore.get(level).set(h, 30.0);
             retinue.add(f);
             if (i == 0) {
                 soldier = f;
@@ -2326,11 +2337,19 @@ public final class EvoSimCommand {
 
         MimicEntity rival = spawnAdult(level, Vec3.atBottomCenterOf(rivalHome), Sex.MALE);
         rival.debugSettleWithTent(rivalHome, Direction.NORTH);
-        LarderStore.get(level).set(rivalHome, 30.0);
+        MimicEntity rivalWife = spawnAdult(level,
+                Vec3.atBottomCenterOf(rivalHome).add(1, 0, 0), Sex.FEMALE);
+        rivalWife.debugSettleWithTent(rivalHome, Direction.NORTH);
+        rival.debugMarryTo(rivalWife);
+        LarderStore.get(level).set(rivalHome, 60.0);
 
-        MimicEntity vassal = spawnAdult(level, Vec3.atBottomCenterOf(vassalHome), Sex.FEMALE);
+        MimicEntity vassal = spawnAdult(level, Vec3.atBottomCenterOf(vassalHome), Sex.MALE);
         vassal.debugSettleWithTent(vassalHome, Direction.NORTH);
-        LarderStore.get(level).set(vassalHome, 8.0);
+        MimicEntity vassalWife = spawnAdult(level,
+                Vec3.atBottomCenterOf(vassalHome).add(1, 0, 0), Sex.FEMALE);
+        vassalWife.debugSettleWithTent(vassalHome, Direction.NORTH);
+        vassal.debugMarryTo(vassalWife);
+        LarderStore.get(level).set(vassalHome, 30.0);
 
         long lordId = lord.getIndividual().id();
         long rivalId = rival.getIndividual().id();

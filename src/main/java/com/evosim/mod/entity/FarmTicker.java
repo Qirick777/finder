@@ -1537,6 +1537,45 @@ public final class FarmTicker {
     private static final java.util.Map<Long, java.util.Set<Long>> PRESSURE_REACHED =
             new java.util.HashMap<>();
 
+    /**
+     * 막사 → 어제 이후 병사가 표적에 <b>가장 가까이 간 거리</b>. 진단 전용.
+     *
+     * <p>"도달 0"의 원인이 셋으로 갈린다: 병사가 아예 안 갔는가(거리가 처음 그대로),
+     * 가긴 갔는데 문턱에서 걸렸는가(3~10), 아니면 표적이 없었는가. 이 수 하나가 그것을
+     * 가른다 — 거리를 안 재고 추측으로 좁히다 두 번 헛돌았다.
+     */
+    private static final java.util.Map<Long, Double> PRESSURE_NEAREST =
+            new java.util.HashMap<>();
+
+    /** 표적 집에 이만큼 다가서면 "문 앞에 섰다"로 본다. 도착 판정(2.5)보다 넉넉한 이유:
+     *  거처 좌표는 천막 구조물 <b>안쪽</b>이라 병사가 그 자리에 설 수 없다. */
+    private static final double PRESSURE_NEAR = 6.0;
+
+    /**
+     * 병사의 현재 위치를 표적들과 견준다 — 순찰 goal 이 매 틱 부른다.
+     *
+     * <p>{@code spot} 이 무엇인지 묻지 않고 <b>몸이 어디 있는가</b>만 본다. 목적지 판정에
+     * 기대면 도착 문턱·구조물·경로 사정에 결과가 매달리는데, 물음은 "그날 병사가 그 집
+     * 앞에 왔는가" 하나뿐이다.
+     */
+    public static void reportPressureNear(BlockPos barracks, BlockPos where) {
+        var targets = PRESSURE_TARGETS.get(barracks.asLong());
+        if (targets == null || targets.isEmpty()) {
+            return;
+        }
+        for (long h : targets.keySet()) {
+            BlockPos home = BlockPos.of(h);
+            double dx = home.getX() - where.getX();
+            double dz = home.getZ() - where.getZ();
+            double d = Math.sqrt(dx * dx + dz * dz);
+            PRESSURE_NEAREST.merge(barracks.asLong(), d, Math::min);
+            if (d <= PRESSURE_NEAR) {
+                PRESSURE_REACHED.computeIfAbsent(barracks.asLong(),
+                        k -> new java.util.HashSet<>()).add(h);
+            }
+        }
+    }
+
     /** 이 사람 명의의 막사가 있는가 — 있으면 무장 세력이라 압박이 아니라 전투 대상이다. */
     private static boolean barracksOwnedBy(FacilityStore reg, long id) {
         for (FacilityStore.Entry e : reg.all()) {
@@ -1907,10 +1946,13 @@ public final class FarmTicker {
                 targets.put(m.getHomePos().asLong(), mid);
             }
             com.evosim.mod.log.SimEvents.note(level, "압박집계", String.format(
-                    "막사 @%d,%d — 표적 %d명 · 어제 도달 %d · 성인 %d명 중 탈락:"
-                            + " 자신 %d · 주인있음 %d · 추종자없음 %d · 무장 %d · 원거리 %d",
+                    "막사 @%d,%d — 표적 %d명 · 어제 도달 %d · <b>최근접 %s</b> · 성인 %d명 중"
+                            + " 탈락: 자신 %d · 주인있음 %d · 추종자없음 %d · 무장 %d · 원거리 %d",
                     bk.pos.getX(), bk.pos.getZ(), targets.size(), reached.size(),
+                    PRESSURE_NEAREST.containsKey(bkKey)
+                            ? String.format("%.1f블록", PRESSURE_NEAREST.get(bkKey)) : "간 적 없음",
                     adults.size(), pRejSelf, pRejHasPatron, pRejNoFollower, pRejArmed, pRejFar));
+            PRESSURE_NEAREST.remove(bkKey);
             if (targets.isEmpty()) {
                 PRESSURE_TARGETS.remove(bkKey);
             } else {

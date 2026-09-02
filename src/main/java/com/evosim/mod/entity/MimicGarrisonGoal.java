@@ -113,16 +113,15 @@ public class MimicGarrisonGoal extends Goal {
         // 리시가 병사를 도로 끌어 근무지에 영영 못 닿는다.
         mob.setGuardAnchor(spot);
         mob.setActivity(night ? "경계" : "주둔");
+        // 압박은 <b>몸이 어디 있는가</b>로 센다 — 목적지 도착 판정에 기대지 않는다.
+        // 거처 좌표는 천막 구조물 안쪽이라 도착(2.5블록)이 영영 성립하지 않을 수 있다.
+        FarmTicker.reportPressureNear(post, mob.blockPosition());
         if (!mob.blockPosition().closerThan(spot, ARRIVE)) {
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5,
                     night ? 1.0 : 0.9);
             return;
         }
         mob.getNavigation().stop();
-        // 도착 — 표적이면 그날의 압박으로 기록된다(표적이 아니면 안에서 곧바로 돌아온다).
-        if (mob.level() instanceof net.minecraft.server.level.ServerLevel sl2 && post != null) {
-            FarmTicker.reportPressureVisit(post, spot);
-        }
         if (night) {
             // 경계 — 둘레를 둘러본다. 다 서 있으면 다음 지점으로.
             mob.getLookControl().setLookAt(post.getX() + 0.5, post.getY() + 1.0, post.getZ() + 0.5);

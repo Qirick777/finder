@@ -322,7 +322,9 @@ public final class EvoSimCommand {
                             return 1;
                         })))
                 .then(Commands.literal("begdry").executes(EvoSimCommand::begDry))
-                .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
+                // 기본 32 → 부자·거지 사이 약 90블록. 구걸 상한(96) 안이면서 활동반경(32)의
+                // 세 배, 통근(48)의 두 배다 — "먼 곳"을 재면서도 하루 낮에 닿는 거리.
+                .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 32))
                         .then(Commands.argument("dist", IntegerArgumentType.integer(8, 200))
                                 .executes(ctx -> begTest(ctx,
                                         IntegerArgumentType.getInteger(ctx, "dist")))))

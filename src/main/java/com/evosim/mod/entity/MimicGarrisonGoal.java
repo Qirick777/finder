@@ -99,6 +99,7 @@ public class MimicGarrisonGoal extends Goal {
     public void stop() {
         spot = null;
         stand = 0;
+        mob.setGuardAnchor(null); // 근무 종료 — 리시 앵커를 거처로 되돌린다
     }
 
     @Override
@@ -107,6 +108,10 @@ public class MimicGarrisonGoal extends Goal {
             return;
         }
         mob.setWorkAnchor(post);
+        // 리시가 <b>지금 가는 곳</b>을 보게 한다. 순찰·압박 표적은 막사에서 최대
+        // COMMUTE_RANGE(96)까지 떨어져 있는데 활동반경은 32 라, 막사를 앵커로 두면
+        // 리시가 병사를 도로 끌어 근무지에 영영 못 닿는다.
+        mob.setGuardAnchor(spot);
         mob.setActivity(night ? "경계" : "주둔");
         if (!mob.blockPosition().closerThan(spot, ARRIVE)) {
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5,

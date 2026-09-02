@@ -54,7 +54,8 @@ public class MimicLeashGoal extends Goal {
         // 구걸도 같다 — inner(60%)에서 놓으면 최종 접근을 이어받을 힘이 구걸 goal(3) 하나뿐인데
         // 그 사이 반경 밖으로 다시 나가 리시가 재개되면 경계에서 왕복만 한다. 도착(5블록)까지
         // 리시가 <b>호위로</b> 데려다 놓고, 수령은 goal 이 한다.
-        if ((mob.hasVisitAnchor() || mob.isBegging()) && !mob.isCourtTravel()) {
+        if ((mob.hasVisitAnchor() || mob.isBegging() || mob.hasGuardAnchor())
+                && !mob.isCourtTravel()) {
             return mob.blockPosition().distSqr(anchor) > CARAVAN_ARRIVE_SQ;
         }
         double inner = mob.roamRadius() * INNER_FRACTION;

@@ -441,6 +441,13 @@ public class MimicEntity extends PathfinderMob {
             // 마실보다 <b>앞</b>인 이유: 구걸은 굶어서 가는 것이고 마실은 안 굶어야 가는 것이다.
             return getBegAnchor();
         }
+        if (guardAnchor != null) {
+            return guardAnchor; // 주둔 근무지 — 리시가 순찰·압박 표적까지 데려다 준다.
+            // <b>workAnchor 로는 안 된다</b>: 그것은 막사(출발지)를 가리키고 WORK 시간대에만
+            // 유효하다. 표적이 막사에서 52블록인데 활동반경이 32 라, 리시가 병사를 막사로
+            // 도로 끌어당겨 표적에 영영 못 닿았다(실측: 표적 1명 · 도달 0). 구걸에서 겪은
+            // 것과 같은 병 — 앵커가 출발지를 가리키면 리시가 호위자가 아니라 방해자가 된다.
+        }
         if (visitAnchor != null) {
             return visitAnchor; // 노인 마실 — 활동반경 밖 자식 집도 리시가 끌고 간다(구혼 여행과 동일 패턴)
         }
@@ -452,6 +459,19 @@ public class MimicEntity extends PathfinderMob {
             // WORK 시간대에만 유효 — 노동 종료 후 잔존 앵커가 야간 귀가를 밭으로 끌지 않게.
         }
         return homePos != null ? homePos : getBirthPos();
+    }
+
+    /** 주둔 goal 의 근무지 앵커(휘발) — 마실 앵커를 빌려 쓰지 않는다: 마실 goal 이
+     *  제 것으로 알고 지워 버린다. */
+    private BlockPos guardAnchor = null;
+
+    /** 주둔 goal 전용 — 지금 가는 근무지를 리시 앵커로(null = 해제). */
+    public void setGuardAnchor(@Nullable BlockPos pos) {
+        this.guardAnchor = pos;
+    }
+
+    public boolean hasGuardAnchor() {
+        return guardAnchor != null;
     }
 
     /** 노인 방문 goal 이 설정하는 임시 앵커(null = 해제) — 리시가 자식 집으로 끌게 한다. */

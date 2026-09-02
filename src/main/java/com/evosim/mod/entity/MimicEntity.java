@@ -6748,6 +6748,11 @@ public class MimicEntity extends PathfinderMob {
             SimEvents.event(this, "사망", "원인=" + source.getMsgId()
                     + (individual != null ? " · 세대" + individual.generation() : "")
                     + (stageActor ? " [무대]" : ""));
+            // 유족 보상 — <b>super.die 앞에서</b> 부른다. 그 뒤에는 배속 명부·거처를 읽을
+            // 상태가 보장되지 않는다. 군인이 아니면 안에서 곧바로 돌아온다.
+            if (level() instanceof ServerLevel sl) {
+                FarmTicker.payDeathBenefit(sl, this);
+            }
         }
         super.die(source);
     }

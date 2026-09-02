@@ -48,9 +48,9 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
         m += amp * scaled(ind, t, Trait.GATHERER, 0.4);   // 채집꾼 0.3→0.4 — tileYield G 직결(성장 가속)
         m += scaled(ind, t, Trait.HUNTER, -0.1);          // 사냥꾼 채집딜레이
-        m += scaled(ind, t, Trait.SCATTERED, -0.3);       // 산만 — 한자리에 못 붙어 있다
+        m += scaled(ind, t, Trait.SCATTERED, -0.2);       // 산만 — 한자리에 못 붙어 있다
         m += amp * scaled(ind, t, Trait.FOCUSED, 0.15);   // 몰입 — 붙어 있는 만큼 번다
-        m += scaled(ind, t, Trait.BRUTISH, -0.35);        // 단순무식 — 손이 굵다
+        m += scaled(ind, t, Trait.BRUTISH, -0.25);        // 단순무식 — 손이 굵다
         m += amp * scaled(ind, t, Trait.REFINED, 0.15);   // 섬세 — 손이 곱다
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
         m += amp * scaled(ind, t, Trait.INARTICULATE, 0.1); // 눌변가 — 말 대신 손(매력 −1의 반대급부)
@@ -109,9 +109,9 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
         m += amp * scaled(ind, t, Trait.HUNTER, 0.3);     // 사냥꾼 동물데미지↑
         m += scaled(ind, t, Trait.GATHERER, -0.3);        // 채집꾼 데미지↓
-        m += scaled(ind, t, Trait.SCATTERED, -0.3);       // 산만 — 추적을 못 이어간다
+        m += scaled(ind, t, Trait.SCATTERED, -0.2);       // 산만 — 추적을 못 이어간다
         m += amp * scaled(ind, t, Trait.FOCUSED, 0.15);   // 몰입
-        m += scaled(ind, t, Trait.BRUTISH, -0.35);        // 단순무식 — 몰이만 할 줄 안다
+        m += scaled(ind, t, Trait.BRUTISH, -0.25);        // 단순무식 — 몰이만 할 줄 안다
         m += amp * scaled(ind, t, Trait.REFINED, 0.15);   // 섬세
         m += scaled(ind, t, Trait.COMPETITIVE, 0.2);      // 경쟁 — 실리(사냥↑), 온화의 매력 가산과 대칭
         m += scaled(ind, t, Trait.BASIC_EDUCATION, 0.1);  // 기본교육 — 제너럴리스트(채집·사냥 둘 다)
@@ -122,12 +122,6 @@ public final class Multipliers {
     }
 
     /** 특성 보너스 한 항 — 능력 축이면 등급 비례(×g/5), 무등급 축(성향·지능 등)이면 만액 그대로. */
-    /**
-     * 보완이 감소형 계수를 깎는 비율 / 악화가 더하는 비율 — 0.35.
-     *
-     * <p>패널티를 <b>없애지는 않는다</b>. 식물혼동Ⅴ(−0.5)를 −0.325 로 만드는 정도라, 감소형을
-     * 가진 자가 안 가진 자를 앞지르지 못한다 — 촉매는 순위를 뒤집지 않는다는 원칙.
-     */
     /**
      * 보완이 감소형 계수를 깎는 비율 / 야성이 키우는 비율.
      *

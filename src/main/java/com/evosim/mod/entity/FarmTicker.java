@@ -1522,6 +1522,89 @@ public final class FarmTicker {
     /** [배속, 지급총액, 세수총액, 이탈, 구휼] — 보고용 누계. */
     private static final double[] GUARD_SUM = new double[5];
 
+    /**
+     * <b>전사자 유족 보상</b> — 배속된 군인이 죽으면 그 가구에 영주가 식량을 넣는다.
+     *
+     * <p>{@link MimicEntity#die} 에서 부른다. 군인 선발 조건에 {@code isProviderRole()} 이
+     * 있어 <b>모든 군인은 가구 부양자</b>이므로, 전사 1명은 가구 1개의 붕괴다. 그것은 전쟁의
+     * 대가이지 결함이 아니라서 이 지급은 완충이지 면제가 아니다 —
+     * {@link Facilities#DEATH_BENEFIT_DAYS}(7일)치만 준다.
+     *
+     * <p>구휼로 기록하므로 유족이 영주에게 신세를 진다. <b>전쟁 손실이 오히려 가문을
+     * 결속시킨다</b>. 영주 저장고가 모자라면 있는 만큼만 주고 그 사실을 남긴다 — 침묵은
+     * 진단이 아니다.
+     */
+    public static void payDeathBenefit(ServerLevel level, MimicEntity dead) {
+        BlockPos post = POST_OF.get(dead.getId());
+        if (post == null || dead.getIndividual() == null || dead.getHomePos() == null) {
+            return; // 배속된 군인이 아니다
+        }
+        var reg = FacilityStore.get(level);
+        FacilityStore.Entry bk = null;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (post.equals(e.pos)) {
+                bk = e;
+                break;
+            }
+        }
+        if (bk == null || bk.ownerId == 0L) {
+            return;
+        }
+        MimicEntity owner = null;
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>();
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            adults.add(m);
+            if (m.getIndividual().id() == bk.ownerId) {
+                owner = m;
+            }
+        }
+        if (owner == null || owner.getHomePos() == null) {
+            return;
+        }
+        // 기준선은 봉급 상한과 같은 눈금을 쓴다 — 그 가구 성인의 명목 하루소모 합.
+        double adultNeed = 0.0;
+        for (MimicEntity a : adults) {
+            if (dead.getHomePos().equals(a.getHomePos()) && a != dead) {
+                adultNeed += com.evosim.core.FoodEconomy.consumptionPerDay(a.getStage(),
+                        com.evosim.core.Activity.MOVE, a.getIndividual(), false);
+            }
+        }
+        if (adultNeed <= 0.0) {
+            // 남은 성인이 없다 — 유아·소년만 남은 집이다. 죽은 자의 몫으로라도 셈한다.
+            adultNeed = com.evosim.core.FoodEconomy.consumptionPerDay(dead.getStage(),
+                    com.evosim.core.Activity.MOVE, dead.getIndividual(), false);
+        }
+        LarderStore larders = LarderStore.get(level);
+        double want = adultNeed * Facilities.DEATH_BENEFIT_DAYS;
+        double have = larders.get(owner.getHomePos());
+        double pay = Math.min(want, Math.max(0.0, have));
+        if (pay <= 0.0) {
+            com.evosim.mod.log.SimEvents.event(dead, "전사", String.format(
+                    "막사 @%d,%d 소속 — 유족 보상 %.1f 필요하나 영주 저장고 %.1f, 지급 없음",
+                    post.getX(), post.getZ(), want, have));
+            return;
+        }
+        larders.set(owner.getHomePos(), have - pay);
+        larders.set(dead.getHomePos(), larders.get(dead.getHomePos()) + pay);
+        reg.spend(bk, pay);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        // 유족 쪽에 신세를 남긴다 — 죽은 자에게 적으면 다음 감쇠에서 사라진다.
+        AllegianceStore ledger = AllegianceStore.get(level);
+        for (MimicEntity a : adults) {
+            if (dead.getHomePos().equals(a.getHomePos()) && a != dead) {
+                ledger.record(a.getIndividual().id(), bk.ownerId,
+                        AllegianceStore.W_RELIEF * pay
+                                * AllegianceStore.rapport(a.getIndividual()), 0.0, day);
+            }
+        }
+        com.evosim.mod.log.SimEvents.event(dead, "전사", String.format(
+                "막사 @%d,%d 소속 — 유족 보상 %.1f 지급(요구 %.1f · 영주 저장고 %.1f→%.1f)",
+                post.getX(), post.getZ(), pay, want, have, have - pay));
+    }
+
     public static BlockPos postOf(MimicEntity m) {
         return POST_OF.get(m.getId());
     }

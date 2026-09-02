@@ -322,6 +322,7 @@ public final class EvoSimCommand {
                             return 1;
                         })))
                 .then(Commands.literal("begdry").executes(EvoSimCommand::begDry))
+                .then(Commands.literal("hittest").executes(EvoSimCommand::hitTest))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2183,6 +2184,62 @@ public final class EvoSimCommand {
                     m.getTenantFarm() == 0L ? "§a아님§r" : "§c구획" + m.getTenantFarm() + "§r",
                     m.getBegHome() == null ? "§c없음§r" : "§a있음§r"));
         }
+        return 1;
+    }
+
+    /**
+     * <b>P0 — peaceful 난이도에서 몹 간 피해가 들어가는가.</b>
+     *
+     * <p>세력 통합(WAR-PLAN.md)의 P2~P7 이 전부 이 한 가지에 얹혀 있다. 관측 런은
+     * {@code difficulty=peaceful · spawn-monsters=false} 로 돌고, 만약 이 설정이 몹 간
+     * 피해를 막는다면 전투·점령·증원이 통째로 무의미해진다. 그래서 가장 먼저, 가장 싸게
+     * 확인한다 — 미믹 둘을 세우고 한쪽이 실제로 때린다.
+     *
+     * <p>무장 전후를 함께 잰다. 철검이 공격력 +5 를 얹는지(장비 속성 자동 적용)와
+     * 사슬+방패가 피해를 줄이는지가 한 번에 나온다.
+     */
+    private static int hitTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos a = groundAt(level, ctx.getSource().getPosition(), 0, 0);
+        BlockPos b = groundAt(level, ctx.getSource().getPosition(), 1, 0);
+        MimicEntity atk = spawnAdult(level, Vec3.atBottomCenterOf(a), Sex.MALE);
+        MimicEntity def = spawnAdult(level, Vec3.atBottomCenterOf(b), Sex.MALE);
+        tell(ctx.getSource(), String.format(
+                "§e[타격시험]§r 난이도 §a%s§r · 공격력 %.2f · 방어 %.1f · 표적 체력 %.1f",
+                level.getDifficulty(),
+                atk.getAttributeValue(net.minecraft.world.entity.ai.attributes
+                        .Attributes.ATTACK_DAMAGE),
+                def.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR),
+                def.getHealth()));
+
+        // ① 맨몸 — 이 한 줄이 P0 의 전부다. 여기서 안 줄면 전투 설계가 통째로 무효다.
+        float before = def.getHealth();
+        atk.doHurtTarget(def);
+        float afterBare = def.getHealth();
+        boolean bareOk = afterBare < before - 1.0E-4;
+        tell(ctx.getSource(), String.format(
+                "  맨몸 타격 → 체력 %.2f → %.2f (%s%.2f 감소§r) %s",
+                before, afterBare, bareOk ? "§a" : "§c", before - afterBare,
+                bareOk ? "§a피해 들어감§r" : "§c피해 없음 — 전투 설계 전부 무효§r"));
+
+        // ② 무장 — 철검 +5 와 사슬+방패가 실제로 붙는지. 무적시간을 피해 즉시 해제한다.
+        def.invulnerableTime = 0;
+        atk.setSoldierGear(true);
+        def.setSoldierGear(true);
+        float before2 = def.getHealth();
+        double atk2 = atk.getAttributeValue(
+                net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
+        double arm2 = def.getAttributeValue(
+                net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
+        atk.doHurtTarget(def);
+        float after2 = def.getHealth();
+        tell(ctx.getSource(), String.format(
+                "  무장 타격 → 공격력 %.2f(맨몸 대비 +%.2f) · 방어 %.1f · 체력 %.2f → %.2f (%.2f 감소)",
+                atk2, atk2 - 2.0, arm2, before2, after2, before2 - after2));
+        tell(ctx.getSource(), bareOk
+                ? "  §a→ P0 통과: peaceful 에서도 몹 간 피해가 들어간다§r"
+                : "  §c→ P0 실패: 난이도 변경 없이는 전투 설계가 성립하지 않는다§r");
+        discard(atk, def);
         return 1;
     }
 

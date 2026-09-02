@@ -1850,6 +1850,27 @@ public final class EvoSimCommand {
                         m.getIndividual() == null ? "?" : m.getIndividual().shortName(),
                         m.getHomePos() == null ? 0.0 : lar.get(m.getHomePos()), m.getHolding(),
                         m.isCritical() ? " §c위급§r" : ""));
+                // <b>무엇이 이 병사를 쥐고 있는가.</b> "표적은 잡혔는데 안 간다"의 원인은
+                // 실행 중인 goal 과 지금의 앵커에 전부 적혀 있다 — 추론으로 좁히다 네 번
+                // 헛짚었다(리시 앵커 · 도착 문턱 · 밤 스킵 · 낮 선점).
+                StringBuilder run = new StringBuilder();
+                for (var w : m.goalSelector.getAvailableGoals()) {
+                    if (w.isRunning()) {
+                        run.append(run.length() == 0 ? "" : "+")
+                                .append(w.getGoal().getClass().getSimpleName()
+                                        .replace("Mimic", "").replace("Goal", ""))
+                                .append('(').append(w.getPriority()).append(')');
+                    }
+                }
+                BlockPos anch = m.roamAnchor();
+                BlockPos pst = FarmTicker.postOf(m);
+                tell(ctx.getSource(), String.format(
+                        "      goal %s · 위치 %d,%d · 앵커 %s · 막사까지 %.0f · 주둔앵커 %s",
+                        run.length() == 0 ? "§c없음§r" : run,
+                        m.blockPosition().getX(), m.blockPosition().getZ(),
+                        anch == null ? "-" : anch.getX() + "," + anch.getZ(),
+                        pst == null ? -1.0 : Math.sqrt(m.blockPosition().distSqr(pst)),
+                        m.hasGuardAnchor() ? "§a있음§r" : "§c없음§r"));
             }
         }
         tell(ctx.getSource(), String.format("  현재 배속 %d명", soldiers));

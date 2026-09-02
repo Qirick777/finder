@@ -420,6 +420,7 @@ public final class FarmTicker {
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
             runSchools(level, ledger, larders, adults, everyone, patrons, day);
             runBarracks(level, ledger, larders, adults, patrons, day);
+            settleOccupation(level, adults); // 배속이 끝난 뒤에 — 순회 순서로 승패가 갈리지 않게
             runChurches(level, ledger, larders, everyone, patrons, day);
         }
         // 개체별 당일 개간 노동 합계 — 다구획 주인 1인이 하루 EXPAND_PER_DAY 를 넘지 못하게(R3).
@@ -1782,6 +1783,67 @@ public final class FarmTicker {
     }
 
     /**
+     * <b>점령 판정</b> — 배속이 <b>전부 끝난 뒤</b> 따로 돈다.
+     *
+     * <p>이것을 막사 순회 안에 두면 순서만으로 결과가 갈린다: POST_OF 는 정산 시작 시
+     * 비워지므로, 먼저 처리된 막사는 병사를 얻고 나중 막사는 아직 0 명이다. 그러면 뒤쪽
+     * 막사가 늘 무방비로 보여 점령 카운트가 오른다(실측: 양쪽 다 배속 1명인데 한쪽만
+     * 카운트). 먼저 처리되는 세력이 언제나 이기는 셈이라 전쟁이 순회 순서로 결정된다.
+     */
+    private static void settleOccupation(ServerLevel level, java.util.List<MimicEntity> adults) {
+        FacilityStore reg = FacilityStore.get(level);
+        for (FacilityStore.Entry bk : new java.util.ArrayList<>(reg.all())) {
+            if (bk.kind.group != FacilityTemplate.Group.BARRACKS || bk.ownerId == 0L) {
+                continue;
+            }
+            long okey = bk.pos.asLong();
+            boolean capable = false;
+            for (MimicEntity s2 : adults) {
+                if (bk.pos.equals(POST_OF.get(s2.getId())) && !s2.isWounded()) {
+                    capable = true;
+                    break;
+                }
+            }
+            MimicEntity foe = null;
+            for (MimicEntity o : adults) {
+                BlockPos op = POST_OF.get(o.getId());
+                if (op == null || op.equals(bk.pos) || o.isWounded()) {
+                    continue;
+                }
+                Long oo = POST_OWNER.get(op.asLong());
+                if (oo == null || factionRootOf(oo) == factionRootOf(bk.ownerId)) {
+                    continue;
+                }
+                if (o.blockPosition().distSqr(bk.pos)
+                        <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    foe = o;
+                    break;
+                }
+            }
+            if (!capable && foe != null) {
+                int n = OCCUPY_COUNT.merge(okey, 1, Integer::sum);
+                Long newOwner = POST_OWNER.get(POST_OF.get(foe.getId()).asLong());
+                com.evosim.mod.log.SimEvents.note(level, "점령", String.format(
+                        "막사 @%d,%d — 전투 가능 병사 0 · 적 병사 반경 안 · %d/%d일",
+                        bk.pos.getX(), bk.pos.getZ(), n, Facilities.OCCUPY_DAYS));
+                if (n >= Facilities.OCCUPY_DAYS && newOwner != null && newOwner != 0L) {
+                    long old = bk.ownerId;
+                    bk.ownerId = newOwner;
+                    reg.setDirty();
+                    OCCUPY_COUNT.remove(okey);
+                    POST_OWNER.put(okey, newOwner);
+                    com.evosim.mod.log.SimEvents.note(level, "점령", String.format(
+                            "막사 @%d,%d 주인 #%d → #%d — 주권이 넘어갔다."
+                                    + " 땅은 그대로다(패자는 이제 압박 표적이 된다)",
+                            bk.pos.getX(), bk.pos.getZ(), old, newOwner));
+                }
+            } else {
+                OCCUPY_COUNT.remove(okey);
+            }
+        }
+    }
+
+    /**
      * <b>가장 가까운 아군 막사</b> — 부상병이 후송될 곳. 소속 막사가 아니어도 된다.
      *
      * <p>아군 = 두 막사 주인의 {@link #factionRootOf 세력 뿌리}가 같을 것. 굴복해 봉신이
@@ -2043,59 +2105,6 @@ public final class FarmTicker {
 
             POST_OWNER.put(bk.pos.asLong(), bk.ownerId);
 
-            // ②-a 점령 — 전투 가능 병사가 없고 적 병사가 반경 안에 있는 날을 센다.
-            //
-            // <b>칼이 아니라 곳간으로 갈린다.</b> 부상병은 아군 막사에서 급양을 받아야 낫는데
-            // (medicate → regenTick), 영주 저장고가 마르면 급양이 끊기고 회복이 멎어 계속
-            // 전투불가로 남는다. 그 상태가 OCCUPY_DAYS 지속되면 주권이 넘어간다.
-            //
-            // 하루가 아니라 이틀인 이유: 무장 군인끼리는 한 대에 4.9 라 결판이 빠르다(P0 실측).
-            // 하루 판정이면 증원(P6)이 96블록을 걸어오는 사이 늘 끝나 버린다.
-            long okey = bk.pos.asLong();
-            boolean capable = false;
-            for (MimicEntity s2 : adults) {
-                if (bk.pos.equals(POST_OF.get(s2.getId())) && !s2.isWounded()) {
-                    capable = true;
-                    break;
-                }
-            }
-            MimicEntity foe = null;
-            for (MimicEntity o : adults) {
-                BlockPos op = POST_OF.get(o.getId());
-                if (op == null || op.equals(bk.pos) || o.isWounded()) {
-                    continue;
-                }
-                Long oo = POST_OWNER.get(op.asLong());
-                if (oo == null || factionRootOf(oo) == factionRootOf(bk.ownerId)) {
-                    continue;
-                }
-                if (o.blockPosition().distSqr(bk.pos)
-                        <= Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
-                    foe = o;
-                    break;
-                }
-            }
-            if (!capable && foe != null) {
-                int n = OCCUPY_COUNT.merge(okey, 1, Integer::sum);
-                Long newOwner = POST_OWNER.get(POST_OF.get(foe.getId()).asLong());
-                com.evosim.mod.log.SimEvents.note(level, "점령", String.format(
-                        "막사 @%d,%d — 전투 가능 병사 0 · 적 병사 반경 안 · %d/%d일",
-                        bk.pos.getX(), bk.pos.getZ(), n, Facilities.OCCUPY_DAYS));
-                if (n >= Facilities.OCCUPY_DAYS && newOwner != null && newOwner != 0L) {
-                    long old = bk.ownerId;
-                    bk.ownerId = newOwner;
-                    reg.setDirty();
-                    OCCUPY_COUNT.remove(okey);
-                    POST_OWNER.put(okey, newOwner);
-                    com.evosim.mod.log.SimEvents.note(level, "점령", String.format(
-                            "막사 @%d,%d 주인 #%d → #%d — 주권이 넘어갔다."
-                                    + " 땅은 그대로다(패자는 이제 압박 표적이 된다)",
-                            bk.pos.getX(), bk.pos.getZ(), old, newOwner));
-                    continue; // 오늘의 배속·세수는 새 주인 기준으로 내일부터
-                }
-            } else {
-                OCCUPY_COUNT.remove(okey);
-            }
             // ②-b 압박 — 어제 병사가 닿은 표적에게 신세를 적립하고, 오늘의 표적을 새로 짠다.
             //
             // <b>순서가 중요하다</b>: 적립을 먼저 하고 명부를 다시 짠다. 반대로 하면 어제

@@ -1869,27 +1869,48 @@ public final class FarmTicker {
             PRESSURE_REACHED.remove(bkKey);
 
             // 오늘의 표적 — 경계 반경 안의 <b>무장하지 않은</b> 독자세력 머리.
+            //
+            // 탈락 사유를 센다. "압박이 0건"일 때 원인이 표적 선정인지 도달인지 갈리지
+            // 않으면 추측만 쌓인다 — 배속 후보 집계와 같은 이유로 여기에도 둔다.
             java.util.Map<Long, Long> targets = new java.util.LinkedHashMap<>();
+            int pRejSelf = 0;
+            int pRejHasPatron = 0;
+            int pRejNoFollower = 0;
+            int pRejArmed = 0;
+            int pRejFar = 0;
             for (MimicEntity m : adults) {
                 if (m.getIndividual() == null || m.getHomePos() == null) {
                     continue;
                 }
                 long mid = m.getIndividual().id();
-                if (mid == bk.ownerId || patrons.containsKey(mid)) {
-                    continue; // 나 자신이거나, 이미 주인이 있다
+                if (mid == bk.ownerId) {
+                    pRejSelf++;
+                    continue;
+                }
+                if (patrons.containsKey(mid)) {
+                    pRejHasPatron++;
+                    continue; // 이미 주인이 있다
                 }
                 if (!patrons.containsValue(mid)) {
+                    pRejNoFollower++;
                     continue; // 따르는 자가 없다 — 세력 머리가 아니다
                 }
                 if (barracksOwnedBy(reg, mid)) {
+                    pRejArmed++;
                     continue; // 무장 세력 — 전투로 갈린다(P4). 압박 표적이 아니다
                 }
                 if (m.getHomePos().distSqr(bk.pos)
                         > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    pRejFar++;
                     continue;
                 }
                 targets.put(m.getHomePos().asLong(), mid);
             }
+            com.evosim.mod.log.SimEvents.note(level, "압박집계", String.format(
+                    "막사 @%d,%d — 표적 %d명 · 어제 도달 %d · 성인 %d명 중 탈락:"
+                            + " 자신 %d · 주인있음 %d · 추종자없음 %d · 무장 %d · 원거리 %d",
+                    bk.pos.getX(), bk.pos.getZ(), targets.size(), reached.size(),
+                    adults.size(), pRejSelf, pRejHasPatron, pRejNoFollower, pRejArmed, pRejFar));
             if (targets.isEmpty()) {
                 PRESSURE_TARGETS.remove(bkKey);
             } else {

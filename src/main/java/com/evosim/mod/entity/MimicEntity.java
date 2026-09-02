@@ -5523,9 +5523,18 @@ public class MimicEntity extends PathfinderMob {
         // debugForceLonely 가 같은 이유로 뺄셈 트릭을 폐기했는데 여기서 되풀이했었다.
         // 1 로 바닥을 잡으면 월드가 한 나절만 지나도 마름이 성립하고, 그 전에는 아래 위급
         // (H 0)이 관문을 대신 연다.
-        this.lastForageSuccessTick = Math.max(1L,
-                com.evosim.mod.entity.SimTime.tick(level()) - Famine.STARVE_WINDOW - 1000L);
-        this.holding = 0.0; // 위급 — 신생 월드에서도 즉시 성립하는 쪽의 관문
+        long now = com.evosim.mod.entity.SimTime.tick(level());
+        this.lastForageSuccessTick = Math.max(1L, now - Famine.STARVE_WINDOW - 1000L);
+        // <b>보유 식량은 신생 월드에서만 비운다.</b> 처음에는 부를 때마다 0 으로 밀었는데,
+        // 그것이 시험 대상을 굶겨 죽였다 — 시혜로 받은 1.0 까지 30초마다 지워져 d0 에
+        // "구걸 1.0 수령" 직후 "아사"가 찍혔다. 앞선 런들에서 "얼어붙었다"던 좌표가 바로 그
+        // 아사 지점이었다. 세우려는 전제는 "주변에 먹을 게 없다"이지 "굶어 죽는다"가 아니다.
+        //
+        // 월드가 STARVE_WINDOW 를 넘긴 뒤에는 위 채집 시계만으로 관문이 열리므로 손댈 필요가
+        // 없다. 그 전에는 시계 트릭이 음수가 되어 안 먹히니(그 함정은 위 주석) 위급 쪽으로 연다.
+        if (now <= Famine.STARVE_WINDOW + 1000L) {
+            this.holding = 0.0;
+        }
     }
 
     /** 점검용 — 온 가족을 즉시 기근 조건으로(성공·정착 시각 과거화, 저장고 비움). /evosim exodus. */

@@ -2089,14 +2089,24 @@ public final class EvoSimCommand {
                 }
             }
             var nav = m.getNavigation();
+            var path = nav.getPath();
             tell(ctx.getSource(), String.format(
                     "     실행 goal: %s · 경로 %s · 이동중 %s · 속도 %.2f",
                     run.length() == 0 ? "§c없음§r" : run,
-                    nav.getPath() == null ? "§c없음§r"
-                            : "§a" + nav.getPath().getNodeCount() + "노드§r",
+                    path == null ? "§c없음§r" : "§a" + path.getNodeCount() + "노드§r",
                     nav.isDone() ? "§c정지§r" : "§a진행§r",
                     m.getAttributeValue(
                             net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED)));
+            // <b>노드 인덱스가 진짜 물음이다.</b> 경로가 있고 isDone 이 거짓인데 안 움직이면,
+            // PathNavigation.tick 이 followThePath 를 못 돌아 인덱스가 0(제자리)에 박혀 있다는
+            // 뜻이다. 그 관문이 canUpdatePath = onGround || 액체 || 탑승 이므로 셋을 같이 낸다.
+            tell(ctx.getSource(), String.format(
+                    "     위치 %.1f,%.1f,%.1f · 접지 %s · 액체 %s · 노드 %s · 이동델타 %.4f",
+                    m.getX(), m.getY(), m.getZ(),
+                    m.onGround() ? "§aO§r" : "§cX§r",
+                    m.isInWaterOrBubble() || m.isInLava() ? "O" : "X",
+                    path == null ? "-" : path.getNextNodeIndex() + "/" + path.getNodeCount(),
+                    m.getDeltaMovement().horizontalDistance()));
         }
         tell(ctx.getSource(), String.format("  길 위 구걸자 %d명", walking));
         return 1;

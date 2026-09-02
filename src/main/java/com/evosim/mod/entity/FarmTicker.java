@@ -1510,6 +1510,53 @@ public final class FarmTicker {
      * 신세를 쌓는 것({@link AllegianceStore#W_TENANCY})과 같은 구조이고 선례가 이미 있다.
      */
     // ── 막사(군인) ────────────────────────────────────────────────────────────────────
+    /**
+     * 막사 좌표 → 주인. 그리고 오늘의 추종 명부 — <b>전투 goal 이 매 틱 읽는다.</b>
+     *
+     * <p>적 판정("이 둘은 다른 세력인가")을 매번 원장에서 다시 계산하면 전투 판정마다
+     * 추종 명부를 새로 만들게 된다. 하루 한 번 정산에서 찍어 두고 그것을 읽는다.
+     */
+    private static final java.util.Map<Long, Long> POST_OWNER = new java.util.HashMap<>();
+    private static final java.util.Map<Long, Long> PATRONS_TODAY = new java.util.HashMap<>();
+
+    /**
+     * <b>세력의 뿌리</b> — 추종 사슬을 타고 올라간 최상위 주인. 자기 자신이면 독립이다.
+     *
+     * <p>깊이 상한 8 은 순환 방어다. {@code patronMap} 은 순환을 만들지 않도록 되어 있지만,
+     * 전투가 이 값에 매달리므로 여기서 한 번 더 막는다 — 무한 루프는 서버를 세운다.
+     */
+    public static long factionRootOf(long id) {
+        long cur = id;
+        for (int i = 0; i < 8; i++) {
+            Long up = PATRONS_TODAY.get(cur);
+            if (up == null || up == 0L || up == cur) {
+                break;
+            }
+            cur = up;
+        }
+        return cur;
+    }
+
+    /**
+     * 두 병사가 <b>적</b>인가 — 배속 막사가 다르고, 두 막사 주인의 세력 뿌리가 다를 때.
+     *
+     * <p>같은 뿌리면 한 나라의 병사이므로 싸우지 않는다. 굴복해서 봉신이 된 세력의 병사도
+     * 이 판정으로 저절로 아군이 된다 — 신분을 묻지 않고 사슬만 탄다.
+     */
+    public static boolean hostileSoldiers(MimicEntity a, MimicEntity b) {
+        BlockPos pa = POST_OF.get(a.getId());
+        BlockPos pb = POST_OF.get(b.getId());
+        if (pa == null || pb == null || pa.equals(pb)) {
+            return false;
+        }
+        Long oa = POST_OWNER.get(pa.asLong());
+        Long ob = POST_OWNER.get(pb.asLong());
+        if (oa == null || ob == null || oa.equals(ob)) {
+            return false;
+        }
+        return factionRootOf(oa) != factionRootOf(ob);
+    }
+
     /** 개체 → 배속된 막사 좌표. 하루 단위로 다시 짠다(학교의 SCHOOL_OF 와 같은 구조). */
     private static final java.util.Map<Integer, BlockPos> POST_OF = new java.util.HashMap<>();
 
@@ -1809,6 +1856,9 @@ public final class FarmTicker {
         // 검과 갑옷을 걸치고 다닌다 — 육안으로 군인 수를 셀 수 없게 된다.
         java.util.Set<Integer> wasPosted = new java.util.HashSet<>(POST_OF.keySet());
         POST_OF.clear();
+        POST_OWNER.clear();
+        PATRONS_TODAY.clear();
+        PATRONS_TODAY.putAll(patrons); // 전투 goal 이 읽을 오늘의 추종 명부
         GUARD_SEAT.clear();
         java.util.Arrays.fill(GUARD_SUM, 0.0);
         FacilityStore reg = FacilityStore.get(level);
@@ -1885,6 +1935,7 @@ public final class FarmTicker {
             reg.earn(bk, taxIn);
             GUARD_SUM[2] += taxIn;
 
+            POST_OWNER.put(bk.pos.asLong(), bk.ownerId);
             // ②-b 압박 — 어제 병사가 닿은 표적에게 신세를 적립하고, 오늘의 표적을 새로 짠다.
             //
             // <b>순서가 중요하다</b>: 적립을 먼저 하고 명부를 다시 짠다. 반대로 하면 어제

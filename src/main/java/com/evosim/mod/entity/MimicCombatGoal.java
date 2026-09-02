@@ -6,6 +6,8 @@ import com.evosim.core.SurvivalRules;
 import com.evosim.mod.log.SimEvents;
 import com.evosim.mod.stage.StageObserver;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.Zombie;
@@ -25,7 +27,7 @@ import java.util.Set;
 public class MimicCombatGoal extends Goal {
 
     private final MimicEntity mob;
-    private Monster target;
+    private LivingEntity target;
     private boolean retreating;
     private final Set<String> recordedTags = new HashSet<>();
 
@@ -40,7 +42,7 @@ public class MimicCombatGoal extends Goal {
         if (ind == null || !SurvivalRules.canFight(mob.getStage())) {
             return false; // 유아·소년은 전투 goal 미사용(권한 점유로 얼어붙지 않도록)
         }
-        Monster m = nearestMonster(Combat.detectionRange(ind));
+        LivingEntity m = nearestFoe(Combat.detectionRange(ind));
         if (m == null) {
             return false;
         }
@@ -71,7 +73,8 @@ public class MimicCombatGoal extends Goal {
         if (d > HARD_RELEASE_SQ) {
             return false;
         }
-        return d <= SOFT_RELEASE_SQ || target.getTarget() == mob;
+        return d <= SOFT_RELEASE_SQ
+                || (target instanceof Mob tm && tm.getTarget() == mob);
     }
 
     @Override
@@ -129,8 +132,8 @@ public class MimicCombatGoal extends Goal {
         // ① 진입: 접근 + 공격. 몬스터도 반격하도록 타겟 지정(§13-B 상호 교전).
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
         mob.getNavigation().moveTo(target, 1.15);
-        if (target.getTarget() != mob) {
-            target.setTarget(mob);
+        if (target instanceof Mob tm && tm.getTarget() != mob) {
+            tm.setTarget(mob); // 몬스터는 반격하게 — 병사끼리는 서로의 goal 이 알아서 붙는다
         }
         record("combat:engage");
         if (adjacent) {
@@ -162,6 +165,38 @@ public class MimicCombatGoal extends Goal {
             case "combat:return" -> "전열 복귀";
             default -> tag;
         };
+    }
+
+    /**
+     * <b>교전 대상 — 좀비 또는 적 병사.</b>
+     *
+     * <p>병사끼리의 판정은 {@link FarmTicker#hostileSoldiers} 하나에 맡긴다(배속 막사가 다르고
+     * 두 주인의 세력 뿌리가 다를 것). 신분을 묻지 않고 추종 사슬만 타므로, 굴복해서 봉신이
+     * 된 세력의 병사는 저절로 아군이 된다.
+     *
+     * <p>진입·퇴각·복귀 판단은 하나도 새로 만들지 않았다 — {@link Combat} 가 이미 특성별로
+     * 정해 둔다. 겁쟁이는 도망가고, 신중은 체력 30%에 물러났다 70%에 돌아오고,
+     * <b>무모는 안 물러나 죽는다</b>.
+     */
+    private LivingEntity nearestFoe(double range) {
+        LivingEntity best = nearestMonster(range);
+        double bestDist = best == null ? Double.MAX_VALUE : mob.distanceToSqr(best);
+        if (!FarmTicker.isSoldier(mob)) {
+            return best; // 병사가 아니면 사람과 싸우지 않는다 — 민간인끼리는 전투가 없다
+        }
+        for (MimicEntity o : mob.level().getEntitiesOfClass(MimicEntity.class,
+                mob.getBoundingBox().inflate(range))) {
+            if (o == mob || !o.isAlive() || o.getIndividual() == null
+                    || !FarmTicker.isSoldier(o) || !FarmTicker.hostileSoldiers(mob, o)) {
+                continue;
+            }
+            double d = mob.distanceToSqr(o);
+            if (d < bestDist) {
+                bestDist = d;
+                best = o;
+            }
+        }
+        return best;
     }
 
     /** 교전 대상은 <b>좀비만</b>. 스켈레톤은 건드리지 않아 어그로를 끌지 않는다(설계 조정). */

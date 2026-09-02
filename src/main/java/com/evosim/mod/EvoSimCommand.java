@@ -325,6 +325,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("hittest").executes(EvoSimCommand::hitTest))
                 .then(Commands.literal("hitgear").executes(EvoSimCommand::hitGear))
                 .then(Commands.literal("presstest").executes(EvoSimCommand::pressTest))
+                .then(Commands.literal("wartest").executes(EvoSimCommand::warTest))
                 // 기본 80 → 부자·거지 사이 226블록. 거리 상한을 없앴으므로 시험도 원래 거리로 되돌린다 —
                 // 활동반경(32)의 일곱 배, 통근(48)의 다섯 배. 여행이 실제로 되는지를 재는 것이 요점이다.
                 .then(Commands.literal("begtest").executes(ctx -> begTest(ctx, 80))
@@ -2407,6 +2408,78 @@ public final class EvoSimCommand {
                 "  → 하루 %.1f 씩 오르면 약 %d일에 굴복. 'evosim feud'·'압박' 이벤트로 본다",
                 com.evosim.mod.entity.Facilities.W_PRESSURE,
                 (int) Math.ceil(gate / com.evosim.mod.entity.Facilities.W_PRESSURE)));
+        return 1;
+    }
+
+    /**
+     * <b>P4 — 적 병사 교전</b>(WAR-PLAN.md). 막사 둘을 경계 반경 안에 마주 세운다.
+     *
+     * <p>조성에 앞선 시험들에서 배운 것을 전부 반영한다: 전원 <b>짝을 지어</b> 구혼 여행
+     * 아사를 막고(실측: 홀몸이면 d2 에 전원 사망), 각 영주에게 <b>추종 4호</b>를 붙여
+     * 정원이 0 이 되지 않게 하고(정원 = 지킬가구/4), 영주 저장고를 넉넉히 둬 봉급 미납으로
+     * 병사가 이탈하지 않게 한다.
+     *
+     * <p>합격 조건: 두 세력의 병사가 만나 실제로 교전하고, <b>특성대로</b> 갈린다 —
+     * 겁쟁이는 즉시 도주 · 신중은 체력 30%에 퇴각 · 무모는 안 물러나 죽는다. 여기서
+     * <b>무모 분포를 처음 실측한다</b>(사망률 예측의 유일한 근거).
+     */
+    private static int warTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var led = com.evosim.mod.entity.AllegianceStore.get(level);
+        var reg = com.evosim.mod.entity.FacilityStore.get(level);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        var tpl = com.evosim.mod.entity.FacilityTemplate.of(level,
+                com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false);
+        if (tpl.isEmpty()) {
+            tell(ctx.getSource(), "§c[전쟁시험]§r 막사 도면을 못 읽었다 — home files/barracks.nbt");
+            return 1;
+        }
+        // 두 세력을 마주 세운다. 막사 사이 60블록 — 통근 반경(96) 안이라 서로의 세력권에
+        // 들고, 순찰 구역이 겹쳐 병사들이 실제로 마주친다.
+        int[][] side = {{-30, 0}, {30, 0}};
+        long[] lordIds = new long[2];
+        for (int k = 0; k < 2; k++) {
+            int bx = side[k][0];
+            int bz = side[k][1];
+            BlockPos lordHome = groundAt(level, ctx.getSource().getPosition(), bx, bz - 14);
+            BlockPos bkSite = groundAt(level, ctx.getSource().getPosition(), bx, bz);
+            MimicEntity lord = spawnAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE);
+            lord.debugSettleWithTent(lordHome, Direction.NORTH);
+            MimicEntity lw = spawnAdult(level,
+                    Vec3.atBottomCenterOf(lordHome).add(1, 0, 0), Sex.FEMALE);
+            lw.debugSettleWithTent(lordHome, Direction.NORTH);
+            lord.debugMarryTo(lw);
+            LarderStore.get(level).set(lordHome, 600.0);
+            long lid = lord.getIndividual().id();
+            lordIds[k] = lid;
+            for (int i = 0; i < 4; i++) {
+                BlockPos h = groundAt(level, ctx.getSource().getPosition(),
+                        bx + (i - 2) * 5, bz - 22);
+                MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+                f.debugSettleWithTent(h, Direction.NORTH);
+                MimicEntity w = spawnAdult(level,
+                        Vec3.atBottomCenterOf(h).add(1, 0, 0), Sex.FEMALE);
+                w.debugSettleWithTent(h, Direction.NORTH);
+                f.debugMarryTo(w);
+                LarderStore.get(level).set(h, 30.0);
+                led.record(f.getIndividual().id(), lid, 40.0, 0.0, day);
+            }
+            MimicEntity.debugRaiseFacility(level, bkSite, tpl.get());
+            reg.register(bkSite, com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS,
+                    (byte) 0, false, lid, day,
+                    com.evosim.mod.entity.Facilities.BARRACKS_COST);
+            tell(ctx.getSource(), String.format(
+                    "  세력%d 영주 #%d @%d,%d · 막사 @%d,%d · 추종 4호",
+                    k + 1, lord.getId(), lordHome.getX(), lordHome.getZ(),
+                    bkSite.getX(), bkSite.getZ()));
+        }
+        double gap = Math.sqrt(groundAt(level, ctx.getSource().getPosition(), -30, 0)
+                .distSqr(groundAt(level, ctx.getSource().getPosition(), 30, 0)));
+        tell(ctx.getSource(), String.format(
+                "§e[전쟁시험]§r 막사 간 %.0f블록(통근 %d · 인지 %.0f) — 순찰 구역이 겹친다",
+                gap, (int) com.evosim.mod.entity.Facilities.COMMUTE_RANGE,
+                com.evosim.core.Combat.detectionRange(null)));
+        tell(ctx.getSource(), "  → 'evosim guard'·'전투' 이벤트로 교전·퇴각·사망을 본다");
         return 1;
     }
 

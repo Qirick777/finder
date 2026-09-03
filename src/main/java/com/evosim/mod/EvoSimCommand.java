@@ -1886,13 +1886,24 @@ public final class EvoSimCommand {
                 }
                 BlockPos anch = m.roamAnchor();
                 BlockPos pst = FarmTicker.postOf(m);
+                // <b>주둔 goal 이 왜 안 도는가</b>를 한 줄에 적는다. 이 goal 은 canUse 첫 줄에서
+                // 여러 조건에 걸려 조용히 물러나는데, 그러면 배속된 채로 근무만 안 하는 상태가
+                // 되고 겉으로는 "Forage 를 돌며 막사에서 171블록 떨어져 있다"로만 보인다.
+                // 노년이 뽑히던 결함을 찾는 데 세 런이 걸렸다 — 사유를 적어 두면 한 번이면 된다.
+                String why = m.getStage() != com.evosim.core.LifeStage.ADULT
+                        ? "§c비성년(" + m.getStage() + ")§r"
+                        : m.isCritical() ? "§c위급§r"
+                        : m.isCourtTravel() ? "§c구혼여행§r"
+                        : m.isBuilding() ? "§c건축중§r"
+                        : pst == null ? "§c배속없음§r" : "-";
                 tell(ctx.getSource(), String.format(
-                        "      goal %s · 위치 %d,%d · 앵커 %s · 막사까지 %.0f · 주둔앵커 %s",
+                        "      goal %s · 위치 %d,%d · 앵커 %s · 막사까지 %.0f · 주둔앵커 %s"
+                                + " · 주둔불가 %s",
                         run.length() == 0 ? "§c없음§r" : run,
                         m.blockPosition().getX(), m.blockPosition().getZ(),
                         anch == null ? "-" : anch.getX() + "," + anch.getZ(),
                         pst == null ? -1.0 : Math.sqrt(m.blockPosition().distSqr(pst)),
-                        m.hasGuardAnchor() ? "§a있음§r" : "§c없음§r"));
+                        m.hasGuardAnchor() ? "§a있음§r" : "§c없음§r", why));
             }
         }
         tell(ctx.getSource(), String.format("  현재 배속 %d명", soldiers));

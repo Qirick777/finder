@@ -2401,10 +2401,25 @@ public final class FarmTicker {
             int rejNotHead = 0;   // 가구 부양자가 아님
             int rejPatron = 0;    // 이 주인을 따르지 않음
             int rejFar = 0;       // 통근 한계 밖
+            int rejElder = 0;     // 노년 — 주둔 goal 이 받지 않는다(아래)
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
                 if (m.getIndividual() == null || m.getHomePos() == null
                         || POST_OF.containsKey(m.getId())) {
+                    continue;
+                }
+                // <b>노년은 뽑지 않는다.</b> 후보 목록(adults)은 성년과 노년을 함께 담는데
+                // 선발에는 단계 검사가 없었고, {@code MimicGarrisonGoal.canUse} 첫 줄은
+                // 성년만 받는다. 그래서 노인이 배속되면 <b>주둔 goal 이 한 번도 돌지 않는다</b>:
+                // 자리를 차지하고 봉급을 받고 전사하면 유족 보상까지 나가는데 근무는 0 이다.
+                //
+                // 실측(세 런): 주둔앵커 없음 · goal Forage(7) · 막사까지 171블록. 앵커가 지워진
+                // 것이 아니라 한 번도 설정된 적이 없었다(setGuardAnchor(null) 호출처는 한 곳뿐).
+                //
+                // 고르는 쪽을 맞춘다 — goal 의 조건을 푸는 쪽은 노년의 전투력·순찰 거동을 함께
+                // 바꾸는 일이라 이 결함의 범위를 넘는다.
+                if (m.getStage() != com.evosim.core.LifeStage.ADULT) {
+                    rejElder++;
                     continue;
                 }
                 long mid = m.getIndividual().id();
@@ -2461,7 +2476,7 @@ public final class FarmTicker {
                     .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             plans.add(new Garrison(bk, owner, tpl.get(), cap, guarded.size(), taxIn, pick,
-                    rejLand, rejNotHead, rejPatron, rejFar));
+                    rejLand, rejNotHead, rejPatron, rejFar, rejElder));
         }
         seatAll(level, ledger, larders, adults, reg, plans, day);
         // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
@@ -2487,6 +2502,7 @@ public final class FarmTicker {
         final int rejNotHead;
         final int rejPatron;
         final int rejFar;
+        final int rejElder;
         boolean contested;
         final java.util.List<MimicEntity> seatedList = new java.util.ArrayList<>();
         int seated;
@@ -2495,7 +2511,7 @@ public final class FarmTicker {
 
         Garrison(FacilityStore.Entry bk, MimicEntity owner, FacilityTemplate tpl, int cap,
                  int guarded, double taxIn, java.util.List<MimicEntity> pick,
-                 int rejLand, int rejNotHead, int rejPatron, int rejFar) {
+                 int rejLand, int rejNotHead, int rejPatron, int rejFar, int rejElder) {
             this.bk = bk;
             this.owner = owner;
             this.tpl = tpl;
@@ -2507,6 +2523,7 @@ public final class FarmTicker {
             this.rejNotHead = rejNotHead;
             this.rejPatron = rejPatron;
             this.rejFar = rejFar;
+            this.rejElder = rejElder;
         }
     }
 
@@ -2601,13 +2618,13 @@ public final class FarmTicker {
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
                     "막사 @%d,%d%s — 지킬가구 %d → 정원 %d(전시 %d) · 배속 %d명(남%d 여%d%s) · 세수 %.1f"
                             + " · 봉급 %.1f · 주인 저장고 %.1f | 후보 %d명 · 탈락: 유전가구 %d ·"
-                            + " 비부양자 %d · 타주인 %d · 원거리 %d",
+                            + " 비부양자 %d · 타주인 %d · 원거리 %d · 노년 %d",
                     g.bk.pos.getX(), g.bk.pos.getZ(), g.contested ? " §c[교전]§r" : "",
                     g.guarded, g.cap, g.contested ? g.tpl.seats().size() : g.cap,
                     g.seated, g.seatedM, g.seated - g.seatedM,
                     g.dispatched > 0 ? " · §e증원 " + g.dispatched + "명§r" : "", g.taxIn,
                     GUARD_SUM[1], larders.get(g.owner.getHomePos()),
-                    g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar));
+                    g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar, g.rejElder));
         }
     }
 

@@ -2487,22 +2487,27 @@ public final class EvoSimCommand {
                 continue;
             }
             m.setHealth((float) (m.getMaxHealth() * 0.2)); // 퇴각선(30%) 아래
-            // <b>소지 식량도 비운다.</b> 급양은 배부른 병사에게 아무것도 하지 않고
-            // (medicate 의 첫 줄), 회복도 holding > 0 에서만 돈다(regenTick). 봉급을 쥔
-            // 채로 다치면 제 힘으로 나아 버려 후송·급양 가지가 통째로 안 열린다.
-            // 지갑이 마른 부상병이야말로 이 설계가 재려는 상황이다 — 결과를 꾸미는 게
-            // 아니라 <b>재려는 상황을 만드는 것</b>이다.
-            m.setDayHarvest(0.0);
+            // <b>소지 식량은 건드리지 않는다.</b> 앞선 판에서는 급양 분기를 열겠다고 0 으로
+            // 비웠는데, 그 순간 위급({@code FoodEconomy.CRITICAL} = 소지 0.3)이 되어 정반대
+            // 결과가 났다: 주둔 goal 은 위급이면 스스로 물러나고(canUse) 귀가 예외도 위급을
+            // 비켜 두므로, 부상병이 막사가 아니라 <b>제 집</b>으로 끌려갔다.
+            //
+            // 실측: 셰인 휘틀록 소지 0.0 · 체력 20% 로 goal Return(3) 을 문 채 제 저장고를
+            // 20.7 → 13.7 로 헐어 먹었다. 후송은 위급이 잠깐 풀린 틈에 2건만 겨우 났다.
+            //
+            // 봉급을 쥔 병사의 소지는 1.0~1.8 로 급양선(MEDIC_RATION 2.0)보다 낮으니 그대로
+            // 둬도 급양은 지불된다. 실제 전투의 부상병도 굶은 상태가 아니다 — 이쪽이 재려던
+            // 상황에 맞다.
             tell(ctx.getSource(), String.format(
-                    "  #%d @%d,%d → 체력 %.0f%% · 소지 0.0 · 막사 %s",
+                    "  #%d @%d,%d → 체력 %.0f%% · 소지 %.1f(유지) · 막사 %s",
                     m.getIndividual() == null ? 0 : m.getIndividual().id(),
                     m.blockPosition().getX(), m.blockPosition().getZ(),
-                    100.0 * m.getHealth() / m.getMaxHealth(),
+                    100.0 * m.getHealth() / m.getMaxHealth(), m.getHolding(),
                     pp == null ? "없음" : (pp.getX() + "," + pp.getZ())));
             n++;
         }
         tell(ctx.getSource(), String.format(
-                "§e[부상]§r 배속 병사 %d명을 체력 20%%·소지 0 으로 — 전투불가(퇴각선 30%%) 진입", n));
+                "§e[부상]§r 배속 병사 %d명을 체력 20%% 로 — 전투불가(퇴각선 30%%) 진입 · 소지는 유지", n));
         return n;
     }
 

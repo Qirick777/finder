@@ -1903,7 +1903,11 @@ public final class EvoSimCommand {
                         m.blockPosition().getX(), m.blockPosition().getZ(),
                         anch == null ? "-" : anch.getX() + "," + anch.getZ(),
                         pst == null ? -1.0 : Math.sqrt(m.blockPosition().distSqr(pst)),
-                        m.hasGuardAnchor() ? "§a있음§r" : "§c없음§r", why));
+                        // 좌표로 찍는다 — "있음"만으로는 <b>어디를</b> 보는지 알 수 없어,
+                        // 앵커가 엉뚱한 곳을 가리켜 리시가 병사를 끌고 가는 경우를 못 가른다.
+                        m.hasGuardAnchor() && m.roamAnchor() != null
+                                ? "§a" + m.roamAnchor().getX() + "," + m.roamAnchor().getZ() + "§r"
+                                : "§c없음§r", why));
             }
         }
         tell(ctx.getSource(), String.format("  현재 배속 %d명", soldiers));

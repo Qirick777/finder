@@ -50,6 +50,20 @@ public class MimicReturnGoal extends Goal {
         if (mob.isUnderTreatment() && FarmTicker.isSoldier(mob) && !mob.isCritical()) {
             return false;
         }
+        // <b>근무 중인 병사는 입금하러 집에 가지 않는다.</b>
+        //
+        // 전시 배급이 소지를 운반 상한까지 채우는데, 바로 아래 첫 조건이
+        // {@code holding >= carryCap} 이라 배급을 받은 순간 "여분 정수 생김 → 넣으러"가
+        // 참이 된다. 그래서 병사가 배급을 받자마자 집으로 <b>입금하러</b> 돌아섰다.
+        //
+        // 실측: 전선 막사(107블록 밖)에 배속된 병사가 제 집 근처에서 리시에 끌려다니다
+        // 소지 0.0 · 위급이 됐다 — 먹으라고 준 것을 은행에 넣으러 가다 굶은 것이다.
+        //
+        // 인출(아래 마지막 줄)은 막지 않는다: 그것은 굶주림이고, 위급이면 주둔 goal 이
+        // 스스로 물러나므로 귀가가 살아나야 한다.
+        if (FarmTicker.isSoldier(mob) && mob.getHolding() >= mob.carryCap()) {
+            return false;
+        }
         if (mob.getHolding() >= mob.carryCap()) {
             return true; // 여분 정수 → 넣으러 (수확 세션 중엔 운반 상한 6.0까지 미룸 — 소작 루프 v2)
         }

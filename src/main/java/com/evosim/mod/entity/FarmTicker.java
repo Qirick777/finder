@@ -1807,6 +1807,111 @@ public final class FarmTicker {
         return SORTIE.get(m.getId());
     }
 
+    /** 교전 중인 막사(정산이 정한다) — 보급병은 여기서만 나온다. */
+    private static final java.util.Set<Long> CONTESTED = new java.util.HashSet<>();
+
+    /** 막사별 <b>이 전쟁의</b> 보급 회차 — 교전이 풀리면 지운다(누적하면 세계가 굳는다). */
+    private static final java.util.Map<Long, Integer> SUPPLY_ROUNDS = new java.util.HashMap<>();
+
+    /**
+     * <b>보급병인가</b> — 교전 막사에 배속됐고 출격하지 않은 잔류 수비병.
+     *
+     * <p>새 역할을 만들지 않는다. 출격이 {@link Facilities#GARRISON_MIN} 을 남기는데, 그 둘이
+     * 지금 하는 일은 서 있는 것뿐이다. 밭에서 사람을 빼오면 노동이 준다(천민을 만들 때 지킨
+     * 원칙) — 이미 봉급을 받으며 놀고 있는 사람을 쓴다.
+     *
+     * <p>다친 보급병은 제외한다: 스스로 낫지 못하므로 남을 일으켜 세울 수도 없다.
+     */
+    public static boolean isSupplier(MimicEntity m) {
+        BlockPos p = POST_OF.get(m.getId());
+        return p != null && CONTESTED.contains(p.asLong())
+                && !SORTIE.containsKey(m.getId()) && !m.isUnderTreatment();
+    }
+
+    /** 이 막사 소속으로 지금 쓰러져 있는 아군 — 보급병이 향할 곳. 없으면 null. */
+    public static MimicEntity nearestDownedComrade(ServerLevel level, MimicEntity supplier) {
+        BlockPos post = POST_OF.get(supplier.getId());
+        if (post == null) {
+            return null;
+        }
+        MimicEntity best = null;
+        double bd = Double.MAX_VALUE;
+        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.isUnderTreatment() && post.equals(POST_OF.get(e.getId())))) {
+            double d = supplier.blockPosition().distSqr(o.blockPosition());
+            if (d < bd) {
+                bd = d;
+                best = o;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * <b>보급</b> — 보급병이 쓰러진 아군에게 닿았다. 둘레의 부상병을 복귀선까지 일으켜 세우고,
+     * 값은 지배자 저장고에서 곧장 뺀다.
+     *
+     * <p>자루 속 개수를 세지 않는다. 재려는 것은 "지배자가 전선을 얼마나 오래 떠받치는가"
+     * 하나이고, 운반 재고를 모형화해도 그 답에 보태는 것이 없다.
+     *
+     * <p><b>회차마다 비싸진다</b>({@link Facilities#SUPPLY_COST_STEP} × n). 없으면 부유한
+     * 지배자의 보급이 끝없이 이어져 전투가 안 끝난다. 선형인 이유는 상수 주석에 적었다.
+     *
+     * @return 일으켜 세운 인원(0 이면 지갑이 말랐거나 대상이 없다)
+     */
+    public static int supply(ServerLevel level, MimicEntity supplier, BlockPos post) {
+        Long ownerId = POST_OWNER.get(post.asLong());
+        if (ownerId == null || ownerId == 0L) {
+            return 0;
+        }
+        MimicEntity lord = null;
+        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getIndividual().id() == ownerId)) {
+            lord = o;
+        }
+        if (lord == null || lord.getHomePos() == null) {
+            return 0;
+        }
+        java.util.List<MimicEntity> down = new java.util.ArrayList<>();
+        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.isUnderTreatment()
+                        && post.equals(POST_OF.get(e.getId()))
+                        && e.blockPosition().closerThan(supplier.blockPosition(), 8.0))) {
+            down.add(o);
+        }
+        if (down.isEmpty()) {
+            return 0;
+        }
+        down.sort(java.util.Comparator.comparingDouble(MimicEntity::getHealth));
+        int heal = Math.min(Facilities.SUPPLY_HEAL_MAX, down.size());
+        long key = post.asLong();
+        int n = SUPPLY_ROUNDS.getOrDefault(key, 0) + 1;
+        double cost = Facilities.SUPPLY_COST_STEP * n;
+        LarderStore larders = LarderStore.get(level);
+        double have = larders.get(lord.getHomePos());
+        if (have < cost) {
+            // <b>회차는 올리지 않는다</b> — 못 낸 시도로 값이 뛰면 다시는 못 낸다.
+            com.evosim.mod.log.SimEvents.event(supplier, "보급", String.format(
+                    "막사 @%d,%d %d회차 %.1f 이 필요한데 영주 저장고가 %.1f — 전선이 일어나지"
+                            + " 못한다(쓰러진 %d명)",
+                    post.getX(), post.getZ(), n, cost, have, down.size()));
+            return 0;
+        }
+        larders.set(lord.getHomePos(), have - cost);
+        for (int i = 0; i < heal; i++) {
+            MimicEntity w = down.get(i);
+            w.setHealth((float) (w.getMaxHealth() * com.evosim.core.Combat.RETURN_HP));
+        }
+        SUPPLY_ROUNDS.put(key, n);
+        com.evosim.mod.log.SimEvents.event(supplier, "보급", String.format(
+                "막사 @%d,%d %d회차 — %d명을 복귀선(%.0f%%)까지 · 영주 저장고 %.1f→%.1f"
+                        + " (다음 회차 %.1f)",
+                post.getX(), post.getZ(), n, heal, 100.0 * com.evosim.core.Combat.RETURN_HP,
+                have, have - cost, Facilities.SUPPLY_COST_STEP * (n + 1)));
+        return heal;
+    }
+
     /**
      * <b>출격 편성</b> — 교전 막사마다 {@link Facilities#GARRISON_MIN} 을 남기고 나머지를
      * 가장 가까운 적 막사로 내보낸다.
@@ -2414,6 +2519,16 @@ public final class FarmTicker {
                     g.contested = true;
                     break;
                 }
+            }
+        }
+        // 교전 명부 갱신 — 보급병 판정이 읽는다. 평화가 온 막사는 보급 회차를 0 으로 되돌린다:
+        // 누적해 두면 오래된 세계에서 어떤 전쟁도 못 하게 굳어버린다.
+        CONTESTED.clear();
+        for (Garrison g : plans) {
+            if (g.contested) {
+                CONTESTED.add(g.bk.pos.asLong());
+            } else {
+                SUPPLY_ROUNDS.remove(g.bk.pos.asLong());
             }
         }
         double commute2 = Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE;

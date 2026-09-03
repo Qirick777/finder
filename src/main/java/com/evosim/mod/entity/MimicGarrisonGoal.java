@@ -89,9 +89,15 @@ public class MimicGarrisonGoal extends Goal {
             // <b>부상병은 근무보다 후송이 먼저다.</b> 회복은 소지 식량에 물려 있으므로
             // (regenTick), 아군 막사에서 급양을 받아야 다시 싸울 수 있다. 복귀선(70%)까지
             // 나으면 아래 평소 근무지로 돌아간다.
+            // <b>보급이 근무보다 먼저다.</b> 쓰러진 아군은 스스로 낫지 못하므로(regenTick),
+            // 잔류 수비병이 가지 않으면 그대로 남아 막사가 넘어간다. 새 goal 을 만들지 않고
+            // 근무지 선택에 한 줄로 얹는다 — 목표를 둘로 나누면 그 사이를 오가며 갈아탄다.
+            MimicEntity down = mob.isUnderTreatment() || !FarmTicker.isSupplier(mob)
+                    ? null : FarmTicker.nearestDownedComrade(sl0(), mob);
             spot = mob.isUnderTreatment()
                     ? FarmTicker.nearestFriendlyBarracks(sl0(), mob)
-                    : (night ? patrolSpot() : dayPost());
+                    : (down != null ? down.blockPosition()
+                            : (night ? patrolSpot() : dayPost()));
             if (spot == null) {
                 spot = post;
             }
@@ -147,9 +153,18 @@ public class MimicGarrisonGoal extends Goal {
             return;
         }
         mob.getNavigation().stop();
-        // 후송 도착 — 아군 막사에서 급양을 받는다(배부르면 안에서 곧바로 돌아온다).
-        if (mob.isUnderTreatment() && mob.level() instanceof net.minecraft.server.level.ServerLevel ms) {
-            FarmTicker.medicate(ms, mob, spot);
+        if (mob.level() instanceof net.minecraft.server.level.ServerLevel ms) {
+            // 후송 도착 — 아군 막사에서 급양(스스로 걸어 돌아온 경우).
+            if (mob.isUnderTreatment()) {
+                FarmTicker.medicate(ms, mob, spot);
+            } else if (FarmTicker.isSupplier(mob) && post != null) {
+                // 보급 도착 — 둘레의 쓰러진 아군을 복귀선까지. 값은 영주 저장고에서 빠진다.
+                if (FarmTicker.supply(ms, mob, post) > 0) {
+                    spot = null; // 다음 표적을 새로 고른다(다음 부상병 또는 근무지)
+                    stand = 0;
+                    return;
+                }
+            }
         }
         if (night) {
             // 경계 — 둘레를 둘러본다. 다 서 있으면 다음 지점으로.

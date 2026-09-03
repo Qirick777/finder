@@ -4169,6 +4169,35 @@ public class MimicEntity extends PathfinderMob {
      * <p>id 해시가 아니라 <b>등수</b>인 이유: 해시는 충돌하면 영영 겹치지만, 등수는 가구가
      * 바뀌면 다시 배분되어 스스로 풀린다.
      */
+    /**
+     * <b>집 안에 들어섰는가</b> — 귀가 도착 판정. 내 자리가 아니어도 <b>실내 칸 하나</b>에
+     * 닿으면 도착으로 본다.
+     *
+     * <p>{@link #homeSpot} 은 가구원에게 실내 칸을 {@code rank % 칸수} 로 하나씩 배정하는데,
+     * 가구원이 칸보다 많으면 <b>같은 칸을 둘이 노린다</b>. 미믹은 서로 밀기로만 부딪히므로
+     * 한 칸을 둘 이상이 노리면 밀려난 쪽이 도착선(1.5블록) 안에 영영 못 들어간다. 그러면
+     * 귀가 goal(4)이 MOVE 를 놓지 않아 <b>취침 goal(5)이 영영 안 켜진다</b> — 밤새 "귀소"만
+     * 찍히는 증상이다(제보).
+     *
+     * <p>자리 배정은 잠자리를 흩는 <b>연출</b>이고, 취침 진입 조건은 "집에 들어왔는가"여야
+     * 한다. 문간에서 눕던 과거 결함은 재발하지 않는다 — <b>문은 실내 칸이 아니다.</b>
+     */
+    public boolean atHomeInterior(ServerLevel sl, double arriveSqr) {
+        if (homePos == null) {
+            return false;
+        }
+        HomeBlueprint bp = blueprint(sl);
+        if (bp == null || bp.interior().isEmpty()) {
+            return blockPosition().distSqr(homePos) <= arriveSqr;
+        }
+        for (BlockPos c : bp.interior()) {
+            if (blockPosition().distSqr(c) <= arriveSqr) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public BlockPos homeSpot(ServerLevel sl) {
         if (homePos == null) {
             return null;
@@ -6681,8 +6710,20 @@ public class MimicEntity extends PathfinderMob {
         if (otherParentId == 0L || homePos == null) {
             return null;
         }
+        // <b>집을 중심으로 찾는다.</b> 종전에는 {@code getBoundingBox().inflate(24)} — <b>내 몸</b>
+        // 기준이었다. 그러면 근무지로 나간 부모는 배우자를 못 봐 {@code co == null} 이 되고,
+        // 아래에서 "공동 돌봄자 부재 → 내가 구속"으로 판정된다. 통근은 밭 48 · 막사 96 이라
+        // 24블록을 늘 넘는다.
+        //
+        // 그 결과가 <b>출근↔육아 무한 왕복</b>이다(실측): 출근 → 배우자 안 보임 → 구속 →
+        // 육아(우선순위 1)가 집으로 견인 → 배우자 보임 → 해제 → 주둔·밭일이 다시 출근.
+        // 육아가 1이고 주둔이 4라 이길 방법이 없어 병사가 밤 경계를 한 번도 못 나갔다.
+        //
+        // 바로 아래 {@code distSqr(homePos) <= 256} 이 이미 <b>집 기준</b>이므로, 검색 상자만
+        // 어긋나 있었다. 이 주석의 원래 의도("지정자가 이탈하면 <b>남은 쪽</b>이 재구속")도
+        // 집 기준일 때 성립한다 — 남은 쪽은 집에 있기 때문이다.
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
-                getBoundingBox().inflate(24.0))) {
+                new AABB(homePos).inflate(24.0))) {
             if (m != this && m.isAlive() && m.getIndividual() != null
                     && m.getIndividual().id() == otherParentId
                     && m.getStage() == LifeStage.ADULT

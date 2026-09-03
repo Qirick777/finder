@@ -81,6 +81,33 @@ public final class HomeStructure {
         return out;
     }
 
+    /**
+     * <b>천막 실내</b> — 양털 옆벽(x=±2) <b>사이</b>의 바닥 칸(x=-1..+1, z=-2..+1) 9칸.
+     *
+     * <p>{@link HomeBlueprint#legacy} 는 종전에 실내를 앵커 <b>한 칸</b>으로만 넘겼다("천막은
+     * 실내가 열려 있어 파낼 칸이 따로 없다"). 파낼 칸으로는 그것이 맞지만, 실내 칸 목록은
+     * <b>가구원의 잠자리 배정</b>에도 쓰인다({@code MimicEntity.homeSpot} 의 {@code rank % 칸수}).
+     * 칸이 하나면 가구원 전원이 같은 블록을 노리고, 미믹은 밀기로만 부딪히므로 셋 이상이면
+     * 밀려난 쪽이 도착선(1.5블록) 안에 영영 못 들어간다 — 귀가 goal 이 MOVE 를 놓지 않아
+     * <b>취침이 영영 안 켜졌다</b>(제보: 밤새 "귀소").
+     *
+     * <p>파낼 칸({@code clear})은 그대로 앵커 하나다 — 이 목록은 <b>실내</b> 인자에만 쓴다.
+     * x 를 ±1 로 좁히는 이유: x=±2 는 벽이고, 앞뒤(z=-2·+1)에는 울타리 기둥이 x=0 에 서 있어
+     * 그 두 줄의 가운데는 못 쓰지만 좌우(x=±1)는 비어 있다.
+     */
+    public static List<BlockPos> interior(BlockPos home, Direction facing) {
+        List<BlockPos> out = new ArrayList<>();
+        for (int dz = -2; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && (dz == -2 || dz == 1)) {
+                    continue; // 앞뒤 울타리 기둥 자리
+                }
+                out.add(world(home, dx, 0, dz, facing));
+            }
+        }
+        return out;
+    }
+
     /** 옆 베리 정원 8칸 — 양털 옆벽(x=±2) 바로 바깥(x=±3), z=-2..+1. 심기·집계에 쓴다. */
     public static List<BlockPos> berryTiles(BlockPos home, Direction facing) {
         List<BlockPos> out = new ArrayList<>();

@@ -72,9 +72,24 @@ public class MimicHomeGoal extends Goal {
         // 취침 goal(5)이 켜져 <b>문간에서 그대로 누웠다</b>. 그러면 뒤따라온 가구원은 막힌
         // 문 앞에 서서 밤을 샌다(제보 스크린샷).
         boolean homeTime = ph == null || ph == Schedule.Phase.SLEEP;
-        BlockPos want = spot();
-        return homeTime && !mob.isCritical()
-                && mob.blockPosition().distSqr(want == null ? home : want) > ARRIVED_SQR;
+        return homeTime && !mob.isCritical() && !arrived(home);
+    }
+
+    /**
+     * <b>집 안에 들어섰는가</b> — 내 자리가 아니어도 실내 칸 하나에 닿으면 도착이다.
+     *
+     * <p>종전에는 {@code spot()} 한 칸만 봤다. 그런데 자리 배정은 {@code rank % 칸수} 라
+     * 가구원이 칸보다 많으면 <b>같은 칸을 둘이 노리고</b>, 밀려난 쪽은 도착선 안에 영영 못
+     * 들어간다 — 이 goal(4)이 MOVE 를 안 놓아 <b>취침(5)이 영영 안 켜졌다</b>(밤새 "귀소").
+     *
+     * <p>문간에서 눕던 과거 결함은 재발하지 않는다: 문은 실내 칸이 아니므로 문에 서 있는
+     * 것으로는 여기가 참이 되지 않는다.
+     */
+    private boolean arrived(BlockPos home) {
+        if (mob.level() instanceof ServerLevel sl) {
+            return mob.atHomeInterior(sl, ARRIVED_SQR);
+        }
+        return mob.blockPosition().distSqr(home) <= ARRIVED_SQR;
     }
 
     @Override
@@ -99,8 +114,7 @@ public class MimicHomeGoal extends Goal {
         // 취침 구간은 <b>자리에 들어설 때까지만</b> 쥔다. 이 goal(4)이 계속 쥐면 우선순위가 낮은
         // 취침 goal(5)이 영영 못 켜진다(자리 지킴을 밤에만 한정하는 이유).
         boolean homeTime = ph == null || ph == Schedule.Phase.SLEEP;
-        return homeTime && !mob.isCritical()
-                && mob.blockPosition().distSqr(target == null ? home : target) > ARRIVED_SQR;
+        return homeTime && !mob.isCritical() && !arrived(home);
     }
 
     @Override

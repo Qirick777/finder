@@ -157,9 +157,12 @@ public final class HomeBlueprint {
         // 칸 수로 잡으면 구 천막 가구의 정원이 8 → 24로 <b>세 배</b>가 되어 식량이 부풀고,
         // 그 위에 세워진 밭·지대·출산 회계가 전부 어긋난다.
         // 천막은 최하층이 없어 지면층 점유 열 = 발자국이고, 문 앞 계단도 없다.
+        // 파낼 칸(clear)은 앵커 하나 — 천막은 실내가 열려 있어 파낼 것이 없다.
+        // 그러나 <b>실내</b>는 벽 사이 칸 전부를 넘긴다: 이 목록이 가구원 잠자리 배정에
+        // 쓰이는데 한 칸만 주면 전원이 같은 블록을 노려 취침이 안 켜진다(HomeStructure.interior).
         return new HomeBlueprint(home, HomeStore.TENT, true, pl, List.of(home), gd,
-                HomeStructure.berryTiles(home, f).size(), fp, List.of(home), fp, List.of(),
-                f, far);
+                HomeStructure.berryTiles(home, f).size(), fp,
+                HomeStructure.interior(home, f), fp, List.of(), f, far);
     }
 
     /**

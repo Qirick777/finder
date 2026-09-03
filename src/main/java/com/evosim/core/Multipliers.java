@@ -34,7 +34,7 @@ public final class Multipliers {
      */
     public static double gather(Individual ind, int schoolLevel) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
-        double amp = abilityAmp(t);
+        double amp = abilityAmp(ind, t);
         double m = 1.0;
         m += amp * scaled(ind, t, Trait.HERBALIST, 0.65); // 약초학자 Ⅴ=×1.65(증폭 전)
         m += scaled(ind, t, Trait.PLANT_CONFUSED, -0.5);  // 식물혼동 Ⅴ=×0.5
@@ -76,14 +76,43 @@ public final class Multipliers {
      * <p>{@code tileYield = TILE_YIELD_MULT × forageYieldMult} 이므로 <b>밭 산출도 함께 오른다</b> — 의도한
      * 것이다. 엘리트 지주는 채집과 밭 양쪽에서 벌어, 격차가 능력에서 나온다는 축이 굵어진다.
      */
+    /** 깜냥이 <b>Ⅴ 능력 둘</b>을 굴릴 때의 덤 — 명석(+0.4)의 3분의 1. */
+    public static final double MASTERY_AMP = 0.15;
+
     private static double abilityAmp(Set<Trait> t) {
-        if (t.contains(Trait.BRIGHT)) {
-            return 1.4;
+        return abilityAmp(null, t);
+    }
+
+    /**
+     * 능력 증폭기 — 명석 ×1.4 · 멍청 ×0.8 · 그 밖 ×1.0.
+     *
+     * <p><b>깜냥의 위쪽 사각지대를 메운다.</b> 깜냥은 관리 실효 등급 +1 인데 상한이 Ⅴ라,
+     * 능력이 이미 Ⅴ 인 개체에게는 <b>효과가 0</b> 이다 — 가장 뛰어난 자에게만 무용지물인
+     * 셈이었다(엘리트가 약초Ⅴ 라 이 보조 슬롯을 통째로 낭비하고 있었다).
+     *
+     * <p>그래서 <b>깜냥 + Ⅴ 능력 둘</b>이면 등급 대신 <b>증폭</b>을 준다. "밑천이 많을수록
+     * 굴릴 것도 많다" — 깜냥의 뜻 그대로다. 등급이 아니라 증폭인 이유는 관리 등급이 Ⅴ에서
+     * 막혀 얹을 자리가 없기 때문이고, 증폭기는 채집·사냥에 함께 걸린다.
+     *
+     * <p>희소도: 능력 특성은 7축 14종이고 성향 슬롯은 3칸, 등급은 균등 Ⅰ~Ⅴ 다. 능력 둘이
+     * 들어올 확률 ≈ 10%, 그 둘이 모두 Ⅴ 일 확률 ≈ <b>0.4%</b> — 인구 800 에 서넛이다.
+     * 인위적 소환 전용이 아니라 드물게 <b>태어난다</b>.
+     *
+     * <p>능력 하나짜리와 무능력자는 전혀 건드리지 않는다 — 깜냥의 {@code best > 0} 가드가
+     * 평민 경제를 안 건드리는 것과 같은 성질이다.
+     */
+    private static double abilityAmp(Individual ind, Set<Trait> t) {
+        double base = t.contains(Trait.BRIGHT) ? 1.4 : t.contains(Trait.DULL) ? 0.8 : 1.0;
+        if (ind == null || !t.contains(Trait.KEEN_EYE)) {
+            return base;
         }
-        if (t.contains(Trait.DULL)) {
-            return 0.8;
+        int fives = 0;
+        for (Trait a : t) {
+            if (a.isAbility() && abilityGrade(ind, a) >= 5 && ++fives >= 2) {
+                return base + MASTERY_AMP;
+            }
         }
-        return 1.0;
+        return base;
     }
 
     /** 사냥 배율 (설계서 §15). 능력 축 보너스는 등급 비례(×g/5, Ⅴ=만액 — 밴드 산출 문서 ⑤).
@@ -95,7 +124,7 @@ public final class Multipliers {
     /** 사냥 배율 + <b>획득 교육</b> — 채집과 같은 규칙({@link #gather(Individual, int)} 참조). */
     public static double hunt(Individual ind, int schoolLevel) {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
-        double amp = abilityAmp(t);
+        double amp = abilityAmp(ind, t);
         double m = 1.0;
         m += amp * scaled(ind, t, Trait.BUTCHER, 0.5);    // 도축업자 Ⅴ=×1.5(증폭 전)
         m += scaled(ind, t, Trait.BLOOD_FEARFUL, -0.5);   // 피공포 Ⅴ=×0.5
@@ -206,7 +235,7 @@ public final class Multipliers {
         if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.BRIGHT)) {
             best = Math.min(5, best + 1);
         }
-        // 보조 축(안목) — 명석과 같은 best>0 가드. 능력이 없으면 눈썰미가 있어도 정확히 0이라
+        // 보조 축(안목) — 명석과 같은 best>0 가드. 능력이 없으면 깜냥가 있어도 정확히 0이라
         // 평민 경제(정원 M=1.0 · 적자)는 전혀 건드리지 않는다. 능력자에게만 등급이 ±1 되어
         // 정원(M(g))·관리용량(8+g³)·착공 시기가 동시에 움직인다 — 촉매형 보조의 표준형.
         // 도입 근거: 야생 착공이 d5~d18로 늦어 소작 전환이 제때 열리지 않으면, 무밭 출산(≈1)이

@@ -280,34 +280,7 @@ public final class HomeTemplate {
         CompoundTag tag = raw.get();
 
         // 팔레트(블록 종류 표) → 상태 배열. 회전·대칭은 상태에도 적용해야 문·계단이 같이 돈다.
-        ListTag paletteTag = tag.contains("palette", Tag.TAG_LIST)
-                ? tag.getList("palette", Tag.TAG_COMPOUND)
-                : tag.getList("palettes", Tag.TAG_LIST).getCompound(0)
-                        .getList("palette", Tag.TAG_COMPOUND);
-        BlockState[] states = new BlockState[paletteTag.size()];
-        var lookup = BuiltInRegistries.BLOCK.asLookup();
-        for (int i = 0; i < paletteTag.size(); i++) {
-            // <b>모르는 블록 이름은 소리 없이 공기가 된다.</b> {@code NbtUtils.readBlockState} 는
-            // 등록부에 없는 이름을 만나면 예외를 던지지 않고 공기를 돌려준다. 그래서 도면에
-            // {@code minecraft:iron_chain}(다른 판의 이름 — 1.20.1 은 {@code minecraft:chain})이
-            // 적혀 있어도 경고 한 줄 없이 <b>사슬만 빠진 채</b> 건물이 섰다. 실측으로 확인:
-            // 교회·저택·학교 5개 도면에서 사슬이 파일에는 12개 있는데 월드에는 0개였고,
-            // 이름을 고치자 같은 자리에서 4·1·1·3·3 개가 그대로 놓였다.
-            //
-            // 이름 하나 어긋난 것을 "왜 사슬이 안 걸리지"로 헤매게 만드는 종류의 침묵이라,
-            // 여기서 한 번 짖게 한다. 던지지는 않는다 — 장식 한 종류 때문에 집 전체가 안 서면
-            // 그게 더 큰 사고다.
-            CompoundTag entry = paletteTag.getCompound(i);
-            ResourceLocation name = ResourceLocation.tryParse(entry.getString("Name"));
-            if ((name == null || !BuiltInRegistries.BLOCK.containsKey(name))
-                    && WARNED.add(design + '|' + entry.getString("Name"))) {
-                LOG.warn("도면 {}: 팔레트의 '{}' 는 이 판에 없는 블록 — 공기로 대체된다",
-                        design, entry.getString("Name"));
-            }
-            states[i] = fixStairMirror(
-                    NbtUtils.readBlockState(lookup, entry).mirror(mirror),
-                    mirror).rotate(rotation);
-        }
+        BlockState[] states = paletteStates(design, tag, rotation, mirror);
 
         // 좌표 → 블록 색인. 좌표에도 <b>같은</b> 변환(대칭 후 회전, 피벗 원점)을 준다.
         // 바닐라 StructureTemplate.transform 과 동일한 식이라, 나중에 placeInWorld 로 바꿔도
@@ -471,6 +444,45 @@ public final class HomeTemplate {
         } catch (java.io.IOException e) {
             throw new IllegalStateException(design + ": 도면을 읽을 수 없다 — " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 도면 팔레트(블록 종류 표) → 회전·대칭이 적용된 상태 배열. 거처와 시설이 <b>같은</b>
+     * 함수를 쓴다 — 두 벌로 갈라지면 한쪽에만 있는 결함이 생긴다.
+     *
+     * <p><b>모르는 블록 이름은 소리 없이 공기가 된다.</b> {@link NbtUtils#readBlockState} 는
+     * 등록부에 없는 이름을 만나면 예외를 던지지 않고 공기를 돌려준다. 그래서 도면에
+     * {@code minecraft:iron_chain}(다른 판의 이름 — 1.20.1 은 {@code minecraft:chain})이
+     * 적혀 있어도 경고 한 줄 없이 <b>사슬만 빠진 채</b> 건물이 섰다. 실측으로 확인: 교회·저택·
+     * 학교 5개 도면에서 사슬이 파일에는 12개 있는데 월드에는 0개였고, 이름을 고치자 같은
+     * 자리에서 4·1·1·3·3 개가 그대로 놓였다.
+     *
+     * <p>이름 하나 어긋난 것을 "왜 사슬이 안 걸리지"로 헤매게 만드는 종류의 침묵이라, 여기서
+     * 한 번 짖게 한다. 던지지는 <b>않는다</b> — 장식 한 종류 때문에 건물 전체가 안 서면 그게
+     * 더 큰 사고다.
+     */
+    static BlockState[] paletteStates(String design, CompoundTag tag,
+                                      Rotation rotation, Mirror mirror) {
+        ListTag paletteTag = tag.contains("palette", Tag.TAG_LIST)
+                ? tag.getList("palette", Tag.TAG_COMPOUND)
+                : tag.getList("palettes", Tag.TAG_LIST).getCompound(0)
+                        .getList("palette", Tag.TAG_COMPOUND);
+        BlockState[] states = new BlockState[paletteTag.size()];
+        var lookup = BuiltInRegistries.BLOCK.asLookup();
+        for (int i = 0; i < paletteTag.size(); i++) {
+            CompoundTag entry = paletteTag.getCompound(i);
+            String raw = entry.getString("Name");
+            ResourceLocation name = ResourceLocation.tryParse(raw);
+            if ((name == null || !BuiltInRegistries.BLOCK.containsKey(name))
+                    && WARNED.add(design + '|' + raw)) {
+                LOG.warn("도면 {}: 팔레트의 '{}' 는 이 판에 없는 블록 — 공기로 대체된다",
+                        design, raw);
+            }
+            states[i] = fixStairMirror(
+                    NbtUtils.readBlockState(lookup, entry).mirror(mirror),
+                    mirror).rotate(rotation);
+        }
+        return states;
     }
 
     /** y=0 평면의 열 키(x·z) — 둘러싸임 판정은 평면 문제다. */

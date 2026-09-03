@@ -63,7 +63,14 @@ public final class FacilityTemplate {
     }
 
     public enum Kind {
-        SCHOOL("school", "학교", Group.SCHOOL),
+        // 학교 도면을 school(21·21·18) → basic_school(15·12·15) 로 줄인다.
+        //
+        // 21×21 은 집 간격(15~19)보다 넓어 <b>마을 안에 들어가지 못했다</b>. 실측: 가장자리에
+        // 서면 통학 한계 32 안에 드는 아이가 0/6명 · 0/9명이었고, 그 때문에 한계를 32 → 48 →
+        // 96 으로 세 번 올려야 했다. 크기가 원인이었으므로 크기를 고친다.
+        //
+        // 큰 도면(school)은 리소스에 남긴다 — 성인이 다니는 상급 시설 자리다.
+        SCHOOL("basic_school", "학교", Group.SCHOOL),
         CHURCH("church", "큰교회", Group.CHURCH),
         SMALL_CHURCH("small_church", "작은교회", Group.CHURCH),
         BARRACKS("barracks", "막사", Group.BARRACKS);
@@ -201,17 +208,7 @@ public final class FacilityTemplate {
             return Optional.empty();
         }
         CompoundTag tag = raw.get();
-        ListTag paletteTag = tag.contains("palette", Tag.TAG_LIST)
-                ? tag.getList("palette", Tag.TAG_COMPOUND)
-                : tag.getList("palettes", Tag.TAG_LIST).getCompound(0)
-                        .getList("palette", Tag.TAG_COMPOUND);
-        BlockState[] states = new BlockState[paletteTag.size()];
-        var lookup = BuiltInRegistries.BLOCK.asLookup();
-        for (int i = 0; i < paletteTag.size(); i++) {
-            states[i] = HomeTemplate.fixStairMirror(
-                    NbtUtils.readBlockState(lookup, paletteTag.getCompound(i)).mirror(mirror),
-                    mirror).rotate(rotation);
-        }
+        BlockState[] states = HomeTemplate.paletteStates(kind.design, tag, rotation, mirror);
 
         ListTag blocksTag = tag.getList("blocks", Tag.TAG_COMPOUND);
         Map<BlockPos, BlockState> byPos = new HashMap<>();

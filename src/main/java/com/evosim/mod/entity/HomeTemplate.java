@@ -254,6 +254,11 @@ public final class HomeTemplate {
     // 열 번 가까이 도면을 묻는다. 매번 압축 NBT 를 다시 파싱하면 그게 곧 건축 지연이다.
     private static final java.util.Map<String, HomeTemplate> CACHE = new java.util.HashMap<>();
 
+    private static final org.slf4j.Logger LOG = com.mojang.logging.LogUtils.getLogger();
+
+    /** 한 도면에 대해 같은 경고를 매번 짖지 않도록 — 캐시가 비면(리로드) 다시 짖는다. */
+    private static final java.util.Set<String> WARNED = new java.util.HashSet<>();
+
     public static Optional<HomeTemplate> load(ServerLevel level, String design,
                                               Rotation rotation, Mirror mirror) {
         String key = design + '|' + rotation + '|' + mirror;
@@ -282,8 +287,25 @@ public final class HomeTemplate {
         BlockState[] states = new BlockState[paletteTag.size()];
         var lookup = BuiltInRegistries.BLOCK.asLookup();
         for (int i = 0; i < paletteTag.size(); i++) {
+            // <b>모르는 블록 이름은 소리 없이 공기가 된다.</b> {@code NbtUtils.readBlockState} 는
+            // 등록부에 없는 이름을 만나면 예외를 던지지 않고 공기를 돌려준다. 그래서 도면에
+            // {@code minecraft:iron_chain}(다른 판의 이름 — 1.20.1 은 {@code minecraft:chain})이
+            // 적혀 있어도 경고 한 줄 없이 <b>사슬만 빠진 채</b> 건물이 섰다. 실측으로 확인:
+            // 교회·저택·학교 5개 도면에서 사슬이 파일에는 12개 있는데 월드에는 0개였고,
+            // 이름을 고치자 같은 자리에서 4·1·1·3·3 개가 그대로 놓였다.
+            //
+            // 이름 하나 어긋난 것을 "왜 사슬이 안 걸리지"로 헤매게 만드는 종류의 침묵이라,
+            // 여기서 한 번 짖게 한다. 던지지는 않는다 — 장식 한 종류 때문에 집 전체가 안 서면
+            // 그게 더 큰 사고다.
+            CompoundTag entry = paletteTag.getCompound(i);
+            ResourceLocation name = ResourceLocation.tryParse(entry.getString("Name"));
+            if ((name == null || !BuiltInRegistries.BLOCK.containsKey(name))
+                    && WARNED.add(design + '|' + entry.getString("Name"))) {
+                LOG.warn("도면 {}: 팔레트의 '{}' 는 이 판에 없는 블록 — 공기로 대체된다",
+                        design, entry.getString("Name"));
+            }
             states[i] = fixStairMirror(
-                    NbtUtils.readBlockState(lookup, paletteTag.getCompound(i)).mirror(mirror),
+                    NbtUtils.readBlockState(lookup, entry).mirror(mirror),
                     mirror).rotate(rotation);
         }
 

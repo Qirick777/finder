@@ -1790,6 +1790,68 @@ public final class FarmTicker {
      * 막사가 늘 무방비로 보여 점령 카운트가 오른다(실측: 양쪽 다 배속 1명인데 한쪽만
      * 카운트). 먼저 처리되는 세력이 언제나 이기는 셈이라 전쟁이 순회 순서로 결정된다.
      */
+    /**
+     * <b>출격 명부</b> — 병사 엔티티 id → 나아갈 적 막사. 일일 정산이 짜고 주둔 goal 이 읽는다.
+     *
+     * <p>이것이 없어 <b>전쟁이 한 번도 일어나지 않았다</b>. 주둔 goal 이 갈 수 있는 곳은 제
+     * 막사 좌석 · 압박 표적 · 제 세력 집 · 제 막사 반경 20 안 임의점 넷뿐인데, 압박 표적에서는
+     * 무장 세력이 명시적으로 빠진다("무장 세력 — 전투로 갈린다(P4)"). 갈린다고 적어 두고 갈릴
+     * 자리를 안 만든 것이다. 실측(P6): 12명 대 8명이 30블록 거리에 마주 섰는데 전투 0건.
+     *
+     * <p>배분은 정산이, 행동은 goal 이 한다는 기존 분업 그대로다(주둔 goal 문서 참조).
+     */
+    private static final java.util.Map<Integer, BlockPos> SORTIE = new java.util.HashMap<>();
+
+    /** 이 병사가 나아갈 적 막사 — 없으면 제 자리를 지킨다. */
+    public static BlockPos sortieOf(MimicEntity m) {
+        return SORTIE.get(m.getId());
+    }
+
+    /**
+     * <b>출격 편성</b> — 교전 막사마다 {@link Facilities#GARRISON_MIN} 을 남기고 나머지를
+     * 가장 가까운 적 막사로 내보낸다.
+     *
+     * <p>전원을 내보내면 제 막사가 비어 그날로 점령당한다(점령 판정은 "전투 가능 병사 0").
+     * 수비를 남기는 수는 파견에서 쓰는 것과 같은 상수다 — 남기는 몫과 보내는 몫이 같은 잣대를
+     * 쓴다.
+     */
+    private static void formSorties(ServerLevel level, java.util.List<Garrison> plans) {
+        SORTIE.clear();
+        double r2 = Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE;
+        for (Garrison g : plans) {
+            if (!g.contested) {
+                continue;
+            }
+            BlockPos foe = null;
+            double bd = Double.MAX_VALUE;
+            for (Garrison o : plans) {
+                if (o == g || factionRootOf(o.bk.ownerId) == factionRootOf(g.bk.ownerId)) {
+                    continue;
+                }
+                double d = o.bk.pos.distSqr(g.bk.pos);
+                if (d <= r2 && d < bd) {
+                    bd = d;
+                    foe = o.bk.pos;
+                }
+            }
+            if (foe == null) {
+                continue;
+            }
+            int held = 0;
+            for (MimicEntity s : g.seatedList) {
+                if (held < Facilities.GARRISON_MIN) {
+                    held++;
+                    continue; // 수비로 남긴다
+                }
+                SORTIE.put(s.getId(), foe);
+            }
+            com.evosim.mod.log.SimEvents.note(level, "출격", String.format(
+                    "막사 @%d,%d — 적 막사 @%d,%d(%.0f블록) 로 %d명 진격 · 수비 %d명 잔류",
+                    g.bk.pos.getX(), g.bk.pos.getZ(), foe.getX(), foe.getZ(), Math.sqrt(bd),
+                    Math.max(0, g.seatedList.size() - Facilities.GARRISON_MIN), held));
+        }
+    }
+
     private static void settleOccupation(ServerLevel level, java.util.List<MimicEntity> adults) {
         FacilityStore reg = FacilityStore.get(level);
         for (FacilityStore.Entry bk : new java.util.ArrayList<>(reg.all())) {
@@ -2293,6 +2355,7 @@ public final class FarmTicker {
         final int rejPatron;
         final int rejFar;
         boolean contested;
+        final java.util.List<MimicEntity> seatedList = new java.util.ArrayList<>();
         int seated;
         int seatedM;
         int dispatched; // 통근 반경 밖에서 불려온 수 — 증원이 실제로 걸렸는지의 눈금
@@ -2375,6 +2438,7 @@ public final class FarmTicker {
         for (Garrison g : plans) { // ③ 나머지 정원
             seatSoldiers(level, ledger, larders, adults, reg, g, g.cap, commute2, handled, day);
         }
+        formSorties(level, plans);
         for (Garrison g : plans) {
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
                     "막사 @%d,%d%s — 지킬가구 %d → 정원 %d(전시 %d) · 배속 %d명(남%d 여%d%s) · 세수 %.1f"
@@ -2477,6 +2541,7 @@ public final class FarmTicker {
                             Math.sqrt(s.getHomePos().distSqr(bk.pos)),
                             (int) Facilities.COMMUTE_RANGE, bk.ownerId));
                 }
+                g.seatedList.add(s);
                 g.seated++;
                 GUARD_SUM[0]++;
         }

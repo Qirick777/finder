@@ -185,6 +185,14 @@ public class MimicGarrisonGoal extends Goal {
         if (post == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel)) {
             return FarmTicker.guardSeatOf(mob);
         }
+        // <b>출격이 먼저다.</b> 겹친 세력권은 압박이 아니라 전투로 갈린다 — 그런데 압박 표적에서
+        // 무장 세력이 빠지므로, 이 줄이 없으면 병사는 제 막사에 앉은 채 평생 적을 만나지
+        // 않는다(실측 P6: 12명 대 8명이 30블록 거리에서 전투 0건). 압박이 표적 집 앞에 서는
+        // 것으로 성립하듯, 전쟁은 적 막사 앞에 서는 것으로 성립한다.
+        BlockPos foe = FarmTicker.sortieOf(mob);
+        if (foe != null) {
+            return foe;
+        }
         java.util.List<BlockPos> targets = FarmTicker.pressureHomesOf(post);
         if (targets.isEmpty()) {
             return FarmTicker.guardSeatOf(mob);

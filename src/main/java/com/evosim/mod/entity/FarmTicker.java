@@ -2634,6 +2634,32 @@ public final class FarmTicker {
                 } else {
                     UNPAID_DAYS.remove(sid);
                 }
+                // ④-b <b>전시 배급</b> — 교전 막사의 병사는 손에 식량을 쥐고 나간다.
+                //
+                // 봉급은 병사의 <b>집 저장고</b>로 들어간다(바로 위). 평시에는 그게 맞다 —
+                // 군인은 가구를 먹여 살리는 사람이고 봉급이 그 가구의 주 소득을 대체한다.
+                // 그런데 전시에는 병사가 집에서 110~151블록 떨어진 전선에 있고, 부상 중엔
+                // 귀가도 막혀 있다. 제 봉급을 못 먹는다.
+                //
+                // 실측(보급 검증 런): 사망 24명 중 <b>아사 14 · 전사 10</b>. 파견병이 행군
+                // 중에 굶어 죽었고(151블록·134블록 확인), 그래서 출격 인원이 10 → 6 → 1 → 0
+                // 으로 말라 전쟁이 병력 고갈로 끝났다. 지갑이 시험대에 오르기 전에 끝난 것이다.
+                //
+                // 배급은 지배자가 낸다 — 여기서도 지갑이 상한이다. 가난한 지배자는 배급을
+                // 못 채워 보내고, 그 병사는 길에서 굶는다.
+                if (CONTESTED.contains(bk.pos.asLong())) {
+                    double want = s.carryCap() - s.getHolding();
+                    if (want > 0.0) {
+                        double stock = larders.get(owner.getHomePos());
+                        double give = Math.min(want, Math.max(0.0, stock));
+                        if (give > 0.0) {
+                            larders.set(owner.getHomePos(), stock - give);
+                            s.setDayHarvest(s.getHolding() + give);
+                            reg.spend(bk, give);
+                            GUARD_SUM[1] += give;
+                        }
+                    }
+                }
                 // ⑤ 신세 — 봉급은 지주→군인 방향으로 예속을 쌓는다(소작 임금과 같은 구조).
                 ledger.record(sid, bk.ownerId,
                         AllegianceStore.W_TENANCY * AllegianceStore.rapport(s.getIndividual()),

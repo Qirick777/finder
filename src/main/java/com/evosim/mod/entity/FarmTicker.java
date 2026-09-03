@@ -1810,8 +1810,18 @@ public final class FarmTicker {
     /** 교전 중인 막사(정산이 정한다) — 보급병은 여기서만 나온다. */
     private static final java.util.Set<Long> CONTESTED = new java.util.HashSet<>();
 
-    /** 막사별 <b>이 전쟁의</b> 보급 회차 — 교전이 풀리면 지운다(누적하면 세계가 굳는다). */
+    /**
+     * 막사별 보급 회차 — 값이 곧 다음 보급의 값이다({@link Facilities#SUPPLY_COST_STEP} × n).
+     *
+     * <p><b>오르는 것만큼 내려간다.</b> 보급이 있었던 날은 오르고, 없었던 날은 하루에 하나씩
+     * 내린다. 뚝 끊어 0 으로 되돌리지 않는 이유는 "어제 끝난 싸움과 오늘 시작한 싸움"의 경계가
+     * 실제로는 없기 때문이고, 누적만 시키지 않는 이유는 오래된 세계에서 어떤 싸움도 못 하게
+     * 굳어버리기 때문이다 — 무한 중첩을 이 감소가 막는다.
+     */
     private static final java.util.Map<Long, Integer> SUPPLY_ROUNDS = new java.util.HashMap<>();
+
+    /** 오늘 보급이 있었던 막사 — 정산에서 감소 대상을 가르는 데만 쓴다. */
+    private static final java.util.Set<Long> SUPPLIED_TODAY = new java.util.HashSet<>();
 
     /**
      * <b>보급병인가</b> — 배속됐고 출격하지 않은 잔류 수비병.
@@ -1913,6 +1923,7 @@ public final class FarmTicker {
             w.setHealth((float) (w.getMaxHealth() * com.evosim.core.Combat.RETURN_HP));
         }
         SUPPLY_ROUNDS.put(key, n);
+        SUPPLIED_TODAY.add(key);
         com.evosim.mod.log.SimEvents.event(supplier, "보급", String.format(
                 "막사 @%d,%d %d회차 — %d명을 복귀선(%.0f%%)까지 · 영주 저장고 %.1f→%.1f"
                         + " (다음 회차 %.1f)",
@@ -2568,21 +2579,23 @@ public final class FarmTicker {
         for (Garrison g : plans) { // ③ 나머지 정원
             seatSoldiers(level, ledger, larders, adults, reg, g, g.cap, commute2, handled, day);
         }
-        // <b>보급 회차 초기화</b> — 그 막사에 쓰러진 사람이 하나도 없으면 이 싸움은 끝난
-        // 것이므로 0 으로 돌린다. 누적해 두면 오래된 세계에서 어떤 싸움도 못 하게 굳는다.
-        // 교전 여부가 아니라 부상자 유무로 보는 이유: 보급이 세력 전쟁에만 붙지 않기 때문이다.
+        // <b>보급 회차의 점진 감소</b> — 어제 보급이 없었던 막사는 값이 하나 내린다.
+        // 오르는 것만큼 내려가므로 무한 중첩이 없고, 싸움이 잦아들면 값도 함께 식는다.
         for (Garrison g : plans) {
-            boolean anyDown = false;
-            for (MimicEntity m : adults) {
-                if (g.bk.pos.equals(POST_OF.get(m.getId())) && m.isUnderTreatment()) {
-                    anyDown = true;
-                    break;
+            long key = g.bk.pos.asLong();
+            if (SUPPLIED_TODAY.contains(key)) {
+                continue;
+            }
+            Integer n = SUPPLY_ROUNDS.get(key);
+            if (n != null) {
+                if (n <= 1) {
+                    SUPPLY_ROUNDS.remove(key);
+                } else {
+                    SUPPLY_ROUNDS.put(key, n - 1);
                 }
             }
-            if (!anyDown) {
-                SUPPLY_ROUNDS.remove(g.bk.pos.asLong());
-            }
         }
+        SUPPLIED_TODAY.clear();
         formSorties(level, plans);
         for (Garrison g : plans) {
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(

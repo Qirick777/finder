@@ -34,6 +34,22 @@ public class MimicReturnGoal extends Goal {
                 || mob.isBuilding() || mob.isFastSettle() || mob.isCourtTravel()) {
             return false; // 구혼 여행 중엔 귀가로 끌지 않음(노상 자급 — H 상한 컷)
         }
+        // <b>전투불가 병사는 귀가로 끌지 않는다 — 후송이 먼저다.</b>
+        //
+        // 귀가(3)는 주둔(4)보다 우선이고, 다친 병사는 소지가 바닥나 있기 마련이라
+        // "소지 < 0.8 이고 제 집에 밥이 있음"이 거의 항상 참이 된다. 그러면 부상병은
+        // 아군 막사가 아니라 <b>제 집</b>으로 가서 <b>제</b> 저장고를 헐어 먹는다.
+        // 급양은 MimicGarrisonGoal.tick 안에만 있으므로, 그 goal 이 밀리는 한 영주
+        // 저장고는 영영 열리지 않는다 — 설계가 세우려던 "지갑 = 전투지속력"이 끊긴다.
+        //
+        // 실측(P5): 스티븐 셔우드 소지 0.0 · 체력 20% 로 goal Return(3) 을 물고 제 집
+        // 방향(13,-9)으로 갔다. 제 저장고가 14.7 → 12.7 로 깎였고 후송은 0건이었다.
+        //
+        // 굶어 죽는 것을 막는 안전판은 그대로다: 위급(H<0.3)은 주둔 goal 이 스스로
+        // 물러나므로(canUse 의 isCritical 분기) 그때는 이 예외가 걸려도 귀가가 살아난다.
+        if (mob.isWounded() && FarmTicker.isSoldier(mob) && !mob.isCritical()) {
+            return false;
+        }
         if (mob.getHolding() >= mob.carryCap()) {
             return true; // 여분 정수 → 넣으러 (수확 세션 중엔 운반 상한 6.0까지 미룸 — 소작 루프 v2)
         }

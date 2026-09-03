@@ -59,8 +59,11 @@ public class MimicGarrisonGoal extends Goal {
             return false;
         }
         // 다치거나 나으면 근무지를 다시 고른다 — 후송 ↔ 근무 전환점.
-        if (wounded != mob.isWounded()) {
-            wounded = mob.isWounded();
+        // <b>치료 상태는 히스테리시스다</b>(퇴각선 30% 에서 켜지고 복귀선 70% 에서 꺼진다).
+        // isWounded 하나로 보면 31% 에서 곧장 근무로 돌아가 야전병원 체류가 10%p 뿐이고,
+        // 막사 문 앞에서 30% 를 오르내리며 후송↔근무를 갈아타는 진동이 생긴다.
+        if (wounded != mob.isUnderTreatment()) {
+            wounded = mob.isUnderTreatment();
             spot = null;
             stand = 0;
         }
@@ -86,7 +89,7 @@ public class MimicGarrisonGoal extends Goal {
             // <b>부상병은 근무보다 후송이 먼저다.</b> 회복은 소지 식량에 물려 있으므로
             // (regenTick), 아군 막사에서 급양을 받아야 다시 싸울 수 있다. 복귀선(70%)까지
             // 나으면 아래 평소 근무지로 돌아간다.
-            spot = mob.isWounded()
+            spot = mob.isUnderTreatment()
                     ? FarmTicker.nearestFriendlyBarracks(sl0(), mob)
                     : (night ? patrolSpot() : dayPost());
             if (spot == null) {
@@ -145,7 +148,7 @@ public class MimicGarrisonGoal extends Goal {
         }
         mob.getNavigation().stop();
         // 후송 도착 — 아군 막사에서 급양을 받는다(배부르면 안에서 곧바로 돌아온다).
-        if (mob.isWounded() && mob.level() instanceof net.minecraft.server.level.ServerLevel ms) {
+        if (mob.isUnderTreatment() && mob.level() instanceof net.minecraft.server.level.ServerLevel ms) {
             FarmTicker.medicate(ms, mob, spot);
         }
         if (night) {

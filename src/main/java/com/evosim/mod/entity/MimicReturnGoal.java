@@ -47,7 +47,7 @@ public class MimicReturnGoal extends Goal {
         //
         // 굶어 죽는 것을 막는 안전판은 그대로다: 위급(H<0.3)은 주둔 goal 이 스스로
         // 물러나므로(canUse 의 isCritical 분기) 그때는 이 예외가 걸려도 귀가가 살아난다.
-        if (mob.isWounded() && FarmTicker.isSoldier(mob) && !mob.isCritical()) {
+        if (mob.isUnderTreatment() && FarmTicker.isSoldier(mob) && !mob.isCritical()) {
             return false;
         }
         if (mob.getHolding() >= mob.carryCap()) {

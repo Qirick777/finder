@@ -1261,14 +1261,73 @@ public class MimicEntity extends PathfinderMob {
     private static final int REGEN_INTERVAL = 40;   // 재생 판정 주기(틱)
     private static final double REGEN_BASE = 0.5;   // 주기당 기본 회복량(× 회복력 등급 배수)
 
+    /** 야전병원 도착 판정 — 주둔 goal 의 도착 문턱(2.5)보다 넉넉히 잡아 문간에서 진동하지 않게. */
+    private static final double MEDIC_RANGE = 4.0;
+
+    /**
+     * <b>치료 중</b> — 퇴각선(30%)에서 켜지고 복귀선(70%)에서만 꺼진다.
+     *
+     * <p>{@link #isWounded()} 하나로 판정하면 밴드가 30% 한 점뿐이라, 31% 가 되는 순간
+     * "성한 병사"가 되어 근무지로 되돌아간다. 그러면 야전병원에 머무는 구간이 10%p 밖에
+     * 안 되고, 막사 문 앞에서 30% 를 오르내리며 후송↔근무를 갈아타는 진동도 생긴다.
+     * 리시의 히스테리시스(반경 → 60%)와 같은 이유로 두 문턱을 벌린다.
+     */
+    private boolean treating;
+
+    /** 치료 중인가 — 후송 목적지와 회복 조건이 공유하는 하나의 상태. */
+    public boolean isUnderTreatment() {
+        return treating;
+    }
+
+    private void treatmentTick() {
+        if (treating) {
+            if (isHealed()) {
+                treating = false;
+            }
+        } else if (isWounded()) {
+            treating = true;
+        }
+    }
+
+    /** 아군 막사 곁인가 — 전투불가 병사의 회복 조건. 막사가 없으면(비배속) 거짓. */
+    private boolean atFriendlyBarracks() {
+        if (!(level() instanceof ServerLevel sl)) {
+            return false;
+        }
+        BlockPos bk = FarmTicker.nearestFriendlyBarracks(sl, this);
+        return bk != null && blockPosition().closerThan(bk, MEDIC_RANGE);
+    }
+
     /** 회복력(강건/병약) 등급 비례 재생 — 위험이 없을 때만 서서히 체력 회복(전투 중 탱킹 방지). */
     private void regenTick() {
+        treatmentTick(); // 체력 판정보다 먼저 — 만체가 되면 여기서 치료가 풀린다
         if (individual == null || getHealth() >= getMaxHealth()) {
             regenTimer = 0;
             return;
         }
         if (isUnderThreat()) {
             return; // 위험 중엔 회복 안 함
+        }
+        // <b>전투불가 병사는 아군 막사에서만 낫는다</b> — 지갑이 곧 전투지속력이 되는 자리.
+        //
+        // 종전에는 회복이 급양과 아무 관계 없이 돌았다. 그런데 회복은 800틱이면 퇴각선(30%)
+        // 에서 복귀선(70%)까지 올라가고, 그 사이 병사는 160블록을 걷는다 — 후송 거리 상한
+        // (통근 96)보다 멀다. 그래서 <b>어떤 거리에서도 막사에 닿기 전에 다 나았고</b>,
+        // 도착 시점엔 isWounded 가 거짓이라 급양이 호출조차 되지 않았다.
+        //
+        // 실측(P5): 20% 로 눕힌 병사가 12초 간격 표본에서 55% → 75% → 98% → 100% 로 오르는
+        // 동안 막사까지 거리는 16 → 16 → 10 → 1 이었다. 후송 0건.
+        //
+        // {@code FarmTicker.medicate} 주석이 적어 둔 사슬("저장고가 마르면 급양이 끊기고 →
+        // 회복이 멎고 → 계속 전투불가로 남고 → 막사가 넘어간다")은 코드에 없었다. 이 조건이
+        // 그것을 실제로 만든다: 다치면 제자리에서 낫지 못하고 막사로 가야 하며, 영주 저장고가
+        // 마르면 급양이 끊겨 회복도 멎는다.
+        //
+        // 평시 미믹의 회복은 건드리지 않는다 — 배속된 병사가 퇴각선 아래일 때만이다.
+        // 굶어 죽는 것을 막는 안전판도 그대로다: 위급이면 주둔 goal 이 물러나 귀가가 살아나고,
+        // 그때는 아래 holding 조건이 이미 회복을 막고 있다.
+        if (treating && FarmTicker.isSoldier(this) && !atFriendlyBarracks()) {
+            return;
         }
         if (holding <= 0.0) {
             return; // 굶는 중엔 회복 없음(재생이 아사 피해를 상쇄해 교착되는 것 방지)

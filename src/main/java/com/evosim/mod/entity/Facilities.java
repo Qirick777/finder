@@ -367,6 +367,18 @@ public final class Facilities {
     public static final int GARRISON_MIN = 2;
 
     /**
+     * <b>파견 반경</b> — 교전 막사로 불려올 수 있는 최대 거리(평시 배속은 {@link #COMMUTE_RANGE}).
+     *
+     * <p>160 은 미믹의 {@code FOLLOW_RANGE} 와 같은 값이다. 그 속성이 경로 탐색의 상한이라,
+     * 이보다 먼 목적지는 리시가 <b>경로를 만들지 못해 그 자리에 얼어붙는다</b>(같은 함정을
+     * 구걸에서 이미 겪었고, 거기서는 96블록 경유지를 놓아 223블록을 완주했다).
+     *
+     * <p>먼저 이 값으로 재고, 파견 병사가 실제로 도착하지 못하면 그때 경유지 장치를 붙인다 —
+     * 미리 붙여 놓고 "될 것이다"라고 하지 않는다.
+     */
+    public static final double DISPATCH_RANGE = 160.0;
+
+    /**
      * <b>후송 급양</b> — 부상병이 아군 막사에 닿으면 영주 저장고에서 병사 H 로 넘어가는 양.
      *
      * <p>회복 자체는 새로 만들지 않는다. {@link MimicEntity} 의 재생이 이미

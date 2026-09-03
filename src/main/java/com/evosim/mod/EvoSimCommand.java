@@ -328,6 +328,8 @@ public final class EvoSimCommand {
                 .then(Commands.literal("wartest").executes(EvoSimCommand::warTest))
                 .then(Commands.literal("foetest").executes(EvoSimCommand::foeTest))
                 .then(Commands.literal("medictest").executes(EvoSimCommand::medicTest))
+                .then(Commands.literal("reinforcetest")
+                        .executes(EvoSimCommand::reinforceTest))
                 .then(Commands.literal("wound").executes(EvoSimCommand::woundSoldiers)
                         // 인자 = 막사 X 좌표. 그 막사 병사만 눕힌다(점령은 성한 적이 있어야 센다).
                         .then(Commands.argument("postX", IntegerArgumentType.integer(-9999, 9999))
@@ -2509,6 +2511,124 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format(
                 "§e[부상]§r 배속 병사 %d명을 체력 20%% 로 — 전투불가(퇴각선 30%%) 진입 · 소지는 유지", n));
         return n;
+    }
+
+    /**
+     * 점검용 — <b>증원 조성</b>(P6). 주인 A 의 막사 3개 vs 주인 B 의 막사 1개.
+     *
+     * <p>A 의 막사 하나만 B 와 겹쳐 세운다(통근 반경 96 안) — 그 막사가 교전 막사가 되고,
+     * 나머지 두 막사는 멀리 둬서 <b>파견이 실제로 걸리는지</b>를 본다. A 의 추종 가구는
+     * 먼 막사 쪽에 몰아 둔다: 그래야 전선의 정원을 채우려면 통근 반경 밖에서 불러야 한다.
+     *
+     * <p>보는 것 ① 최소 수비(2)가 먼저 채워지는가 ② 교전 막사 배속이 2를 넘는가
+     * ③ 파견 병사가 <b>실제로 막사에 도착하는가</b>(막사까지 거리 추이) ④ 국지 수적 우위
+     * ⑤ A 저장고가 봉급으로 얼마나 빠지는가.
+     */
+    private static int reinforceTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var reg = com.evosim.mod.entity.FacilityStore.get(level);
+        var led = com.evosim.mod.entity.AllegianceStore.get(level);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        var tpl = com.evosim.mod.entity.FacilityTemplate.of(level,
+                com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false);
+        if (tpl.isEmpty()) {
+            tell(ctx.getSource(), "§c[증원시험]§r 막사 도면을 못 읽었다");
+            return 1;
+        }
+        // A 의 저장고는 넉넉히 — 봉급이 말라 이탈하면 증원인지 파산인지 못 가른다.
+        BlockPos aHome = groundAt(level, ctx.getSource().getPosition(), -60, -40);
+        MimicEntity a = spawnAdult(level, Vec3.atBottomCenterOf(aHome), Sex.MALE);
+        a.debugSettleWithTent(aHome, Direction.NORTH);
+        MimicEntity aw = spawnAdult(level, Vec3.atBottomCenterOf(aHome).add(1, 0, 0), Sex.FEMALE);
+        aw.debugSettleWithTent(aHome, Direction.NORTH);
+        a.debugMarryTo(aw);
+        LarderStore.get(level).set(aHome, 900.0);
+        long aid = a.getIndividual().id();
+
+        BlockPos bHome = groundAt(level, ctx.getSource().getPosition(), 40, -40);
+        MimicEntity b = spawnAdult(level, Vec3.atBottomCenterOf(bHome), Sex.MALE);
+        b.debugSettleWithTent(bHome, Direction.NORTH);
+        MimicEntity bw = spawnAdult(level, Vec3.atBottomCenterOf(bHome).add(1, 0, 0), Sex.FEMALE);
+        bw.debugSettleWithTent(bHome, Direction.NORTH);
+        b.debugMarryTo(bw);
+        LarderStore.get(level).set(bHome, 900.0);
+        long bid = b.getIndividual().id();
+
+        // A 의 막사 셋: 전선(0) 은 B 막사와 30블록, 후방(1·2) 는 전선에서 120블록 밖.
+        // 후방 막사가 전선의 통근 반경(96) 밖이어야 "파견"이 성립한다.
+        int[][] aBk = {{10, 0}, {-110, 0}, {-110, -40}};
+        BlockPos front = null;
+        for (int i = 0; i < aBk.length; i++) {
+            BlockPos p = groundAt(level, ctx.getSource().getPosition(), aBk[i][0], aBk[i][1]);
+            if (i == 0) {
+                front = p;
+            }
+            MimicEntity.debugRaiseFacility(level, p, tpl.get());
+            reg.register(p, com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false,
+                    aid, day, com.evosim.mod.entity.Facilities.BARRACKS_COST);
+        }
+        BlockPos bBk = groundAt(level, ctx.getSource().getPosition(), 40, 0);
+        MimicEntity.debugRaiseFacility(level, bBk, tpl.get());
+        reg.register(bBk, com.evosim.mod.entity.FacilityTemplate.Kind.BARRACKS, (byte) 0, false,
+                bid, day, com.evosim.mod.entity.Facilities.BARRACKS_COST);
+
+        // A 의 추종 가구 12호를 <b>후방에</b> 몰아 둔다(간격 8 — 발자국 폭 7 을 넘겨 겹침 방지).
+        // 전선 막사의 통근 반경 안에는 4호만 둬서 평시 정원이 1 에 그치게 한다: 그 상태에서
+        // 배속이 2 를 넘으면 그것이 곧 증원이다.
+        int made = 0;
+        for (int i = 0; i < 12; i++) {
+            BlockPos h = groundAt(level, ctx.getSource().getPosition(),
+                    -140 + (i % 6) * 8, -20 + (i / 6) * 16);
+            MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+            f.debugSettleWithTent(h, Direction.NORTH);
+            MimicEntity w = spawnAdult(level, Vec3.atBottomCenterOf(h).add(1, 0, 0), Sex.FEMALE);
+            w.debugSettleWithTent(h, Direction.NORTH);
+            f.debugMarryTo(w);
+            LarderStore.get(level).set(h, 30.0);
+            led.record(f.getIndividual().id(), aid, 40.0, 0.0, day);
+            made++;
+        }
+        // 전선 근처 A 추종 4호 — 평시 정원 1 을 만드는 몫.
+        for (int i = 0; i < 4; i++) {
+            BlockPos h = groundAt(level, ctx.getSource().getPosition(), -6 + i * 8, 20);
+            MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+            f.debugSettleWithTent(h, Direction.NORTH);
+            MimicEntity w = spawnAdult(level, Vec3.atBottomCenterOf(h).add(1, 0, 0), Sex.FEMALE);
+            w.debugSettleWithTent(h, Direction.NORTH);
+            f.debugMarryTo(w);
+            LarderStore.get(level).set(h, 30.0);
+            led.record(f.getIndividual().id(), aid, 40.0, 0.0, day);
+            made++;
+        }
+        // B 추종 8호 — B 막사 곁.
+        for (int i = 0; i < 8; i++) {
+            BlockPos h = groundAt(level, ctx.getSource().getPosition(),
+                    24 + (i % 4) * 8, 20 + (i / 4) * 16);
+            MimicEntity f = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+            f.debugSettleWithTent(h, Direction.NORTH);
+            MimicEntity w = spawnAdult(level, Vec3.atBottomCenterOf(h).add(1, 0, 0), Sex.FEMALE);
+            w.debugSettleWithTent(h, Direction.NORTH);
+            f.debugMarryTo(w);
+            LarderStore.get(level).set(h, 30.0);
+            led.record(f.getIndividual().id(), bid, 40.0, 0.0, day);
+            made++;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[증원시험]§r A #%d 막사 3개(전선 @%d,%d · 후방 @-110,0 · @-110,-40)"
+                        + " vs B #%d 막사 1개 @%d,%d",
+                aid, front.getX(), front.getZ(), bid, bBk.getX(), bBk.getZ()));
+        tell(ctx.getSource(), String.format(
+                "  전선↔B 막사 %.0f블록(통근 %d 안 → 교전) · 후방↔전선 %.0f블록(통근 밖 → 파견 필요)",
+                Math.sqrt(front.distSqr(bBk)), (int) com.evosim.mod.entity.Facilities.COMMUTE_RANGE,
+                Math.sqrt(front.distSqr(groundAt(level, ctx.getSource().getPosition(), -110, 0)))));
+        tell(ctx.getSource(), String.format(
+                "  A 추종 16호(후방 12 · 전선 4) · B 추종 8호 · 조성 가구 %d호"
+                        + " · 막사 좌석 %d · 파견 반경 %d",
+                made, tpl.get().seats().size(),
+                (int) com.evosim.mod.entity.Facilities.DISPATCH_RANGE));
+        tell(ctx.getSource(), "  → '증원' 이벤트와 전선 막사 배속 수를 본다"
+                + "(평시 정원 1 · 최소 수비 2 · 전시 정원 = 좌석 수)");
+        return 1;
     }
 
     private static int medicTest(CommandContext<CommandSourceStack> ctx) {

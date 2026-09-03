@@ -2023,6 +2023,9 @@ public final class FarmTicker {
         // POST_OF 는 매일 새로 짜므로 이 스냅숏이 없으면 이탈·해임된 자가 죽을 때까지
         // 검과 갑옷을 걸치고 다닌다 — 육안으로 군인 수를 셀 수 없게 된다.
         java.util.Set<Integer> wasPosted = new java.util.HashSet<>(POST_OF.keySet());
+        // 막사마다 세수·압박·후보까지 확정해 담아 두고, <b>자리 배정만</b> 뒤로 미룬다.
+        // 3패스로 앉혀야 순회 순서가 승패를 가르지 않고 최소 수비가 먼저 채워진다(seatAll).
+        java.util.List<Garrison> plans = new java.util.ArrayList<>();
         POST_OF.clear();
         POST_OWNER.clear();
         PATRONS_TODAY.clear();
@@ -2241,8 +2244,11 @@ public final class FarmTicker {
                     rejPatron++;
                     continue; // 이 주인(또는 그 배우자)을 따르는 자만
                 }
+                // <b>여기서는 파견 반경까지 담는다.</b> 통근 반경(96) 밖의 후보도 명단에는
+                // 남기고, 실제로 앉힐 수 있는 거리는 패스마다 다르게 건다(seatSoldiers 의
+                // maxRangeSq): 평시 배속은 통근 반경, 교전 막사 증원만 파견 반경까지.
                 if (m.getHomePos().distSqr(bk.pos)
-                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                        > Facilities.DISPATCH_RANGE * Facilities.DISPATCH_RANGE) {
                     rejFar++;
                     continue;
                 }
@@ -2259,12 +2265,156 @@ public final class FarmTicker {
                     (MimicEntity m) -> -soldierFitness(m.getIndividual()))
                     .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
-            int seated = 0;
-            int seatedM = 0;
-            for (MimicEntity s : pick) {
-                if (seated >= cap) {
+            plans.add(new Garrison(bk, owner, tpl.get(), cap, guarded.size(), taxIn, pick,
+                    rejLand, rejNotHead, rejPatron, rejFar));
+        }
+        seatAll(level, ledger, larders, adults, reg, plans, day);
+        // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
+        for (MimicEntity m : adults) {
+            if (wasPosted.contains(m.getId()) && !POST_OF.containsKey(m.getId())) {
+                m.setSoldierGear(false);
+            }
+        }
+    }
+
+    /**
+     * 하루치 배속 계획 — 막사 하나가 <b>앉히기 전까지</b> 확정해 둔 것. 자리 배정만 뒤로 미룬다.
+     */
+    private static final class Garrison {
+        final FacilityStore.Entry bk;
+        final MimicEntity owner;
+        final FacilityTemplate tpl;
+        final int cap;
+        final int guarded;
+        final double taxIn;
+        final java.util.List<MimicEntity> pick;
+        final int rejLand;
+        final int rejNotHead;
+        final int rejPatron;
+        final int rejFar;
+        boolean contested;
+        int seated;
+        int seatedM;
+        int dispatched; // 통근 반경 밖에서 불려온 수 — 증원이 실제로 걸렸는지의 눈금
+
+        Garrison(FacilityStore.Entry bk, MimicEntity owner, FacilityTemplate tpl, int cap,
+                 int guarded, double taxIn, java.util.List<MimicEntity> pick,
+                 int rejLand, int rejNotHead, int rejPatron, int rejFar) {
+            this.bk = bk;
+            this.owner = owner;
+            this.tpl = tpl;
+            this.cap = cap;
+            this.guarded = guarded;
+            this.taxIn = taxIn;
+            this.pick = pick;
+            this.rejLand = rejLand;
+            this.rejNotHead = rejNotHead;
+            this.rejPatron = rejPatron;
+            this.rejFar = rejFar;
+        }
+    }
+
+    /**
+     * <b>배속 3패스</b> — 국력을 전선에 도달시키되 후방을 비우지 않는다(WAR-PLAN §1.3).
+     *
+     * <p>종전에는 막사를 하나씩 순회하며 그 자리에서 정원을 채웠다. 그러면 두 가지가 어긋난다.
+     * 하나는 <b>순회 순서가 승패를 가른다</b> — 먼저 처리된 막사가 후보를 다 가져간다(점령
+     * 판정에서 이미 같은 함정을 겪었다). 다른 하나는 각 막사가 <b>제 통근 반경 안 사람만</b>
+     * 쓰므로 세력이 아무리 커도 국력이 전선에 오지 못하고, 국지에서 운으로 진다.
+     *
+     * <p>배속은 매일 새로 짜이므로 이것은 <b>이동 문제가 아니라 배분 문제</b>다. 병사를 옮기는
+     * 대신 처음부터 전선에 더 앉힌다 — 새 상태가 늘지 않는다.
+     *
+     * <ol>
+     *   <li>모든 막사를 {@link Facilities#GARRISON_MIN} 까지 — 어디도 비지 않게 <b>먼저</b>.
+     *       "최소 수비를 남기고 초과분만 파견"이 순서만으로 성립한다.</li>
+     *   <li>교전 막사만 제 정원까지 — 후보 거리를 {@link Facilities#DISPATCH_RANGE} 로 넓힌다.
+     *       이 패스에서만 통근 반경 밖 사람이 불려온다.</li>
+     *   <li>나머지 막사를 제 정원까지, 남은 후보로.</li>
+     * </ol>
+     *
+     * <p>봉급은 앉히는 자리에서 나가므로 파견 병사의 봉급은 <b>교전 막사 주인</b>이 낸다.
+     * 감당 못 하면 이탈로 저절로 줄어든다 — 억제가 자동이다(설계서 §1.3).
+     */
+    private static void seatAll(ServerLevel level, AllegianceStore ledger, LarderStore larders,
+                                java.util.List<MimicEntity> adults, FacilityStore reg,
+                                java.util.List<Garrison> plans, long day) {
+        // 교전 판정 — <b>같은 통근 반경 안에 다른 세력 뿌리의 막사가 있는가</b>.
+        //
+        // 병사 위치로 재고 싶지만 이 시점의 POST_OF 는 비어 있다(오늘 배속을 지금 짜는 중).
+        // 막사 좌표로 재면 정적이고 결정론적이며, "세력권이 겹치면 싸운다"는 원래 틀과도 맞는다.
+        double r2 = Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE;
+        for (Garrison g : plans) {
+            for (Garrison o : plans) {
+                if (o != g && factionRootOf(o.bk.ownerId) != factionRootOf(g.bk.ownerId)
+                        && o.bk.pos.distSqr(g.bk.pos) <= r2) {
+                    g.contested = true;
                     break;
                 }
+            }
+        }
+        double commute2 = Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE;
+        double dispatch2 = Facilities.DISPATCH_RANGE * Facilities.DISPATCH_RANGE;
+        // 봉급을 하루 두 번 받지 않게 — 패스를 넘어 공유한다(seatSoldiers 의 handled 주석).
+        java.util.Set<Integer> handled = new java.util.HashSet<>();
+        for (Garrison g : plans) { // ① 최소 수비
+            seatSoldiers(level, ledger, larders, adults, reg, g,
+                    Math.min(g.cap, Facilities.GARRISON_MIN), commute2, handled, day);
+        }
+        for (Garrison g : plans) { // ② 교전 막사 증원
+            if (g.contested) {
+                // <b>전시 정원은 좌석 수까지 연다.</b> 평시 정원(지킬가구/4)을 그대로 두면
+                // 먼 사람이 가까운 사람을 대신할 뿐 수가 늘지 않아, "국력이 전선에 온다"가
+                // 성립하지 않는다. 가구 비율은 <b>평시의 자금 대용</b>이고, 전쟁에서는 지배자가
+                // 가진 것을 던진다 — 그 억제는 봉급이 한다(설계서 §1.3: "봉급도 그만큼 나가므로,
+                // 감당 못 하면 이탈로 저절로 줄어든다"). 건물의 좌석 수가 물리적 상한이다.
+                seatSoldiers(level, ledger, larders, adults, reg, g, g.tpl.seats().size(),
+                        dispatch2, handled, day);
+            }
+        }
+        for (Garrison g : plans) { // ③ 나머지 정원
+            seatSoldiers(level, ledger, larders, adults, reg, g, g.cap, commute2, handled, day);
+        }
+        for (Garrison g : plans) {
+            com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
+                    "막사 @%d,%d%s — 지킬가구 %d → 정원 %d(전시 %d) · 배속 %d명(남%d 여%d%s) · 세수 %.1f"
+                            + " · 봉급 %.1f · 주인 저장고 %.1f | 후보 %d명 · 탈락: 유전가구 %d ·"
+                            + " 비부양자 %d · 타주인 %d · 원거리 %d",
+                    g.bk.pos.getX(), g.bk.pos.getZ(), g.contested ? " §c[교전]§r" : "",
+                    g.guarded, g.cap, g.contested ? g.tpl.seats().size() : g.cap,
+                    g.seated, g.seatedM, g.seated - g.seatedM,
+                    g.dispatched > 0 ? " · §e증원 " + g.dispatched + "명§r" : "", g.taxIn,
+                    GUARD_SUM[1], larders.get(g.owner.getHomePos()),
+                    g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar));
+        }
+    }
+
+    /** 한 막사에 {@code limit} 명까지, {@code maxRangeSq} 안의 후보만 앉힌다(누적 호출). */
+    private static void seatSoldiers(ServerLevel level, AllegianceStore ledger,
+                                     LarderStore larders, java.util.List<MimicEntity> adults,
+                                     FacilityStore reg, Garrison g, int limit, double maxRangeSq,
+                                     java.util.Set<Integer> handled, long day) {
+        FacilityStore.Entry bk = g.bk;
+        MimicEntity owner = g.owner;
+        var tpl = java.util.Optional.of(g.tpl);
+        for (MimicEntity s : g.pick) {
+            if (g.seated >= limit) {
+                break;
+            }
+            if (POST_OF.containsKey(s.getId())) {
+                continue; // 앞 패스에서 이미 어딘가에 앉았다
+            }
+            // <b>하루에 한 번만 손댄다.</b> 봉급은 앉기 전에 지불되는데, 못 받아 이탈한 자는
+            // 급여를 받고 배속만 건너뛴다(아래 continue). 패스를 셋으로 늘리면 그 사람이
+            // 다음 패스에서 다시 뽑혀 <b>같은 날 봉급을 두세 번</b> 받고 이탈 카운터도 그만큼
+            // 올라간다 — 단일 패스에서는 없던 결함이다. 배속 여부와 무관하게 여기서 막는다.
+            if (!handled.add(s.getId())) {
+                continue;
+            }
+            if (s.getHomePos().distSqr(bk.pos) > maxRangeSq) {
+                handled.remove(s.getId()); // 거리로 걸린 것은 손댄 것이 아니다 — 다음 패스에 남긴다
+                continue;
+            }
                 long sid = s.getIndividual().id();
                 // ④ 봉급 — 가난할수록 많이. 기준선은 그 가구 성인 명목소모 × 3.5.
                 double adultNeed = 0.0;
@@ -2311,28 +2461,24 @@ public final class FarmTicker {
                         0.0, day);
                 POST_OF.put(s.getId(), bk.pos);
                 GUARD_SEAT.put(s.getId(),
-                        bk.pos.offset(tpl.get().seats().get(seated % tpl.get().seats().size())));
+                        bk.pos.offset(tpl.get().seats().get(g.seated % tpl.get().seats().size())));
                 s.setSoldierGear(true); // 무장은 배속의 표시 — 값도 내구도도 없다
                 if (s.getIndividual().sex() == com.evosim.core.Sex.MALE) {
-                    seatedM++;
+                    g.seatedM++;
                 }
-                seated++;
+                // 통근 반경 밖에서 불려왔으면 증원으로 센다 — "국력이 전선에 왔는가"의 눈금.
+                if (s.getHomePos().distSqr(bk.pos)
+                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                    g.dispatched++;
+                    com.evosim.mod.log.SimEvents.event(s, "증원", String.format(
+                            "교전 막사 @%d,%d 로 파견 — 집에서 %.0f블록(통근 %d 밖)"
+                                    + " · 같은 주인 #%d",
+                            bk.pos.getX(), bk.pos.getZ(),
+                            Math.sqrt(s.getHomePos().distSqr(bk.pos)),
+                            (int) Facilities.COMMUTE_RANGE, bk.ownerId));
+                }
+                g.seated++;
                 GUARD_SUM[0]++;
-            }
-            com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
-                    "막사 @%d,%d — 지킬가구 %d → 정원 %d · 배속 %d명(남%d 여%d) · 세수 %.1f"
-                            + " · 봉급 %.1f · 주인 저장고 %.1f | 후보 %d명 · 탈락: 유전가구 %d ·"
-                            + " 비부양자 %d · 타주인 %d · 원거리 %d",
-                    bk.pos.getX(), bk.pos.getZ(), guarded.size(), cap, seated,
-                    seatedM, seated - seatedM, taxIn,
-                    GUARD_SUM[1], larders.get(owner.getHomePos()),
-                    pick.size(), rejLand, rejNotHead, rejPatron, rejFar));
-        }
-        // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
-        for (MimicEntity m : adults) {
-            if (wasPosted.contains(m.getId()) && !POST_OF.containsKey(m.getId())) {
-                m.setSoldierGear(false);
-            }
         }
     }
 

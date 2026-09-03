@@ -1814,18 +1814,23 @@ public final class FarmTicker {
     private static final java.util.Map<Long, Integer> SUPPLY_ROUNDS = new java.util.HashMap<>();
 
     /**
-     * <b>보급병인가</b> — 교전 막사에 배속됐고 출격하지 않은 잔류 수비병.
+     * <b>보급병인가</b> — 배속됐고 출격하지 않은 잔류 수비병.
      *
      * <p>새 역할을 만들지 않는다. 출격이 {@link Facilities#GARRISON_MIN} 을 남기는데, 그 둘이
      * 지금 하는 일은 서 있는 것뿐이다. 밭에서 사람을 빼오면 노동이 준다(천민을 만들 때 지킨
      * 원칙) — 이미 봉급을 받으며 놀고 있는 사람을 쓴다.
      *
      * <p>다친 보급병은 제외한다: 스스로 낫지 못하므로 남을 일으켜 세울 수도 없다.
+     *
+     * <p><b>세력 전쟁에 한정하지 않는다.</b> 처음에는 교전 막사만으로 좁혔는데, 그러면 좀비나
+     * 선공 플레이어에게 다친 병사가 <b>영구 전투불가</b>로 남는다 — 스스로도 못 낫고
+     * (regenTick) 보급병도 안 오기 때문이다. 막사는 제 병사를 돌보는 곳이지 전쟁 때만
+     * 그런 것이 아니다. 회차 비용은 그대로 붙으므로, 좀비를 상대로 악착같이 버티는 것도
+     * 지배자의 지갑이 감당하는 만큼이다.
      */
     public static boolean isSupplier(MimicEntity m) {
         BlockPos p = POST_OF.get(m.getId());
-        return p != null && CONTESTED.contains(p.asLong())
-                && !SORTIE.containsKey(m.getId()) && !m.isUnderTreatment();
+        return p != null && !SORTIE.containsKey(m.getId()) && !m.isUnderTreatment();
     }
 
     /** 이 막사 소속으로 지금 쓰러져 있는 아군 — 보급병이 향할 곳. 없으면 null. */
@@ -1892,6 +1897,10 @@ public final class FarmTicker {
         double have = larders.get(lord.getHomePos());
         if (have < cost) {
             // <b>회차는 올리지 않는다</b> — 못 낸 시도로 값이 뛰면 다시는 못 낸다.
+            // 실패도 하루 한 번만 알린다(급양 실패와 같은 이유 — 도착 판정이 매 틱 돈다).
+            if (!MEDIC_DRY_LOGGED.add(supplier.getId())) {
+                return 0;
+            }
             com.evosim.mod.log.SimEvents.event(supplier, "보급", String.format(
                     "막사 @%d,%d %d회차 %.1f 이 필요한데 영주 저장고가 %.1f — 전선이 일어나지"
                             + " 못한다(쓰러진 %d명)",
@@ -2053,6 +2062,9 @@ public final class FarmTicker {
      * <p>이미 배가 부르면 주지 않는다 — 매 틱 도착 판정이 도므로, 그러지 않으면 저장고가
      * 순식간에 마른다.
      */
+    /** 급양 실패를 오늘 이미 알린 병사 — 매 틱 같은 줄을 찍지 않기 위한 것. 정산마다 비운다. */
+    private static final java.util.Set<Integer> MEDIC_DRY_LOGGED = new java.util.HashSet<>();
+
     public static void medicate(ServerLevel level, MimicEntity m, BlockPos barracks) {
         if (m.getHolding() >= Facilities.MEDIC_RATION || m.getHomePos() == null) {
             return;
@@ -2080,6 +2092,11 @@ public final class FarmTicker {
         double have = larders.get(owner.getHomePos());
         double pay = Math.min(Facilities.MEDIC_RATION, Math.max(0.0, have));
         if (pay <= 0.0) {
+            // 도착 판정은 매 틱 돈다 — 그대로 두면 한 사람이 서 있는 동안 같은 줄이 수백 개
+            // 쌓여 다른 사건을 덮는다(실측: 후송 434건 중 432건이 이 줄, 실제 급양은 2건).
+            if (!MEDIC_DRY_LOGGED.add(m.getId())) {
+                return;
+            }
             com.evosim.mod.log.SimEvents.event(m, "후송", String.format(
                     "막사 @%d,%d 에 닿았으나 영주 저장고가 말랐다(%.1f) — 회복 없음 · 체력 %.0f%%",
                     barracks.getX(), barracks.getZ(), have,
@@ -2521,16 +2538,14 @@ public final class FarmTicker {
                 }
             }
         }
-        // 교전 명부 갱신 — 보급병 판정이 읽는다. 평화가 온 막사는 보급 회차를 0 으로 되돌린다:
-        // 누적해 두면 오래된 세계에서 어떤 전쟁도 못 하게 굳어버린다.
+        // 교전 명부 갱신 — 출격 편성과 전시 배급이 읽는다(보급병 판정은 이제 안 본다).
         CONTESTED.clear();
         for (Garrison g : plans) {
             if (g.contested) {
                 CONTESTED.add(g.bk.pos.asLong());
-            } else {
-                SUPPLY_ROUNDS.remove(g.bk.pos.asLong());
             }
         }
+        MEDIC_DRY_LOGGED.clear(); // 하루 한 번씩만 알린다(아래 medicate)
         double commute2 = Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE;
         double dispatch2 = Facilities.DISPATCH_RANGE * Facilities.DISPATCH_RANGE;
         // 봉급을 하루 두 번 받지 않게 — 패스를 넘어 공유한다(seatSoldiers 의 handled 주석).
@@ -2552,6 +2567,21 @@ public final class FarmTicker {
         }
         for (Garrison g : plans) { // ③ 나머지 정원
             seatSoldiers(level, ledger, larders, adults, reg, g, g.cap, commute2, handled, day);
+        }
+        // <b>보급 회차 초기화</b> — 그 막사에 쓰러진 사람이 하나도 없으면 이 싸움은 끝난
+        // 것이므로 0 으로 돌린다. 누적해 두면 오래된 세계에서 어떤 싸움도 못 하게 굳는다.
+        // 교전 여부가 아니라 부상자 유무로 보는 이유: 보급이 세력 전쟁에만 붙지 않기 때문이다.
+        for (Garrison g : plans) {
+            boolean anyDown = false;
+            for (MimicEntity m : adults) {
+                if (g.bk.pos.equals(POST_OF.get(m.getId())) && m.isUnderTreatment()) {
+                    anyDown = true;
+                    break;
+                }
+            }
+            if (!anyDown) {
+                SUPPLY_ROUNDS.remove(g.bk.pos.asLong());
+            }
         }
         formSorties(level, plans);
         for (Garrison g : plans) {

@@ -329,7 +329,14 @@ public final class EvoSimCommand {
                 .then(Commands.literal("foetest").executes(EvoSimCommand::foeTest))
                 .then(Commands.literal("medictest").executes(EvoSimCommand::medicTest))
                 .then(Commands.literal("reinforcetest")
-                        .executes(EvoSimCommand::reinforceTest))
+                        .executes(EvoSimCommand::reinforceTest)
+                        // 지갑을 벌려 "돈 없는 쪽이 진다"를 잰다 — 인자는 A·B 저장고.
+                        .then(Commands.argument("aPurse", IntegerArgumentType.integer(0, 99999))
+                                .then(Commands.argument("bPurse",
+                                                IntegerArgumentType.integer(0, 99999))
+                                        .executes(c -> reinforceTest(c,
+                                                IntegerArgumentType.getInteger(c, "aPurse"),
+                                                IntegerArgumentType.getInteger(c, "bPurse"))))))
                 .then(Commands.literal("wound").executes(EvoSimCommand::woundSoldiers)
                         // 인자 = 막사 X 좌표. 그 막사 병사만 눕힌다(점령은 성한 적이 있어야 센다).
                         .then(Commands.argument("postX", IntegerArgumentType.integer(-9999, 9999))
@@ -2525,6 +2532,11 @@ public final class EvoSimCommand {
      * ⑤ A 저장고가 봉급으로 얼마나 빠지는가.
      */
     private static int reinforceTest(CommandContext<CommandSourceStack> ctx) {
+        return reinforceTest(ctx, 900.0, 900.0);
+    }
+
+    private static int reinforceTest(CommandContext<CommandSourceStack> ctx,
+                                     double aPurse, double bPurse) {
         ServerLevel level = ctx.getSource().getLevel();
         var reg = com.evosim.mod.entity.FacilityStore.get(level);
         var led = com.evosim.mod.entity.AllegianceStore.get(level);
@@ -2542,7 +2554,7 @@ public final class EvoSimCommand {
         MimicEntity aw = spawnAdult(level, Vec3.atBottomCenterOf(aHome).add(1, 0, 0), Sex.FEMALE);
         aw.debugSettleWithTent(aHome, Direction.NORTH);
         a.debugMarryTo(aw);
-        LarderStore.get(level).set(aHome, 900.0);
+        LarderStore.get(level).set(aHome, aPurse);
         long aid = a.getIndividual().id();
 
         BlockPos bHome = groundAt(level, ctx.getSource().getPosition(), 40, -40);
@@ -2551,7 +2563,7 @@ public final class EvoSimCommand {
         MimicEntity bw = spawnAdult(level, Vec3.atBottomCenterOf(bHome).add(1, 0, 0), Sex.FEMALE);
         bw.debugSettleWithTent(bHome, Direction.NORTH);
         b.debugMarryTo(bw);
-        LarderStore.get(level).set(bHome, 900.0);
+        LarderStore.get(level).set(bHome, bPurse);
         long bid = b.getIndividual().id();
 
         // A 의 막사 셋: 전선(0) 은 B 막사와 30블록, 후방(1·2) 는 전선에서 120블록 밖.
@@ -2614,9 +2626,10 @@ public final class EvoSimCommand {
             made++;
         }
         tell(ctx.getSource(), String.format(
-                "§e[증원시험]§r A #%d 막사 3개(전선 @%d,%d · 후방 @-110,0 · @-110,-40)"
-                        + " vs B #%d 막사 1개 @%d,%d",
-                aid, front.getX(), front.getZ(), bid, bBk.getX(), bBk.getZ()));
+                "§e[증원시험]§r A #%d(저장고 %.0f) 막사 3개(전선 @%d,%d · 후방 @-110,0 · @-110,-40)"
+                        + " vs B #%d(저장고 %.0f) 막사 1개 @%d,%d",
+                aid, aPurse, front.getX(), front.getZ(), bid, bPurse,
+                bBk.getX(), bBk.getZ()));
         tell(ctx.getSource(), String.format(
                 "  전선↔B 막사 %.0f블록(통근 %d 안 → 교전) · 후방↔전선 %.0f블록(통근 밖 → 파견 필요)",
                 Math.sqrt(front.distSqr(bBk)), (int) com.evosim.mod.entity.Facilities.COMMUTE_RANGE,

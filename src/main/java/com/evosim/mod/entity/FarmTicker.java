@@ -1807,6 +1807,62 @@ public final class FarmTicker {
         return SORTIE.get(m.getId());
     }
 
+    /**
+     * <b>개체 id → 개체</b> 조회 — 틱마다 한 번만 훑는다.
+     *
+     * <p>주둔 goal 은 매 틱 돌고, 그 안의 후송·보급이 지배자를 찾을 때마다 세계의 미믹을
+     * <b>전부</b> 훑었다({@code level.getEntities(MIMIC, 조건)}는 공간 색인을 안 쓰는 전체
+     * 순회다). 800개체 · 병사 20명이면 틱당 16,000회다.
+     *
+     * <p>찾는 대상도 결과도 같다 — 훑는 방법만 바꾼다. 개체 id 는 유일하므로 종전의 "마지막
+     * 일치를 채택"과 결과가 같고, 캐시가 비었거나 죽은 것을 들고 있으면 그때만 전체 순회로
+     * 되돌아간다(사망은 이 캐시가 갱신되는 틱 안에서도 일어난다).
+     */
+    private static long lookupTick = Long.MIN_VALUE;
+    private static final java.util.Map<Long, MimicEntity> BY_IND = new java.util.HashMap<>();
+
+    private static MimicEntity byIndividual(ServerLevel level, long indId) {
+        long now = SimTime.tick(level);
+        if (now != lookupTick) {
+            lookupTick = now;
+            BY_IND.clear();
+            for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null)) {
+                BY_IND.put(m.getIndividual().id(), m);
+            }
+        }
+        MimicEntity hit = BY_IND.get(indId);
+        if (hit != null && hit.isAlive()) {
+            return hit;
+        }
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getIndividual().id() == indId)) {
+            hit = m; // 종전과 같이 마지막 일치를 쓴다
+        }
+        return hit != null && hit.isAlive() ? hit : null;
+    }
+
+    /**
+     * <b>이 막사에 배속된 병사들</b> — 배속 명부(POST_OF)만 훑는다.
+     *
+     * <p>종전에는 쓰러진 아군을 찾으려고 세계의 미믹 전부를 훑고 그중 이 막사 소속을 골랐다.
+     * 명부는 이미 우리가 들고 있으므로, 명부에서 출발해 {@code ServerLevel.getEntity} 로
+     * 곧장 집으면 훑는 수가 800 에서 <b>병사 수</b>로 준다.
+     */
+    private static java.util.List<MimicEntity> postedAt(ServerLevel level, BlockPos post) {
+        java.util.List<MimicEntity> out = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<Integer, BlockPos> e : POST_OF.entrySet()) {
+            if (!post.equals(e.getValue())) {
+                continue;
+            }
+            if (level.getEntity(e.getKey()) instanceof MimicEntity m && m.isAlive()) {
+                out.add(m);
+            }
+        }
+        return out;
+    }
+
     /** 교전 중인 막사(정산이 정한다) — 보급병은 여기서만 나온다. */
     private static final java.util.Set<Long> CONTESTED = new java.util.HashSet<>();
 
@@ -1851,8 +1907,10 @@ public final class FarmTicker {
         }
         MimicEntity best = null;
         double bd = Double.MAX_VALUE;
-        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.isUnderTreatment() && post.equals(POST_OF.get(e.getId())))) {
+        for (MimicEntity o : postedAt(level, post)) {
+            if (!o.isUnderTreatment()) {
+                continue;
+            }
             double d = supplier.blockPosition().distSqr(o.blockPosition());
             if (d < bd) {
                 bd = d;
@@ -1879,21 +1937,16 @@ public final class FarmTicker {
         if (ownerId == null || ownerId == 0L) {
             return 0;
         }
-        MimicEntity lord = null;
-        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getIndividual() != null
-                        && e.getIndividual().id() == ownerId)) {
-            lord = o;
-        }
+        MimicEntity lord = byIndividual(level, ownerId);
         if (lord == null || lord.getHomePos() == null) {
             return 0;
         }
         java.util.List<MimicEntity> down = new java.util.ArrayList<>();
-        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.isUnderTreatment()
-                        && post.equals(POST_OF.get(e.getId()))
-                        && e.blockPosition().closerThan(supplier.blockPosition(), 8.0))) {
-            down.add(o);
+        for (MimicEntity o : postedAt(level, post)) {
+            if (o.isUnderTreatment()
+                    && o.blockPosition().closerThan(supplier.blockPosition(), 8.0)) {
+                down.add(o);
+            }
         }
         if (down.isEmpty()) {
             return 0;
@@ -2090,12 +2143,7 @@ public final class FarmTicker {
         if (bk == null || bk.ownerId == 0L) {
             return;
         }
-        MimicEntity owner = null;
-        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
-                e -> e.isAlive() && e.getIndividual() != null
-                        && e.getIndividual().id() == bk2Id(barracks))) {
-            owner = o;
-        }
+        MimicEntity owner = byIndividual(level, bk2Id(barracks));
         if (owner == null || owner.getHomePos() == null) {
             return;
         }

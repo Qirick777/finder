@@ -2366,14 +2366,20 @@ public final class FarmTicker {
      */
     private static void considerPoorhouse(ServerLevel level, LarderStore larders,
                                           java.util.List<MimicEntity> adults) {
-        // ① 수요 — 갈 곳 없는 구걸자가 있는가. BEGGED_TODAY 로 이미 센 값이라 공짜다.
+        // ① 수요 — 갈 곳 없는 구걸자가 있는가.
         int unserved = unservedBeggars(level);
+        java.util.List<FacilityStore.Entry> hs = poorhouses(level);
+        int vac = hs.isEmpty() ? 0 : poorhouseVacancy(level);
+        // <b>판정 결과를 매일 한 줄 남긴다.</b> 처음에는 자격 미달일 때만 적었는데, 그러면
+        // ①②에서 조용히 되돌아가는 경우가 로그에 아무 흔적을 안 남겨 "왜 안 서는가"를
+        // 돌아가는 서버에 물어야 했다. 세 수만 있으면 어느 관문에서 멈췄는지 바로 읽힌다.
+        poorNote(level, String.format("판정 — 미충족 %d · %d채 · 빈자리 %d",
+                unserved, hs.size(), vac));
         if (unserved < Facilities.POORHOUSE_UNSERVED) {
             return;
         }
         // ② 정원 — 첫 채가 없거나, 있어도 마을 전체가 만석일 때만 더 짓는다(주인 무관).
-        java.util.List<FacilityStore.Entry> hs = poorhouses(level);
-        if (!hs.isEmpty() && poorhouseVacancy(level) > 0) {
+        if (!hs.isEmpty() && vac > 0) {
             return;
         }
         // ③ 자격 — 반경 안 재산 1위. <b>후보는 추종자를 거느린 자로 한정한다</b>(세력의 표식).

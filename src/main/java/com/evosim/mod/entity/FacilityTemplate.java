@@ -76,7 +76,7 @@ public final class FacilityTemplate {
         SMALL_CHURCH("small_church", "작은교회", Group.CHURCH),
         BARRACKS("barracks", "막사", Group.BARRACKS),
         // 구빈원 — 자리는 카펫으로 나온다(위 Group.POORHOUSE 분기 참조). 도면 실측:
-        // 13·8·10 · 실자재 375칸 → 착공비 0.045×375 = 17 · 종1 · 문2 · 카펫 20칸(2×5 둘) · 통 20.
+        // 13·6·10 · 실자재 365칸 → 착공비 0.045×365 = 16 · 종1 · 문2 · 카펫 20칸(2×5 둘) · 통 20.
         POORHOUSE("poorhouse", "구빈원", Group.POORHOUSE);
 
         public final String design;

@@ -100,6 +100,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("tierx").executes(EvoSimCommand::tierStage))
                 .then(Commands.literal("homenight").executes(EvoSimCommand::homeNight))
                 .then(Commands.literal("heirtest").executes(EvoSimCommand::heirStage))
+                .then(Commands.literal("poortest").executes(EvoSimCommand::poorStage))
                 .then(Commands.literal("heirshow").executes(ctx -> heirShow(ctx, false)))
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
@@ -5811,6 +5812,69 @@ public final class EvoSimCommand {
      * 아무 집이나 물려받아도</b> 통과한다. 물려받지 <b>못해야</b> 하는 경우가 실제로 막히는지를
      * 같은 무대에서 함께 재야 규칙이 검증된다.
      */
+    /**
+     * <b>구빈원 무대</b> — 자연 발생을 기다리지 않고 조건을 직접 세운다.
+     *
+     * <p>구빈원이 서려면 밭·추종·구걸이 한 마을에 모여야 하는데, 관측 런에서 그 셋이 갖춰지는
+     * 데 D4~7 이 걸리고 런마다 갈린다. 그 사이 결함을 찾느라 여섯 번을 헛돌았으므로, 조건을
+     * <b>못 박고</b> 하루만 돌려 판정하는 무대를 둔다({@code heirtest} 가 저택 상속에 쓴 틀).
+     *
+     * <p>세우는 것: 지주 1(밭 24타일 · 저장고 60) + 거지 5(저장고 0 · 연속구걸 3일 기록).
+     * 거지에게는 지주에게 진 신세를 미리 얹어 <b>추종자</b>가 되게 한다 — 구걸이 실제로
+     * 만드는 관계와 같은 것이고({@code W_RELIEF}), 자격 조건인 "추종 1가구"가 그것이다.
+     *
+     * <p>판정은 밤 정산이 한다. 세운 뒤 {@code evosim poor} 나 이벤트 로그의
+     * "[구빈원] 판정 — 미충족 N · M채 · 빈자리 K" 한 줄로 어디까지 갔는지 읽는다.
+     */
+    private static int poorStage(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Vec3 b = ctx.getSource().getPosition();
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        LarderStore lar = LarderStore.get(level);
+        var ledger = com.evosim.mod.entity.AllegianceStore.get(level);
+        StringBuilder sb = new StringBuilder();
+
+        // ① 지주 — 밭 24타일 + 저장고 60. 재산 = 60 + 24×2 = 108 로 마을 1위가 된다.
+        BlockPos lordHome = MimicEntity.liftToBase(level, groundAt(level, b, -24, 0),
+                "small1", (byte) 0, false);
+        MimicEntity lord = spawnGradedAdult(level, Vec3.atBottomCenterOf(lordHome), Sex.MALE, 5);
+        lord.debugSettleWithHome(level, lordHome, "small1", (byte) 0, false);
+        lordHome = lord.getHomePos();
+        lar.set(lordHome, 60.0);
+        long lordId = lord.getIndividual().id();
+        buildDemoPlot(level, groundAt(level, b, -24, 24), lordId, 24);
+
+        // ② 거지 5 — 저장고 0 · 연속구걸 3일. 지주에게 진 신세를 얹어 추종자로 만든다.
+        int n = 5;
+        for (int i = 0; i < n; i++) {
+            BlockPos h = MimicEntity.liftToBase(level,
+                    groundAt(level, b, 12 + i * 10, 0), "small1", (byte) 0, false);
+            MimicEntity poor = spawnAdult(level, Vec3.atBottomCenterOf(h), Sex.MALE);
+            poor.debugSettleWithHome(level, h, "small1", (byte) 0, false);
+            h = poor.getHomePos();
+            lar.set(h, 0.0);
+            poor.setBegStreak(Facilities.POORHOUSE_ADMIT_STREAK);
+            poor.noteBegDay(day); // 오늘 구걸한 것으로 — unservedBeggars 가 최근성을 본다
+            poor.setBegStreak(Facilities.POORHOUSE_ADMIT_STREAK); // noteBegDay 가 1 로 덮으므로 다시
+            ledger.record(poor.getIndividual().id(), lordId, 30.0, 0.0, day);
+        }
+        sb.append(String.format("§e[구빈원 무대]§r 지주 1(밭 24타일 · 저장고 60 · 재산 108)"
+                + " + 거지 %d(저장고 0 · 연속구걸 %d일 · 신세 30)\n",
+                n, Facilities.POORHOUSE_ADMIT_STREAK));
+        sb.append(String.format("  지주집 @%d,%d · 거지집 @%d,%d ~ @%d,%d\n",
+                lordHome.getX(), lordHome.getZ(),
+                groundAt(level, b, 12, 0).getX(), groundAt(level, b, 12, 0).getZ(),
+                groundAt(level, b, 12 + (n - 1) * 10, 0).getX(),
+                groundAt(level, b, 12 + (n - 1) * 10, 0).getZ()));
+        sb.append("  판정은 밤 정산 — 이벤트 로그의 \"[구빈원] 판정\" 줄로 읽는다.\n");
+        sb.append(String.format("  문턱: 착공 %.0f + 여유 = %.0f · 자격 반경 %.0f · 정원 문턱 %d",
+                Facilities.POORHOUSE_COST,
+                Facilities.POORHOUSE_COST + 6.0 * Facilities.POORHOUSE_RESERVE_MULT,
+                Facilities.POORHOUSE_RANK_RADIUS, Facilities.POORHOUSE_UNSERVED));
+        tell(ctx.getSource(), sb.toString());
+        return 1;
+    }
+
     private static int heirStage(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 b = ctx.getSource().getPosition();

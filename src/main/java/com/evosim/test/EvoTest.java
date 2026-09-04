@@ -592,10 +592,10 @@ public final class EvoTest {
                 Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.BRIGHT, 5),
                         TraitInstance.graded(Trait.HERBALIST, 5))),
                 "명석Ⅴ×눈썰미Ⅴ = 1.0 + 1.25×0.5 + 0.1 = 1.725");
-        checkNum(report, "multiplier/멍청감폭", 1.275,
+        checkNum(report, "multiplier/멍청감폭", 0.915,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.DULL, 5),
                         TraitInstance.graded(Trait.HERBALIST, 5))),
-                "멍청Ⅴ×눈썰미Ⅴ = 1.0 + 0.75×0.5 − 0.1");
+                "멍청Ⅴ×눈썰미Ⅴ = 1.0 + 0.75×0.5 − 0.46(꺾임) — 능력을 가져도 무특성보다 못 번다");
         checkNum(report, "multiplier/채집꾼하향", 1.3,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5))),
                 "채집꾼Ⅴ 0.4→0.3 = 1.3");
@@ -633,9 +633,9 @@ public final class EvoTest {
                 && close(Multipliers.forageRange(
                         one(Sex.MALE, TraitInstance.graded(Trait.BRIGHT, 3))), 1.15)
                 && close(Multipliers.forageRange(
-                        one(Sex.MALE, TraitInstance.graded(Trait.DULL, 5))), 0.85);
+                        one(Sex.MALE, TraitInstance.graded(Trait.DULL, 5))), 0.66);
         report.add("multiplier/명석인지", brainRange,
-                "명석 인지 식물 한정 +0.05/등급(Ⅴ ×1.25 · Ⅲ ×1.15)·멍청Ⅴ ×0.85 · 동물 제외",
+                "명석 인지 식물 한정 +0.05/등급(Ⅴ ×1.25 · Ⅲ ×1.15)·멍청Ⅴ ×0.66(꺾임) · 동물 제외",
                 brainRange ? "정상" : "어긋남");
         boolean quick = close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.NIMBLE, 5))), 0.8)
                 && close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.SLUGGISH, 5))), 1.2)
@@ -748,6 +748,50 @@ public final class EvoTest {
         boolean floor = Schedule.phaseAt(dil, 0) == Schedule.Phase.WORK
                 && Schedule.phaseAt(dil, 15100) == Schedule.Phase.SLEEP
                 && TraitAudit.measure(dil).workTicks() == 10000;
+        // 무능함 — 능력을 짓누른다. Ⅴ 는 배율 0 이라 눈썰미Ⅴ 를 달고 있어도 통째로 꺼진다.
+        Individual keen5 = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5));
+        Individual ineptV = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5),
+                TraitInstance.graded(Trait.INEPT, 5));
+        Individual ineptII = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5),
+                TraitInstance.graded(Trait.INEPT, 2));
+        boolean suppress = Multipliers.effectiveAbilityGrade(keen5, Trait.HERBALIST) == 5
+                && Multipliers.effectiveAbilityGrade(ineptV, Trait.HERBALIST) == 0   // 완전 차단
+                && Multipliers.effectiveAbilityGrade(ineptII, Trait.HERBALIST) == 3  // 5×0.6
+                && Multipliers.manageAbilityGrade(ineptV) == 0                       // 관리도 0
+                && close(Multipliers.gardenAbility(ineptV), 1.0)
+                // 눈썰미Ⅴ 계수(0.50)가 통째로 사라지고 무능함 직접 감산 0.55 만 남는다.
+                && close(Multipliers.gather(ineptV), 1.0 - 0.67)
+                // Ⅱ 는 실효 Ⅲ → 계수 0.30, 직접 감산 0.19
+                && close(Multipliers.gather(ineptII), 1.0 + 0.30 - 0.19);
+        report.add("chain/무능억제", suppress,
+                "무능함 Ⅴ = 능력 배율 0(눈썰미Ⅴ도 무효·관리 0) · Ⅱ = 실효 Ⅲ 으로 강등",
+                suppress ? "정상" : String.format("Ⅴ실효 %d · Ⅱ실효 %d · Ⅴ관리 %d · Ⅴ채집 %.4f · Ⅱ채집 %.4f",
+                        Multipliers.effectiveAbilityGrade(ineptV, Trait.HERBALIST),
+                        Multipliers.effectiveAbilityGrade(ineptII, Trait.HERBALIST),
+                        Multipliers.manageAbilityGrade(ineptV),
+                        Multipliers.gather(ineptV), Multipliers.gather(ineptII)));
+
+        // 꺾임 — Ⅰ 은 무난하고 Ⅱ 부터 급락한다. 무특성 1.0 기준의 채집 배율.
+        double[] dullWant = {1.0, 0.98, 0.87, 0.76, 0.65, 0.54};
+        double[] ineptWant = {1.0, 0.97, 0.81, 0.65, 0.49, 0.33};
+        double[] rangeWant = {1.0, 0.98, 0.90, 0.82, 0.74, 0.66};
+        StringBuilder kinkBad = new StringBuilder();
+        for (int lv = 1; lv <= 5; lv++) {
+            Individual d = one(Sex.MALE, TraitInstance.graded(Trait.DULL, lv));
+            Individual n = one(Sex.MALE, TraitInstance.graded(Trait.INEPT, lv));
+            if (!close(Multipliers.gather(d), dullWant[lv])
+                    || !close(Multipliers.gather(n), ineptWant[lv])
+                    || !close(Multipliers.forageRange(d), rangeWant[lv])) {
+                kinkBad.append(String.format(" [%d 멍청 %.3f/%.3f 무능 %.3f/%.3f 반경 %.3f/%.3f]",
+                        lv, Multipliers.gather(d), dullWant[lv],
+                        Multipliers.gather(n), ineptWant[lv],
+                        Multipliers.forageRange(d), rangeWant[lv]));
+            }
+        }
+        report.add("chain/꺾임", kinkBad.length() == 0,
+                "멍청 채집 .98/.87/.76/.65/.54 · 무능 .97/.81/.65/.49/.33 · 멍청 반경 .98/.90/.82/.74/.66",
+                kinkBad.length() == 0 ? "정상" : kinkBad.toString());
+
         report.add("chain/기상바닥", floor,
                 "부지런(−1000)+활력Ⅴ(−750) → 기상 0 에서 멈춤 · 노동 10000틱 · 취침 구간 유지",
                 floor ? "정상" : String.format("t0 %s · t15100 %s · 노동 %d",

@@ -38,14 +38,14 @@ public final class Multipliers {
         double m = 1.0;
         m += amp * scaled(ind, t, Trait.HERBALIST, 0.50); // 눈썰미 0.65→0.50(단독 하향 — 조합으로 되찾는다)
         m += amp * scaled(ind, t, Trait.COMPETENT, 0.15); // 유능함 — 단독은 잡동사니, 상한을 푸는 값이 본체
-        m += scaled(ind, t, Trait.INEPT, -0.15);          // 서투름
+        m -= kinkPenalty(t, INEPT_PER, INEPT_STEP, abilityGrade(ind, Trait.INEPT)); // 무능함
         m += scaled(ind, t, Trait.PLANT_CONFUSED, -0.5);  // 식물혼동 Ⅴ=×0.5
         m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
         m += amp * scaled(ind, t, Trait.HERBIVORE, 0.2);  // 채식 채집↑
         m += scaled(ind, t, Trait.CARNIVORE, -0.3);       // 육식 채집↓
         m += scaled(ind, t, Trait.BRIGHT, 0.1);           // 명석 기본(증폭기 겸)
-        m += scaled(ind, t, Trait.DULL, -0.1);            // 멍청 기본(감폭기 겸)
+        m -= kinkPenalty(t, DULL_PER, DULL_STEP, dullGrade(ind)); // 멍청 — Ⅰ 무난 · Ⅱ 부터 급락
         m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
         m += amp * scaled(ind, t, Trait.GATHERER, 0.3);   // 채집꾼 0.4→0.3(눈썰미와 함께 하향)
@@ -151,14 +151,14 @@ public final class Multipliers {
         double m = 1.0;
         m += amp * scaled(ind, t, Trait.BUTCHER, 0.5);    // 도축업자 Ⅴ=×1.5(증폭 전)
         m += amp * scaled(ind, t, Trait.COMPETENT, 0.15); // 유능함 — 채집과 같은 눈금
-        m += scaled(ind, t, Trait.INEPT, -0.15);          // 서투름
+        m -= kinkPenalty(t, INEPT_PER, INEPT_STEP, abilityGrade(ind, Trait.INEPT)); // 무능함
         m += scaled(ind, t, Trait.BLOOD_FEARFUL, -0.5);   // 피공포 Ⅴ=×0.5
         m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
         m += amp * scaled(ind, t, Trait.CARNIVORE, 0.2);  // 육식 사냥↑
         m += scaled(ind, t, Trait.HERBIVORE, -0.3);       // 채식 사냥↓
         m += scaled(ind, t, Trait.BRIGHT, 0.1);           // 명석 기본(증폭기 겸)
-        m += scaled(ind, t, Trait.DULL, -0.1);            // 멍청 기본(감폭기 겸)
+        m -= kinkPenalty(t, DULL_PER, DULL_STEP, dullGrade(ind)); // 멍청 — Ⅰ 무난 · Ⅱ 부터 급락
         m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
         m += amp * scaled(ind, t, Trait.HUNTER, 0.3);     // 사냥꾼 동물데미지↑
@@ -288,6 +288,9 @@ public final class Multipliers {
     /** 유능함이 능력 등급을 미는 폭 — {@code +등급/2}(Ⅴ → +2). */
     private static final int COMPETENCE_LIFT_DIV = 2;
 
+    /** 무능함 등급당 능력 억제 — Ⅴ 에서 배율이 <b>정확히 0</b> 이 되어 능력을 통째로 끈다. */
+    public static final double INEPT_SUPPRESS_PER = 0.2;
+
     /** 이 등급 이상이면 "상한 너머" — 반경 게이트·깜냥 게이트·회전 게이트의 공통 열쇠. */
     public static final int SUPER_GRADE = 6;
 
@@ -302,23 +305,77 @@ public final class Multipliers {
      * <p>자기 자신은 승격 대상이 아니다(상호 승격 폭주 차단). 음(−) 능력도 아니다.
      */
     public static int effectiveAbilityGrade(Individual ind, Trait a) {
-        int g = abilityGrade(ind, a);
-        if (g <= 0) {
-            return g;
-        }
-        boolean up = false;
+        return abilityGradeAt(ind, a, true);
+    }
+
+    /**
+     * <b>무능함이 능력을 짓누른 뒤</b>의 등급 — 유능함의 승격은 빼고 억제만 반영한다.
+     *
+     * <p>관리 등급 합산이 이것을 읽는다. 합산에 승격까지 태우면 능력 Ⅴ 둘만으로 정원이
+     * 과해지고(2개 조합이 사기가 된다), 반대로 억제를 안 태우면 무능함Ⅴ 가 능력을 껐는데도
+     * 관리 등급은 멀쩡한 모순이 남는다.
+     */
+    public static int suppressedAbilityGrade(Individual ind, Trait a) {
+        return abilityGradeAt(ind, a, false);
+    }
+
+    private static boolean isUpAbility(Trait a) {
         for (Trait t : ABILITY_UP) {
             if (t == a) {
-                up = true;
-                break;
+                return true;
             }
         }
-        if (!up) {
+        return false;
+    }
+
+    private static int abilityGradeAt(Individual ind, Trait a, boolean withLift) {
+        int g = abilityGrade(ind, a);
+        if (g <= 0 || !isUpAbility(a)) {
+            return g;
+        }
+        // 무능함과 유능함은 같은 축(반발)이라 둘이 함께 걸리는 일은 없다.
+        int n = abilityGrade(ind, Trait.INEPT);
+        if (n > 0) {
+            return (int) Math.floor(g * Math.max(0.0, 1.0 - INEPT_SUPPRESS_PER * n));
+        }
+        if (!withLift) {
             return g;
         }
         int c = abilityGrade(ind, Trait.COMPETENT);
         return c <= 0 ? g : g + c / COMPETENCE_LIFT_DIV;
     }
+
+    /**
+     * <b>꺾임형 감산</b> — Ⅰ 은 거의 무해하고 Ⅱ 부터 계단으로 떨어진다.
+     *
+     * <p>{@code per×g} 만 쓰면(선형) Ⅱ 가 무난해지고, {@code g²} 를 쓰면 Ⅰ 까지 무해해져 Ⅴ 만
+     * 아프다. "Ⅰ 은 무난하되 Ⅱ 부터는 사실상 구빈원"이라는 요구를 만족하는 것은 Ⅰ↔Ⅱ 사이에
+     * 꺾이는 이 형태뿐이다. 감소형이므로 보완·야성이 그대로 걸린다.
+     */
+    private static double kinkPenalty(Set<Trait> t, double per, double stepFromTwo, int g) {
+        if (g <= 0) {
+            return 0.0;
+        }
+        double v = per * g + stepFromTwo * (g - 1);
+        if (t.contains(Trait.COMPENSATOR)) {
+            v *= 1.0 - COMPENSATION_RELIEF;
+        } else if (t.contains(Trait.AGGRAVATOR)) {
+            v *= 1.0 + COMPENSATION_RELIEF;
+        }
+        return v;
+    }
+
+    /** 멍청 채집·사냥 꺾임 — Ⅰ −0.02 · Ⅱ −0.13 · Ⅲ −0.24 · Ⅳ −0.35 · Ⅴ −0.46. */
+    private static final double DULL_PER = 0.02;
+    private static final double DULL_STEP = 0.09;
+    /** 멍청 인지거리 꺾임 — Ⅰ ×0.98 · Ⅱ ×0.90 · Ⅲ ×0.82 · Ⅳ ×0.74 · Ⅴ ×0.66. */
+    private static final double DULL_RANGE_PER = 0.02;
+    private static final double DULL_RANGE_STEP = 0.06;
+    /** 무능함 채집·사냥 꺾임 — Ⅰ −0.03 · Ⅱ −0.16 · Ⅲ −0.29 · Ⅳ −0.42 · Ⅴ −0.55.
+     *  억제만 두면 <b>능력 없는 평민에게 무능함이 아무 손해도 아니다</b>(짓누를 것이 없다) —
+     *  명석이 무능력자에게 무의미하던 것과 같은 함정이라, 전원에게 걸리는 감산을 따로 진다. */
+    private static final double INEPT_PER = 0.03;
+    private static final double INEPT_STEP = 0.13;
 
     /** 상한 너머(실효 Ⅵ+) 능력을 하나라도 가졌는가 — 유능함 없이는 도달 불가. */
     public static boolean hasSuperGrade(Individual ind) {
@@ -340,7 +397,8 @@ public final class Multipliers {
     private static int abilityCount(Individual ind) {
         int n = abilityGrade(ind, Trait.COMPETENT) > 0 ? 1 : 0;
         for (Trait t : ABILITY_UP) {
-            if (abilityGrade(ind, t) > 0) {
+            // 실효등급으로 센다 — 무능함Ⅴ 가 꺼 버린 능력은 "굴릴 재료"가 아니다.
+            if (effectiveAbilityGrade(ind, t) > 0) {
                 n++;
             }
         }
@@ -377,10 +435,10 @@ public final class Multipliers {
      * 평민 정원 경제(M=1.0 · 적자)는 전혀 건드리지 않는다.
      */
     public static int manageAbilityGrade(Individual ind) {
-        int raw = abilityGrade(ind, Trait.HERBALIST)
-                + abilityGrade(ind, Trait.GATHERER)
-                + abilityGrade(ind, Trait.DEXTEROUS)
-                + abilityGrade(ind, Trait.COOK)
+        int raw = suppressedAbilityGrade(ind, Trait.HERBALIST)
+                + suppressedAbilityGrade(ind, Trait.GATHERER)
+                + suppressedAbilityGrade(ind, Trait.DEXTEROUS)
+                + suppressedAbilityGrade(ind, Trait.COOK)
                 + abilityGrade(ind, Trait.COMPETENT);
         if (raw <= 0) {
             return 0; // 지능만으로는 경영 불가 — 능력 경사 유지
@@ -464,7 +522,7 @@ public final class Multipliers {
             m += t.contains(Trait.PLANT_CONFUSED) ? 0.5 : 0.25;
         }
         m += 0.05 * brightGrade(ind);             // 명석 인지거리 — 등급화(Ⅴ 에서 종전 +0.25 와 동일)
-        m -= 0.03 * dullGrade(ind);               // 멍청 인지거리 감소
+        m -= kinkPenalty(t, DULL_RANGE_PER, DULL_RANGE_STEP, dullGrade(ind)); // 멍청 인지거리
         // 눈썰미 게이트 — 실효 Ⅵ 이상이면 표적 선별이 열린다. 그 등급은 유능함 없이는 못 닿는다.
         // 손이 아무리 빨라도 볼 표적이 없으면 대기로 새므로, 이 반경이 회전율을 소득으로 바꾼다.
         if (effectiveAbilityGrade(ind, Trait.HERBALIST) >= SUPER_GRADE) {

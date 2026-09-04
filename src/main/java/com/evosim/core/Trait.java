@@ -98,8 +98,10 @@ public enum Trait {
      *  <b>다른 능력의 등급 상한 Ⅴ 를 푸는 것</b>: {@code +등급/2} 만큼 위로 민다. 자기 자신은
      *  승격 대상이 아니다(상호 승격 폭주 차단). */
     COMPETENT(Axis.COMPETENCE, "유능함"),
-    /** 서투름 — 채집·사냥 −0.03/등급. 상한을 풀기는커녕 아무것도 열지 않는다. */
-    INEPT(Axis.COMPETENCE, "서투름"),
+    /** 무능함 — <b>능력을 짓누른다</b>. 다른 능력 특성의 실효 등급에 {@code 1 − 0.2×등급} 을
+     *  곱해 Ⅴ 에서는 <b>정확히 0</b> 으로 끈다 — 눈썰미Ⅴ 를 달고 있어도 발동하지 않는다.
+     *  능력이 없는 자에게도 아프도록 꺾임형 직접 감산을 따로 진다(Ⅰ 무난 · Ⅱ 부터 급락). */
+    INEPT(Axis.COMPETENCE, "무능함"),
     DEXTEROUS(Axis.DEXTERITY, "손재주"),
     CLUMSY(Axis.DEXTERITY, "곰손"),
     HERBIVORE(Axis.DIET, "채식"),

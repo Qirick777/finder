@@ -2346,16 +2346,22 @@ public final class FarmTicker {
     /**
      * 이 개체는 첫 구걸로 곧장 드는가 — 게으름·멍청(비관은 P7 에 신설).
      *
-     * <p>멍청은 <b>실효 Ⅲ 이상</b>이라야 한다. 멍청이 성향(축 34개)에서 신체(축 8개)로 옮겨
-     * 오며 보유율이 4.4%→18.75% 로 네 배가 됐다 — "있으면 무조건"으로 두면 즉시 입소가 네 배로
-     * 늘어 주인의 봉급 지출이 그만큼 불어난다. Ⅲ 문턱은 <b>무등급 인스턴스가 중앙 Ⅲ 취급</b>
-     * 이라는 규약과 맞물려, 등급 없던 구 세이브의 거동을 종전과 정확히 같게 유지한다.
+     * <p>멍청·무능함은 <b>Ⅱ 이상</b>이라야 한다. 두 특성 다 Ⅰ 은 −3~4% 로 무난하고 Ⅱ 부터
+     * −16~22% 로 꺾이게 설계했으므로(꺾임형 감산), 즉시 입소의 경계도 같은 자리에 둔다.
+     * Ⅰ 까지 넣으면 무난한 개체가 첫 구걸에 들어와 주인의 봉급 지출만 불어난다.
      */
+    static final int POOR_INSTANT_GRADE = 2;
+
     private static boolean admitsAtOnce(MimicEntity m) {
         var ind = m.getIndividual();
-        return ind != null
-                && (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY)
-                || com.evosim.core.Multipliers.dullGrade(ind) >= 3);
+        return ind != null && (instantTraitGrade(ind) >= POOR_INSTANT_GRADE
+                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY));
+    }
+
+    /** 즉시 입소를 부르는 특성의 실효 등급(멍청·무능함 중 높은 쪽) — 계측이 같은 식을 읽는다. */
+    static int instantTraitGrade(com.evosim.core.Individual ind) {
+        return Math.max(com.evosim.core.Multipliers.dullGrade(ind),
+                com.evosim.core.Multipliers.abilityGrade(ind, com.evosim.core.Trait.INEPT));
     }
 
     /**
@@ -2600,7 +2606,43 @@ public final class FarmTicker {
                     "%d채 · 소속 %.0f/%d · 입소 %.0f · 퇴소 %.0f · 지급 %.2f · 미지급 %.2f",
                     hs.size(), POOR_SUM[4], cap, POOR_SUM[0], POOR_SUM[1],
                     POOR_SUM[2], POOR_SUM[3]));
+            poorGradeNote(level);
         }
+    }
+
+    /**
+     * <b>등급별 소속률</b> — "멍청Ⅱ 는 사실상 구빈원 확정"이 실제로 성립하는지 재는 유일한 창구.
+     *
+     * <p>설계 문장은 판정이 아니다. 합격 기준을 수치로 못 박아 두 줄로 읽는다:
+     * <b>Ⅱ+ 소속률 ≥ 80%</b> 이면서 <b>Ⅰ이하 소속률 ≤ 무특성 평균</b>. 미달이면 꺾임 계수를
+     * 올려 재측정한다 — 로그만 보고 "됐다"고 하지 않기 위한 장치다.
+     */
+    private static void poorGradeNote(ServerLevel level) {
+        int hiTotal = 0;
+        int hiIn = 0;
+        int loTotal = 0;
+        int loIn = 0;
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
+                e -> e.isAlive() && e.getStage() == com.evosim.core.LifeStage.ADULT
+                        && e.getIndividual() != null)) {
+            boolean in = m.inPoorhouse();
+            if (instantTraitGrade(m.getIndividual()) >= POOR_INSTANT_GRADE) {
+                hiTotal++;
+                if (in) {
+                    hiIn++;
+                }
+            } else {
+                loTotal++;
+                if (in) {
+                    loIn++;
+                }
+            }
+        }
+        com.evosim.mod.log.SimEvents.note(level, "구빈원", String.format(
+                "등급별 — 멍청·무능 Ⅱ+ %d/%d (%.0f%%) · Ⅰ이하 %d/%d (%.0f%%)  [합격: Ⅱ+ ≥80%% · Ⅰ이하 ≤ Ⅱ+]",
+                hiIn, hiTotal, hiTotal == 0 ? 0.0 : 100.0 * hiIn / hiTotal,
+                loIn, loTotal, loTotal == 0 ? 0.0 : 100.0 * loIn / loTotal));
     }
 
     /**

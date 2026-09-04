@@ -2379,8 +2379,17 @@ public final class FarmTicker {
 
     private static boolean admitsAtOnce(MimicEntity m) {
         var ind = m.getIndividual();
-        return ind != null && (instantTraitGrade(ind) >= POOR_INSTANT_GRADE
-                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY));
+        if (ind == null) {
+            return false;
+        }
+        // 육아에 묶인 부모 — <b>나갈 수가 없어</b> 굶는다. 연속 3일을 기다리게 하면 그 사흘을
+        // 못 버티는 개체가 나온다(구걸 여행 자체가 봉쇄된 상태라 벌충할 길이 없다). 게으름·
+        // 멍청과 같은 즉시 입소로 둔다 — 사유는 다르지만 "제 힘으로 벗어날 수 없다"는 같다.
+        if (m.isCaregiverBound()) {
+            return true;
+        }
+        return instantTraitGrade(ind) >= POOR_INSTANT_GRADE
+                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY);
     }
 
     /** 즉시 입소를 부르는 특성의 실효 등급(멍청·무능함 중 높은 쪽) — 계측이 같은 식을 읽는다. */
@@ -5352,6 +5361,26 @@ public final class FarmTicker {
         // 여기서 또 얻으면 이중 수입이다. 다만 일자리는 계속 받는다(false 를 돌려주면 호출부가
         // 밭 배정으로 이어간다) — 그래야 저장고가 올라 언젠가 퇴소선에 닿는다.
         if (m.inPoorhouse()) {
+            return false;
+        }
+        // <b>육아에 묶인 부모는 문간을 돌지 않는다.</b>
+        //
+        // 구걸 목적지는 실측 32~40블록 밖이라 육아 견인(우선순위 1)이 <b>반드시</b> 선점한다.
+        // 끌려와 해제되면 {@code begUntil} 이 아직 살아 있고 {@code MimicBegGoal.stop()} 은
+        // 앵커를 일부러 안 지우므로 같은 자리로 다시 나간다 — 육안 관측된 "구걸 갔다 육아에
+        // 걸려 돌아왔다 다시 구걸"의 정체다. 밭일·채집의 같은 왕복은 히스테리시스로 잡았지만
+        // (MimicParentingGoal.ENGAGE_FACTOR), 그것은 <b>표적이 노동 반경 안</b>일 때 통하는
+        // 장치라 여기서는 어떤 밴드를 잡아도 목적지가 항상 바깥이라 원리적으로 안 듣는다.
+        //
+        // 대신 <b>자립 실패로는 센다</b>. 나가지 못해 굶는 것도 자립 실패이므로(이 함수가 이미
+        // "재는 것은 수령이 아니라 자립 실패다"라고 적어 두었다) 연속 일수가 쌓여 구빈원 입소
+        // 자격이 열리고, 소속이 되면 봉급이 <b>집으로</b> 온다(소속자는 문간을 안 돈다). 그
+        // 경로가 없으면 사별·독신 + 유아 가구는 구걸도 못 한 채 굶어 죽는다.
+        if (m.isCaregiverBound()) {
+            BEGGED_TODAY.add(m.getId());
+            m.noteBegDay(com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+            com.evosim.mod.log.SimEvents.event(m, "구걸포기",
+                    "육아 구속 — 젖먹이를 두고 못 나간다(자립 실패로 셈 · 구빈원 즉시 자격)");
             return false;
         }
         long me = m.getIndividual().id();

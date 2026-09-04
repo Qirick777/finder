@@ -504,6 +504,38 @@ public class MimicEntity extends PathfinderMob {
     private long begPatron = 0L;
     private long begUntil = 0L;
 
+    // ── 구빈원 소속 ────────────────────────────────────────────────────────
+    //
+    // 구걸은 <b>하루짜리</b>지만(위 begAnchor 는 해질녘에 풀린다) 소속은 <b>지속</b>이다.
+    // 그래서 런타임 맵이 아니라 개체 필드에 두고 NBT 로 저장한다 — 병사 배속(POST_OF)은
+    // 매일 새로 정해지지만 구빈원 소속은 저장고가 {@link Facilities#POORHOUSE_EXIT} 에
+    // 닿아야 풀린다.
+    private BlockPos poorhousePos = null;
+    /** 연속 구걸 일수 — {@link Facilities#POORHOUSE_ADMIT_STREAK} 에 닿으면 입소. */
+    private int begStreak = 0;
+
+    /** 소속 구빈원 — 없으면 null. */
+    public BlockPos getPoorhouse() {
+        return poorhousePos;
+    }
+
+    public void setPoorhouse(BlockPos p) {
+        this.poorhousePos = p;
+    }
+
+    public boolean inPoorhouse() {
+        return poorhousePos != null;
+    }
+
+    public int getBegStreak() {
+        return begStreak;
+    }
+
+    /** 구걸한 날 +1, 안 한 날 0 — <b>연속</b>이라야 한다(누적이면 결국 모두가 소속된다). */
+    public void setBegStreak(int n) {
+        this.begStreak = Math.max(0, n);
+    }
+
     /** 오늘의 구걸 목적지를 못박는다 — {@code untilTick} 까지 유효. */
     public void setBegTarget(BlockPos home, long patronId, long untilTick) {
         this.begAnchor = home;
@@ -3140,6 +3172,9 @@ public class MimicEntity extends PathfinderMob {
         if (founder == null) {
             return larder;
         }
+        // <b>구빈원이 제일 먼저다.</b> 자격이 추종자 수가 아니라 <b>밭 크기</b>라 아래 세 시설의
+        // 문턱과 무관하게 성립하고, 무엇보다 군인보다 먼저 서야 한다(POORHOUSE_RESERVE_MULT 주석).
+        larder = considerPoorhouse(sl, founder, larder, adultNeed);
         // 교회를 <b>먼저</b> 본다 — 자격 문턱이 낮아(추종자 4) 학교보다 이른 세력에서 성립하고,
         // 학교 문턱에서 되돌아가면 교회까지 함께 막히기 때문이다.
         if (followers >= Facilities.CHURCH_MIN_FOLLOWERS) {
@@ -3248,6 +3283,78 @@ public class MimicEntity extends PathfinderMob {
      *       {@link FacilityTemplate.Group} 으로 세지 않으면 한 사람이 둘을 나란히 짓는다.</li>
      * </ul>
      */
+    /**
+     * <b>구빈원을 세울 것인가</b> — 하루 1회, 가구 정산에서 묻는다.
+     *
+     * <p>다른 시설과 자격이 다르다: 추종자 수가 아니라 <b>보유 밭</b>이다
+     * ({@link Facilities#POORHOUSE_MIN_TILES} 주석 — 24타일은 관리등급 Ⅲ 이상이라야 감당한다).
+     * 난립을 막는 층이 다섯이고, 그중 이것이 가장 강하다. 자금 문턱은 만족선과 겹쳐 평민도
+     * 우연히 닿을 수 있지만 밭 크기는 <b>운으로 뚫리지 않는다</b>.
+     *
+     * <p><b>첫 채와 둘째 채가 다른 문을 쓴다.</b> 첫 채는 "갈 곳 없는 구걸자 3명"(학교의
+     * {@code UNSERVED_TO_BUILD} 와 같은 문법)이고, 둘째부터는 "마을의 모든 구빈원에 빈자리가
+     * 없다"이다. 후자는 <b>주인을 가리지 않으므로</b>, 정원 10짜리가 하나 서 있고 구걸자가
+     * 7명이면 아무도 둘째를 못 짓는다.
+     */
+    private double considerPoorhouse(ServerLevel sl, MimicEntity founder, double larder,
+                                     double adultNeed) {
+        long id = founder.getIndividual().id();
+        int tiles = FarmStore.get(sl).ownedTiles(id);
+        if (tiles < Facilities.POORHOUSE_MIN_TILES) {
+            return larder; // 능력 문턱 — 조용히 물러난다(대다수가 여기서 걸리므로 로그를 안 남긴다)
+        }
+        FacilityStore reg = FacilityStore.get(sl);
+        int have = reg.countOf(FacilityTemplate.Group.POORHOUSE);
+        if (have == 0) {
+            // 첫 채 — 수요로 연다.
+            int unserved = FarmTicker.unservedBeggars(sl);
+            if (unserved < Facilities.POORHOUSE_UNSERVED) {
+                return larder;
+            }
+        } else if (FarmTicker.poorhouseVacancy(sl) > 0) {
+            return larder; // 둘째 채 — 빈자리가 남아 있으면 짓지 않는다(주인 무관)
+        }
+        double gate = Facilities.POORHOUSE_COST
+                + HomeTemplate.reserve(adultNeed) * Facilities.POORHOUSE_RESERVE_MULT;
+        if (larder < gate) {
+            SimEvents.event(founder, "구빈원", String.format(
+                    "보류 — 밭%d타일 · 저장고 %.0f < 문턱 %.0f", tiles, larder, gate));
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.POORHOUSE, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos site = facilitySite(sl, homePos, tpl.get(), FarmTicker.followerHomesOf(id));
+        if (site == null) {
+            SimEvents.event(founder, "구빈원", String.format(
+                    "자리 없음 — 거부 집%d 밭%d 물%d 낙차%d",
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]));
+            return larder;
+        }
+        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.POORHOUSE,
+                Facilities.POORHOUSE_GAP_OTHER, id, Facilities.POORHOUSE_GAP_SAME);
+        if (clash != null) {
+            SimEvents.event(founder, "구빈원", "보류 — " + clash);
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.POORHOUSE, rot, mir, id, today(),
+                Facilities.POORHOUSE_COST);
+        RoadPlanner.Obstacles.invalidate();
+        assignFacilityRoad(sl, site, tpl.get());
+        SimEvents.event(founder, "구빈원", String.format(
+                "착공 @%d,%d 회전%d%s — 밭%d타일 · 자리%d · 건축비 %.0f (저장고 %.0f→%.0f)"
+                        + " · 기존 %d채",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", tiles,
+                tpl.get().seats().size(), Facilities.POORHOUSE_COST, larder,
+                larder - Facilities.POORHOUSE_COST, have));
+        return larder - Facilities.POORHOUSE_COST;
+    }
+
     private double considerChurch(ServerLevel sl, MimicEntity founder, int followers,
                                   double larder, double adultNeed) {
         long id = founder.getIndividual().id();
@@ -3437,10 +3544,27 @@ public class MimicEntity extends PathfinderMob {
      */
     private static String facilityGapFault(FacilityStore reg, BlockPos site,
                                            FacilityTemplate.Group group, double sameGap) {
+        return facilityGapFault(reg, site, group, sameGap, 0L, sameGap);
+    }
+
+    /**
+     * 같은 갈래의 간격을 <b>주인별로</b> 나눈 판. 구빈원이 쓴다.
+     *
+     * <p>주인을 안 가리고 하나만 걸면 모순이 생긴다: 선점을 위해 크게 잡으면(다른 주인 192)
+     * 정원이 꽉 차 증설해야 할 때 <b>제 구빈원에서 192블록 떨어진 곳</b>에 서게 되어 정작
+     * 사람이 넘치는 마을에서 멀어지고, 작게 잡으면 경쟁자가 옆에 들어온다.
+     *
+     * @param sameOwnerGap 같은 갈래 <b>같은 주인</b>일 때의 간격(증설)
+     */
+    private static String facilityGapFault(FacilityStore reg, BlockPos site,
+                                           FacilityTemplate.Group group, double sameGap,
+                                           long ownerId, double sameOwnerGap) {
         for (FacilityStore.Entry other : reg.all()) {
             double d = Math.sqrt(other.pos.distSqr(site));
             boolean same = other.kind.group == group;
-            double need = same ? sameGap : Facilities.FACILITY_CROSS_GAP;
+            double need = same
+                    ? (ownerId != 0L && other.ownerId == ownerId ? sameOwnerGap : sameGap)
+                    : Facilities.FACILITY_CROSS_GAP;
             if (d < need) {
                 return String.format("%s와 %.0f블록 (최소 %.0f · %s) @%d,%d",
                         other.kind.label, d, need, same ? "같은 갈래" : "다른 갈래",
@@ -6977,6 +7101,10 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
         tag.putInt("SchoolDays", schoolDays);
+        if (poorhousePos != null) {
+            tag.putLong("Poorhouse", poorhousePos.asLong());
+        }
+        tag.putInt("BegStreak", begStreak);
         tag.putInt("ChurchVisits", churchVisits); // 획득값 — 구애 우위의 입력이라 살아남아야 한다
         tag.putLong("SchoolDay", schoolCreditedDay);
         if (!paveTodo.isEmpty()) {
@@ -7055,6 +7183,9 @@ public class MimicEntity extends PathfinderMob {
                 homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
         schoolDays = tag.getInt("SchoolDays");
+        poorhousePos = tag.contains("Poorhouse")
+                ? BlockPos.of(tag.getLong("Poorhouse")) : null;
+        begStreak = tag.getInt("BegStreak");
         churchVisits = tag.getInt("ChurchVisits");
         schoolCreditedDay = tag.contains("SchoolDay") ? tag.getLong("SchoolDay") : Long.MIN_VALUE;
         paveTodo.clear();

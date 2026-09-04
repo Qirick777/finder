@@ -418,6 +418,14 @@ public final class FarmTicker {
                                 && !FOLLOWERS.containsKey(id));
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
+            // ── 연속 구걸 일수 — 오늘 구걸에 나섰으면 +1, 아니면 0. <b>연속</b>이라야 한다
+            //    (누적이면 결국 모두가 구빈원에 든다 — Facilities.POORHOUSE_ADMIT_STREAK 주석).
+            //    새벽 배정(assignDawn)이 BEGGED_TODAY 를 이미 채워 두었으므로 여기서 읽기만 한다.
+            //    허탕이어도 센다 — 재는 것은 수령이 아니라 <b>자립 실패</b>다.
+            for (MimicEntity m : adults) {
+                m.setBegStreak(BEGGED_TODAY.contains(m.getId()) ? m.getBegStreak() + 1 : 0);
+            }
+            runPoorhouses(level, ledger, larders, adults, day);
             runSchools(level, ledger, larders, adults, everyone, patrons, day);
             runBarracks(level, ledger, larders, adults, patrons, day);
             settleOccupation(level, adults); // 배속이 끝난 뒤에 — 순회 순서로 승패가 갈리지 않게
@@ -2247,6 +2255,227 @@ public final class FarmTicker {
 
     public static double[] guardSums() {
         return GUARD_SUM.clone();
+    }
+
+    // ── 구빈원 ─────────────────────────────────────────────────────────────
+    /** [입소, 퇴소, 지급액, 미지급, 소속 인원] — 한 줄 보고용. */
+    private static final double[] POOR_SUM = new double[5];
+
+    public static double[] poorSums() {
+        return POOR_SUM.clone();
+    }
+
+    /** 살아 있는 구빈원 등기 — 없으면 빈 목록. */
+    private static java.util.List<FacilityStore.Entry> poorhouses(ServerLevel level) {
+        java.util.List<FacilityStore.Entry> out = new java.util.ArrayList<>();
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            if (e.kind.group == FacilityTemplate.Group.POORHOUSE) {
+                out.add(e);
+            }
+        }
+        return out;
+    }
+
+    /** 한 구빈원의 정원 — 도면 자리 수(회전과 무관하므로 기준 회전으로 한 번 읽는다). */
+    private static int poorhouseSeats(ServerLevel level, FacilityStore.Entry e) {
+        return FacilityTemplate.of(level, e.kind, (byte) 0, false)
+                .map(t -> t.seats().size()).orElse(0);
+    }
+
+    /**
+     * <b>마을 전체의 빈자리</b> — 둘째 채를 여는 유일한 조건이고, <b>주인을 가리지 않는다</b>.
+     * 정원 10짜리가 하나 서 있고 소속이 7명이면 3이 남아 아무도 둘째를 못 짓는다.
+     */
+    public static int poorhouseVacancy(ServerLevel level) {
+        java.util.List<FacilityStore.Entry> hs = poorhouses(level);
+        if (hs.isEmpty()) {
+            return 0;
+        }
+        int cap = 0;
+        for (FacilityStore.Entry e : hs) {
+            cap += poorhouseSeats(level, e);
+        }
+        int taken = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.inPoorhouse())) {
+            taken++;
+        }
+        return Math.max(0, cap - taken);
+    }
+
+    /**
+     * <b>갈 곳 없는 구걸자</b> — 첫 채의 수요 문턱. 구빈원에 안 든 채 구걸이 이어지는 사람 수다.
+     * 학교의 {@code unservedStudents} 와 같은 자리·같은 문법(수요 없이 늘어나지 않게).
+     */
+    public static int unservedBeggars(ServerLevel level) {
+        int n = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && !e.inPoorhouse() && e.getBegStreak() > 0)) {
+            n++;
+        }
+        return n;
+    }
+
+    /** 이 개체는 첫 구걸로 곧장 드는가 — 게으름·멍청·비관(P7 에 신설). */
+    private static boolean admitsAtOnce(MimicEntity m) {
+        var ind = m.getIndividual();
+        return ind != null
+                && (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY)
+                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.DULL));
+    }
+
+    /**
+     * <b>구빈원 정산</b> — 등기 정리 · 퇴소 · 입소 · 봉급. 하루 1회, 주둔 정산과 같은 틱.
+     *
+     * <p>순서가 뜻을 갖는다. <b>퇴소를 먼저</b> 처리해야 그 자리가 오늘 입소에 열리고, 봉급은
+     * 마지막이라야 방금 든 사람도 첫날치를 받는다.
+     *
+     * <p>봉급은 <b>지수 감액</b>이다 — {@code w = STIPEND × e^(−저장고 / (가구 성인소모 × 3.5))}.
+     * 기준선을 자녀가 아니라 <b>성인</b> 소모로 잡는 것이 핵심이고, 그 이유는
+     * {@link com.evosim.core.FarmEconomy#progressiveFee} 주석이 이미 적어 두었다: 기준선을
+     * 출산 게이트로 정규화하면 <b>낳을수록 상한이 따라 올라 영영 안 막힌다</b>. 성인 기준이면
+     * 자녀가 늘 때 게이트만 오르고 기준선은 그대로라 둘째 출산이 스스로 막힌다.
+     *
+     * <p>부부 순증은 {@code 3.0·e^(−L/21) − 1.0} 이라 {@code L = 21·ln3 = 23.1} 에서 0 이 된다 —
+     * 봉급만으로는 퇴소선(30)에 <b>구조적으로</b> 닿지 못한다. 벗어나는 길은 잉여가 확 늘어나는
+     * 사건(지주에게 시집가 가구가 합쳐짐 · 소작 일자리)뿐이다.
+     */
+    private static void runPoorhouses(ServerLevel level, AllegianceStore ledger,
+                                      LarderStore larders, java.util.List<MimicEntity> adults,
+                                      long day) {
+        java.util.Arrays.fill(POOR_SUM, 0.0);
+        java.util.List<FacilityStore.Entry> hs = poorhouses(level);
+        java.util.Set<Long> live = new java.util.HashSet<>();
+        for (FacilityStore.Entry e : hs) {
+            live.add(e.pos.asLong());
+        }
+        java.util.Map<Long, Integer> taken = new java.util.HashMap<>(); // 구빈원 pos → 인원
+
+        // ① 등기 정리 · 퇴소 — 건물이 사라졌거나 저장고가 퇴소선을 넘었으면 소속을 푼다.
+        for (MimicEntity m : adults) {
+            if (!m.inPoorhouse()) {
+                continue;
+            }
+            BlockPos p = m.getPoorhouse();
+            if (!live.contains(p.asLong())) {
+                m.setPoorhouse(null); // 주인 사망·철거 — 소속이 가리킬 곳이 없다
+                continue;
+            }
+            double lar = m.getHomePos() == null ? 0.0 : larders.get(m.getHomePos());
+            if (lar >= Facilities.POORHOUSE_EXIT) {
+                m.setPoorhouse(null);
+                m.setBegStreak(0);
+                POOR_SUM[1]++;
+                com.evosim.mod.log.SimEvents.event(m, "구빈원", String.format(
+                        "퇴소 — 저장고 %.1f ≥ 퇴소선 %.0f", lar, Facilities.POORHOUSE_EXIT));
+                continue;
+            }
+            taken.merge(p.asLong(), 1, Integer::sum);
+        }
+
+        // ② 입소 — 연속 구걸이 문턱에 닿았고 자리가 있는 사람. 가까운 구빈원부터.
+        if (!hs.isEmpty()) {
+            for (MimicEntity m : adults) {
+                if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
+                    continue;
+                }
+                int need = admitsAtOnce(m) ? 1 : Facilities.POORHOUSE_ADMIT_STREAK;
+                if (m.getBegStreak() < need) {
+                    continue;
+                }
+                FacilityStore.Entry best = null;
+                double bd = Double.MAX_VALUE;
+                for (FacilityStore.Entry e : hs) {
+                    if (taken.getOrDefault(e.pos.asLong(), 0) >= poorhouseSeats(level, e)) {
+                        continue; // 만석
+                    }
+                    double d = m.getHomePos().distSqr(e.pos);
+                    if (d < bd) {
+                        bd = d;
+                        best = e;
+                    }
+                }
+                if (best == null) {
+                    continue; // 마을이 다 찼다 — 그 사실이 둘째 채의 착공 조건이 된다
+                }
+                m.setPoorhouse(best.pos);
+                taken.merge(best.pos.asLong(), 1, Integer::sum);
+                POOR_SUM[0]++;
+                com.evosim.mod.log.SimEvents.event(m, "구빈원", String.format(
+                        "입소 @%d,%d — 연속구걸 %d일(문턱 %d%s) · %.0f블록",
+                        best.pos.getX(), best.pos.getZ(), m.getBegStreak(), need,
+                        need == 1 ? " · 게으름/멍청" : "", Math.sqrt(bd)));
+            }
+        }
+
+        // ③ 봉급 — 소속자 1인당. 주인 저장고에서 그 가구 저장고로.
+        for (MimicEntity m : adults) {
+            if (!m.inPoorhouse() || m.getHomePos() == null || m.getIndividual() == null) {
+                continue;
+            }
+            FacilityStore.Entry house = null;
+            for (FacilityStore.Entry e : hs) {
+                if (e.pos.equals(m.getPoorhouse())) {
+                    house = e;
+                    break;
+                }
+            }
+            if (house == null) {
+                continue;
+            }
+            MimicEntity owner = null;
+            for (MimicEntity a : adults) {
+                if (a.getIndividual() != null && a.getIndividual().id() == house.ownerId) {
+                    owner = a;
+                    break;
+                }
+            }
+            if (owner == null || owner.getHomePos() == null) {
+                continue; // 주인이 자리에 없다 — 오늘은 못 준다
+            }
+            double adultNeed = 0.0;
+            for (MimicEntity a : adults) {
+                if (m.getHomePos().equals(a.getHomePos())) {
+                    adultNeed += com.evosim.core.FoodEconomy.consumptionPerDay(
+                            a.getStage(), com.evosim.core.Activity.MOVE, a.getIndividual(), false);
+                }
+            }
+            double cap = Math.max(1.0E-6,
+                    adultNeed * com.evosim.core.FarmEconomy.WEALTH_CAP_DAYS);
+            double want = Facilities.POORHOUSE_STIPEND
+                    * Math.exp(-Math.max(0.0, larders.get(m.getHomePos())) / cap);
+            double ownerLar = larders.get(owner.getHomePos());
+            double pay = Math.min(want, Math.max(0.0, ownerLar));
+            if (pay <= 0.0) {
+                POOR_SUM[3] += want;
+                continue; // 주인 저장고가 비었다 — 소속은 유지된다(갈 곳이 없다)
+            }
+            larders.set(owner.getHomePos(), ownerLar - pay);
+            larders.set(m.getHomePos(), larders.get(m.getHomePos()) + pay);
+            POOR_SUM[2] += pay;
+            POOR_SUM[3] += want - pay;
+            // 구휼 가중치를 그대로 쓴다 — 굶는 자에게 먹을 것을 준 것이라 물건이 같다.
+            // 새 상수를 만들면 같은 행위가 두 이름으로 갈려 균형점 계산이 두 벌이 된다
+            // (receiveAlms 가 이미 그렇게 적어 두었다).
+            ledger.record(m.getIndividual().id(), house.ownerId,
+                    AllegianceStore.W_RELIEF * pay
+                            * AllegianceStore.rapport(m.getIndividual()), 0.0, day);
+        }
+        for (int v : taken.values()) {
+            POOR_SUM[4] += v;
+        }
+        // 하루 한 줄 — 밖에서 "구빈원이 도는가"를 수치로 볼 창구. 시설이 없으면 침묵한다.
+        if (!hs.isEmpty()) {
+            int cap = 0;
+            for (FacilityStore.Entry e : hs) {
+                cap += poorhouseSeats(level, e);
+            }
+            com.evosim.mod.log.SimEvents.note(level, "구빈원", String.format(
+                    "%d채 · 소속 %.0f/%d · 입소 %.0f · 퇴소 %.0f · 지급 %.2f · 미지급 %.2f",
+                    hs.size(), POOR_SUM[4], cap, POOR_SUM[0], POOR_SUM[1],
+                    POOR_SUM[2], POOR_SUM[3]));
+        }
     }
 
     /**
@@ -4698,6 +4927,12 @@ public final class FarmTicker {
     private static boolean assignBeg(ServerLevel level, MimicEntity m) {
         if (m.getIndividual() == null || BEGGED_TODAY.contains(m.getId())) {
             return false; // 오늘 몫은 끝 — 호출부의 종전 경로로 떨어진다(굶어 죽게 두지는 않는다)
+        }
+        // <b>구빈원 소속은 문간을 돌지 않는다</b> — 정산에서 봉급을 받으므로(runPoorhouses)
+        // 여기서 또 얻으면 이중 수입이다. 다만 일자리는 계속 받는다(false 를 돌려주면 호출부가
+        // 밭 배정으로 이어간다) — 그래야 저장고가 올라 언젠가 퇴소선에 닿는다.
+        if (m.inPoorhouse()) {
+            return false;
         }
         long me = m.getIndividual().id();
         BlockPos myHome = m.getHomePos();

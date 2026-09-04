@@ -2645,6 +2645,44 @@ public final class FarmTicker {
     }
 
     /**
+     * 이 개체에게 가장 가까운 구빈원 — 주인이 살아 있고 지불 여력이 있는 곳만.
+     *
+     * <p>여력을 보는 이유: 빈 지갑을 향해 걷게 하면 하루를 통째로 버리고 허탕만 친다. 여력이
+     * 없으면 null 을 돌려 종전 경로(집집마다 조회)로 떨어진다 — 구빈원이 마을의 유일한 구제
+     * 창구가 되어 오히려 굶기는 일이 없게.
+     */
+    private static FacilityStore.Entry nearestPoorhouse(ServerLevel level, MimicEntity m) {
+        LarderStore larders = LarderStore.get(level);
+        FacilityStore.Entry best = null;
+        double bestD = Double.MAX_VALUE;
+        for (FacilityStore.Entry e : poorhouses(level)) {
+            MimicEntity owner = byIndividual(level, e.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                continue;
+            }
+            if (larders.get(owner.getHomePos()) - FarmEconomy.INVEST_RESERVE < ALMS_UNIT) {
+                continue; // 주인 지갑이 비었다 — 걸어가 봐야 허탕
+            }
+            double d = m.blockPosition().distSqr(e.pos);
+            if (d < bestD) {
+                bestD = d;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    /** 이 좌표가 구빈원인가 — 맞으면 그 등기, 아니면 null. */
+    private static FacilityStore.Entry poorhouseAt(ServerLevel level, BlockPos pos) {
+        for (FacilityStore.Entry e : poorhouses(level)) {
+            if (e.pos.equals(pos)) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /**
      * <b>등급별 소속률</b> — "멍청Ⅱ 는 사실상 구빈원 확정"이 실제로 성립하는지 재는 유일한 창구.
      *
      * <p>설계 문장은 판정이 아니다. 합격 기준을 수치로 못 박아 두 줄로 읽는다:
@@ -5402,6 +5440,28 @@ public final class FarmTicker {
         LarderStore larders = LarderStore.get(level);
         AllegianceStore ledger = AllegianceStore.get(level);
 
+        // <b>구빈원이 있으면 문간을 돌지 않는다.</b>
+        //
+        // 종전에는 마을의 집을 전부 훑어 잉여·거리로 점수를 매기고 그 집을 찾아갔다. 구빈원이
+        // 선 마을에서는 그것이 서사에도 어긋나고(구제는 시설이 하는 일이다) 경로에도 나쁘다 —
+        // 구걸자마다 목적지가 흩어져 길찾기가 마을 전체로 퍼진다. 시설 한 곳으로 모으면
+        // 목적지가 하나가 되고, 구빈원이 실제로 <b>무엇을 하는 곳인지</b>가 눈에 보인다.
+        //
+        // 급여는 구빈원 주인의 저장고에서 나간다(소속자 봉급과 같은 지갑) — receiveAlms 가
+        // 목적지가 구빈원이면 주인 집을 지불처로 되짚는다.
+        FacilityStore.Entry ph = nearestPoorhouse(level, m);
+        if (ph != null) {
+            BEGGED_TODAY.add(m.getId());
+            m.noteBegDay(com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+            m.setBegTarget(ph.pos, ph.ownerId,
+                    com.evosim.mod.entity.SimTime.tick(level) + BEG_TRAVEL);
+            com.evosim.mod.log.SimEvents.event(m, "구걸출발", String.format(
+                    "일자리 없음(H %.2f) — 구빈원 @%d,%d 로(%.0f블록)",
+                    m.getHolding(), ph.pos.getX(), ph.pos.getZ(),
+                    Math.sqrt(m.blockPosition().distSqr(ph.pos))));
+            return true;
+        }
+
         // 가구 대표 뽑기 — 제공자 우선, 동률이면 낮은 id(결정론). 대표가 신세의 상대가 된다.
         java.util.Map<Long, BlockPos> homes = new java.util.HashMap<>();
         java.util.Map<Long, long[]> head = new java.util.HashMap<>(); // home → {제공자?1:0, id}
@@ -5489,20 +5549,35 @@ public final class FarmTicker {
             return;
         }
         LarderStore larders = LarderStore.get(level);
-        int given = ALMS_GIVEN.getOrDefault(h.asLong(), 0);
-        double room = larders.get(h) - FarmEconomy.INVEST_RESERVE;
+        // 목적지가 구빈원이면 <b>지불처는 주인 집</b>이다. 시설은 창구일 뿐 지갑이 아니다.
+        BlockPos payer = h;
+        boolean atPoorhouse = false;
+        FacilityStore.Entry ph = poorhouseAt(level, h);
+        if (ph != null) {
+            MimicEntity owner = byIndividual(level, ph.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                com.evosim.mod.log.SimEvents.event(m, "구걸",
+                        "구빈원에 갔으나 주인이 없다 — 허탕");
+                return;
+            }
+            payer = owner.getHomePos();
+            atPoorhouse = true;
+        }
+        int given = ALMS_GIVEN.getOrDefault(payer.asLong(), 0);
+        double room = larders.get(payer) - FarmEconomy.INVEST_RESERVE;
         double units = Math.min(ALMS_UNIT, Math.min(room, ALMS_HOME_CAP - given));
         var fl = FamilyLedger.get(level);
         var pf = fl.get(patron);
         String who = pf != null && pf.name != null ? pf.name : "#" + patron;
         if (units < ALMS_UNIT) {
             com.evosim.mod.log.SimEvents.event(m, "구걸", String.format(
-                    "%s 의 집에서 허탕 — 여유 %.1f · 오늘 이미 %d 유닛 나감", who, room, given));
+                    "%s 의 %s에서 허탕 — 여유 %.1f · 오늘 이미 %d 유닛 나감",
+                    who, atPoorhouse ? "구빈원" : "집", room, given));
             return;
         }
-        larders.set(h, larders.get(h) - units);
+        larders.set(payer, larders.get(payer) - units);
         m.setDayHarvest(m.getHolding() + units);
-        ALMS_GIVEN.merge(h.asLong(), (int) Math.ceil(units), Integer::sum);
+        ALMS_GIVEN.merge(payer.asLong(), (int) Math.ceil(units), Integer::sum);
         long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         AllegianceStore ledger = AllegianceStore.get(level);
         double before = ledger.bondTo(m.getIndividual().id(), patron);
@@ -5513,8 +5588,9 @@ public final class FarmTicker {
                         * AllegianceStore.rapport(m.getIndividual()), 0.0, day);
         double after = ledger.bondTo(m.getIndividual().id(), patron);
         com.evosim.mod.log.SimEvents.event(m, "구걸", String.format(
-                "%s 에게 %.1f 받음 — 신세 %.1f→%.1f(적립 +%.2f · 체감 후) · H %.2f",
-                who, units, before, after, after - before, m.getHolding()));
+                "%s%s 에게 %.1f 받음 — 신세 %.1f→%.1f(적립 +%.2f · 체감 후) · H %.2f",
+                atPoorhouse ? "구빈원에서 " : "", who, units, before, after,
+                after - before, m.getHolding()));
     }
 
     @SubscribeEvent

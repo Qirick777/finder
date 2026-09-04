@@ -72,6 +72,16 @@ public final class EvoTest {
 
         String cmd = args.length > 0 ? args[0].toLowerCase() : "all";
 
+        // 인구 능력 분포 — 개편 전/후 대조용 계측(판정 없음). audit [시드] [인원]
+        if (cmd.equals("audit")) {
+            long seed = args.length > 1 ? Long.parseLong(args[1]) : 11L;
+            int n = args.length > 2 ? Integer.parseInt(args[2]) : 400;
+            for (String line : TraitAudit.report(seed, n)) {
+                System.out.println(line);
+            }
+            return;
+        }
+
         // /evodebug trace — 진단 출력(판정 없음).
         if (cmd.equals("trace")) {
             int count = args.length > 1 ? Integer.parseInt(args[1]) : 3;

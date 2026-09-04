@@ -36,7 +36,9 @@ public final class Multipliers {
         Set<Trait> t = ExpressionResolver.expressedTraits(ind);
         double amp = abilityAmp(ind, t);
         double m = 1.0;
-        m += amp * scaled(ind, t, Trait.HERBALIST, 0.65); // 약초학자 Ⅴ=×1.65(증폭 전)
+        m += amp * scaled(ind, t, Trait.HERBALIST, 0.50); // 눈썰미 0.65→0.50(단독 하향 — 조합으로 되찾는다)
+        m += amp * scaled(ind, t, Trait.COMPETENT, 0.15); // 유능함 — 단독은 잡동사니, 상한을 푸는 값이 본체
+        m += scaled(ind, t, Trait.INEPT, -0.15);          // 서투름
         m += scaled(ind, t, Trait.PLANT_CONFUSED, -0.5);  // 식물혼동 Ⅴ=×0.5
         m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
@@ -46,7 +48,7 @@ public final class Multipliers {
         m += scaled(ind, t, Trait.DULL, -0.1);            // 멍청 기본(감폭기 겸)
         m += scaled(ind, t, Trait.PRUDENT, 0.1);          // 신중 자원×1.1
         m += scaled(ind, t, Trait.RECKLESS, -0.1);        // 무모 자원×0.9
-        m += amp * scaled(ind, t, Trait.GATHERER, 0.4);   // 채집꾼 0.3→0.4 — tileYield G 직결(성장 가속)
+        m += amp * scaled(ind, t, Trait.GATHERER, 0.3);   // 채집꾼 0.4→0.3(눈썰미와 함께 하향)
         m += scaled(ind, t, Trait.HUNTER, -0.1);          // 사냥꾼 채집딜레이
         m += scaled(ind, t, Trait.SCATTERED, -0.2);       // 산만 — 한자리에 못 붙어 있다
         m += amp * scaled(ind, t, Trait.FOCUSED, 0.15);   // 몰입 — 붙어 있는 만큼 번다
@@ -59,58 +61,79 @@ public final class Multipliers {
         if (t.contains(Trait.GATHERER) && t.contains(Trait.DEXTEROUS)) {
             m += 0.1; // 시너지: 숙련 채집조(채집꾼×손재주 동시 발현)
         }
-        if (t.contains(Trait.AMBITIOUS) && (t.contains(Trait.HERBALIST)
-                || t.contains(Trait.GATHERER) || t.contains(Trait.DEXTEROUS))) {
-            m += 0.15; // 야망 몰입 — 야망이 재능을 몰아붙인다(채집 계열 능력 보유 시만, 무능력 야망은 무효)
-        }
+        m += ambitionDrive(ind, t);
         return Math.max(0.0, m);
     }
 
+    /** 야망 몰입이 붙는 채집 계열 능력 — 야망은 <b>재능을 몰아붙이는</b> 것이라 재능이 없으면 0. */
+    private static final Trait[] AMBITION_TARGETS = {
+        Trait.HERBALIST, Trait.GATHERER, Trait.DEXTEROUS, Trait.COMPETENT,
+    };
+
     /**
-     * 명석 = 능력 증폭 ×1.4 / 멍청 = ×0.8 — 양(+)의 능력 축 항에만 곱해진다(재설계 A안).
-     *
-     * <p>1.25→1.4 (약초학자 0.5→0.65 와 함께): 엘리트의 식량을 올리되 <b>바닥은 올리지 않는다</b>.
-     * 증폭기는 능력 축의 양수 항에만 붙으므로 무능력자의 값은 그대로고, 감폭(0.8)도 그대로다.
-     * 실측 엘리트(야망가+약초Ⅴ+명석)는 1.875 → 2.160 (+15%), 평범한 자는 1.0 불변.
-     *
-     * <p>{@code tileYield = TILE_YIELD_MULT × forageYieldMult} 이므로 <b>밭 산출도 함께 오른다</b> — 의도한
-     * 것이다. 엘리트 지주는 채집과 밭 양쪽에서 벌어, 격차가 능력에서 나온다는 축이 굵어진다.
+     * 야망 몰입 — 채집 계열 재능이 있을 때만 붙고, 그 재능이 <b>Ⅴ 에 닿았으면</b> 두 배가 된다.
+     * 무능력 야망은 종전대로 정확히 0 이다.
      */
-    /** 깜냥이 <b>Ⅴ 능력 둘</b>을 굴릴 때의 덤 — 명석(+0.4)의 3분의 1. */
+    private static double ambitionDrive(Individual ind, Set<Trait> t) {
+        if (!t.contains(Trait.AMBITIOUS)) {
+            return 0.0;
+        }
+        int best = 0;
+        for (Trait a : AMBITION_TARGETS) {
+            best = Math.max(best, effectiveAbilityGrade(ind, a));
+        }
+        return best >= 5 ? 0.30 : best > 0 ? 0.15 : 0.0;
+    }
+
+    /** 명석·멍청 등급당 증폭 폭 — Ⅴ 에서 ×1.25 / ×0.75. */
+    public static final double BRIGHT_AMP_PER = 0.05;
+    /** 명석 게이트 ① — 굴릴 능력이 이만큼 있어야 열린다. */
+    private static final int BRIGHT_GATE_ABILITIES = 2;
+    /** 명석 게이트 ① 의 덤. */
     public static final double MASTERY_AMP = 0.15;
+    /** 깜냥 게이트의 덤 — 상한 너머(실효 Ⅵ+) 능력을 굴릴 때만. */
+    public static final double KEEN_EYE_AMP = 0.20;
 
     private static double abilityAmp(Set<Trait> t) {
         return abilityAmp(null, t);
     }
 
     /**
-     * 능력 증폭기 — 명석 ×1.4 · 멍청 ×0.8 · 그 밖 ×1.0.
+     * 능력 증폭기 — <b>혼자서는 거의 아무것도 아니고, 조건이 갖춰질 때만 커진다</b>.
      *
-     * <p><b>깜냥의 위쪽 사각지대를 메운다.</b> 깜냥은 관리 실효 등급 +1 인데 상한이 Ⅴ라,
-     * 능력이 이미 Ⅴ 인 개체에게는 <b>효과가 0</b> 이다 — 가장 뛰어난 자에게만 무용지물인
-     * 셈이었다(엘리트가 약초Ⅴ 라 이 보조 슬롯을 통째로 낭비하고 있었다).
+     * <pre>
+     *   기본   1 + 0.05×명석등급   (Ⅴ → 1.25 · 멍청은 −0.05×등급)
+     *   ①     + 0.15   양(+) 능력 특성 2종 이상 <b>이면서 명석 보유</b>
+     *   ②     + 0.20   깜냥 + 상한 너머(실효 Ⅵ+) 능력 보유
+     * </pre>
      *
-     * <p>그래서 <b>깜냥 + Ⅴ 능력 둘</b>이면 등급 대신 <b>증폭</b>을 준다. "밑천이 많을수록
-     * 굴릴 것도 많다" — 깜냥의 뜻 그대로다. 등급이 아니라 증폭인 이유는 관리 등급이 Ⅴ에서
-     * 막혀 얹을 자리가 없기 때문이고, 증폭기는 채집·사냥에 함께 걸린다.
+     * <p>①에 명석 조건을 단 것은 <b>증폭기가 없는 자에게 증폭을 주지 않기 위해서</b>다. 능력
+     * 둘 가진 평민은 종전에도 amp 1.0 이었고 지금도 1.0 이다 — 명석이 있어야 "굴릴 재료가
+     * 둘"이라는 말이 성립한다.
      *
-     * <p>희소도: 능력 특성은 7축 14종이고 성향 슬롯은 3칸, 등급은 균등 Ⅰ~Ⅴ 다. 능력 둘이
-     * 들어올 확률 ≈ 10%, 그 둘이 모두 Ⅴ 일 확률 ≈ <b>0.4%</b> — 인구 800 에 서넛이다.
-     * 인위적 소환 전용이 아니라 드물게 <b>태어난다</b>.
+     * <p>②의 열쇠는 {@link #SUPER_GRADE} 이고 그 등급은 유능함 없이는 닿을 수 없다. 그래서
+     * 깜냥은 <b>명석과 유능함이 둘 다 있을 때만</b> 켜진다 — 셋이 모여야 amp 가 1.60 이 된다.
+     * 종전의 "깜냥 + Ⅴ 능력 둘"(MASTERY_AMP)은 유능함 없이도 열려 사슬이 한 칸 짧았다.
      *
-     * <p>능력 하나짜리와 무능력자는 전혀 건드리지 않는다 — 깜냥의 {@code best > 0} 가드가
-     * 평민 경제를 안 건드리는 것과 같은 성질이다.
+     * <p>{@code ind == null}(집합만 아는 호출부)에서는 등급을 못 읽으므로 중앙 Ⅲ 로 본다.
      */
     private static double abilityAmp(Individual ind, Set<Trait> t) {
-        double base = t.contains(Trait.BRIGHT) ? 1.4 : t.contains(Trait.DULL) ? 0.8 : 1.0;
-        if (ind == null || !t.contains(Trait.KEEN_EYE)) {
-            return base;
+        if (ind == null) {
+            return t.contains(Trait.BRIGHT) ? 1.0 + BRIGHT_AMP_PER * 3
+                    : t.contains(Trait.DULL) ? 1.0 - BRIGHT_AMP_PER * 3 : 1.0;
         }
-        int fives = 0;
-        for (Trait a : t) {
-            if (a.isAbility() && abilityGrade(ind, a) >= 5 && ++fives >= 2) {
-                return base + MASTERY_AMP;
-            }
+        int bright = brightGrade(ind);
+        double base = 1.0;
+        if (bright > 0) {
+            base += BRIGHT_AMP_PER * bright;
+        } else {
+            base -= BRIGHT_AMP_PER * dullGrade(ind);
+        }
+        if (bright > 0 && abilityCount(ind) >= BRIGHT_GATE_ABILITIES) {
+            base += MASTERY_AMP;
+        }
+        if (t.contains(Trait.KEEN_EYE) && hasSuperGrade(ind)) {
+            base += KEEN_EYE_AMP;
         }
         return base;
     }
@@ -127,6 +150,8 @@ public final class Multipliers {
         double amp = abilityAmp(ind, t);
         double m = 1.0;
         m += amp * scaled(ind, t, Trait.BUTCHER, 0.5);    // 도축업자 Ⅴ=×1.5(증폭 전)
+        m += amp * scaled(ind, t, Trait.COMPETENT, 0.15); // 유능함 — 채집과 같은 눈금
+        m += scaled(ind, t, Trait.INEPT, -0.15);          // 서투름
         m += scaled(ind, t, Trait.BLOOD_FEARFUL, -0.5);   // 피공포 Ⅴ=×0.5
         m += amp * scaled(ind, t, Trait.DEXTEROUS, 0.2);  // 손재주(전체)
         m += scaled(ind, t, Trait.CLUMSY, -0.2);          // 곰손(전체)
@@ -202,7 +227,17 @@ public final class Multipliers {
         if (!t.contains(trait)) {
             return 0.0;
         }
-        double v = trait.isAbility() ? atV * abilityGrade(ind, trait) / 5.0 : atV;
+        double v;
+        if (trait.isAbility()) {
+            // 양(+)에만 승격을 먹인다 — 유능함이 식물혼동·곰손을 <b>더 나쁘게</b> 만들면 안 된다.
+            int g = atV > 0 ? effectiveAbilityGrade(ind, trait) : abilityGrade(ind, trait);
+            v = atV * g / 5.0;
+        } else if (trait.axis() == Axis.INTELLIGENCE) {
+            // 명석·멍청은 신체 축으로 옮기며 등급화됐다 — 기본 가산도 등급 비례가 된다.
+            v = atV * physGrade(ind, trait) / 5.0;
+        } else {
+            v = atV;
+        }
         if (v < 0.0) {
             if (t.contains(Trait.COMPENSATOR)) {
                 v *= 1.0 - COMPENSATION_RELIEF;
@@ -222,32 +257,146 @@ public final class Multipliers {
         return g;
     }
 
-    /** 관리 능력 4종(약초학자·채집꾼·손재주·요리사 — canManageLarge 와 동일 집합)의 최고 실효 등급.
-     *  명석 재설계 B안(경영 지능): 능력이 하나라도 있으면(best>0) 실효 +1등급(상한 Ⅴ) — 무능
-     *  상속인 정체(런15 미리엄 실측)를 명석한 상속인이 완충하는 세대 리스크 축. 능력 0이면 그대로
-     *  0(지능만으로는 경영 불가 — 능력 경사 유지). */
+    /** 신체 등급 특성(명석·활력 등)의 실효 등급 — 단련·쇠약 반영 + 무등급은 중앙 Ⅲ. */
+    private static int physGrade(Individual ind, Trait trait) {
+        int g = Physique.grade(ind, trait);
+        if (g == 0 && ExpressionResolver.isExpressed(ind, trait)) {
+            g = 3;
+        }
+        return g;
+    }
+
+    /** 명석의 실효 등급(0~5). 신체 축으로 옮기며 등급화됐다. */
+    public static int brightGrade(Individual ind) {
+        return physGrade(ind, Trait.BRIGHT);
+    }
+
+    /** 멍청의 실효 등급(0~5). */
+    public static int dullGrade(Individual ind) {
+        return physGrade(ind, Trait.DULL);
+    }
+
+    /**
+     * 유능함이 상한을 푸는 대상 — <b>양(+)의 능력 특성</b>만. 음(−)까지 밀면 유능함이
+     * 식물혼동·곰손을 더 나쁘게 만드는 꼴이 된다.
+     */
+    private static final Trait[] ABILITY_UP = {
+        Trait.HERBALIST, Trait.BUTCHER, Trait.HUNTER, Trait.GATHERER,
+        Trait.DEXTEROUS, Trait.HERBIVORE, Trait.CARNIVORE, Trait.COOK, Trait.ELOQUENT,
+    };
+
+    /** 유능함이 능력 등급을 미는 폭 — {@code +등급/2}(Ⅴ → +2). */
+    private static final int COMPETENCE_LIFT_DIV = 2;
+
+    /** 이 등급 이상이면 "상한 너머" — 반경 게이트·깜냥 게이트·회전 게이트의 공통 열쇠. */
+    public static final int SUPER_GRADE = 6;
+
+    /**
+     * <b>유능함이 Ⅴ 상한을 푼다</b> — 능력 특성의 실효 등급을 {@code +유능함등급/2} 만큼 위로 민다.
+     *
+     * <p>유능함 단독은 채집 +0.03/등급짜리 잡동사니다. 값어치는 전부 여기 있다: 눈썰미Ⅴ 옆에
+     * 유능함Ⅴ 가 오면 눈썰미가 <b>Ⅶ</b> 로 읽혀 계수가 0.50 → 0.70 이 되고, 동시에
+     * {@link #SUPER_GRADE} 문턱을 넘겨 반경 게이트와 깜냥 게이트를 <b>둘 다</b> 통과시킨다.
+     * 유능함이 빠지면 그 세 개가 한꺼번에 닫힌다 — 사슬이 중간에서 끊기게 하는 지점이다.
+     *
+     * <p>자기 자신은 승격 대상이 아니다(상호 승격 폭주 차단). 음(−) 능력도 아니다.
+     */
+    public static int effectiveAbilityGrade(Individual ind, Trait a) {
+        int g = abilityGrade(ind, a);
+        if (g <= 0) {
+            return g;
+        }
+        boolean up = false;
+        for (Trait t : ABILITY_UP) {
+            if (t == a) {
+                up = true;
+                break;
+            }
+        }
+        if (!up) {
+            return g;
+        }
+        int c = abilityGrade(ind, Trait.COMPETENT);
+        return c <= 0 ? g : g + c / COMPETENCE_LIFT_DIV;
+    }
+
+    /** 상한 너머(실효 Ⅵ+) 능력을 하나라도 가졌는가 — 유능함 없이는 도달 불가. */
+    public static boolean hasSuperGrade(Individual ind) {
+        for (Trait t : ABILITY_UP) {
+            if (effectiveAbilityGrade(ind, t) >= SUPER_GRADE) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 보유한 양(+) 능력 특성의 수 — 명석이 "굴릴 재료"가 얼마나 되는지. */
+    private static int abilityCount(Individual ind) {
+        int n = 0;
+        for (Trait t : ABILITY_UP) {
+            if (abilityGrade(ind, t) > 0) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 관리 등급 상한 — Ⅴ 에서 Ⅵ 로 열었다. 정원 M(6)=6.70 · 용량 8+6³=224. */
+    public static final int MANAGE_GRADE_MAX = 6;
+    /** 자산 점수를 등급으로 나누는 눈금 — 능력 Ⅴ 하나(raw 5)가 g1 이 되게 하는 값. */
+    private static final int MANAGE_RAW_PER_GRADE = 3;
+
+    /**
+     * 관리 능력 등급 — <b>최고 하나(max)에서 합산(sum)으로 바꿨다</b>.
+     *
+     * <p>종전 식은 {@code max(약초,채집꾼,손재주,요리사)} 뒤에 명석 +1·깜냥 +1 을 상한 Ⅴ 로
+     * 잘랐다. 그래서 <b>눈썰미Ⅳ 하나뿐인 평민 · 눈썰미Ⅴ 하나뿐인 평민 · 능력 Ⅴ 둘에 명석과
+     * 깜냥까지 붙은 엘리트가 전부 g5(정원 4.30 · 용량 133)로 같았다</b> — 두 번째 Ⅴ 와 명석·깜냥의
+     * +1 셋이 통째로 상한에서 버려졌다. 엘리트가 엘리트가 아니던 근본 원인이다.
+     *
+     * <pre>
+     *   raw  = Σ(관리 4종 등급) + 유능함 등급          ← 승격 전 원등급으로 센다
+     *   +3   명석 보유 &amp;&amp; raw ≥ 6                     ← 굴릴 자산이 있어야 경영이 붙는다
+     *   +4   깜냥 &amp;&amp; 상한 너머(실효 Ⅵ+) 능력 보유
+     *   −3   무딤 (raw ≥ 6 일 때만 — 무능력자는 어차피 0)
+     *   +3   활력 게이트 열림 &amp;&amp; 상한 너머 능력 보유    ← 돌아다니며 챙기는 양
+     *   g    = clamp(0, 6, raw / 3)
+     * </pre>
+     *
+     * <p><b>승격 전 원등급</b>으로 합산하는 이유: 실효등급으로 세면 눈썰미Ⅴ+유능함Ⅴ 두 장만으로
+     * raw 12 → g4(정원 2.69)가 되어 "둘만 모여도 사기"가 된다. 원등급이면 raw 10 → g3(1.71)이고,
+     * 명석·깜냥·활력 게이트가 다 열려야 raw 20 → g6 에 닿는다.
+     *
+     * <p>{@code raw == 0} 가드는 그대로다 — 능력이 하나도 없으면 명석·깜냥이 있어도 정확히 0이라
+     * 평민 정원 경제(M=1.0 · 적자)는 전혀 건드리지 않는다.
+     */
     public static int manageAbilityGrade(Individual ind) {
-        int best = 0;
-        best = Math.max(best, abilityGrade(ind, Trait.HERBALIST));
-        best = Math.max(best, abilityGrade(ind, Trait.GATHERER));
-        best = Math.max(best, abilityGrade(ind, Trait.DEXTEROUS));
-        best = Math.max(best, abilityGrade(ind, Trait.COOK));
-        if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.BRIGHT)) {
-            best = Math.min(5, best + 1);
+        int raw = abilityGrade(ind, Trait.HERBALIST)
+                + abilityGrade(ind, Trait.GATHERER)
+                + abilityGrade(ind, Trait.DEXTEROUS)
+                + abilityGrade(ind, Trait.COOK)
+                + abilityGrade(ind, Trait.COMPETENT);
+        if (raw <= 0) {
+            return 0; // 지능만으로는 경영 불가 — 능력 경사 유지
         }
-        // 보조 축(안목) — 명석과 같은 best>0 가드. 능력이 없으면 깜냥가 있어도 정확히 0이라
-        // 평민 경제(정원 M=1.0 · 적자)는 전혀 건드리지 않는다. 능력자에게만 등급이 ±1 되어
-        // 정원(M(g))·관리용량(8+g³)·착공 시기가 동시에 움직인다 — 촉매형 보조의 표준형.
-        // 도입 근거: 야생 착공이 d5~d18로 늦어 소작 전환이 제때 열리지 않으면, 무밭 출산(≈1)이
-        // 인구 유지선(2.1) 아래라 1세대가 노령으로 빠질 때 개체군이 붕괴한다(t2 실측: d18
-        // 착공 → 소작 0 → 인구 42→11). 착공 시기는 곧 개체군 존속 조건이다.
-        if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.KEEN_EYE)) {
-            best = Math.min(5, best + 1);
+        boolean superGrade = hasSuperGrade(ind);
+        if (raw >= 6) {
+            if (brightGrade(ind) > 0) {
+                raw += 3;
+            } else if (dullGrade(ind) > 0) {
+                raw -= 3;
+            }
         }
-        if (best > 0 && ExpressionResolver.isExpressed(ind, Trait.DULL_EYE)) {
-            best = Math.max(0, best - 1);
+        if (superGrade && ExpressionResolver.isExpressed(ind, Trait.KEEN_EYE)) {
+            raw += 4;
         }
-        return best;
+        if (ExpressionResolver.isExpressed(ind, Trait.DULL_EYE)) {
+            raw -= 3;
+        }
+        if (superGrade && Physique.vitalityGateOpen(ind)) {
+            raw += 3;
+        }
+        return Math.max(0, Math.min(MANAGE_GRADE_MAX, raw / MANAGE_RAW_PER_GRADE));
     }
 
     /**
@@ -260,11 +409,32 @@ public final class Multipliers {
      * 낮추는 대안(B1)은 평민 최대치(21)와 마진이 1뿐이라 철회하고 이 경로를 택했다(마진 10.7).
      * 자급선 C(0)=2.40 기준 <b>g4부터 흑자</b> — "엘리트만 전진"이 수치로 성립한다.
      * <b>성중립·채집특성 무관</b>: 성별 곱(±3배 분산)이 밴드 간격을 압도해 정원에서는 제거.
-     * m = 3.3. Ⅰ 1.026 / Ⅱ 1.211 / Ⅲ 1.713 / Ⅳ 2.690 / Ⅴ 4.3.
+     * m = 3.3. Ⅰ 1.026 / Ⅱ 1.211 / Ⅲ 1.713 / Ⅳ 2.690 / Ⅴ 4.3 / <b>Ⅵ 6.70</b>.
+     *
+     * <p>상한이 Ⅵ 로 열렸다({@link #MANAGE_GRADE_MAX}) — 식은 그대로 두고 도달 조건만 늘렸다.
+     * Ⅵ 는 사슬(능력 Ⅴ 둘 + 명석 + 깜냥 + 활력 게이트)이 전부 닫혀야 나오는 값이라, 그 아래
+     * 구간의 값은 한 톨도 바뀌지 않는다.
      */
     public static double gardenAbility(Individual ind) {
         double r = manageAbilityGrade(ind) / 5.0;
         return 1.0 + 3.3 * r * r * r;
+    }
+
+    /**
+     * <b>배회 시간에도 일하는가</b> — {@code MimicForageGoal} 의 여가 컷 문지기와 계측이
+     * 공유하는 단 하나의 술어.
+     *
+     * <p>이 판정이 노동창을 7000틱(WORK)에서 11000틱(WORK+WANDER)으로 <b>+57%</b> 늘리므로,
+     * 소득 계측이 이것을 따로 베껴 두면 언젠가 한쪽만 고쳐져 보고가 조용히 거짓이 된다
+     * ({@code Satisfaction.bar} 와 같은 이유로 함수 하나에 모은다).
+     *
+     * <p><b>실효 Ⅴ 전용</b>이다. 명석이 성향(축 34개)에서 신체(축 8개)로 옮겨 오며 보유율이
+     * 8.8%→37.5% 로 네 배가 됐는데, 종전의 "명석이면 배회에도 노동"을 그대로 두면 야생 미믹
+     * 셋 중 하나가 노동 시간 +57% 를 공짜로 얻는다 — 엘리트를 세우려다 평민을 통째로 올리는
+     * 꼴이다. Ⅴ 로 좁히면 발현율이 종전(4.4%) 아래로 내려간다.
+     */
+    public static boolean brightDriven(Individual ind) {
+        return brightGrade(ind) >= 5;
     }
 
     /** 동물 탐지거리 배율 — 식물혼동은 식물 대신 동물에 눈이 감(+50%, 채집 ×0.5의 반대급부).
@@ -287,8 +457,13 @@ public final class Multipliers {
         if (t.contains(Trait.GOOD_SPATIAL)) {
             m += t.contains(Trait.PLANT_CONFUSED) ? 0.5 : 0.25;
         }
-        if (t.contains(Trait.BRIGHT)) m += 0.25;  // 명석 인지거리(재설계 — huntRange 와 대칭)
-        if (t.contains(Trait.DULL)) m -= 0.15;    // 멍청 인지거리 감소
+        m += 0.05 * brightGrade(ind);             // 명석 인지거리 — 등급화(Ⅴ 에서 종전 +0.25 와 동일)
+        m -= 0.03 * dullGrade(ind);               // 멍청 인지거리 감소
+        // 눈썰미 게이트 — 실효 Ⅵ 이상이면 표적 선별이 열린다. 그 등급은 유능함 없이는 못 닿는다.
+        // 손이 아무리 빨라도 볼 표적이 없으면 대기로 새므로, 이 반경이 회전율을 소득으로 바꾼다.
+        if (effectiveAbilityGrade(ind, Trait.HERBALIST) >= SUPER_GRADE) {
+            m *= 1.25;
+        }
         return m;
     }
 
@@ -353,16 +528,16 @@ public final class Multipliers {
         // ── 포괄선호 (+1/매칭): 개념군 특성을 보유한 개수만큼 ──
         if (pref.contains(Trait.PREF_ABILITY)) {
             score += count(tt, Trait.BRIGHT, Trait.DEXTEROUS, Trait.HERBALIST,
-                    Trait.BUTCHER, Trait.HUNTER, Trait.GATHERER, Trait.COOK);
+                    Trait.BUTCHER, Trait.HUNTER, Trait.GATHERER, Trait.COOK, Trait.COMPETENT);
         }
         if (pref.contains(Trait.PREF_SIMPLE)) {
-            score += count(tt, Trait.DULL, Trait.CLUMSY);
+            score += count(tt, Trait.DULL, Trait.CLUMSY, Trait.INEPT);
         }
         if (pref.contains(Trait.PREF_VITALITY)) {
-            score += count(tt, Trait.NIMBLE, Trait.FARSIGHTED, Trait.GOOD_SPATIAL);
+            score += count(tt, Trait.NIMBLE, Trait.FARSIGHTED, Trait.GOOD_SPATIAL, Trait.VIGOROUS);
         }
         if (pref.contains(Trait.PREF_SEDENTARY)) {
-            score += count(tt, Trait.SLUGGISH, Trait.NEARSIGHTED, Trait.POOR_SPATIAL);
+            score += count(tt, Trait.SLUGGISH, Trait.NEARSIGHTED, Trait.POOR_SPATIAL, Trait.LISTLESS);
         }
         if (pref.contains(Trait.PREF_DEVOTION)) {
             score += count(tt, Trait.CHILD_LOVING, Trait.OVER_RESPONSIBLE,

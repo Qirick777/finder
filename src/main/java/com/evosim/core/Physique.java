@@ -32,6 +32,20 @@ public final class Physique {
     /** 단순무식 등급당 소모 + — 힘센(4%)의 <b>절반</b>이다. 같은 비율이면 Ⅴ등급에서 하루
      *  소모가 0.98 이 되어 시혜 1유닛/일에 붙는다: 구걸에 닿아도 굶어 죽는다. 2% 면 0.90. */
     private static final double BRUTISH_APPETITE = 0.02;
+    /** 활력/무기력 등급당 이동 속도 ± — 재빠름(3%)의 절반. 자기 힘만으로는
+     *  {@link #VITALITY_GATE} 를 못 넘는다(Ⅴ 라도 1.075). */
+    private static final double VITALITY_SPEED_PER = 0.015;
+    /** 활력/무기력 등급당 행동 쿨다운 ∓. */
+    private static final double VITALITY_COOL_PER = 0.03;
+    /** 활력 등급당 소모 + · 무기력 등급당 소모 − — 활력 <b>단독을 적자로 묶는</b> 값이다.
+     *  Ⅴ 에서 소모 +15% 인데 노동창 확대는 +10.7% 라, 재빠름이 붙어 쿨다운 게이트가 열리기
+     *  전까지는 손해다. 튼튼함처럼 대가 없는 순이득이면 신체 3칸의 지배적 선택이 된다. */
+    private static final double VITALITY_APPETITE_PER = 0.03;
+    /** 활력의 쿨다운 게이트 — 이동 배율이 이 값을 넘어야 손놀림이 열린다. 활력Ⅴ 단독은
+     *  1.075 라 못 넘고, 재빠름(Ⅳ 1.12 · Ⅴ 1.15)이 있어야 넘는다. */
+    public static final double VITALITY_GATE = 1.10;
+    /** 게이트가 열릴 때마다 곱해지는 쿨다운 감소(활력 게이트 · 상한 너머 능력 게이트). */
+    private static final double GATE_COOL = 0.85;
 
     private Physique() {
     }
@@ -41,9 +55,21 @@ public final class Physique {
         return factor(ind, Trait.TOUGH, TOUGH_PER, Trait.FRAIL, TOUGH_PER);
     }
 
-    /** 이동 속도 배수 — 재빠름(+)/굼뜸(−). */
+    /** 이동 속도 배수 — 재빠름(+)/굼뜸(−) × 활력(+)/무기력(−). 두 축이 곱해져야
+     *  {@link #VITALITY_GATE} 를 넘는다(재빠름Ⅴ 1.15 × 활력Ⅴ 1.075 = 1.236). */
     public static double agility(Individual ind) {
-        return factor(ind, Trait.NIMBLE, AGILITY_PER, Trait.SLUGGISH, AGILITY_PER);
+        return factor(ind, Trait.NIMBLE, AGILITY_PER, Trait.SLUGGISH, AGILITY_PER)
+                * factor(ind, Trait.VIGOROUS, VITALITY_SPEED_PER, Trait.LISTLESS, VITALITY_SPEED_PER);
+    }
+
+    /**
+     * 활력의 쿨다운 게이트가 열렸는가 — 이동 배율이 {@link #VITALITY_GATE} 이상인가.
+     *
+     * <p>활력은 <b>제 힘으로 이 문을 못 연다</b>(Ⅴ 라도 1.075). 재빠름이 열어 줘야 비로소
+     * 손놀림이 붙는다 — 그 전까지 활력은 소모만 먹는 짐이다.
+     */
+    public static boolean vitalityGateOpen(Individual ind) {
+        return grade(ind, Trait.VIGOROUS) > 0 && agility(ind) >= VITALITY_GATE;
     }
 
     /** 감지 범위 배수 — 천리안(+)/근시안(−). */
@@ -80,19 +106,50 @@ public final class Physique {
     public static double appetite(Individual ind) {
         // 야성은 여기 안 얹는다 — 대가는 이미 증폭된 결손으로 치렀다(Multipliers.feralStrength).
         return factor(ind, Trait.STRONG, APPETITE_PER, Trait.WEAK, APPETITE_PER)
-                * factor(ind, Trait.BRUTISH, BRUTISH_APPETITE, Trait.REFINED, BRUTISH_APPETITE);
+                * factor(ind, Trait.BRUTISH, BRUTISH_APPETITE, Trait.REFINED, BRUTISH_APPETITE)
+                * factor(ind, Trait.VIGOROUS, VITALITY_APPETITE_PER,
+                         Trait.LISTLESS, VITALITY_APPETITE_PER);
     }
 
-    /** 행동 쿨다운 배수(채집 간격·타격 간격) — 재빠름 −4%/등급·굼뜸 +4%/등급(부수 효과:
-     *  이동 속도에 더해 손놀림도 빠르다). Ⅴ = 쿨다운 ×0.8(행동량 +25%). 성장 가속 패키지. */
+    /**
+     * 행동 쿨다운 배수(채집 간격·타격 간격) — <b>게이트 사슬</b>이다.
+     *
+     * <pre>
+     *   재빠름 −4%/등급 · 굼뜸 +4%/등급                       Ⅴ → ×0.80
+     *   × 활력 −3%/등급 · 무기력 +3%/등급                     Ⅴ → ×0.85
+     *   × 0.85   이동 배율 ≥ 1.10 (활력 게이트 — 재빠름이 연다)
+     *   × 0.85   위가 열린 <b>데다</b> 상한 너머(실효 Ⅵ+) 능력 보유
+     * </pre>
+     *
+     * <p>마지막 칸에 활력 게이트를 함께 건 이유: 눈썰미가 아무리 좋아도 <b>손이 느리면</b> 그
+     * 표적이 회전으로 바뀌지 않는다. 반경으로 조건을 걸었더니 피공포(+0.5) 하나로 문턱에 닿아
+     * 평민이 공짜로 통과했다 — 등급으로 걸어야 유능함 없이는 절대 안 열린다.
+     *
+     * <p>전부 열리면 0.80×0.85×0.85×0.85 = <b>0.491</b>(행동량 ×2.04).
+     */
     public static double actionCooldown(Individual ind) {
-        int g = grade(ind, Trait.NIMBLE);
-        if (g > 0) {
-            return Math.max(0.5, 1.0 - 0.04 * g);
+        double m = factorDown(ind, Trait.NIMBLE, 0.04, Trait.SLUGGISH, 0.04)
+                * factorDown(ind, Trait.VIGOROUS, VITALITY_COOL_PER,
+                             Trait.LISTLESS, VITALITY_COOL_PER);
+        if (vitalityGateOpen(ind)) {
+            m *= GATE_COOL;
+            if (Multipliers.hasSuperGrade(ind)) {
+                m *= GATE_COOL;
+            }
         }
-        g = grade(ind, Trait.SLUGGISH);
+        return Math.max(0.3, m);
+    }
+
+    /** {@link #factor} 의 부호 반전판 — 양(+) 특성이 값을 <b>내리는</b> 축(쿨다운)용. */
+    private static double factorDown(Individual ind, Trait down, double downPer,
+                                     Trait up, double upPer) {
+        int g = grade(ind, down);
         if (g > 0) {
-            return 1.0 + 0.04 * g;
+            return 1.0 - downPer * g;
+        }
+        g = grade(ind, up);
+        if (g > 0) {
+            return 1.0 + upPer * g;
         }
         return 1.0;
     }
@@ -116,8 +173,10 @@ public final class Physique {
     /** 신체 양(+) 특성 — 단련이 미는 대상. 음(−)은 밀지 않는다(단련이 약함을 키우면 안 된다). */
     private static final Trait[] PHYSICAL_UP = {
         Trait.STRONG, Trait.TOUGH, Trait.NIMBLE,
-        Trait.FARSIGHTED, Trait.GOOD_SPATIAL, Trait.HARDY,
+        Trait.FARSIGHTED, Trait.GOOD_SPATIAL, Trait.HARDY, Trait.VIGOROUS,
     };
+    // 명석은 여기 넣지 않는다 — 단련은 <b>몸</b>을 벼리는 촉매다. 게다가 단련이 명석 Ⅳ를 Ⅴ로
+    // 밀면 배회 노동(노동창 +57%)이 열려, 평민을 안 올린다는 이번 개편의 전제가 깨진다.
 
     /**
      * <b>신체 등급 — 단련·쇠약을 반영한 실효 등급.</b>

@@ -46,9 +46,11 @@ public final class Schedule {
     /** 개체의 그 세계 시각에서의 하루 구간. */
     public static Phase phaseAt(Individual ind, long worldTick) {
         int t = (int) (((worldTick % DAY) + DAY) % DAY);
-        int wake = BASE_WAKE + wakeOffset(ind);
+        // 부지런(−1000)과 활력Ⅴ(−750)가 겹치면 기상이 −750 이 된다. 음수면 t < wake 가 영영
+        // 거짓이라 취침 구간이 통째로 사라지므로 0 에서 막는다.
+        int wake = Math.max(0, BASE_WAKE + wakeOffset(ind));
         int workEnd = BASE_WORK_END + workEndOffset(ind);
-        int sleep = BASE_SLEEP + sleepOffset(ind);
+        int sleep = Math.min(DAY, BASE_SLEEP + sleepOffset(ind));
 
         if (t < wake || t >= sleep) {
             return Phase.SLEEP;
@@ -62,15 +64,25 @@ public final class Schedule {
         return Phase.NIGHT;
     }
 
+    /** 활력/무기력 등급당 기상 ∓ — Ⅴ 에서 750틱 일찍 깬다(노동창 +10.7%). */
+    private static final int VITALITY_WAKE_PER = 150;
+    /** 활력/무기력 등급당 취침 ± — Ⅴ 에서 1000틱 늦게 잔다.
+     *  <b>노동이 아니라 밤(귀가·정산·구애) 이 길어진다</b> — WORK 는 workEnd 에서 끝나기 때문이다.
+     *  소득이 아니라 "먼 채집에서 늦게 돌아와도 정산을 놓치지 않는" 여유가 값어치다. */
+    private static final int VITALITY_SLEEP_PER = 200;
+
     // 근면(부지런): 일찍 기상 + 노동 연장. 게으름: 늦잠 + 일찍 취침 + 노동 단축 (설계서 §16).
+    // 활력/무기력(신체): 기상·취침만 민다 — 노동경계는 안 건드려 근면 축과 겹치지 않는다.
     private static int wakeOffset(Individual ind) {
+        int off = -VITALITY_WAKE_PER * Physique.grade(ind, Trait.VIGOROUS)
+                + VITALITY_WAKE_PER * Physique.grade(ind, Trait.LISTLESS);
         if (ExpressionResolver.isExpressed(ind, Trait.DILIGENT)) {
-            return -1000;
+            return off - 1000;
         }
         if (ExpressionResolver.isExpressed(ind, Trait.LAZY)) {
-            return +2000;
+            return off + 2000;
         }
-        return 0;
+        return off;
     }
 
     private static int workEndOffset(Individual ind) {
@@ -84,9 +96,11 @@ public final class Schedule {
     }
 
     private static int sleepOffset(Individual ind) {
+        int off = VITALITY_SLEEP_PER * Physique.grade(ind, Trait.VIGOROUS)
+                - VITALITY_SLEEP_PER * Physique.grade(ind, Trait.LISTLESS);
         if (ExpressionResolver.isExpressed(ind, Trait.LAZY)) {
-            return -1500;
+            return off - 1500;
         }
-        return 0;
+        return off;
     }
 }

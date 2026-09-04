@@ -46,8 +46,6 @@ public enum Trait {
     REPRODUCTION_EAGER(Axis.REPRODUCTION_PREF, "번식선호"),
     INFERTILE(Axis.FERTILITY, "난임"),
     PROLIFIC(Axis.FERTILITY, "다산"),
-    DULL(Axis.INTELLIGENCE, "멍청"),
-    BRIGHT(Axis.INTELLIGENCE, "명석"),
     IRRESPONSIBLE(Axis.RESPONSIBILITY, "무책임"),
     OVER_RESPONSIBLE(Axis.RESPONSIBILITY, "과한책임"),
     NO_MATERNAL(Axis.MATERNAL, "모성애없음"),
@@ -74,14 +72,34 @@ public enum Trait {
     POOR_SPATIAL(Axis.SPATIAL, "길치"),
     HARDY(Axis.RECOVERY, "강건"),
     SICKLY(Axis.RECOVERY, "병약"),
+    /** 활력적 — 일찍 깨고 늦게 자며 손이 빠르다. 대가는 소모 +3%/등급이라 <b>단독은 적자</b>.
+     *  이동 배율이 문턱(1.10)을 넘을 때만 쿨다운 감소가 열린다 — 재빠름이 그 열쇠다. */
+    VIGOROUS(Axis.VITALITY, "활력적"),
+    /** 무기력 — 늦게 깨고 일찍 자며 손이 굼뜨다. 대신 소모가 준다. */
+    LISTLESS(Axis.VITALITY, "무기력"),
+    /** 멍청 — 능력 감폭(등급당 −5%)·인지거리 감소. 신체 축으로 이전(등급 Ⅰ~Ⅴ). */
+    DULL(Axis.INTELLIGENCE, "멍청"),
+    /** 명석 — 능력 증폭(등급당 +5%)·인지거리 증가. 능력이 없으면 증폭할 항이 없어 거의 무효.
+     *  배회 노동은 <b>실효 Ⅴ 에서만</b> 열린다({@link Multipliers#brightDriven}). */
+    BRIGHT(Axis.INTELLIGENCE, "명석"),
 
     // ── 능력 (배율 특성, 성향 슬롯 공유) ──
-    HERBALIST(Axis.GATHER_SKILL, "약초학자"),
+    /** 눈썰미 — 채집 계수 +0.10/등급. 구명 "약초학자". <b>enum 이름은 바꾸지 않는다</b>:
+     *  특성은 NBT 에 {@code name()} 으로 저장되므로(IndividualNbt) 개명하면 기존 세이브에서
+     *  이 특성이 통째로 사라진다. 실효 Ⅵ 이상이면 표적 선별이 열려 인지거리 ×1.25 — 그 등급은
+     *  유능함 없이는 닿을 수 없다. */
+    HERBALIST(Axis.GATHER_SKILL, "눈썰미"),
     PLANT_CONFUSED(Axis.GATHER_SKILL, "식물혼동"),
     BUTCHER(Axis.HUNT_SKILL, "도축업자"),
     BLOOD_FEARFUL(Axis.HUNT_SKILL, "피공포"),
     HUNTER(Axis.ACQUISITION, "사냥꾼"),
     GATHERER(Axis.ACQUISITION, "채집꾼"),
+    /** 유능함 — 채집·사냥 +0.03/등급(Ⅴ 라야 +0.15, 단독으론 잡동사니다). 진짜 값어치는
+     *  <b>다른 능력의 등급 상한 Ⅴ 를 푸는 것</b>: {@code +등급/2} 만큼 위로 민다. 자기 자신은
+     *  승격 대상이 아니다(상호 승격 폭주 차단). */
+    COMPETENT(Axis.COMPETENCE, "유능함"),
+    /** 서투름 — 채집·사냥 −0.03/등급. 상한을 풀기는커녕 아무것도 열지 않는다. */
+    INEPT(Axis.COMPETENCE, "서투름"),
     DEXTEROUS(Axis.DEXTERITY, "손재주"),
     CLUMSY(Axis.DEXTERITY, "곰손"),
     HERBIVORE(Axis.DIET, "채식"),
@@ -191,11 +209,12 @@ public enum Trait {
     // 등급(I~V)을 갖는 축 — 신체 스탯 전부 + 그 등급 선호. 나머지는 무등급(grade 0).
     private static final java.util.EnumSet<Axis> GRADED_AXES = java.util.EnumSet.of(
             Axis.STRENGTH, Axis.TOUGHNESS, Axis.AGILITY, Axis.VISION, Axis.SPATIAL, Axis.RECOVERY,
+            Axis.VITALITY, Axis.INTELLIGENCE,
             Axis.TOUGHNESS_PREF, Axis.AGILITY_PREF, Axis.VISION_PREF, Axis.RECOVERY_PREF);
 
     // 능력 특성 축(배율 특성) — 성향과 슬롯을 공유하되 '능력'으로 구분(표시·판정용).
     private static final java.util.EnumSet<Axis> ABILITY_AXES = java.util.EnumSet.of(
-            Axis.GATHER_SKILL, Axis.HUNT_SKILL, Axis.ACQUISITION,
+            Axis.GATHER_SKILL, Axis.HUNT_SKILL, Axis.ACQUISITION, Axis.COMPETENCE,
             Axis.DEXTERITY, Axis.DIET, Axis.COOKING, Axis.ELOQUENCE);
 
     public Axis axis() {

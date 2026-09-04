@@ -475,14 +475,23 @@ public final class EvoSimCommand {
             spawnMatingReady(level, scatter(level, base), Sex.MALE);
             spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
         }
+        // 7종 사슬 — 성향 3(눈썰미Ⅴ·유능함Ⅴ·야망가) · 신체 3(명석Ⅴ·활력Ⅴ·재빠름Ⅴ) · 보조 1(깜냥).
+        // 힘셈은 뺀다: 신체 3칸이 꽉 차 들어갈 자리가 없다(MAX_PER_CATEGORY=3).
+        // 종전 시드(야망+약초Ⅴ+재빠름Ⅴ+명석+힘셈)를 그대로 두면 사슬이 끊겨 정원이 4.30→1.03 으로
+        // 무너진다 — 규칙만 바꾸고 시드를 안 바꾸면 엘리트가 개편 전보다 <b>약해진다</b>.
         MimicEntity elite = spawnMatingReady(level, scatter(level, base), Sex.MALE,
-                Trait.AMBITIOUS, Trait.HERBALIST, Trait.NIMBLE); // 4종 콤보: 야망+약초Ⅴ+명석(기본)+재빠름Ⅴ
+                java.util.Set.of(Trait.STRONG),
+                Trait.HERBALIST, Trait.COMPETENT, Trait.AMBITIOUS,
+                Trait.BRIGHT, Trait.VIGOROUS, Trait.NIMBLE,
+                Trait.KEEN_EYE);
         spawnMatingReady(level, scatter(level, base), Sex.FEMALE); // 엘리트 몫 여성 1 보충
         if (elite != null) {
-            SimEvents.event(elite, "엘리트투입", "관측 런 시드(야망가+약초Ⅴ+명석+재빠름Ⅴ — 4종 콤보)");
+            SimEvents.event(elite, "엘리트투입",
+                    "관측 런 시드(눈썰미Ⅴ·유능함Ⅴ·야망가 + 명석Ⅴ·활력Ⅴ·재빠름Ⅴ + 깜냥 — 7종 사슬)");
         }
         tell(ctx.getSource(), String.format(
-                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(야망+약초Ⅴ+명석+재빠름Ⅴ) 소환, 이벤트 로그 ON. "
+                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(7종 사슬: 눈썰미Ⅴ·유능함Ⅴ·야망 / 명석Ⅴ·활력Ⅴ·"
+                        + "재빠름Ⅴ / 깜냥) 소환, 이벤트 로그 ON. "
                         + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.", pairs));
         return pairs * 2 + 2;
     }

@@ -513,6 +513,8 @@ public class MimicEntity extends PathfinderMob {
     private BlockPos poorhousePos = null;
     /** 연속 구걸 일수 — {@link Facilities#POORHOUSE_ADMIT_STREAK} 에 닿으면 입소. */
     private int begStreak = 0;
+    /** 마지막으로 구걸에 나선 날 — 연속 판정의 기준. −1 = 한 번도 없음. */
+    private long lastBegDay = -1L;
 
     /** 소속 구빈원 — 없으면 null. */
     public BlockPos getPoorhouse() {
@@ -534,6 +536,28 @@ public class MimicEntity extends PathfinderMob {
     /** 구걸한 날 +1, 안 한 날 0 — <b>연속</b>이라야 한다(누적이면 결국 모두가 소속된다). */
     public void setBegStreak(int n) {
         this.begStreak = Math.max(0, n);
+    }
+
+    public long getLastBegDay() {
+        return lastBegDay;
+    }
+
+    /**
+     * <b>구걸에 나선 날을 기록한다</b> — {@code FarmTicker.assignBeg} 가 배정하는 순간 부른다.
+     *
+     * <p>연속 여부를 <b>날짜 차이</b>로 판정하는 것이 요점이다. 처음에는 일일 정산에서
+     * {@code BEGGED_TODAY} 집합을 읽어 "오늘 구걸했으면 +1, 아니면 0" 으로 세었는데,
+     * <b>틱 순서 때문에 그 집합이 읽는 시점에 항상 비어 있었다</b>: 한 스캔 안에서
+     * {@code settleRent}(일일 정산)가 {@code emergencyHire}(구걸 배정)보다 먼저 돌고, 구걸은
+     * 밤에 배정되므로 정산이 읽을 때는 그날 것이 아직 없고 전날 것은 이미 지워진 뒤다.
+     * 실측(20명 런): 구걸출발이 d3 밤에 찍혔는데 {@code begStreak} 는 내내 0 이었다.
+     *
+     * <p>배정하는 쪽에서 직접 적으면 그 순서 문제가 <b>구조적으로</b> 사라진다. 리셋 루프도
+     * 필요 없다 — 하루를 건너뛰면 다음 기록에서 1 로 되돌아간다.
+     */
+    public void noteBegDay(long day) {
+        this.begStreak = (lastBegDay == day - 1L) ? begStreak + 1 : 1;
+        this.lastBegDay = day;
     }
 
     /** 오늘의 구걸 목적지를 못박는다 — {@code untilTick} 까지 유효. */
@@ -7094,6 +7118,7 @@ public class MimicEntity extends PathfinderMob {
             tag.putLong("Poorhouse", poorhousePos.asLong());
         }
         tag.putInt("BegStreak", begStreak);
+        tag.putLong("LastBegDay", lastBegDay);
         tag.putInt("ChurchVisits", churchVisits); // 획득값 — 구애 우위의 입력이라 살아남아야 한다
         tag.putLong("SchoolDay", schoolCreditedDay);
         if (!paveTodo.isEmpty()) {
@@ -7175,6 +7200,7 @@ public class MimicEntity extends PathfinderMob {
         poorhousePos = tag.contains("Poorhouse")
                 ? BlockPos.of(tag.getLong("Poorhouse")) : null;
         begStreak = tag.getInt("BegStreak");
+        lastBegDay = tag.contains("LastBegDay") ? tag.getLong("LastBegDay") : -1L;
         churchVisits = tag.getInt("ChurchVisits");
         schoolCreditedDay = tag.contains("SchoolDay") ? tag.getLong("SchoolDay") : Long.MIN_VALUE;
         paveTodo.clear();

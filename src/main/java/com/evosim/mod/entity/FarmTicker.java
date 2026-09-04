@@ -418,13 +418,9 @@ public final class FarmTicker {
                                 && !FOLLOWERS.containsKey(id));
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
-            // ── 연속 구걸 일수 — 오늘 구걸에 나섰으면 +1, 아니면 0. <b>연속</b>이라야 한다
-            //    (누적이면 결국 모두가 구빈원에 든다 — Facilities.POORHOUSE_ADMIT_STREAK 주석).
-            //    새벽 배정(assignDawn)이 BEGGED_TODAY 를 이미 채워 두었으므로 여기서 읽기만 한다.
-            //    허탕이어도 센다 — 재는 것은 수령이 아니라 <b>자립 실패</b>다.
-            for (MimicEntity m : adults) {
-                m.setBegStreak(BEGGED_TODAY.contains(m.getId()) ? m.getBegStreak() + 1 : 0);
-            }
+            // 연속 구걸 일수는 <b>배정하는 쪽</b>(assignBeg)이 직접 적는다 — 여기서
+            // BEGGED_TODAY 를 읽던 것은 틱 순서 때문에 항상 빈 집합이었다
+            // (MimicEntity.noteBegDay 주석에 실측과 함께 적어 두었다).
             runPoorhouses(level, ledger, larders, adults, day);
             runSchools(level, ledger, larders, adults, everyone, patrons, day);
             runBarracks(level, ledger, larders, adults, patrons, day);
@@ -2308,10 +2304,14 @@ public final class FarmTicker {
      * 학교의 {@code unservedStudents} 와 같은 자리·같은 문법(수요 없이 늘어나지 않게).
      */
     public static int unservedBeggars(ServerLevel level) {
+        // <b>최근</b> 구걸자만 센다 — 옛날에 한 번 구걸하고 자립한 사람이 영영 "미충족"으로
+        // 남으면, 수요가 사라진 뒤에도 구빈원이 계속 서게 된다.
+        long today = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         int n = 0;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null
-                        && !e.inPoorhouse() && e.getBegStreak() > 0)) {
+                        && !e.inPoorhouse() && e.getBegStreak() > 0
+                        && today - e.getLastBegDay() <= 1L)) {
             n++;
         }
         return n;
@@ -5108,6 +5108,9 @@ public final class FarmTicker {
             return false; // 마을에 내줄 집이 없다 — 호출부의 종전 경로(초과 배정)로 떨어진다
         }
         BEGGED_TODAY.add(m.getId());
+        // 구빈원 입소 판정의 입력 — 여기서 적어야 틱 순서에 안 매인다(noteBegDay 주석).
+        // 허탕이어도 센다: 재는 것은 수령이 아니라 <b>자립 실패</b>다.
+        m.noteBegDay(com.evosim.mod.entity.SimTime.tick(level) / 24000L);
         m.setBegTarget(bestHome, bestPatron,
                 com.evosim.mod.entity.SimTime.tick(level) + BEG_TRAVEL);
         var fl = FamilyLedger.get(level);

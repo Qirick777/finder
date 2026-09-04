@@ -946,6 +946,14 @@ public class MimicEntity extends PathfinderMob {
         if (fg < MIN_FARM_GAP) {
             return String.format("밭에 붙음(%d칸)", fg);
         }
+        // <b>성장 예약지</b> — 밭이 두 단계 안에 자랄 자리에는 집을 안 짓는다. 종전에는 검사가
+        // 일방통행이라(집은 현재 몸통만 피하고, 밭은 집 반경을 피한다) 소작인 집이 지주 밭을
+        // 에워싸 12타일에서 고착됐다.
+        for (BlockPos c : bp.groundFootprint()) {
+            if (FarmTicker.inGrowthReserve(sl, c.getX(), c.getZ())) {
+                return "밭 성장 예약지";
+            }
+        }
         java.util.Set<Long> garden = new java.util.HashSet<>();
         for (BlockPos gcell : bp.garden()) {
             garden.add(net.minecraft.core.BlockPos.asLong(gcell.getX(), 0, gcell.getZ()));
@@ -3697,8 +3705,9 @@ public class MimicEntity extends PathfinderMob {
                 for (BlockPos col : tpl.groundCols()) {
                     int x = cx + col.getX();
                     int z = cz + col.getZ();
-                    if (farms.isFarmBody(x, z)) {
-                        why = 1; // 밭 몸통
+                    if (farms.isFarmBody(x, z)
+                            || FarmTicker.inGrowthReserve(sl, x, z)) {
+                        why = 1; // 밭 몸통 — 또는 그 밭이 두 단계 안에 자랄 예약지
                         break;
                     }
                     int y = sl.getHeight(SURFACE_MAP, x, z) - 1;

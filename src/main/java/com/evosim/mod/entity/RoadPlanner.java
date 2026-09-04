@@ -261,6 +261,21 @@ public final class RoadPlanner {
             return hard.contains(RoadStore.key(x, z));
         }
 
+        /**
+         * 이 칸들을 <b>추가로</b> 막은 사본 — 아직 등기되지 않은 장애를 얹을 때 쓴다.
+         *
+         * <p>밭이 가져갈 띠가 그런 경우다: 우회로를 계획하는 시점에 그 띠는 아직 밭 몸통이
+         * 아니라 {@link #of} 가 모르는데, 우회로가 그리로 지나가면 놓자마자 다시 먹힌다.
+         */
+        public Obstacles plus(Set<Long> extra) {
+            Obstacles ob = new Obstacles();
+            ob.hard.addAll(hard);
+            ob.hard.addAll(extra);
+            ob.soft.addAll(soft);
+            ob.soft.removeAll(ob.hard);
+            return ob;
+        }
+
         boolean nearFarm(int x, int z) {
             return soft.contains(RoadStore.key(x, z));
         }

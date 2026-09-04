@@ -563,6 +563,7 @@ public final class FarmTicker {
             // 그래서 두 번 본다: 먼저 남은 칸을 심어 보고, 한 칸도 못 심었으면 그 칸들은
             // 영구히 막힌 것으로 보고 다음 단계를 열어 그쪽에 심는다. 막힌 칸은 발자국 안에
             // 그대로 남지만(도면은 유지) 성장을 더는 붙들지 않는다.
+            java.util.Arrays.fill(BOX_REJECT, 0); // 구획마다 새로 센다(섞이면 못 읽는다)
             java.util.List<int[]> todo = unplanted(store, plot);
             if (todo.isEmpty() && reserveNext(level, store, plot, adults)) {
                 todo = unplanted(store, plot);
@@ -583,10 +584,10 @@ public final class FarmTicker {
                 // 방아쇠다. 그런데 종전에는 조용히 증가만 해서, 사방이 빈 풀밭인데 막힌 것을
                 // 육안으로 보고도 원인을 짚을 수 없었다.
                 com.evosim.mod.log.SimEvents.note(level, "밭막힘", String.format(
-                        "구획 %d(%d타일 · %d단계) 확장 실패 %d일째 — 마지막 거부: %s"
+                        "구획 %d(%d타일 · %d단계) 확장 실패 %d일째 — %s · 마지막: %s"
                                 + " (자금 %d칸분 · 노동 %d칸분은 있었다)",
                         plot.id, plot.tiles.length, plot.steps + 1, plot.blockedDays,
-                        lastBoxFault, afford, room));
+                        boxRejectLine(), lastBoxFault, afford, room));
             } else if (plot.blockedDays != 0) {
                 plot.blockedDays = 0;
                 store.setDirty();
@@ -1187,6 +1188,30 @@ public final class FarmTicker {
         boolean inZ = z >= minZ - 1 && z <= maxZ + 1;
         boolean edge = x == minX - 1 || x == maxX + 1 || z == minZ - 1 || z == maxZ + 1;
         return inX && inZ && edge;
+    }
+
+    /** 이 칸에 흙길을 깐다(우회로 시공). 깔 수 없는 지면이면 조용히 넘어간다. */
+    private static void pave(ServerLevel level, int x, int z) {
+        int y = RoadPlanner.surfaceY(level, x, z);
+        if (y == Integer.MIN_VALUE) {
+            return;
+        }
+        BlockPos g = new BlockPos(x, y, z);
+        if (level.getBlockState(g).is(net.minecraft.world.level.block.Blocks.DIRT_PATH)
+                || !RoadPlanner.pavable(level, g)) {
+            return;
+        }
+        level.setBlock(g, net.minecraft.world.level.block.Blocks.DIRT_PATH.defaultBlockState(),
+                net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                        | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+    }
+
+    /** 이 칸들의 흙길을 걷어낸다(밭이 가져간 자리). */
+    private static void paveOff(ServerLevel level, java.util.Set<Long> keys) {
+        for (long k : keys) {
+            unpaveTo(level, RoadStore.keyX(k), RoadStore.keyZ(k));
+        }
+        RoadPlanner.Obstacles.invalidate();
     }
 
     /** 이 열의 흙길을 잔디로 되돌린다(테두리 철거 전용 — 등기된 길은 호출 전에 걸러진다). */
@@ -3793,6 +3818,46 @@ public final class FarmTicker {
         return p.bedAxisX ? new int[] {p.fx + c, p.fz + r} : new int[] {p.fx + r, p.fz + c};
     }
 
+    /** 성장 예약 — 현재 단계에서 이만큼 앞까지의 상자를 건물이 비켜 준다. */
+    public static final int RESERVE_STEPS = 2;
+
+    /**
+     * <b>밭의 성장 예약지</b> — 지금 상자가 아니라 {@link #RESERVE_STEPS} 단계 뒤의 상자.
+     *
+     * <p>종전에는 검사가 <b>일방통행</b>이었다: 밭은 집·시설·길을 피하는데, 집·시설·길은 밭의
+     * <b>현재 몸통</b>만 피하고 그 밭이 앞으로 자랄 자리는 보지 않았다. 그래서 지주가 부유해질수록
+     * 소작인 집과 제 시설이 제 밭을 에워싸, 성장 공간이 한 방향으로만 줄어들어 고착됐다.
+     *
+     * <p>예약을 무한정 잡지 않고 두 단계로 끊는 이유는 초반 마을이다 — 목표치(54타일)까지
+     * 통째로 예약하면 첫 밭 하나가 마을이 들어설 땅을 다 삼킨다.
+     */
+    public static boolean inGrowthReserve(ServerLevel level, int x, int z) {
+        for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+            if (p.beds <= 0) {
+                continue; // 구세계 구획 — 도면 성장을 안 한다
+            }
+            int nb = p.beds;
+            int nr = p.rows;
+            for (int i = 0; i < RESERVE_STEPS; i++) {
+                if (com.evosim.core.FarmLayout.addBedNext(nb, nr)) {
+                    nb++;
+                } else {
+                    nr += com.evosim.core.FarmLayout.ROW_STEP;
+                }
+            }
+            int[] now = boxOf(p, p.beds, p.rows);
+            int[] far = boxOf(p, nb, nr);
+            // 예약은 현재 원점 기준으로 <b>양쪽</b>으로 편다 — 어느 방향으로 자랄지는 그때 정해진다.
+            int padX = far[2] - now[2];
+            int padZ = far[3] - now[3];
+            if (x >= now[0] - padX && x < now[0] + now[2] + padX
+                    && z >= now[1] - padZ && z < now[1] + now[3] + padZ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 발자국의 월드 상자 {x0, z0, 폭, 깊이}. */
     public static int[] boxOf(FarmStore.Plot p, int beds, int rows) {
         int[] fp = com.evosim.core.FarmLayout.footprint(beds, rows);
@@ -3830,49 +3895,69 @@ public final class FarmTicker {
     private static boolean boxUsable(ServerLevel level, FarmStore store, long selfId,
                                      int x0, int z0, int w, int d, int baseY,
                                      java.util.List<MimicEntity> adults) {
+        return boxUsable(level, store, selfId, x0, z0, w, d, baseY, adults, null);
+    }
+
+    /**
+     * @param roads null 이 아니면 <b>등기된 길 칸을 거부하지 않고 여기 모은다</b>. 부르는 쪽이
+     *              우회로를 놓을 수 있는지 따져 보고 결정한다 — 길은 건물이 아니라 경로라서,
+     *              옮길 수 있으면 밭에 양보하는 것이 맞다.
+     */
+    private static boolean boxUsable(ServerLevel level, FarmStore store, long selfId,
+                                     int x0, int z0, int w, int d, int baseY,
+                                     java.util.List<MimicEntity> adults,
+                                     java.util.Set<Long> roads) {
         int want = baseY;
+        java.util.Set<Long> occ = occupied(level);
         for (int x = x0; x < x0 + w; x++) {
             for (int z = z0; z < z0 + d; z++) {
                 int y = RoadPlanner.surfaceY(level, x, z);
                 if (y == Integer.MIN_VALUE) {
                     lastBoxFault = String.format("지표 없음 @%d,%d", x, z);
+                    BOX_REJECT[0]++;
                     return false;
                 }
                 if (want < 0) {
                     want = y;
                 } else if (y != want) {
                     lastBoxFault = String.format("높이 어긋남 @%d,%d (y%d, 기준 y%d)", x, z, y, want);
+                    BOX_REJECT[1]++;
                     return false; // 평평하지 않다 — 한 칸이라도 어긋나면 밭이 계단이 된다
                 }
                 BlockPos gp = new BlockPos(x, y + 1, z);
                 if (!level.isLoaded(gp)) {
                     lastBoxFault = String.format("미로드 @%d,%d", x, z);
+                    BOX_REJECT[2]++;
                     return false;
                 }
                 if (store.nearOtherBody(selfId, x, z, PLOT_GAP)) {
                     lastBoxFault = String.format("다른 밭이 %d칸 안 @%d,%d", PLOT_GAP, x, z);
+                    BOX_REJECT[3]++;
                     return false;
                 }
-                if (nearSomeHome(level, adults, gp, PLANT_CLEAR)) {
-                    lastBoxFault = String.format("거처가 %.0f칸 안 @%d,%d", PLANT_CLEAR, x, z);
-                    return false;
-                }
-                if (nearFacility(level, gp)) {
-                    lastBoxFault = String.format("시설이 가까움 @%d,%d", x, z);
+                if (occ.contains(RoadStore.key(x, z))) {
+                    lastBoxFault = String.format("건물이 닿음 @%d,%d", x, z);
+                    BOX_REJECT[4]++;
                     return false;
                 }
                 if (nearStreet(level, gp)) {
                     lastBoxFault = String.format("가로수·분수가 가까움 @%d,%d", x, z);
+                    BOX_REJECT[5]++;
                     return false;
                 }
                 if (RoadStore.get(level).has(x, z)) {
-                    lastBoxFault = String.format("등기된 길 @%d,%d", x, z);
-                    return false; // 등기된 마을 길 위에는 안 놓는다
+                    if (roads == null) {
+                        lastBoxFault = String.format("등기된 길 @%d,%d", x, z);
+                        BOX_REJECT[6]++;
+                        return false;
+                    }
+                    roads.add(RoadStore.key(x, z)); // 양보 여부는 부르는 쪽이 판정한다
                 }
                 var at = level.getBlockState(gp);
                 if (!(at.isAir() || at.canBeReplaced() || weed(at))) {
                     lastBoxFault = String.format("%s 이(가) 서 있음 @%d,%d",
                             at.getBlock().getName().getString(), x, z);
+                    BOX_REJECT[7]++;
                     return false;
                 }
             }
@@ -4016,11 +4101,33 @@ public final class FarmTicker {
             int[][] tries = gw > 0
                     ? new int[][] {{old[0] + old[2], old[1], gw, old[3]}, {old[0] - gw, old[1], gw, old[3]}}
                     : new int[][] {{old[0], old[1] + old[3], old[2], gd}, {old[0], old[1] - gd, old[2], gd}};
-            for (int t = 0; t < tries.length; t++) {
+            // <b>한 수 앞을 본다.</b> 종전에는 쓸 수 있는 첫 방향을 그대로 잡았다. + 가 비어
+            // 있으면 늘 + 로 갔고, 그 앞이 곧 막히는 자리여도 그리로 자라 스스로 구석에
+            // 몰렸다 — "우측은 뚫려 있는데 좌측만 고집"으로 보이던 장면의 실체다. 두 방향이
+            // 모두 쓸 수 있으면 <b>그 다음 띠까지 비어 있는 쪽</b>을 고른다.
+            int[] order = {0, 1};
+            if (tries.length == 2
+                    && boxUsable(level, store, p.id, tries[0][0], tries[0][1], tries[0][2],
+                            tries[0][3], p.baseY, adults, new java.util.HashSet<>())
+                    && boxUsable(level, store, p.id, tries[1][0], tries[1][1], tries[1][2],
+                            tries[1][3], p.baseY, adults, new java.util.HashSet<>())
+                    && !aheadFree(level, store, p, adults, tries[0], gw, gd, +1)
+                    && aheadFree(level, store, p, adults, tries[1], gw, gd, -1)) {
+                order = new int[] {1, 0};
+            }
+            for (int oi = 0; oi < tries.length; oi++) {
+                int t = order[oi];
                 int[] strip = tries[t];
+                java.util.Set<Long> roads = new java.util.HashSet<>();
                 if (!boxUsable(level, store, p.id, strip[0], strip[1], strip[2], strip[3],
-                        p.baseY, adults)) {
+                        p.baseY, adults, roads)) {
                     continue;
+                }
+                if (!roads.isEmpty() && !yieldRoads(level, roads, strip)) {
+                    lastBoxFault = String.format("등기된 길 %d칸 — 우회로 불가 @%d,%d",
+                            roads.size(), strip[0], strip[1]);
+                    BOX_REJECT[6] += roads.size();
+                    continue; // 우회로를 못 놓으면 마을이 쪼개진다 — 종전대로 거부
                 }
                 if (t == 1) {
                     // − 방향이면 원점이 그만큼 당겨진다. gw·gd 는 boxOf 가 돌려준 <b>월드</b>
@@ -4042,6 +4149,72 @@ public final class FarmTicker {
             }
         }
         return false;
+    }
+
+    /** 이 띠 <b>너머 한 띠</b>도 쓸 수 있는가 — 방향 고를 때의 앞내다보기. */
+    private static boolean aheadFree(ServerLevel level, FarmStore store, FarmStore.Plot p,
+                                     java.util.List<MimicEntity> adults,
+                                     int[] strip, int gw, int gd, int sign) {
+        int nx = strip[0] + (gw > 0 ? sign * gw : 0);
+        int nz = strip[1] + (gw > 0 ? 0 : sign * gd);
+        return boxUsable(level, store, p.id, nx, nz, strip[2], strip[3], p.baseY, adults,
+                new java.util.HashSet<>());
+    }
+
+    /**
+     * <b>길이 밭에 양보한다</b> — 단, 우회로를 놓을 수 있을 때만.
+     *
+     * <p>길은 건물이 아니라 <b>경로</b>다. 옮길 수 있으면 옮기는 것이 맞고, 못 옮기면 마을이
+     * 쪼개지므로 밭이 물러나야 한다. 판정은 도로망이 이미 갖고 있던 두 부품이 한다 —
+     * {@link RoadStore#splitBy} 가 "빼면 쪼개지는가"를, {@link RoadPlanner#planBypass} 가
+     * "돌아갈 길이 있는가"를 답한다({@code removeAll} 의 주석이 "밭이 가져갈 때"라고 이미
+     * 적어 두었다 — 설계돼 있었으나 확장 쪽에서 부르지 않고 있었다).
+     *
+     * <p>밭은 {@code redrawBorder} 로 바깥 한 겹 흙길을 두르므로 통행 자체는 유지된다.
+     */
+    private static boolean yieldRoads(ServerLevel level, java.util.Set<Long> take, int[] strip) {
+        RoadStore roads = RoadStore.get(level);
+        java.util.List<java.util.Set<Long>> parts = roads.splitBy(take);
+        if (parts.isEmpty()) {
+            roads.removeAll(take); // 쪼개지지 않는다 — 그냥 말소해도 안전하다
+            paveOff(level, take);
+            return true;
+        }
+        // 쪼개진다 — 조각마다 본체로 돌아가는 우회로가 서야 양보한다.
+        java.util.Set<Long> trunk = parts.get(0);
+        int y = RoadPlanner.surfaceY(level, RoadStore.keyX(take.iterator().next()),
+                RoadStore.keyZ(take.iterator().next()));
+        if (y == Integer.MIN_VALUE) {
+            return false;
+        }
+        java.util.Set<Long> extra = new java.util.HashSet<>(take);
+        for (int x = strip[0]; x < strip[0] + strip[2]; x++) {
+            for (int z = strip[1]; z < strip[1] + strip[3]; z++) {
+                extra.add(RoadStore.key(x, z));
+            }
+        }
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(level).plus(extra);
+        java.util.List<java.util.List<BlockPos>> plans = new java.util.ArrayList<>();
+        for (int i = 1; i < parts.size(); i++) {
+            java.util.List<BlockPos> path = RoadPlanner.planBypass(level, parts.get(i), trunk, ob, y);
+            if (path == null || path.isEmpty()) {
+                return false; // 한 조각이라도 못 잇는다 — 양보하지 않는다
+            }
+            plans.add(path);
+        }
+        for (java.util.List<BlockPos> path : plans) {
+            for (BlockPos b : path) {
+                roads.add(b.getX(), b.getZ());
+                pave(level, b.getX(), b.getZ());
+            }
+        }
+        roads.removeAll(take);
+        paveOff(level, take);
+        com.evosim.mod.log.SimEvents.note(level, "길양보", String.format(
+                "밭이 길 %d칸을 가져가고 우회로 %d칸을 놓았다 @%d,%d",
+                take.size(), plans.stream().mapToInt(java.util.List::size).sum(),
+                strip[0], strip[1]));
+        return true;
     }
 
     /**
@@ -4167,6 +4340,86 @@ public final class FarmTicker {
      * <p>실측(D28): 구획 #11 의 구멍 한 칸이 {@code oak_leaves} 였다. 잎은 뽑히지 않으므로
      * 그 칸은 영영 구멍이다. 꾸밈은 많아야 수십 개라 선형 순회로 충분하다.
      */
+    /**
+     * <b>건물이 실제로 차지한 칸 + 한 겹</b> — 밭이 여기만 안 밟으면 된다.
+     *
+     * <p>종전에는 앵커에서 <b>반경</b>으로 쟀다(거처 8칸 · 시설 reach+여유 ≈ 9칸). 원으로 근사한
+     * 값이라 집·시설마다 3~5칸의 헛여유가 붙었고, 그 헛여유가 밭의 성장 공간을 한 방향으로만
+     * 갉아먹어 12타일에서 고착시켰다. 같은 과대평가를 시설 부지 선정 쪽에서는 이미 축별 반폭으로
+     * 고쳤는데({@code facilitySite} 주석: "후보 700개 중 611개를 집이 막았다") 밭 확장 쪽에만
+     * 남아 있었다.
+     *
+     * <p>여기서는 반폭보다 더 정확한 것을 쓴다 — {@link #homeCells} 가 이미 <b>발자국·정원·문앞
+     * 계단</b>의 실제 칸을 알고 있다. 반폭으로 재면 앵커에서 최대 5.66 까지 뻗는 정원을 밭이
+     * 먹어 무밭 가구의 수입원이 사라진다. 실제 칸에 한 겹({@link #BUILD_GAP})만 두르면
+     * "닿지만 않으면 넓힌다"가 그대로 성립한다.
+     */
+    private static java.util.Set<Long> occupiedCells(ServerLevel level) {
+        java.util.Set<Long> core = homeCells(level);
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
+            if (tpl.isEmpty()) {
+                continue;
+            }
+            for (BlockPos col : tpl.get().groundCols()) {
+                core.add(RoadStore.key(e.pos.getX() + col.getX(), e.pos.getZ() + col.getZ()));
+            }
+        }
+        java.util.Set<Long> out = new java.util.HashSet<>(core.size() * 4);
+        for (long k : core) {
+            int x = RoadStore.keyX(k);
+            int z = RoadStore.keyZ(k);
+            for (int dx = -BUILD_GAP; dx <= BUILD_GAP; dx++) {
+                for (int dz = -BUILD_GAP; dz <= BUILD_GAP; dz++) {
+                    out.add(RoadStore.key(x + dx, z + dz));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 건물과 밭 사이 최소 유격(칸) — "닿지만 않으면" 이 한 겹이다. */
+    private static final int BUILD_GAP = 1;
+
+    private static java.util.Set<Long> occCache;
+    private static ServerLevel occKeyLevel;
+    private static int occKeyStamp;
+
+    /** 점유 칸 집합 — 한 판 안에서는 다시 만들지 않는다(집·시설 수가 바뀌면 다시 만든다). */
+    private static java.util.Set<Long> occupied(ServerLevel level) {
+        int stamp = HomeStore.get(level).positions().size() * 31
+                + FacilityStore.get(level).all().size();
+        if (occCache == null || occKeyLevel != level || occKeyStamp != stamp) {
+            occCache = occupiedCells(level);
+            occKeyLevel = level;
+            occKeyStamp = stamp;
+        }
+        return occCache;
+    }
+
+    /** 확장 거부 관문 이름 — 히스토그램의 축. */
+    private static final String[] BOX_GATE = {
+        "지표없음", "높이", "미로드", "다른밭", "건물", "가로수", "길", "블록",
+    };
+    /** 관문별 거부 칸 수 — 하루치. "마지막 거부" 한 줄로는 무엇이 진짜 병목인지 알 수 없다. */
+    private static final int[] BOX_REJECT = new int[BOX_GATE.length];
+
+    /** 히스토그램을 한 줄로 — 0 인 관문은 적지 않는다. */
+    private static String boxRejectLine() {
+        StringBuilder sb = new StringBuilder();
+        int total = 0;
+        for (int i = 0; i < BOX_REJECT.length; i++) {
+            total += BOX_REJECT[i];
+        }
+        for (int i = 0; i < BOX_REJECT.length; i++) {
+            if (BOX_REJECT[i] > 0) {
+                sb.append(sb.length() > 0 ? " · " : "").append(BOX_GATE[i]).append(' ')
+                        .append(BOX_REJECT[i]);
+            }
+        }
+        return total == 0 ? "거부 없음" : "거부 " + total + "칸: " + sb;
+    }
+
     private static boolean nearStreet(ServerLevel level, BlockPos gp) {
         var street = com.evosim.mod.entity.StreetStore.get(level);
         for (boolean fnt : new boolean[] {false, true}) {

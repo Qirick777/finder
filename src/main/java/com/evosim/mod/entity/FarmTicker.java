@@ -2343,12 +2343,19 @@ public final class FarmTicker {
                         * Facilities.POORHOUSE_TILE_WORTH;
     }
 
-    /** 이 개체는 첫 구걸로 곧장 드는가 — 게으름·멍청·비관(P7 에 신설). */
+    /**
+     * 이 개체는 첫 구걸로 곧장 드는가 — 게으름·멍청(비관은 P7 에 신설).
+     *
+     * <p>멍청은 <b>실효 Ⅲ 이상</b>이라야 한다. 멍청이 성향(축 34개)에서 신체(축 8개)로 옮겨
+     * 오며 보유율이 4.4%→18.75% 로 네 배가 됐다 — "있으면 무조건"으로 두면 즉시 입소가 네 배로
+     * 늘어 주인의 봉급 지출이 그만큼 불어난다. Ⅲ 문턱은 <b>무등급 인스턴스가 중앙 Ⅲ 취급</b>
+     * 이라는 규약과 맞물려, 등급 없던 구 세이브의 거동을 종전과 정확히 같게 유지한다.
+     */
     private static boolean admitsAtOnce(MimicEntity m) {
         var ind = m.getIndividual();
         return ind != null
                 && (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY)
-                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.DULL));
+                || com.evosim.core.Multipliers.dullGrade(ind) >= 3);
     }
 
     /**

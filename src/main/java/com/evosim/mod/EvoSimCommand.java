@@ -403,7 +403,31 @@ public final class EvoSimCommand {
     }
 
     /**
-     * 엘리트 방랑자 소환 — 야망가+약초학자Ⅴ 남성(자연 개체 — 혈통·상속 정상 편입). 관측 런의
+     * <b>엘리트 시드 — 정의는 여기 하나뿐이다.</b> {@code evosim elite} 와 {@code evosim obs} 가
+     * 같은 개체를 소환해야 두 관측이 비교 가능하다(종전에는 두 곳이 따로 적혀 있어, 규칙만
+     * 고치고 한쪽 시드를 안 고치면 사슬이 끊긴 채로 런이 돌았다).
+     *
+     * <p>7종 사슬 — 성향 3(눈썰미Ⅴ·유능함Ⅴ·야망가) · 신체 3(명석Ⅴ·활력Ⅴ·재빠름Ⅴ) · 보조 1(깜냥).
+     * 계측값: 채집 2.760 · 정원 6.702 · 용량 224 · 쿨 0.4913 · 노동 11750 · 종합 9.430
+     * (개편 전 시드 4.243 의 2.22배 — {@code evotest audit} 의 엘리트 줄이 이 값을 찍는다).
+     *
+     * <p>힘셈은 {@code omit} 으로 뺀다 — 신체 3칸이 꽉 차 들어갈 자리가 없다. 자수성가도 뺐다:
+     * 야망가가 만족 판정 자체를 건너뛰므로 σ 상향이 겹쳐 죽은 슬롯이 된다.
+     */
+    private static MimicEntity spawnChainElite(ServerLevel level, Vec3 pos) {
+        return spawnMatingReady(level, pos, Sex.MALE,
+                java.util.Set.of(Trait.STRONG),
+                Trait.HERBALIST, Trait.COMPETENT, Trait.AMBITIOUS,
+                Trait.BRIGHT, Trait.VIGOROUS, Trait.NIMBLE,
+                Trait.KEEN_EYE);
+    }
+
+    /** 엘리트 시드의 한 줄 설명 — 로그·채팅이 같은 문구를 쓰게. */
+    private static final String CHAIN_ELITE_DESC =
+            "눈썰미Ⅴ·유능함Ⅴ·야망가 + 명석Ⅴ·활력Ⅴ·재빠름Ⅴ + 깜냥 (7종 사슬)";
+
+    /**
+     * 엘리트 방랑자 소환 — 7종 사슬 남성(자연 개체 — 혈통·상속 정상 편입). 관측 런의
      * "대지주 후보" 표준 시드: 개간 게이트·만족 무시(야망)·최상 수율이 한 몸.
      */
     private static int spawnElite(CommandContext<CommandSourceStack> ctx, int count) {
@@ -411,20 +435,7 @@ public final class EvoSimCommand {
         Vec3 base = ctx.getSource().getPosition();
         StringBuilder names = new StringBuilder();
         for (int i = 0; i < count; i++) {
-            // 명석을 <b>뺀다</b>. 명석은 "할 일이 있으면 배회 시간에도 일한다"(명석 D 여가 컷)라
-            // 시드가 남들과 다른 시간표로 돌아간다 — 관측 런에서 엘리트가 앞서는 이유가 능력이
-            // 아니라 노동 시간이 되어, 봉건 사슬의 원인을 흐린다.
-            //
-            // 능력은 약초학자Ⅴ(GATHER_SKILL)에 채집꾼Ⅴ(ACQUISITION)를 <b>더한다</b> — 축이
-            // 달라 겹치지 않는다.
-            // 보조 축 둘을 함께 준다 — 자수성가(만족선 σ 3.5)와 깜냥(관리 실효등급 +1).
-            // 둘 다 촉매라 능력이 없으면 효과가 0인데, 이 시드는 약초Ⅴ·채집꾼Ⅴ를 가졌으므로
-            // 실제로 발동한다: 만족의 덫을 늦게 만나고(멈추지 않고 계속 번다), 관리 등급이
-            // 한 칸 올라 정원 배율·관리용량·착공 시기가 함께 움직인다.
-            MimicEntity e = spawnMatingReady(level, scatter(level, base), Sex.MALE,
-                    java.util.Set.of(Trait.BRIGHT),
-                    Trait.AMBITIOUS, Trait.HERBALIST, Trait.GATHERER,
-                    Trait.SELF_MADE, Trait.KEEN_EYE);
+            MimicEntity e = spawnChainElite(level, scatter(level, base));
             if (e != null && e.getIndividual() != null) {
                 // 육아 무시 — 평범이면 유아가 생기는 순간 <b>육아 구속</b>에 걸려(비무시 성인
                 // 전원이 구속 대상) 시드가 개간·확장을 멈춘다. 관측하려는 것이 그 사람의
@@ -433,7 +444,7 @@ public final class EvoSimCommand {
                 e.getIndividual().setParentingCareMale(
                         com.evosim.core.ParentingClass.NEGLECTFUL);
                 names.append(names.length() > 0 ? ", " : "").append(e.getIndividual().shortName());
-                SimEvents.event(e, "엘리트투입", "야망가+약초학자Ⅴ+채집꾼Ⅴ+자수성가+깜냥 · 명석 없음 · 육아 무시 관측 시드");
+                SimEvents.event(e, "엘리트투입", CHAIN_ELITE_DESC + " · 육아 무시 관측 시드");
             }
             // <b>성비를 맞춘다.</b> wildpairs 는 남녀를 쌍으로 넣는데 엘리트는 남성만 더하므로,
             // 엘리트가 매 런 짝짓기에서 <b>남는 한 명</b>이 될 수 있는 자리에 선다(남 9 · 여 8).
@@ -445,7 +456,8 @@ public final class EvoSimCommand {
             // 경로다 — 엘리트에게 특정 상대를 붙여 주는 것이 아니라 선택지를 한 명 되돌린다.
             spawnWild(level, scatter(level, base), Sex.FEMALE);
         }
-        tell(ctx.getSource(), "엘리트 " + count + "명 소환(야망가+약초Ⅴ+채집꾼Ⅴ+자수성가+깜냥 · 명석X · 육아무시 ♂, 성비용 야생 여성 " + count + "명 동반): "
+        tell(ctx.getSource(), "엘리트 " + count + "명 소환(" + CHAIN_ELITE_DESC
+                + " · 육아무시 ♂, 성비용 야생 여성 " + count + "명 동반): "
                 + names + " — 구애·정착·개간은 전부 자연 경로.");
         return count;
     }
@@ -475,24 +487,15 @@ public final class EvoSimCommand {
             spawnMatingReady(level, scatter(level, base), Sex.MALE);
             spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
         }
-        // 7종 사슬 — 성향 3(눈썰미Ⅴ·유능함Ⅴ·야망가) · 신체 3(명석Ⅴ·활력Ⅴ·재빠름Ⅴ) · 보조 1(깜냥).
-        // 힘셈은 뺀다: 신체 3칸이 꽉 차 들어갈 자리가 없다(MAX_PER_CATEGORY=3).
-        // 종전 시드(야망+약초Ⅴ+재빠름Ⅴ+명석+힘셈)를 그대로 두면 사슬이 끊겨 정원이 4.30→1.03 으로
-        // 무너진다 — 규칙만 바꾸고 시드를 안 바꾸면 엘리트가 개편 전보다 <b>약해진다</b>.
-        MimicEntity elite = spawnMatingReady(level, scatter(level, base), Sex.MALE,
-                java.util.Set.of(Trait.STRONG),
-                Trait.HERBALIST, Trait.COMPETENT, Trait.AMBITIOUS,
-                Trait.BRIGHT, Trait.VIGOROUS, Trait.NIMBLE,
-                Trait.KEEN_EYE);
+        MimicEntity elite = spawnChainElite(level, scatter(level, base));
         spawnMatingReady(level, scatter(level, base), Sex.FEMALE); // 엘리트 몫 여성 1 보충
         if (elite != null) {
-            SimEvents.event(elite, "엘리트투입",
-                    "관측 런 시드(눈썰미Ⅴ·유능함Ⅴ·야망가 + 명석Ⅴ·활력Ⅴ·재빠름Ⅴ + 깜냥 — 7종 사슬)");
+            SimEvents.event(elite, "엘리트투입", "관측 런 시드 — " + CHAIN_ELITE_DESC);
         }
         tell(ctx.getSource(), String.format(
-                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(7종 사슬: 눈썰미Ⅴ·유능함Ⅴ·야망 / 명석Ⅴ·활력Ⅴ·"
-                        + "재빠름Ⅴ / 깜냥) 소환, 이벤트 로그 ON. "
-                        + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.", pairs));
+                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(%s) 소환, 이벤트 로그 ON. "
+                        + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.",
+                pairs, CHAIN_ELITE_DESC));
         return pairs * 2 + 2;
     }
 

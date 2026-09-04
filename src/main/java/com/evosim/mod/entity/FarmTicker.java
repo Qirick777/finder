@@ -2323,6 +2323,17 @@ public final class FarmTicker {
      * <p>구빈원 자격을 가리는 데만 쓴다. 정교할 필요가 없는 자리다 — 1위가 누구냐만 갈리면
      * 되고, 평민 저장고는 만족선(24~27.6)에서 멈추는데 밭 18타일만 얹혀도 격차가 확실하다.
      */
+    /**
+     * 구빈원 판정이 <b>멈춘 사유</b>를 하루 한 줄 남긴다.
+     *
+     * <p>이 코드베이스가 여러 번 적어 둔 규칙이다 — <b>"침묵은 진단이 아니다."</b> 처음에는
+     * 자격 미달로 물러날 때 아무것도 안 남겨서, 구빈원이 왜 안 서는지 알아내려고 돌아가는
+     * 서버에 직접 물어야 했다(실측 20명 런). 그 한 번으로 충분하다.
+     */
+    private static void poorNote(ServerLevel level, String why) {
+        com.evosim.mod.log.SimEvents.note(level, "구빈원", why);
+    }
+
     private static double wealthOf(ServerLevel level, LarderStore larders, MimicEntity m) {
         if (m.getIndividual() == null || m.getHomePos() == null) {
             return -1.0;
@@ -2365,17 +2376,20 @@ public final class FarmTicker {
         if (!hs.isEmpty() && poorhouseVacancy(level) > 0) {
             return;
         }
-        // ③ 자격 — 반경 안 재산 1위. 추종자가 하나도 없으면 세력이 아니므로 뺀다.
+        // ③ 자격 — 반경 안 재산 1위. <b>후보는 추종자를 거느린 자로 한정한다</b>(세력의 표식).
         //    동률은 개체 id 로 가른다(순회 순서에 결과가 매달리지 않게).
-        MimicEntity best = null;
-        double bestW = -1.0;
+        java.util.List<MimicEntity> pool = new java.util.ArrayList<>();
         for (MimicEntity m : adults) {
             if (m.getIndividual() == null || m.getHomePos() == null) {
                 continue;
             }
-            if (followersOf(m.getIndividual().id()) < Facilities.POORHOUSE_MIN_FOLLOWERS) {
-                continue;
+            if (followersOf(m.getIndividual().id()) >= Facilities.POORHOUSE_MIN_FOLLOWERS) {
+                pool.add(m);
             }
+        }
+        MimicEntity best = null;
+        double bestW = -1.0;
+        for (MimicEntity m : pool) {
             double w = wealthOf(level, larders, m);
             if (w > bestW + 1.0E-9
                     || (Math.abs(w - bestW) <= 1.0E-9 && best != null
@@ -2385,19 +2399,27 @@ public final class FarmTicker {
             }
         }
         if (best == null) {
+            poorNote(level, String.format("보류 — 구걸자 %d명인데 추종자를 거느린 자가 없다",
+                    unserved));
             return;
         }
-        // <b>반경 안 1위인가</b> — 위에서 뽑은 것은 전역 1위다. 반경 192 안에 더 부유한 자가
-        // 있으면 이 사람은 그 동네의 1위가 아니다. 세력이 192 이상 떨어져 있으면 각자 1위가
-        // 되므로, 두 세력 대결에서 한쪽만 안전망을 갖는 상태가 생기지 않는다.
+        // <b>반경 안 1위인가</b> — 위에서 뽑은 것은 전역 1위다. 반경 192 안에 더 부유한
+        // <b>후보</b>가 있으면 이 사람은 그 동네의 1위가 아니다. 세력이 192 이상 떨어져 있으면
+        // 각자 1위가 되므로, 두 세력 대결에서 한쪽만 안전망을 갖는 상태가 생기지 않는다.
+        //
+        // <b>비교 대상을 후보로 한정하는 것이 요점이다.</b> 성인 전체와 견주면 세력도 밭도 없는
+        // 축장 평민이 지주를 막는다 — 실측(20명 런 D4): 밭 없는 평민 최고 저장고 27 이 착공
+        // 직후의 엘리트를 눌러 구빈원이 서지 못했다. 순위의 뜻은 "제일 부자"가 아니라
+        // <b>"세력을 가진 자들 중 그 동네 제일 부자"</b>다.
         double rSqr = Facilities.POORHOUSE_RANK_RADIUS * Facilities.POORHOUSE_RANK_RADIUS;
-        for (MimicEntity m : adults) {
-            if (m == best || m.getIndividual() == null || m.getHomePos() == null) {
+        for (MimicEntity m : pool) {
+            if (m == best) {
                 continue;
             }
             if (m.getHomePos().distSqr(best.getHomePos()) <= rSqr
                     && wealthOf(level, larders, m) > bestW) {
-                return; // 이 사람보다 부유한 이웃이 반경 안에 있다 — 오늘은 아무도 안 짓는다
+                poorNote(level, "보류 — 반경 안에 더 부유한 세력이 있다");
+                return;
             }
         }
         double lar = larders.get(best.getHomePos());

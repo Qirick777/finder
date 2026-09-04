@@ -3172,9 +3172,9 @@ public class MimicEntity extends PathfinderMob {
         if (founder == null) {
             return larder;
         }
-        // <b>구빈원이 제일 먼저다.</b> 자격이 추종자 수가 아니라 <b>밭 크기</b>라 아래 세 시설의
-        // 문턱과 무관하게 성립하고, 무엇보다 군인보다 먼저 서야 한다(POORHOUSE_RESERVE_MULT 주석).
-        larder = considerPoorhouse(sl, founder, larder, adultNeed);
+        // 구빈원은 <b>여기서 묻지 않는다</b> — 마을에 반경 192당 한 채뿐인 시설이라 가구마다
+        // 매일 물을 이유가 없다. 판정은 FarmTicker.runPoorhouses 가 하루 한 번, 그것도
+        // <b>구걸자가 있고 덮이지 않은 날에만</b> 한다.
         // 교회를 <b>먼저</b> 본다 — 자격 문턱이 낮아(추종자 4) 학교보다 이른 세력에서 성립하고,
         // 학교 문턱에서 되돌아가면 교회까지 함께 막히기 때문이다.
         if (followers >= Facilities.CHURCH_MIN_FOLLOWERS) {
@@ -3284,41 +3284,29 @@ public class MimicEntity extends PathfinderMob {
      * </ul>
      */
     /**
-     * <b>구빈원을 세울 것인가</b> — 하루 1회, 가구 정산에서 묻는다.
+     * <b>구빈원을 실제로 세운다</b> — 자금 · 도면 · 부지 · 간격 · 등기 · 길.
      *
-     * <p>다른 시설과 자격이 다르다: 추종자 수가 아니라 <b>보유 밭</b>이다
-     * ({@link Facilities#POORHOUSE_MIN_TILES} 주석 — 24타일은 관리등급 Ⅲ 이상이라야 감당한다).
-     * 난립을 막는 층이 다섯이고, 그중 이것이 가장 강하다. 자금 문턱은 만족선과 겹쳐 평민도
-     * 우연히 닿을 수 있지만 밭 크기는 <b>운으로 뚫리지 않는다</b>.
+     * <p>다른 시설과 달리 <b>"세울 것인가"는 여기서 묻지 않는다.</b> 자격(반경 192 안 재산
+     * 1위) · 수요(구걸자) · 정원(빈자리)은 {@link FarmTicker} 의 하루 1회 정산이 마을 단위로
+     * 판정하고, 이 함수는 그 결정이 난 뒤 <b>짓기만</b> 한다.
      *
-     * <p><b>첫 채와 둘째 채가 다른 문을 쓴다.</b> 첫 채는 "갈 곳 없는 구걸자 3명"(학교의
-     * {@code UNSERVED_TO_BUILD} 와 같은 문법)이고, 둘째부터는 "마을의 모든 구빈원에 빈자리가
-     * 없다"이다. 후자는 <b>주인을 가리지 않으므로</b>, 정원 10짜리가 하나 서 있고 구걸자가
-     * 7명이면 아무도 둘째를 못 짓는다.
+     * <p>가구마다 매일 묻지 않는 이유: 구빈원은 반경 192당 한 채뿐인 시설이라 200가구가 같은
+     * 답을 200번 계산할 일이 없고, 순위 계산은 구걸자가 있고 덮이지 않은 날에만 필요하다.
+     *
+     * @return 건축비를 낸 뒤의 저장고(못 지었으면 그대로)
      */
-    private double considerPoorhouse(ServerLevel sl, MimicEntity founder, double larder,
-                                     double adultNeed) {
+    double raisePoorhouse(ServerLevel sl, double larder, double adultNeed) {
+        MimicEntity founder = this;
         long id = founder.getIndividual().id();
-        int tiles = FarmStore.get(sl).ownedTiles(id);
-        if (tiles < Facilities.POORHOUSE_MIN_TILES) {
-            return larder; // 능력 문턱 — 조용히 물러난다(대다수가 여기서 걸리므로 로그를 안 남긴다)
-        }
         FacilityStore reg = FacilityStore.get(sl);
         int have = reg.countOf(FacilityTemplate.Group.POORHOUSE);
-        if (have == 0) {
-            // 첫 채 — 수요로 연다.
-            int unserved = FarmTicker.unservedBeggars(sl);
-            if (unserved < Facilities.POORHOUSE_UNSERVED) {
-                return larder;
-            }
-        } else if (FarmTicker.poorhouseVacancy(sl) > 0) {
-            return larder; // 둘째 채 — 빈자리가 남아 있으면 짓지 않는다(주인 무관)
-        }
         double gate = Facilities.POORHOUSE_COST
                 + HomeTemplate.reserve(adultNeed) * Facilities.POORHOUSE_RESERVE_MULT;
         if (larder < gate) {
             SimEvents.event(founder, "구빈원", String.format(
-                    "보류 — 밭%d타일 · 저장고 %.0f < 문턱 %.0f", tiles, larder, gate));
+                    "보류 — 저장고 %.0f < 문턱 %.0f (건축 %.0f + 여유 %.0f)",
+                    larder, gate, Facilities.POORHOUSE_COST,
+                    HomeTemplate.reserve(adultNeed) * Facilities.POORHOUSE_RESERVE_MULT));
             return larder;
         }
         byte rot = (byte) getRandom().nextInt(4);
@@ -3349,8 +3337,9 @@ public class MimicEntity extends PathfinderMob {
         SimEvents.event(founder, "구빈원", String.format(
                 "착공 @%d,%d 회전%d%s — 밭%d타일 · 자리%d · 건축비 %.0f (저장고 %.0f→%.0f)"
                         + " · 기존 %d채",
-                site.getX(), site.getZ(), rot, mir ? "·반전" : "", tiles,
-                tpl.get().seats().size(), Facilities.POORHOUSE_COST, larder,
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "",
+                FarmStore.get(sl).ownedTiles(id), tpl.get().seats().size(),
+                Facilities.POORHOUSE_COST, larder,
                 larder - Facilities.POORHOUSE_COST, have));
         return larder - Facilities.POORHOUSE_COST;
     }

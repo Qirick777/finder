@@ -2317,6 +2317,21 @@ public final class FarmTicker {
         return n;
     }
 
+    /**
+     * <b>재산</b> — 가구 저장고 + 보유 밭타일 × {@link Facilities#POORHOUSE_TILE_WORTH}.
+     *
+     * <p>구빈원 자격을 가리는 데만 쓴다. 정교할 필요가 없는 자리다 — 1위가 누구냐만 갈리면
+     * 되고, 평민 저장고는 만족선(24~27.6)에서 멈추는데 밭 18타일만 얹혀도 격차가 확실하다.
+     */
+    private static double wealthOf(ServerLevel level, LarderStore larders, MimicEntity m) {
+        if (m.getIndividual() == null || m.getHomePos() == null) {
+            return -1.0;
+        }
+        return larders.get(m.getHomePos())
+                + FarmStore.get(level).ownedTiles(m.getIndividual().id())
+                        * Facilities.POORHOUSE_TILE_WORTH;
+    }
+
     /** 이 개체는 첫 구걸로 곧장 드는가 — 게으름·멍청·비관(P7 에 신설). */
     private static boolean admitsAtOnce(MimicEntity m) {
         var ind = m.getIndividual();
@@ -2326,7 +2341,81 @@ public final class FarmTicker {
     }
 
     /**
-     * <b>구빈원 정산</b> — 등기 정리 · 퇴소 · 입소 · 봉급. 하루 1회, 주둔 정산과 같은 틱.
+     * <b>구빈원을 세울 것인가</b> — 마을 단위로 하루 1회, 그것도 <b>구걸자가 있고 덮이지 않은
+     * 날에만</b> 묻는다.
+     *
+     * <p>다른 시설은 가구마다 매일 묻지만(considerFacility) 구빈원은 반경 192당 한 채라
+     * 200가구가 같은 답을 200번 계산할 일이 없다. 그리고 아래 두 관문이 순서대로 걸러서,
+     * 실제로 순위를 계산하는 날은 <b>구빈원이 서기 전 며칠</b>뿐이다 — 서고 나면 소속자는
+     * 구걸을 안 하고 새 구걸자는 빈자리로 바로 들어가므로 첫 관문에서 멈춘다.
+     *
+     * <p><b>자격은 절대값이 아니라 순위다</b>({@link Facilities#POORHOUSE_RANK_RADIUS} 주석).
+     * 반경 192 안 재산 1위가 짓는다 — 마을의 최고 부자는 언제나 정확히 한 명 있으므로
+     * "안 생긴다"도 "난립한다"도 구조적으로 불가능하다.
+     */
+    private static void considerPoorhouse(ServerLevel level, LarderStore larders,
+                                          java.util.List<MimicEntity> adults) {
+        // ① 수요 — 갈 곳 없는 구걸자가 있는가. BEGGED_TODAY 로 이미 센 값이라 공짜다.
+        int unserved = unservedBeggars(level);
+        if (unserved < Facilities.POORHOUSE_UNSERVED) {
+            return;
+        }
+        // ② 정원 — 첫 채가 없거나, 있어도 마을 전체가 만석일 때만 더 짓는다(주인 무관).
+        java.util.List<FacilityStore.Entry> hs = poorhouses(level);
+        if (!hs.isEmpty() && poorhouseVacancy(level) > 0) {
+            return;
+        }
+        // ③ 자격 — 반경 안 재산 1위. 추종자가 하나도 없으면 세력이 아니므로 뺀다.
+        //    동률은 개체 id 로 가른다(순회 순서에 결과가 매달리지 않게).
+        MimicEntity best = null;
+        double bestW = -1.0;
+        for (MimicEntity m : adults) {
+            if (m.getIndividual() == null || m.getHomePos() == null) {
+                continue;
+            }
+            if (followersOf(m.getIndividual().id()) < Facilities.POORHOUSE_MIN_FOLLOWERS) {
+                continue;
+            }
+            double w = wealthOf(level, larders, m);
+            if (w > bestW + 1.0E-9
+                    || (Math.abs(w - bestW) <= 1.0E-9 && best != null
+                            && m.getIndividual().id() < best.getIndividual().id())) {
+                bestW = w;
+                best = m;
+            }
+        }
+        if (best == null) {
+            return;
+        }
+        // <b>반경 안 1위인가</b> — 위에서 뽑은 것은 전역 1위다. 반경 192 안에 더 부유한 자가
+        // 있으면 이 사람은 그 동네의 1위가 아니다. 세력이 192 이상 떨어져 있으면 각자 1위가
+        // 되므로, 두 세력 대결에서 한쪽만 안전망을 갖는 상태가 생기지 않는다.
+        double rSqr = Facilities.POORHOUSE_RANK_RADIUS * Facilities.POORHOUSE_RANK_RADIUS;
+        for (MimicEntity m : adults) {
+            if (m == best || m.getIndividual() == null || m.getHomePos() == null) {
+                continue;
+            }
+            if (m.getHomePos().distSqr(best.getHomePos()) <= rSqr
+                    && wealthOf(level, larders, m) > bestW) {
+                return; // 이 사람보다 부유한 이웃이 반경 안에 있다 — 오늘은 아무도 안 짓는다
+            }
+        }
+        double lar = larders.get(best.getHomePos());
+        double adultNeed = 0.0;
+        for (MimicEntity a : adults) {
+            if (best.getHomePos().equals(a.getHomePos())) {
+                adultNeed += com.evosim.core.FoodEconomy.consumptionPerDay(
+                        a.getStage(), com.evosim.core.Activity.MOVE, a.getIndividual(), false);
+            }
+        }
+        double after = best.raisePoorhouse(level, lar, adultNeed);
+        if (after < lar) {
+            larders.set(best.getHomePos(), after);
+        }
+    }
+
+    /**
+     * <b>구빈원 정산</b> — 착공 · 등기 정리 · 퇴소 · 입소 · 봉급. 하루 1회, 주둔 정산과 같은 틱.
      *
      * <p>순서가 뜻을 갖는다. <b>퇴소를 먼저</b> 처리해야 그 자리가 오늘 입소에 열리고, 봉급은
      * 마지막이라야 방금 든 사람도 첫날치를 받는다.
@@ -2345,6 +2434,7 @@ public final class FarmTicker {
                                       LarderStore larders, java.util.List<MimicEntity> adults,
                                       long day) {
         java.util.Arrays.fill(POOR_SUM, 0.0);
+        considerPoorhouse(level, larders, adults);
         java.util.List<FacilityStore.Entry> hs = poorhouses(level);
         java.util.Set<Long> live = new java.util.HashSet<>();
         for (FacilityStore.Entry e : hs) {

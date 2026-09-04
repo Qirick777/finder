@@ -44,6 +44,8 @@ import com.evosim.core.Tag;
 import com.evosim.core.Trait;
 import com.evosim.core.TraitInstance;
 
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -68,7 +70,10 @@ public final class EvoTest {
 
     public static void main(String[] args) {
         // 리포트에 한글/이모지(✅❌)가 있으므로 로케일과 무관하게 UTF-8로 출력.
-        System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
+        // System.out 을 감싸면 안 된다 — 그 안쪽 스트림이 ASCII 면 한글이 '?' 로 뭉개진 뒤에야
+        // 바깥 UTF-8 인코더를 만나, 실패 사유를 읽을 수 없게 된다. 파일 디스크립터에 직접 붙인다.
+        System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true,
+                StandardCharsets.UTF_8));
 
         String cmd = args.length > 0 ? args[0].toLowerCase() : "all";
 
@@ -464,26 +469,48 @@ public final class EvoTest {
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.HERBALIST))),
                 "무등급 능력 = Ⅲ 취급(1.3)");
 
-        // 2c) 정원 배율 M(g) = 1 + 3.3×(g/5)³ — 성중립(성별 무관), 무능력 1.0. 1.6→3.3(A안
-        //     후속): 평민 적자를 유지한 채(Ⅰ 1.013→1.026, 사실상 무영향) 엘리트만 착공 자금
-        //     30에 닿게 한다(M(5) 2.6→4.3). 자급선 2.40 기준 g4부터 흑자 — "엘리트만 전진".
+        // 2c) 정원 배율 M(g) = 1 + 3.3×(g/5)³ — 식은 그대로고 <b>g 에 닿는 조건만</b> 바뀌었다.
+        //     관리 등급이 max 에서 합산(raw/3)으로 바뀌어, 능력 Ⅴ 하나로는 g1(1.026)까지만
+        //     간다. 종전에는 Ⅴ 하나로 g5(4.30)에 닿아 "엘리트와 평민이 같은 정원"이었다.
         boolean mg = close(Multipliers.gardenAbility(one(Sex.MALE)), 1.0)
+                // 능력 Ⅴ 하나 = raw 5 → g1. 개편의 핵심 — 단독은 그렇고 그렇다.
                 && close(Multipliers.gardenAbility(
-                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 4.3)
-                && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 4))), 2.68960)
-                && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.DEXTEROUS, 3))), 1.71280)
-                && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.COOK, 2))), 1.21120)
-                && close(Multipliers.gardenAbility(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 1))), 1.02640)
+                        one(Sex.FEMALE, TraitInstance.graded(Trait.HERBALIST, 5))), 1.02640)
+                // 능력 Ⅴ 둘 = raw 10 → g3. 모이기 시작하면 오른다(성중립 — 성별 무관).
+                && close(Multipliers.gardenAbility(one(Sex.MALE,
+                        TraitInstance.graded(Trait.HERBALIST, 5),
+                        TraitInstance.graded(Trait.GATHERER, 5))), 1.71280)
+                && close(Multipliers.gardenAbility(one(Sex.FEMALE,
+                        TraitInstance.graded(Trait.HERBALIST, 5),
+                        TraitInstance.graded(Trait.GATHERER, 5))), 1.71280)
+                // raw 6 이상이라야 명석이 경영에 붙는다 — Ⅴ 둘 + 명석Ⅴ = raw 13 → g4.
+                && close(Multipliers.gardenAbility(one(Sex.MALE,
+                        TraitInstance.graded(Trait.HERBALIST, 5),
+                        TraitInstance.graded(Trait.GATHERER, 5),
+                        TraitInstance.graded(Trait.BRIGHT, 5))), 2.68960)
                 // 관리 4종 외 능력(도축Ⅴ)은 정원에 무효 — 사냥 특화가 정원을 끌지 않게
                 && close(Multipliers.gardenAbility(
                         one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))), 1.0);
         report.add("multiplier/정원등급", mg,
-                "M(g)=1+3.3(g/5)³ · Ⅴ4.3 Ⅳ2.690 Ⅲ1.713 Ⅱ1.211 Ⅰ1.026 · 성중립 · 도축 무효",
+                "M(g)=1+3.3(g/5)³ · 능력Ⅴ하나 g1(1.026) · 둘 g3(1.713) · +명석Ⅴ g4(2.690) · 도축 무효",
                 mg ? "정상" : "어긋남");
+
+        // 2d) 유능함이 Ⅴ 상한을 푼다 — 눈썰미Ⅴ 단독 1.50, 유능함Ⅴ 가 붙으면 실효 Ⅶ 로 읽혀
+        //     계수가 0.50→0.70 이 된다(1 + 0.70 + 0.15 = 1.85). 그 등급이 반경·깜냥 게이트의 열쇠.
+        Individual lone = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5));
+        Individual pair = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5),
+                TraitInstance.graded(Trait.COMPETENT, 5));
+        boolean lift = Multipliers.effectiveAbilityGrade(lone, Trait.HERBALIST) == 5
+                && Multipliers.effectiveAbilityGrade(pair, Trait.HERBALIST) == 7
+                && Multipliers.effectiveAbilityGrade(pair, Trait.COMPETENT) == 5 // 자기 자신은 안 민다
+                && !Multipliers.hasSuperGrade(lone) && Multipliers.hasSuperGrade(pair)
+                && close(Multipliers.gather(lone), 1.50)
+                && close(Multipliers.gather(pair), 1.85)
+                && close(Multipliers.forageRange(lone), 1.0)
+                && close(Multipliers.forageRange(pair), 1.25); // 실효 Ⅵ+ → 표적 선별
+        report.add("multiplier/상한해제", lift,
+                "유능함Ⅴ가 눈썰미Ⅴ를 실효Ⅶ로 — 계수 0.50→0.70 · 반경 게이트 개방 · 자기 자신 제외",
+                lift ? "정상" : "어긋남");
 
         // 3) 사냥: 도축업자Ⅴ(+0.5) + 육식Ⅴ(+0.2) = 1.7 / 그 개체 채집 = 육식Ⅴ(-0.3) = 0.7
         Individual h = one(Sex.MALE,
@@ -560,54 +587,172 @@ public final class EvoTest {
         report.add("multiplier/매력포괄", charm3 == 3,
                 "능력선호 → 개념군 특성 개수마다 +1 (채집·사냥·명석 = 3)", charm3 + "점");
 
-        // 9) 성장 가속 패키지 — 명석 증폭기·채집꾼 0.4·시너지 콤보·인지거리·행동 쿨다운
+        // 9) 성장 가속 패키지 — 명석 증폭기(등급화)·채집꾼 0.3·시너지 콤보·인지거리·행동 쿨다운
         checkNum(report, "multiplier/명석증폭", 1.725,
-                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT),
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.BRIGHT, 5),
                         TraitInstance.graded(Trait.HERBALIST, 5))),
-                "명석×약초Ⅴ = 1.0 + 1.25×0.5 + 0.1");
-        checkNum(report, "multiplier/멍청감폭", 1.3,
-                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.DULL),
+                "명석Ⅴ×눈썰미Ⅴ = 1.0 + 1.25×0.5 + 0.1 = 1.725");
+        checkNum(report, "multiplier/멍청감폭", 1.275,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.DULL, 5),
                         TraitInstance.graded(Trait.HERBALIST, 5))),
-                "멍청×약초Ⅴ = 1.0 + 0.8×0.5 − 0.1");
-        checkNum(report, "multiplier/채집꾼상향", 1.4,
+                "멍청Ⅴ×눈썰미Ⅴ = 1.0 + 0.75×0.5 − 0.1");
+        checkNum(report, "multiplier/채집꾼하향", 1.3,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5))),
-                "채집꾼Ⅴ 0.3→0.4 = 1.4");
-        checkNum(report, "multiplier/숙련채집조", 1.7,
+                "채집꾼Ⅴ 0.4→0.3 = 1.3");
+        checkNum(report, "multiplier/숙련채집조", 1.6,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.GATHERER, 5),
                         TraitInstance.graded(Trait.DEXTEROUS, 5))),
-                "채집꾼Ⅴ+손재주Ⅴ+콤보 = 1.0+0.4+0.2+0.1");
+                "채집꾼Ⅴ+손재주Ⅴ+콤보 = 1.0+0.3+0.2+0.1");
         checkNum(report, "multiplier/수확가공콤보", 1.3,
                 Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.GATHERER),
                         TraitInstance.of(Trait.COOK))),
                 "채집꾼×요리사 저장 = 1.0+0.2+0.1");
+        // 관리 등급 — max 에서 합산으로. 종전에는 눈썰미Ⅳ+명석 · 눈썰미Ⅴ+명석 · 능력Ⅴ둘+명석+깜냥이
+        // 전부 g5 로 같았다(상한에서 버려짐). 이제 모일수록 오르고, 능력 0이면 여전히 정확히 0이다.
         boolean brainMg = Multipliers.manageAbilityGrade(one(Sex.MALE,
-                        TraitInstance.of(Trait.BRIGHT), TraitInstance.graded(Trait.HERBALIST, 4))) == 5
+                        TraitInstance.graded(Trait.HERBALIST, 5))) == 1   // raw 5 → g1
                 && Multipliers.manageAbilityGrade(one(Sex.MALE,
-                        TraitInstance.of(Trait.BRIGHT), TraitInstance.graded(Trait.HERBALIST, 5))) == 5
-                && Multipliers.manageAbilityGrade(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))) == 0;
+                        TraitInstance.graded(Trait.HERBALIST, 5),
+                        TraitInstance.graded(Trait.GATHERER, 5))) == 3    // raw 10 → g3
+                && Multipliers.manageAbilityGrade(one(Sex.MALE,
+                        TraitInstance.graded(Trait.HERBALIST, 5),
+                        TraitInstance.graded(Trait.GATHERER, 5),
+                        TraitInstance.graded(Trait.BRIGHT, 5))) == 4      // +명석 raw 13 → g4
+                && Multipliers.manageAbilityGrade(one(Sex.MALE,
+                        TraitInstance.graded(Trait.BRIGHT, 5))) == 0      // 능력 0 → 정확히 0
+                && Multipliers.manageAbilityGrade(one(Sex.MALE,
+                        TraitInstance.graded(Trait.BRIGHT, 5),
+                        TraitInstance.of(Trait.KEEN_EYE))) == 0;          // 깜냥도 능력 없으면 0
         report.add("multiplier/명석경영", brainMg,
-                "명석 = 관리 실효 +1등급(상한 Ⅴ·능력 0이면 무효)", brainMg ? "정상" : "어긋남");
-        boolean brainRange = close(Multipliers.huntRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.0)
-                && close(Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.BRIGHT))), 1.25)
-                && close(Multipliers.forageRange(one(Sex.MALE, TraitInstance.of(Trait.DULL))), 0.85);
+                "관리등급 = 합산(raw/3) · Ⅴ하나 g1 · 둘 g3 · +명석Ⅴ g4 · 능력 0이면 명석·깜냥 무효",
+                brainMg ? "정상" : "어긋남");
+        boolean brainRange = close(Multipliers.huntRange(
+                        one(Sex.MALE, TraitInstance.graded(Trait.BRIGHT, 5))), 1.0)
+                && close(Multipliers.forageRange(
+                        one(Sex.MALE, TraitInstance.graded(Trait.BRIGHT, 5))), 1.25)
+                && close(Multipliers.forageRange(
+                        one(Sex.MALE, TraitInstance.graded(Trait.BRIGHT, 3))), 1.15)
+                && close(Multipliers.forageRange(
+                        one(Sex.MALE, TraitInstance.graded(Trait.DULL, 5))), 0.85);
         report.add("multiplier/명석인지", brainRange,
-                "명석 인지 식물 한정 ×1.25(동물 제외 — 사냥 잠식 방지)·멍청 ×0.85", brainRange ? "정상" : "어긋남");
+                "명석 인지 식물 한정 +0.05/등급(Ⅴ ×1.25 · Ⅲ ×1.15)·멍청Ⅴ ×0.85 · 동물 제외",
+                brainRange ? "정상" : "어긋남");
         boolean quick = close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.NIMBLE, 5))), 0.8)
                 && close(Physique.actionCooldown(one(Sex.MALE, TraitInstance.graded(Trait.SLUGGISH, 5))), 1.2)
                 && close(Physique.actionCooldown(one(Sex.MALE)), 1.0);
         report.add("multiplier/재빠름행동", quick,
                 "재빠름 쿨다운 −4%/등급(Ⅴ ×0.8)·굼뜸 +4%/등급", quick ? "정상" : "어긋남");
-        checkNum(report, "multiplier/야망몰입", 1.65,
+        checkNum(report, "multiplier/야망몰입", 1.80,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS),
                         TraitInstance.graded(Trait.HERBALIST, 5))),
-                "야망×약초Ⅴ = 1.0+0.5+0.15 (무능력 야망은 무효)");
+                "야망×눈썰미Ⅴ = 1.0+0.5+0.30 (실효 Ⅴ+ 면 몰입 두 배)");
+        checkNum(report, "multiplier/야망중급", 1.45,
+                Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS),
+                        TraitInstance.graded(Trait.HERBALIST, 3))),
+                "야망×눈썰미Ⅲ = 1.0+0.3+0.15 (Ⅴ 미만은 종전대로)");
         checkNum(report, "multiplier/야망단독무효", 1.0,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS))),
                 "야망 단독 = 채집 보너스 없음");
-        checkNum(report, "multiplier/콤보만액", 1.875,
+        checkNum(report, "multiplier/콤보만액", 2.025,
                 Multipliers.gather(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS),
-                        TraitInstance.of(Trait.BRIGHT), TraitInstance.graded(Trait.HERBALIST, 5))),
-                "야망+명석+약초Ⅴ = 1.0 + 1.25×0.5 + 0.1 + 0.15 (4종 콤보 채집축)");
+                        TraitInstance.graded(Trait.BRIGHT, 5),
+                        TraitInstance.graded(Trait.HERBALIST, 5))),
+                "야망+명석Ⅴ+눈썰미Ⅴ = 1.0 + 1.25×0.5 + 0.1 + 0.30 = 2.025");
+
+        // 10) 사슬 — 7종이 다 모여야 터진다. 하나만 빼도 어느 채널이 죽는지 함께 못박는다.
+        chain(report);
+    }
+
+    /** 특성 사슬 — 조합이 갖춰질 때만 열리는 게이트들이 설계대로 물리는가. */
+    private static void chain(Report report) {
+        Individual elite = one(Sex.MALE,
+                TraitInstance.graded(Trait.HERBALIST, 5), TraitInstance.graded(Trait.COMPETENT, 5),
+                TraitInstance.of(Trait.AMBITIOUS),
+                TraitInstance.graded(Trait.BRIGHT, 5), TraitInstance.graded(Trait.VIGOROUS, 5),
+                TraitInstance.graded(Trait.NIMBLE, 5), TraitInstance.of(Trait.KEEN_EYE));
+
+        // 채집 = 1 + 1.60×(0.70 + 0.15) + 0.10 + 0.30 = 2.76   (amp 1.25+0.15+0.20)
+        boolean g = close(Multipliers.gather(elite), 2.76);
+        // 관리 raw = 10 + 3(명석) + 4(깜냥) + 3(활력×상한너머) = 20 → g6(상한)
+        boolean m = Multipliers.manageAbilityGrade(elite) == 6
+                && close(Multipliers.gardenAbility(elite), 6.7024)
+                && FarmEconomy.manageCapacity(elite) == 224;
+        // 쿨 = 0.80(재빠름Ⅴ) × 0.85(활력Ⅴ) × 0.85(활력게이트) × 0.85(상한너머게이트)
+        boolean c = close(Physique.actionCooldown(elite), 0.491300)
+                && Physique.vitalityGateOpen(elite);
+        // 노동창 = 기상 250 ~ 배회끝 12000 = 11750 (명석Ⅴ라 배회에도 노동)
+        boolean w = Multipliers.brightDriven(elite)
+                && TraitAudit.measure(elite).workTicks() == 11750;
+        report.add("chain/엘리트", g && m && c && w,
+                "7종 사슬 = 채집 2.76 · 관리 g6(정원 6.7024 · 용량 224) · 쿨 0.4913 · 노동 11750틱",
+                g && m && c && w ? "정상" : String.format(
+                        "채집 %.4f · g %d · 정원 %.4f · 용량 %d · 쿨 %.6f · 노동 %d",
+                        Multipliers.gather(elite), Multipliers.manageAbilityGrade(elite),
+                        Multipliers.gardenAbility(elite), FarmEconomy.manageCapacity(elite),
+                        Physique.actionCooldown(elite), TraitAudit.measure(elite).workTicks()));
+
+        // 한 장씩 빼면 사슬이 끊긴다 — "다 모여야 사기"의 반대 증명.
+        Individual noComp = one(Sex.MALE, // 유능함 제외 → 상한 못 넘어 깜냥·반경·회전 게이트가 닫힌다
+                TraitInstance.graded(Trait.HERBALIST, 5), TraitInstance.of(Trait.AMBITIOUS),
+                TraitInstance.graded(Trait.BRIGHT, 5), TraitInstance.graded(Trait.VIGOROUS, 5),
+                TraitInstance.graded(Trait.NIMBLE, 5), TraitInstance.of(Trait.KEEN_EYE));
+        Individual noNimble = one(Sex.MALE, // 재빠름 제외 → 이동 1.075 < 1.10 이라 활력이 죽는다
+                TraitInstance.graded(Trait.HERBALIST, 5), TraitInstance.graded(Trait.COMPETENT, 5),
+                TraitInstance.of(Trait.AMBITIOUS),
+                TraitInstance.graded(Trait.BRIGHT, 5), TraitInstance.graded(Trait.VIGOROUS, 5),
+                TraitInstance.of(Trait.KEEN_EYE));
+        boolean broken = !Multipliers.hasSuperGrade(noComp)
+                && Multipliers.manageAbilityGrade(noComp) < 6
+                && close(Multipliers.forageRange(noComp), 1.25)      // 눈썰미 게이트 닫힘
+                && !Physique.vitalityGateOpen(noNimble)
+                && close(Physique.actionCooldown(noNimble), 0.85);   // 활력 기본만 남는다
+        report.add("chain/결손", broken,
+                "유능함 빠짐 → 상한·깜냥·반경 게이트 동시 폐쇄 · 재빠름 빠짐 → 활력 게이트 폐쇄",
+                broken ? "정상" : String.format("noComp super %s g %d 반경 %.3f · noNimble 게이트 %s 쿨 %.4f",
+                        Multipliers.hasSuperGrade(noComp), Multipliers.manageAbilityGrade(noComp),
+                        Multipliers.forageRange(noComp), Physique.vitalityGateOpen(noNimble),
+                        Physique.actionCooldown(noNimble)));
+
+        // 활력 단독은 적자다 — 노동창 +10.7% 를 얻고 소모 +15% 를 낸다.
+        Individual vig = one(Sex.MALE, TraitInstance.graded(Trait.VIGOROUS, 5));
+        boolean solo = !Physique.vitalityGateOpen(vig)
+                && close(Physique.appetite(vig), 1.15)
+                && close(Physique.actionCooldown(vig), 0.85)
+                && TraitAudit.measure(vig).workTicks() == 7750;
+        // 게이트 문턱 — 재빠름Ⅳ+활력Ⅰ 같은 흔한 조합으로는 안 열려야 한다(인구 누수 차단).
+        Individual leak = one(Sex.MALE, TraitInstance.graded(Trait.NIMBLE, 4),
+                TraitInstance.graded(Trait.VIGOROUS, 1));
+        Individual open = one(Sex.MALE, TraitInstance.graded(Trait.NIMBLE, 5),
+                TraitInstance.graded(Trait.VIGOROUS, 4));
+        Individual slow = one(Sex.MALE, TraitInstance.graded(Trait.SLUGGISH, 5),
+                TraitInstance.graded(Trait.LISTLESS, 5));
+        boolean gateOk = !Physique.vitalityGateOpen(leak)      // 1.12×1.015 = 1.137 < 1.20
+                && Physique.vitalityGateOpen(open)             // 1.15×1.06 = 1.219 ≥ 1.20
+                && Physique.lethargyGateOpen(slow)             // 대칭 — 굼뜸Ⅴ×무기력Ⅴ
+                && close(Physique.actionCooldown(slow), 1.2 * 1.15 / 0.85);
+        report.add("chain/게이트문턱", gateOk,
+                "활력 게이트 1.20 — 재빠름Ⅳ+활력Ⅰ 차단 · 재빠름Ⅴ+활력Ⅳ 개방 · 무기력 대칭 벌칙",
+                gateOk ? "정상" : String.format("leak %s · open %s · slow %s 쿨 %.4f",
+                        Physique.vitalityGateOpen(leak), Physique.vitalityGateOpen(open),
+                        Physique.lethargyGateOpen(slow), Physique.actionCooldown(slow)));
+
+        report.add("chain/활력단독", solo,
+                "활력Ⅴ 단독 = 게이트 닫힘 · 소모 ×1.15 · 노동 7750틱(+10.7%) → 순적자",
+                solo ? "정상" : String.format("게이트 %s · 소모 %.3f · 쿨 %.3f · 노동 %d",
+                        Physique.vitalityGateOpen(vig), Physique.appetite(vig),
+                        Physique.actionCooldown(vig), TraitAudit.measure(vig).workTicks()));
+
+        // 부지런 + 활력Ⅴ 중첩에서 기상이 음수로 내려가지 않는가(취침 구간 소실 방지).
+        Individual dil = one(Sex.MALE, TraitInstance.of(Trait.DILIGENT),
+                TraitInstance.graded(Trait.VIGOROUS, 5));
+        boolean floor = Schedule.phaseAt(dil, 0) == Schedule.Phase.WORK
+                && Schedule.phaseAt(dil, 15100) == Schedule.Phase.SLEEP
+                && TraitAudit.measure(dil).workTicks() == 10000;
+        report.add("chain/기상바닥", floor,
+                "부지런(−1000)+활력Ⅴ(−750) → 기상 0 에서 멈춤 · 노동 10000틱 · 취침 구간 유지",
+                floor ? "정상" : String.format("t0 %s · t15100 %s · 노동 %d",
+                        Schedule.phaseAt(dil, 0), Schedule.phaseAt(dil, 15100),
+                        TraitAudit.measure(dil).workTicks()));
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -647,6 +792,37 @@ public final class EvoTest {
                 && Schedule.phaseAt(n, 20000) == Schedule.Phase.SLEEP;
         report.add("simulate/시간대", sched,
                 "기상→일→배회→밤→취침 경계", sched ? "정상" : "경계 어긋남");
+
+        // 4-a2) 노동틱 해석식 == phaseAt 전수 스캔. 계측(TraitAudit)이 하루를 훑는 대신 경계에서
+        //       바로 내므로, 두 값이 어긋나면 "노동 시간이 늘었다/줄었다"는 보고가 통째로 거짓이
+        //       된다. 극단 조합(부지런+활력Ⅴ · 게으름+무기력Ⅴ)까지 대조한다.
+        String tickMismatch = null;
+        for (Individual sub : java.util.List.of(
+                one(Sex.MALE),
+                one(Sex.MALE, TraitInstance.graded(Trait.VIGOROUS, 5)),
+                one(Sex.MALE, TraitInstance.graded(Trait.LISTLESS, 5)),
+                one(Sex.MALE, TraitInstance.of(Trait.DILIGENT), TraitInstance.graded(Trait.VIGOROUS, 5)),
+                one(Sex.MALE, TraitInstance.of(Trait.LAZY), TraitInstance.graded(Trait.LISTLESS, 5)),
+                one(Sex.MALE, TraitInstance.of(Trait.LAZY), TraitInstance.graded(Trait.VIGOROUS, 5)))) {
+            int w = 0;
+            int d = 0;
+            for (int t = 0; t < Schedule.DAY; t++) {
+                Schedule.Phase ph = Schedule.phaseAt(sub, t);
+                if (ph == Schedule.Phase.WORK) {
+                    w++;
+                } else if (ph == Schedule.Phase.WANDER) {
+                    d++;
+                }
+            }
+            if (w != Schedule.workTicks(sub) || d != Schedule.wanderTicks(sub)) {
+                tickMismatch = String.format("스캔 %d/%d vs 식 %d/%d",
+                        w, d, Schedule.workTicks(sub), Schedule.wanderTicks(sub));
+                break;
+            }
+        }
+        report.add("simulate/노동틱식", tickMismatch == null,
+                "workTicks·wanderTicks 해석식 = phaseAt 전수 스캔(활력·부지런·게으름 중첩 포함)",
+                tickMismatch == null ? "정상" : tickMismatch);
 
         // 4-b) 전역 하루 구간 (시계·로그 표시용, 오프셋 없음) — 경계 + 음수/큰 틱 정규화
         boolean global = Schedule.globalPhase(500) == Schedule.Phase.SLEEP
@@ -2447,35 +2623,40 @@ public final class EvoTest {
         // 4) 관리 효율(총량 기준 — 수치 유도): 용량 8+g³(무능력 8·Ⅱ16·Ⅲ35·Ⅳ72·Ⅴ133),
         //    E=min(1,C/총소유타일)² — 준엘리트는 다밭 가능하되 총량 묶임(소지주 35), 엘리트만
         //    총 133(다밭 대지주·100명 의존권). 미러 순서 = 공간 적응(막힌 칸 방향 전환).
-        boolean gate = FarmEconomy.manageCapacity(man) == 8
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 2))) == 16
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3))) == 35
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 4))) == 72
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.COOK, 5))) == 133
+        // 용량 식 8+g³ 은 그대로고, g 에 닿는 조건이 합산으로 바뀌었다 — 능력을 <b>몇 개</b>
+        // 모았느냐로 용량이 갈린다(Ⅴ 하나 9 · 둘 35 · 둘+명석Ⅴ 72).
+        Individual capOne = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5));
+        Individual capTwo = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5),
+                TraitInstance.graded(Trait.GATHERER, 5));
+        Individual capThree = one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5),
+                TraitInstance.graded(Trait.GATHERER, 5), TraitInstance.graded(Trait.BRIGHT, 5));
+        boolean capOk = FarmEconomy.manageCapacity(man) == 8
+                && FarmEconomy.manageCapacity(capOne) == 9        // g1
+                && FarmEconomy.manageCapacity(capTwo) == 35       // g3
+                && FarmEconomy.manageCapacity(capThree) == 72     // g4
                 // 사냥 계열(도축Ⅴ)은 관리 능력이 아님 — 용량 기본치
-                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))) == 8
-                && close(FarmEconomy.manageEfficiency(man, 14), 64.0 / 196.0)          // 0.327
+                && FarmEconomy.manageCapacity(one(Sex.MALE, TraitInstance.graded(Trait.BUTCHER, 5))) == 8;
+        boolean effOk = close(FarmEconomy.manageEfficiency(man, 14), 64.0 / 196.0)   // 0.327
                 && close(FarmEconomy.manageEfficiency(man, 8), 1.0)
-                && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)), 24), 1.0)
-                && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 3)), 50), 0.49)   // (35/50)²
-                && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 133), 1.0)
-                && close(FarmEconomy.manageEfficiency(
-                        one(Sex.MALE, TraitInstance.graded(Trait.HERBALIST, 5)), 266), 0.25)
-                // 덩어리 도면: 다음 수가 덩어리↔줄로 번갈아 가는가(1→2 덩어리, 2→3 줄).
-                && FarmLayout.nextAddsBed(1) && !FarmLayout.nextAddsBed(2)
-                && FarmLayout.growthOf(1) == 6 && FarmLayout.growthOf(2) == 12
-                && FarmEconomy.EXPAND_PER_DAY == 12 // 6→12(2배속 정합 — 설계율 6×2, 자금 병목 불변)
-                // 소작 비례 확장 6×(1+상시소작)의 구획 캡 30→60(2배속 비례 유지)
+                && close(FarmEconomy.manageEfficiency(capTwo, 24), 1.0)
+                && close(FarmEconomy.manageEfficiency(capTwo, 50), 0.49)             // (35/50)²
+                && close(FarmEconomy.manageEfficiency(capThree, 72), 1.0)
+                && close(FarmEconomy.manageEfficiency(capThree, 144), 0.25);
+        // 덩어리 도면: 다음 수가 덩어리↔줄로 번갈아 가는가(1→2 덩어리, 2→3 줄).
+        boolean layoutOk = FarmLayout.nextAddsBed(1) && !FarmLayout.nextAddsBed(2)
+                && FarmLayout.growthOf(1) == 6 && FarmLayout.growthOf(2) == 12;
+        boolean constOk = FarmEconomy.EXPAND_PER_DAY == 12
                 && FarmEconomy.EXPAND_DAY_MAX == 60
                 && FarmEconomy.MIN_JOB == 2
-                && FarmEconomy.PROMOTE_DAYS == 2 // 3→2(2배속 — 1.5의 올림)
+                && FarmEconomy.PROMOTE_DAYS == 2
                 && close(FarmEconomy.INVEST_RESERVE, 12.0);
+        boolean gate = capOk && effOk && layoutOk && constOk;
         report.add("farm/관리효율", gate,
-                "용량 8+g³(8/16/35/72/133·도축 제외) · E: 무능력14→0.33·Ⅲ50→0.49·Ⅴ266→0.25 · 미러4방 · 확장6(캡60)·승격2일·예비12",
-                gate ? "정상" : "어긋남");
+                "용량 8+g³ · 합산등급(Ⅴ하나 9 · 둘 35 · 둘+명석Ⅴ 72 · 도축 제외) · E=min(1,C/타일)²"
+                        + " · 미러4방 · 확장·승격·예비 상수",
+                gate ? "정상" : "깨진 항: " + (capOk ? "" : "용량 ") + (effOk ? "" : "효율 ")
+                        + (layoutOk ? "" : "도면 ")
+                        + (constOk ? "" : "상수(EXPAND_PER_DAY=" + FarmEconomy.EXPAND_PER_DAY + ") "));
 
         report.add("farm/지대비용", acct, "FEE 0.45: 0.75→0.4125/0.3375(합=원액) · 신규 18/40.5 · 확장(2.0)≤신규 타일당(2.0)",
                 acct ? "정상" : "어긋남");

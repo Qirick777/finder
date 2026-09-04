@@ -87,7 +87,9 @@ tasks.register('evotest', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.evosim.test.EvoTest'
     args 'all'   // 기본값. CLI 의 --args="genetics" 가 이를 덮어씀.
-    // stdout 인코딩은 EvoTest 내부에서 UTF-8 로 강제.
+    // stdout 인코딩 — EvoTest 가 System.out 을 UTF-8 로 감싸도, 그 아래 스트림이 ASCII 면
+    // 한글이 '?' 로 뭉개져 실패 사유를 읽을 수 없다. JVM 기본 인코딩부터 UTF-8 로 박는다.
+    jvmArgs '-Dfile.encoding=UTF-8', '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8'
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
@@ -123,5 +125,14 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
         ])
+    }
+}
+
+// evotest 의 런타임 클래스패스를 파일로 뽑는다 — CLI 에서 java 를 직접 띄워야
+// Gradle 로거의 재인코딩(한글 '?' 뭉갬)을 건너뛸 수 있다.
+tasks.register('evotestCp') {
+    dependsOn tasks.named('classes')
+    doLast {
+        file("$buildDir/evotest.cp").text = sourceSets.main.runtimeClasspath.asPath
     }
 }

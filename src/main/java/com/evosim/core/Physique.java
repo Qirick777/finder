@@ -41,11 +41,22 @@ public final class Physique {
      *  Ⅴ 에서 소모 +15% 인데 노동창 확대는 +10.7% 라, 재빠름이 붙어 쿨다운 게이트가 열리기
      *  전까지는 손해다. 튼튼함처럼 대가 없는 순이득이면 신체 3칸의 지배적 선택이 된다. */
     private static final double VITALITY_APPETITE_PER = 0.03;
-    /** 활력의 쿨다운 게이트 — 이동 배율이 이 값을 넘어야 손놀림이 열린다. 활력Ⅴ 단독은
-     *  1.075 라 못 넘고, 재빠름(Ⅳ 1.12 · Ⅴ 1.15)이 있어야 넘는다. */
-    public static final double VITALITY_GATE = 1.10;
+    /**
+     * 활력의 쿨다운 게이트 — 이동 배율이 이 값을 넘어야 손놀림이 열린다.
+     *
+     * <p>1.10 → <b>1.20</b>. 1.10 이면 재빠름Ⅳ + 활력Ⅰ(1.12 × 1.015 = 1.137)만으로 열려,
+     * 야생 인구의 1~2%가 쿨다운 ×0.85 를 공짜로 얻었다 — 인구 계측에서 종합 상위 5%가
+     * 기준선보다 2.0% 올라간 것이 이 누수였다. 1.20 이면 <b>양쪽 다 높은 등급</b>이라야 한다:
+     * Ⅴ×Ⅴ 1.236 통과 · Ⅴ×Ⅳ 1.204 통과 · Ⅳ×Ⅴ 1.219 통과 · Ⅲ×Ⅲ 1.139 차단.
+     */
+    public static final double VITALITY_GATE = 1.20;
+    /** 무기력의 대칭 게이트 — 이동이 이 아래로 떨어지면 손놀림까지 굳는다. 축 한쪽에만
+     *  게이트를 달면 인구 평균이 그쪽으로 기운다(활력만 있고 무기력에 없던 것이 그 경우다). */
+    public static final double LETHARGY_GATE = 1.0 / 1.20;
     /** 게이트가 열릴 때마다 곱해지는 쿨다운 감소(활력 게이트 · 상한 너머 능력 게이트). */
     private static final double GATE_COOL = 0.85;
+    /** 무기력 게이트의 벌칙 — {@link #GATE_COOL} 의 역수(대칭). */
+    private static final double GATE_COOL_PENALTY = 1.0 / 0.85;
 
     private Physique() {
     }
@@ -70,6 +81,11 @@ public final class Physique {
      */
     public static boolean vitalityGateOpen(Individual ind) {
         return grade(ind, Trait.VIGOROUS) > 0 && agility(ind) >= VITALITY_GATE;
+    }
+
+    /** 무기력의 대칭 게이트 — 굼뜬 몸에 무기력까지 겹치면 손놀림이 한 번 더 굳는다. */
+    public static boolean lethargyGateOpen(Individual ind) {
+        return grade(ind, Trait.LISTLESS) > 0 && agility(ind) <= LETHARGY_GATE;
     }
 
     /** 감지 범위 배수 — 천리안(+)/근시안(−). */
@@ -136,6 +152,8 @@ public final class Physique {
             if (Multipliers.hasSuperGrade(ind)) {
                 m *= GATE_COOL;
             }
+        } else if (lethargyGateOpen(ind)) {
+            m *= GATE_COOL_PENALTY;
         }
         return Math.max(0.3, m);
     }

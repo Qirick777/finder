@@ -64,6 +64,38 @@ public final class Schedule {
         return Phase.NIGHT;
     }
 
+    /** 이 개체의 기상 시각(틱) — 0 아래로는 안 내려간다. */
+    public static int wakeTick(Individual ind) {
+        return Math.max(0, BASE_WAKE + wakeOffset(ind));
+    }
+
+    /** 이 개체의 노동 종료 시각(틱). */
+    public static int workEndTick(Individual ind) {
+        return BASE_WORK_END + workEndOffset(ind);
+    }
+
+    /** 이 개체의 취침 시각(틱). */
+    public static int sleepTick(Individual ind) {
+        return Math.min(DAY, BASE_SLEEP + sleepOffset(ind));
+    }
+
+    /**
+     * 하루의 WORK 구간 길이(틱) — 하루를 훑지 않고 경계에서 바로 낸다.
+     *
+     * <p>계측(TraitAudit)이 개체마다 24000틱을 돌면 인구 2만 대조에 몇 분이 걸린다. 경계를
+     * 그대로 쓰되, {@link #phaseAt} 와 어긋나면 보고가 조용히 거짓이 되므로 순수 검증이 두
+     * 값을 대조한다({@code evotest simulate} 의 일과 항).
+     */
+    public static int workTicks(Individual ind) {
+        return Math.max(0, Math.min(workEndTick(ind), sleepTick(ind)) - wakeTick(ind));
+    }
+
+    /** 하루의 WANDER 구간 길이(틱) — 명석 실효Ⅴ 는 이 시간에도 노동한다. */
+    public static int wanderTicks(Individual ind) {
+        return Math.max(0, Math.min(DUSK, sleepTick(ind))
+                - Math.max(wakeTick(ind), workEndTick(ind)));
+    }
+
     /** 활력/무기력 등급당 기상 ∓ — Ⅴ 에서 750틱 일찍 깬다(노동창 +10.7%). */
     private static final int VITALITY_WAKE_PER = 150;
     /** 활력/무기력 등급당 취침 ± — Ⅴ 에서 1000틱 늦게 잔다.

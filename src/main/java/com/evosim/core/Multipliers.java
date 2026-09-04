@@ -330,9 +330,15 @@ public final class Multipliers {
         return false;
     }
 
-    /** 보유한 양(+) 능력 특성의 수 — 명석이 "굴릴 재료"가 얼마나 되는지. */
+    /**
+     * 보유한 양(+) 능력 특성의 수 — 명석이 "굴릴 재료"가 얼마나 되는지.
+     *
+     * <p>유능함도 <b>센다</b>. {@link #ABILITY_UP} 은 "유능함이 밀어 올릴 대상" 목록이라 자기
+     * 자신이 빠져 있는데, 그것을 그대로 세면 눈썰미Ⅴ+유능함Ⅴ 를 능력 1종으로 읽어 명석
+     * 게이트가 안 열린다(엘리트 채집이 2.76 대신 2.63 으로 나왔다).
+     */
     private static int abilityCount(Individual ind) {
-        int n = 0;
+        int n = abilityGrade(ind, Trait.COMPETENT) > 0 ? 1 : 0;
         for (Trait t : ABILITY_UP) {
             if (abilityGrade(ind, t) > 0) {
                 n++;

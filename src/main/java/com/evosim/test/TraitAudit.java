@@ -53,16 +53,31 @@ public final class TraitAudit {
         double garden = Multipliers.gardenAbility(ind);
         int cap = FarmEconomy.manageCapacity(ind);
         double cd = Physique.actionCooldown(ind);
-        boolean wander = Multipliers.brightDriven(ind);
-        int work = 0;
-        for (int t = 0; t < Schedule.DAY; t++) {
-            Schedule.Phase p = Schedule.phaseAt(ind, t);
-            if (p == Schedule.Phase.WORK || (wander && p == Schedule.Phase.WANDER)) {
-                work++;
-            }
-        }
+        int work = Schedule.workTicks(ind)
+                + (Multipliers.brightDriven(ind) ? Schedule.wanderTicks(ind) : 0);
         double total = g * (1.0 / cd) * ((double) work / BASE_WORK_TICKS);
         return new Row(g, garden, cap, cd, work, total);
+    }
+
+
+    /** 기준 개체 한 명의 값을 한 줄로 — 엘리트 시드가 실제로 세졌는지 대조용. */
+    public static String line(String name, Individual ind) {
+        Row r = measure(ind);
+        return String.format("%-8s 채집 %6.3f · 정원 %6.3f · 용량 %3d · 쿨 %6.4f · 노동 %5d · 종합 %6.3f",
+                name, r.gather(), r.garden(), r.capacity(), r.cooldown(), r.workTicks(), r.total());
+    }
+
+    /** 이번 개편의 엘리트 시드(7종 사슬) — EvoSimCommand 의 소환과 같은 구성. */
+    public static Individual eliteSeed() {
+        Individual ind = new Individual(1L, Sex.MALE, 0, 0, 1);
+        ind.addTrait(com.evosim.core.TraitInstance.graded(com.evosim.core.Trait.HERBALIST, 5));
+        ind.addTrait(com.evosim.core.TraitInstance.graded(com.evosim.core.Trait.COMPETENT, 5));
+        ind.addTrait(com.evosim.core.TraitInstance.of(com.evosim.core.Trait.AMBITIOUS));
+        ind.addTrait(com.evosim.core.TraitInstance.graded(com.evosim.core.Trait.BRIGHT, 5));
+        ind.addTrait(com.evosim.core.TraitInstance.graded(com.evosim.core.Trait.VIGOROUS, 5));
+        ind.addTrait(com.evosim.core.TraitInstance.graded(com.evosim.core.Trait.NIMBLE, 5));
+        ind.addTrait(com.evosim.core.TraitInstance.of(com.evosim.core.Trait.KEEN_EYE));
+        return ind;
     }
 
     /** 한 축의 분포 요약 — 평균 · 중앙값 · 상위 5% · 최대. */
@@ -112,6 +127,7 @@ public final class TraitAudit {
         out.add(stat("쿨다운", cool).toString());
         out.add(stat("노동틱", work).toString());
         out.add(stat("종합", total).toString());
+        out.add(line("엘리트", eliteSeed()));
         return out;
     }
 }

@@ -2879,6 +2879,7 @@ public final class FarmTicker {
             int rejNotHead = 0;   // 가구 부양자가 아님
             int rejPatron = 0;    // 이 주인을 따르지 않음
             int rejFar = 0;       // 통근 한계 밖
+            int rejCare = 0;      // 육아 구속 — 출근-육아 왕복 차단
             int rejElder = 0;     // 노년 — 주둔 goal 이 받지 않는다(아래)
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
@@ -2940,6 +2941,15 @@ public final class FarmTicker {
                     rejFar++;
                     continue;
                 }
+                // <b>육아에 묶인 자는 배속하지 않는다.</b> 막사는 집에서 수십 블록이라 육아
+                // 견인(우선순위 1 · 반경 ≈8.8블록)이 주둔을 반드시 선점하고, 끌려와 해제되면
+                // 다시 출근한다 — 육안 관측된 "군인이 출근-육아를 반복"의 정체다. goal 쪽만
+                // 막으면 더 나쁘다: 자리를 차지한 채 나가지도 않으면서 봉급만 받는 병사가 된다.
+                // 아예 안 뽑고, 이미 뽑힌 자는 아래 배속 패스에서 제대시킨다.
+                if (m.careLeashed()) {
+                    rejCare++;
+                    continue;
+                }
                 pick.add(m);
             }
             // <b>적합도 순</b> — 종전에는 거리순이라 능력을 아예 안 봤다. 완력과 경계를 각각
@@ -2954,7 +2964,7 @@ public final class FarmTicker {
                     .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             plans.add(new Garrison(bk, owner, tpl.get(), cap, guarded.size(), taxIn, pick,
-                    rejLand, rejNotHead, rejPatron, rejFar, rejElder));
+                    rejLand, rejNotHead, rejPatron, rejFar, rejElder, rejCare));
         }
         seatAll(level, ledger, larders, adults, reg, plans, day);
         // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
@@ -2986,10 +2996,12 @@ public final class FarmTicker {
         int seated;
         int seatedM;
         int dispatched; // 통근 반경 밖에서 불려온 수 — 증원이 실제로 걸렸는지의 눈금
+        final int rejCare; // 육아 구속 탈락 — 출근-육아 왕복 차단이 몇 명을 걸렀는지
 
         Garrison(FacilityStore.Entry bk, MimicEntity owner, FacilityTemplate tpl, int cap,
                  int guarded, double taxIn, java.util.List<MimicEntity> pick,
-                 int rejLand, int rejNotHead, int rejPatron, int rejFar, int rejElder) {
+                 int rejLand, int rejNotHead, int rejPatron, int rejFar, int rejElder,
+                 int rejCare) {
             this.bk = bk;
             this.owner = owner;
             this.tpl = tpl;
@@ -3002,6 +3014,7 @@ public final class FarmTicker {
             this.rejPatron = rejPatron;
             this.rejFar = rejFar;
             this.rejElder = rejElder;
+            this.rejCare = rejCare;
         }
     }
 
@@ -3096,13 +3109,14 @@ public final class FarmTicker {
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
                     "막사 @%d,%d%s — 지킬가구 %d → 정원 %d(전시 %d) · 배속 %d명(남%d 여%d%s) · 세수 %.1f"
                             + " · 봉급 %.1f · 주인 저장고 %.1f | 후보 %d명 · 탈락: 유전가구 %d ·"
-                            + " 비부양자 %d · 타주인 %d · 원거리 %d · 노년 %d",
+                            + " 비부양자 %d · 타주인 %d · 원거리 %d · 노년 %d · 육아 %d",
                     g.bk.pos.getX(), g.bk.pos.getZ(), g.contested ? " §c[교전]§r" : "",
                     g.guarded, g.cap, g.contested ? g.tpl.seats().size() : g.cap,
                     g.seated, g.seatedM, g.seated - g.seatedM,
                     g.dispatched > 0 ? " · §e증원 " + g.dispatched + "명§r" : "", g.taxIn,
                     GUARD_SUM[1], larders.get(g.owner.getHomePos()),
-                    g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar, g.rejElder));
+                    g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar, g.rejElder,
+                    g.rejCare));
         }
     }
 

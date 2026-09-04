@@ -43,7 +43,7 @@ public class MimicParentingGoal extends Goal {
      * 정원 최원 그루(≈5.4블록)가 사정권 밖으로 나간다 — 정원 수확 봉쇄가 재발한다. 표적은 반경
      * 그대로 두고, 견인은 1.35× 밖에서 걸어 해제는 반경 안(1.0×)에서 푼다.
      */
-    private static final double ENGAGE_FACTOR = 1.35;
+    public static final double ENGAGE_FACTOR = 1.35;
 
     /** 해제 문턱 — 노동 반경 안으로 되돌아오면 푼다(그 자리에서 바로 다시 일할 수 있다). */
     private static final double RELEASE_FACTOR = 1.0;

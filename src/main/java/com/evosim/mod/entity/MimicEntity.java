@@ -6818,6 +6818,49 @@ public class MimicEntity extends PathfinderMob {
         this.farmHasNoWork = v;
     }
 
+    private boolean careLeashCache;
+    private long careLeashStamp = Long.MIN_VALUE;
+
+    /**
+     * 육아 구속 — <b>20틱 캐시</b>. {@link #isCaregiverBound} 는 반경 20 엔티티 스캔이라
+     * goal 마다 매 틱 부르면 마을 규모에 제곱으로 붙는다. 구속은 유아의 생사·성장으로만
+     * 바뀌므로 20틱이면 넉넉하다.
+     */
+    public boolean careLeashed() {
+        if (!(level() instanceof ServerLevel sl)) {
+            return false;
+        }
+        long stamp = com.evosim.mod.entity.SimTime.tick(sl) / 20L;
+        if (careLeashStamp != stamp) {
+            careLeashStamp = stamp;
+            careLeashCache = isCaregiverBound();
+        }
+        return careLeashCache;
+    }
+
+    /**
+     * <b>이 목적지로 나서면 육아에 끌려 돌아오는가</b> — 원거리 용무의 공통 관문.
+     *
+     * <p>육아 견인({@link MimicParentingGoal})은 우선순위 1 이라 <b>어떤 용무든</b> 선점한다.
+     * 그런데 견인 반경은 {@code max(6.5, 돌봄반경) × 1.35 ≈ 8.8블록} 뿐이라, 집에서 아홉 발만
+     * 넘어가는 목적지면 무엇이든 같은 왕복이 난다: 나감 → 선점 → 끌려옴 → 해제 → 그 goal 이
+     * 같은 목적지를 다시 잡음 → 나감. 실측된 것만 구걸·주둔(군인 출근)이고, 마실·원거리 밭일·
+     * 구애가 같은 모양이다.
+     *
+     * <p>히스테리시스({@link MimicParentingGoal#ENGAGE_FACTOR})로는 못 고친다 — 그것은
+     * <b>표적이 견인 반경 안</b>일 때 경계 진동만 막는 장치라, 목적지가 항상 바깥인 용무에는
+     * 어떤 값을 잡아도 안 듣는다. 그래서 <b>나서기 전에</b> 판정한다.
+     *
+     * <p>거리로 재므로 과잉 차단이 없다 — 가까운 밭·이웃집은 구속 중에도 그대로 간다.
+     */
+    public boolean careBlocked(BlockPos dest) {
+        if (dest == null || homePos == null || individual == null || !careLeashed()) {
+            return false;
+        }
+        double r = MimicParentingGoal.workRadius(individual) * MimicParentingGoal.ENGAGE_FACTOR;
+        return dest.distSqr(homePos) > r * r;
+    }
+
     public boolean isCaregiverBound() {
         if (getStage() != LifeStage.ADULT || homePos == null || individual == null) {
             return false;

@@ -42,6 +42,12 @@ public class MimicShareGoal extends Goal {
             return false; // 자격 문턱(이타 1.0 / 기본 1.5 / 이기 ∞ = 절대 안 나눔) 미달
         }
         needy = findNeedy();
+        // 육아 견인 밖이면 <b>나서지 않는다</b>. 배달 중 육아(우선순위 1)에 선점돼 끌려오면
+        // 이 goal 이 같은 상대를 다시 잡아 왕복만 하고 음식은 영영 안 간다 — 시도하지 않는
+        // 것이 시도하다 못 가는 것보다 낫다(그 사이 채집·정원은 돌아간다).
+        if (needy != null && mob.careBlocked(needy.blockPosition())) {
+            needy = null;
+        }
         return needy != null;
     }
 

@@ -33,6 +33,12 @@ public class MimicCourtshipGoal extends Goal {
         if (ind == null || !mob.isSingleAdult() || !courtTime(ind)) {
             return false;
         }
+        // 사별·미혼 1인 가구에 유아가 있으면 육아 구속이 걸린다. 구애는 짝을 찾아 멀리
+        // 나가는 일이라 육아(우선순위 1)에 반드시 선점돼 왕복만 한다 — 아이를 두고는 못
+        // 나선다는 뜻이기도 하다. 구속이 풀리면(유아가 자라거나 공동 돌봄자가 생기면) 다시 열린다.
+        if (mob.careLeashed()) {
+            return false;
+        }
         return mob.isSearchReady() && mob.hasCandidate();
     }
 

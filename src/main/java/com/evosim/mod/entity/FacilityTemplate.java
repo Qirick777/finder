@@ -53,7 +53,8 @@ public final class FacilityTemplate {
     public enum Group {
         SCHOOL("학교"),
         CHURCH("교회"),
-        BARRACKS("막사");
+        BARRACKS("막사"),
+        POORHOUSE("구빈원");
 
         public final String label;
 
@@ -73,7 +74,10 @@ public final class FacilityTemplate {
         SCHOOL("basic_school", "학교", Group.SCHOOL),
         CHURCH("church", "큰교회", Group.CHURCH),
         SMALL_CHURCH("small_church", "작은교회", Group.CHURCH),
-        BARRACKS("barracks", "막사", Group.BARRACKS);
+        BARRACKS("barracks", "막사", Group.BARRACKS),
+        // 구빈원 — 자리는 카펫으로 나온다(위 Group.POORHOUSE 분기 참조). 도면 실측:
+        // 13·8·10 · 실자재 375칸 → 착공비 0.045×375 = 17 · 종1 · 문2 · 카펫 20칸(2×5 둘) · 통 20.
+        POORHOUSE("poorhouse", "구빈원", Group.POORHOUSE);
 
         public final String design;
         public final String label;
@@ -353,6 +357,25 @@ public final class FacilityTemplate {
             for (List<BlockPos> comp : clumps) {
                 comp.sort(java.util.Comparator.comparingInt((BlockPos q) -> q.getX())
                         .thenComparingInt(BlockPos::getZ));
+                if (kind.group == Group.POORHOUSE) {
+                    // <b>구빈원은 카펫 두 칸이 한 사람이다.</b> 막사 규칙(덩어리당 2명)을 그대로
+                    // 쓰면 구빈원 도면(2×5 덩어리 둘, 카펫 20칸)이 <b>정원 4</b>가 된다 — 통이
+                    // 20개 놓인 건물치고 터무니없이 작고, 구제 시설이 넷만 받으면 구걸을 대신할
+                    // 수 없다.
+                    //
+                    // 막사 쪽을 함께 바꾸지 <b>않는</b> 이유: 막사는 3×3 덩어리 6개에 통도 정확히
+                    // 12개로 그려져 "덩어리 하나 = 침상 한 채, 두 명"이 도면의 뜻이다. 같은 규칙을
+                    // 2칸=1인으로 바꾸면 주둔 정원이 12 → 27 로 뛰어 군사·봉급 균형이 통째로
+                    // 어긋난다. 두 도면이 서로 다른 뜻으로 그려졌으니 읽는 규칙도 갈래로 나눈다.
+                    //
+                    // 짝수 번째 칸만 고른다 — 한 칸에 몰아 보내면 두 명이 같은 자리에서 밀치기만
+                    // 하는 것은 학교 자리 배분에서 이미 겪었다. 2×5 덩어리면 5자리가 나오고,
+                    // 서로 최소 한 칸씩 떨어진다.
+                    for (int i = 0; i < comp.size(); i += 2) {
+                        seats.add(comp.get(i).above().subtract(anchor));
+                    }
+                    continue;
+                }
                 seats.add(comp.get(0).above().subtract(anchor));
                 if (comp.size() > 1) {
                     seats.add(comp.get(comp.size() - 1).above().subtract(anchor));

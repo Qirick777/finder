@@ -2630,6 +2630,19 @@ public final class FarmTicker {
         for (int v : taken.values()) {
             POOR_SUM[4] += v;
         }
+        // <b>무장</b> — 소속자는 막대기·나무괭이·나무삽 중 하나를 들고 공격력 +2 를 얻는다.
+        // 군인이 아니라 <b>손에 잡히는 것을 든 빈민</b>이라 방어는 한 점도 안 오른다. 좀비를
+        // 막을 수는 있으되 사람과 싸워 이기는 자리는 아니다(전투 표적 규칙상 민간인은 사람과
+        // 싸우지 않는다 — 좀비만 상대한다).
+        //
+        // 군인 무장과 겹치면 군인 쪽이 이긴다: 승격한 자는 이미 철검을 들고 있고, 여기서
+        // 막대기를 쥐어 주면 배속 표시가 지워진다.
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            boolean arm = m.inPoorhouse() && !isSoldier(m);
+            m.setPauperGear(arm);
+        }
         // 하루 한 줄 — 밖에서 "구빈원이 도는가"를 수치로 볼 창구. 시설이 없으면 침묵한다.
         if (!hs.isEmpty()) {
             int cap = 0;
@@ -2670,6 +2683,12 @@ public final class FarmTicker {
             }
         }
         return best;
+    }
+
+    /** 이 구빈원의 주인 id — 없으면 0. 전투 보복이 "제 식구"를 가리는 데 쓴다. */
+    public static long poorhouseOwner(ServerLevel level, BlockPos pos) {
+        FacilityStore.Entry e = poorhouseAt(level, pos);
+        return e == null ? 0L : e.ownerId;
     }
 
     /** 이 좌표가 구빈원인가 — 맞으면 그 등기, 아니면 null. */

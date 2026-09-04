@@ -4249,6 +4249,49 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
+    /**
+     * <b>구빈원 경비 무장</b> — 막대기·나무괭이·나무삽 중 하나, 공격력 +2, 방어는 그대로.
+     *
+     * <p>군인({@link #setSoldierGear})과는 급이 다르다. 철검·사슬갑옷·방패를 받는 병사와 달리
+     * 이쪽은 <b>손에 잡히는 것을 든 빈민</b>이다. 그래서 방어는 한 점도 안 오르고 공격만 조금
+     * 는다 — 좀비를 막을 수는 있으되 사람과 싸워 이기는 자리는 아니다.
+     *
+     * <p>공격력은 <b>속성으로 우긴다</b>. 바닐라 값이 막대기 +0 · 나무괭이 +0 · 나무삽 +1.5 라
+     * 아이템에 맡기면 무엇을 쥐었느냐로 세기가 갈린다 — 무기는 보여 주는 것이고 수치는 같아야
+     * 한다(방패 방어를 속성으로 얹은 것과 같은 이유).
+     *
+     * <p>도구 선택은 개체 id 로 결정한다 — 난수를 쓰면 갱신마다 손에 든 것이 바뀐다.
+     */
+    public void setPauperGear(boolean on) {
+        net.minecraft.world.item.Item[] pool = {
+            net.minecraft.world.item.Items.STICK,
+            net.minecraft.world.item.Items.WOODEN_HOE,
+            net.minecraft.world.item.Items.WOODEN_SHOVEL,
+        };
+        long seed = individual != null ? individual.id() : getId();
+        ItemStack tool = on
+                ? new ItemStack(pool[(int) Math.floorMod(seed, pool.length)]) : ItemStack.EMPTY;
+        if (!isBuilding() && !ItemStack.matches(getItemBySlot(EquipmentSlot.MAINHAND), tool)) {
+            setItemSlot(EquipmentSlot.MAINHAND, tool);
+            setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+        }
+        var atk = getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
+        if (atk != null) {
+            atk.removeModifier(PAUPER_ATK_ID);
+            if (on) {
+                atk.addPermanentModifier(new net.minecraft.world.entity.ai.attributes
+                        .AttributeModifier(PAUPER_ATK_ID, "evosim_pauper", PAUPER_ATTACK,
+                        net.minecraft.world.entity.ai.attributes.AttributeModifier
+                                .Operation.ADDITION));
+            }
+        }
+    }
+
+    /** 구빈원 경비의 공격 가산 — 아이템이 아니라 속성으로 준다(무엇을 쥐든 같은 세기). */
+    private static final double PAUPER_ATTACK = 2.0;
+    private static final java.util.UUID PAUPER_ATK_ID =
+            java.util.UUID.fromString("2f4c6b81-59ad-4e73-8f20-c6b1d905ae42");
+
     /** 방패 몫 방어 — 사슬(7)에 더해 총 11(피해 약 44% 감소). 전원 같은 값이라 선발엔 무관. */
     private static final double SHIELD_ARMOR = 4.0;
     private static final java.util.UUID SHIELD_ARMOR_ID =

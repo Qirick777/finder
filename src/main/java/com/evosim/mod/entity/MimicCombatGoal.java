@@ -179,6 +179,10 @@ public class MimicCombatGoal extends Goal {
      * <b>무모는 안 물러나 죽는다</b>.
      */
     private LivingEntity nearestFoe(double range) {
+        LivingEntity avenge = avengeTarget(range);
+        if (avenge != null) {
+            return avenge; // 보복이 먼저 — 눈앞에서 동료가 맞고 있다
+        }
         LivingEntity best = nearestMonster(range);
         double bestDist = best == null ? Double.MAX_VALUE : mob.distanceToSqr(best);
         if (!FarmTicker.isSoldier(mob)) {
@@ -197,6 +201,50 @@ public class MimicCombatGoal extends Goal {
             }
         }
         return best;
+    }
+
+    /**
+     * <b>보복</b> — 구빈원 소속은 <b>동료와 주인</b>이 맞으면 가해자를 친다.
+     *
+     * <p>지시한 설계 그대로다: *"별도로 뭘 점령하고 말고 할 것 없이, 그냥 좀비 등의 선공몹
+     * 전투 + 나랑 추종 같은 미믹 공격당하면 가서 보복 이정도"*. 점령·순찰 같은 전략 행동을
+     * 넣지 않고 <b>반응</b>만 넣는다 — 창을 든 빈민이 하는 일은 그것뿐이다.
+     *
+     * <p>가해자가 사람이어도 친다. 민간인은 사람과 싸우지 않는다는 규칙의 <b>유일한 예외</b>가
+     * 이것이다: 먼저 때린 쪽이 있고, 맞은 쪽이 제 편일 때. 시비를 거는 것이 아니라 갚는 것이다.
+     *
+     * <p>피해자는 <b>같은 구빈원 소속</b>이거나 <b>그 구빈원의 주인</b>이다. 마을 전체를
+     * 지키는 것이 아니라 제가 얹혀사는 집을 지킨다 — 봉급을 주는 손이 곧 지킬 대상이다.
+     */
+    private LivingEntity avengeTarget(double range) {
+        if (!mob.inPoorhouse() || mob.getIndividual() == null) {
+            return null;
+        }
+        for (MimicEntity o : mob.level().getEntitiesOfClass(MimicEntity.class,
+                mob.getBoundingBox().inflate(range))) {
+            if (o == mob || !o.isAlive() || o.getIndividual() == null || !sameHouse(o)) {
+                continue;
+            }
+            LivingEntity foe = o.getLastHurtByMob();
+            if (foe == null || !foe.isAlive() || foe == mob
+                    || mob.distanceToSqr(foe) > range * range) {
+                continue;
+            }
+            return foe;
+        }
+        return null;
+    }
+
+    /** 이 개체가 내 구빈원 식구인가 — 같은 소속이거나 그 구빈원의 주인. */
+    private boolean sameHouse(MimicEntity o) {
+        if (mob.getPoorhouse() == null) {
+            return false;
+        }
+        if (mob.getPoorhouse().equals(o.getPoorhouse())) {
+            return true;
+        }
+        return mob.level() instanceof net.minecraft.server.level.ServerLevel sl
+                && FarmTicker.poorhouseOwner(sl, mob.getPoorhouse()) == o.getIndividual().id();
     }
 
     /** 교전 대상은 <b>좀비만</b>. 스켈레톤은 건드리지 않아 어그로를 끌지 않는다(설계 조정). */

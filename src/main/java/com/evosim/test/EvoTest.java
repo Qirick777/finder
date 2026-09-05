@@ -2003,24 +2003,24 @@ public final class EvoTest {
         Individual woman = one(Sex.FEMALE);
 
         // [food/소모] 단계·활동·특성·부상별 소모율
-        boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, false), 3.0)
+        boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.SLEEP, man, false), 0.0)
-                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.IDLE, man, false), 1.2)
-                && close(FoodEconomy.consumptionPerDay(LifeStage.BOY, Activity.MOVE, man, false), 1.5)
-                && close(FoodEconomy.consumptionPerDay(LifeStage.INFANT, Activity.MOVE, man, false), 0.9)
-                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, true), 3.5)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.IDLE, man, false), 1.2 * FoodEconomy.BASE_CONSUMPTION_SCALE)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.BOY, Activity.MOVE, man, false), 1.5 * FoodEconomy.BASE_CONSUMPTION_SCALE)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.INFANT, Activity.MOVE, man, false), 0.9 * FoodEconomy.BASE_CONSUMPTION_SCALE)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, true), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE + 0.5)
                 // 힘/약 소모는 등급 비례(±5%/등급): 힘센V ×1.25·III ×1.15·약함V ×0.75.
                 // 무등급 힘센(디버그 of())은 Physique 의미론대로 중립 1.0.
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 5)), false), 3.75)
+                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 5)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 1.25)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 3)), false), 3.0 * 1.15)
+                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 3)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 1.15)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.graded(Trait.WEAK, 5)), false), 2.25)
+                        one(Sex.MALE, TraitInstance.graded(Trait.WEAK, 5)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.75)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.STRONG)), false), 3.0)
+                        one(Sex.MALE, TraitInstance.of(Trait.STRONG)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.LAZY)), false), 2.7);
+                        one(Sex.MALE, TraitInstance.of(Trait.LAZY)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.9);
         report.add("food/소모", c1, "성인3.0·소년1.5·유아0.9 × 활동 × 특성(힘/약 등급 ±5%/등급) +부상0.5",
                 c1 ? "정상" : "어긋남");
 
@@ -2048,17 +2048,17 @@ public final class EvoTest {
 
         // [food/절약특성] 페널티 특성의 반대급부(소모↓): 아이불호·번식불호·빈약 ×0.95 / 병약 ×0.9 / 중첩 곱
         boolean sv = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.CHILD_AVERSE)), false), 3.0 * 0.95)
+                        one(Sex.MALE, TraitInstance.of(Trait.CHILD_AVERSE)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.95)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)), false), 3.0 * 0.95)
+                        one(Sex.MALE, TraitInstance.of(Trait.REPRODUCTION_AVERSE)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.95)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.FRAIL)), false), 3.0 * 0.95)
+                        one(Sex.MALE, TraitInstance.of(Trait.FRAIL)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.95)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.SICKLY)), false), 3.0 * 0.9)
+                        one(Sex.MALE, TraitInstance.of(Trait.SICKLY)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.9)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
                         one(Sex.MALE, TraitInstance.graded(Trait.WEAK, 5), TraitInstance.of(Trait.SICKLY),
                                 TraitInstance.of(Trait.REPRODUCTION_AVERSE)), false),
-                        3.0 * 0.75 * 0.9 * 0.95); // 극단 중첩 1.924(약함V) — 하한 회귀 감시
+                        3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.75 * 0.9 * 0.95); // 극단 중첩(약함V) — 하한 회귀 감시
         report.add("food/절약특성", sv, "아이불호·번식불호·빈약 ×0.95 · 병약 ×0.9 · 중첩 곱(약함V+병약+번식불호 1.924)",
                 sv ? "정상" : "어긋남");
 
@@ -2261,7 +2261,7 @@ public final class EvoTest {
                 && close(FoodEconomy.maternalHungerMult(LifeStage.BOY, -1), 1.3)      // 돌봄 부실 → 더 소모
                 && close(FoodEconomy.maternalHungerMult(LifeStage.ADULT, 1), 1.0)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.FEMALE, TraitInstance.of(Trait.NO_MATERNAL)), false), 2.7); // 본인 ×0.9
+                        one(Sex.FEMALE, TraitInstance.of(Trait.NO_MATERNAL)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.9); // 본인 ×0.9
         report.add("traitfx/혼기모성", g1 && g2,
                 "조혼 소년기 0.8 / 강함 성장1.25·자식소모0.7 / 없음 성장0.8·자식소모1.3·본인0.9",
                 (g1 && g2) ? "정상" : "어긋남");
@@ -2345,7 +2345,8 @@ public final class EvoTest {
                 s1 ? "정상" : "어긋남");
 
         // 능력치: 소모 2.0 · 속도 0.8 · 채집·전투 가능 · 수확 배율 상수 0.5
-        boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ELDER, Activity.MOVE, plain, false), 2.0)
+        boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ELDER, Activity.MOVE, plain, false),
+                Elder.CONSUMPTION * FoodEconomy.BASE_CONSUMPTION_SCALE)
                 && close(SurvivalRules.moveSpeedFactor(LifeStage.ELDER), 0.8)
                 && SurvivalRules.canGather(LifeStage.ELDER, plain)
                 && SurvivalRules.canFight(LifeStage.ELDER)
@@ -3027,9 +3028,9 @@ public final class EvoTest {
 
         // 3) 사치·검소 — 소모 배선(만족 기준 자동 상승/하강의 원천) + 사치 과시 매력 +1
         boolean spend = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS)), false), 3.0 * 1.3)
+                        one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 1.3)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.of(Trait.FRUGAL)), false), 3.0 * 0.95)
+                        one(Sex.MALE, TraitInstance.of(Trait.FRUGAL)), false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE * 0.95)
                 && Multipliers.charmScore(man, one(Sex.MALE, TraitInstance.of(Trait.LUXURIOUS))) == 1;
         report.add("satisfaction/사치검소", spend,
                 "사치 소모 3.9·매력 +1 / 검소 2.85(0.95 — 검소부부 4명 방지, 산출 ⑦)",

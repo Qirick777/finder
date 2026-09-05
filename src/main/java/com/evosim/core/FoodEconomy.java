@@ -53,14 +53,34 @@ public final class FoodEconomy {
     private FoodEconomy() {
     }
 
+    /**
+     * <b>전 단계 소모 배율</b> — 잉여를 걷어내는 손잡이. 1.0 이 종전이다.
+     *
+     * <p>실측(시드11 d9→d10): 가구당 하루 순증이 <b>+2.1</b>, 가구 소모가 평균 7 이었다. 즉
+     * 소모를 30% 올리면 평균 가구의 축적이 정확히 0 이 된다. 1.2 는 그 절반쯤으로, 잉여를
+     * 없애지 않고 <b>얇게</b> 만드는 자리다 — 소작이 시작되면 자산 누진 지대가 나머지를 맡는다.
+     *
+     * <p><b>단독 상수로 뺀 이유</b>: 이 값은 한 번에 맞을 수 없다. 단계별 숫자(3.0·1.5·0.9)를
+     * 직접 고치면 조정할 때마다 시험 기대값이 통째로 흔들리고, 되돌릴 때 무엇이 원래 값인지
+     * 알 수 없게 된다. 시험도 이 상수를 곱해 읽으므로 눈금을 바꿔도 안 깨진다.
+     *
+     * <p><b>출산에 두 번 물린다는 것을 알고 쓴다</b>: 출산 판정이 소모를 항으로 물고 있어
+     * ({@link #canReproduce} 의 {@code familyDailyNeed × REPRO_NEED_DAYS}), 소모를 올리면
+     * 문턱이 오르고 도달 속도도 느려진다. 성인 2인 가구 기준 출산선 12 → 13.8. 그래서
+     * 관측 항목에 <b>인구·미성년 비율</b>을 반드시 넣는다(기준선 d8: 인구 52 · 성인여 20 ·
+     * 미성년 14 · 미성년/성인여 0.70).
+     */
+    public static final double BASE_CONSUMPTION_SCALE = 1.2;
+
     /** 하루 기준 소모(단계). 활동일 ~3회 귀가 트립 템포를 만드는 값. */
     static double baseConsumption(LifeStage s) {
-        return switch (s) {
+        double base = switch (s) {
             case ADULT -> 3.0;
             case ELDER -> Elder.CONSUMPTION; // 노년 2.0 — 적게 먹음
             case BOY -> 1.5;
             case INFANT -> 0.9;
         };
+        return base * BASE_CONSUMPTION_SCALE;
     }
 
     /**

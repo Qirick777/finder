@@ -205,6 +205,9 @@ public class MimicEntity extends PathfinderMob {
     // 식량 경제 v2 (FoodEconomy): 개인 보유 H(배부름+소지 통합) + 거처 저장고 L(정수 입출금).
     private double holding = 1.5;               // H — 시작 1.5(밴드 [1,2) 안, 콜드스타트 완충)
     private int hungerGraceTicks = 0;           // H=0 지속 틱(아사 유예 클럭, NBT 저장 — B-4)
+    private int neglectTicks = 0;               // 집·저장고 있음인데 위급 유지 지속 틱(진단, 휘발)
+    /** 위급방치 진단을 남기는 지속 틱 — 400틱(20초)이면 가족틱(1200) 한 번을 놓친 뒤다. */
+    private static final int NEGLECT_REPORT_TICKS = 400;
     private boolean wasCritical = false;        // 위급 전이 감지(로그 1회용, 휘발)
     private boolean introLogged = false;        // 등장(개체 변수) 로그 1회용 — 로그 ON 상태에서만 소모
     private int mobilizedState = -1;            // R4 동원 전이 감지(-1 미정 / 0 넉넉 / 1 동원)
@@ -4778,6 +4781,40 @@ public class MimicEntity extends PathfinderMob {
             } else {
                 SimEvents.event(this, "회복", "소지 회복 → 위급 해제");
             }
+        }
+        // <b>위급방치</b> — 집에 서 있고 저장고에 식량이 있는데 위급이 <b>안 풀리는</b> 상태.
+        //
+        // 원리적으로 있을 수 없다: {@link MimicReturnGoal#wantsTrip} 이 소지 &lt; RETURN_LOW(0.8)
+        // 이고 저장고에 1유닛 이상이면 참이 되고, 이미 집이면 canUse 가 {@link #selfSettle} 을
+        // 불러 밴드(1.5)까지 채운다. 그런데 육안 관측으로 <b>저장고 15.7 · H 0.02 · 집에서 정지</b>
+        // 가 나왔다. 원인 후보가 둘인데 로그가 없어 가릴 수 없었다:
+        //   ⓐ 우선순위 ≤2 goal(건축·육아·전투·리시·나눔)이 물고 있어 Return(3)의 canUse 가
+        //      아예 안 불린다 — 먹이는 코드가 canUse 안에 있어서 goal 이 막히면 굶는다.
+        //   ⓑ 정보판의 저장고(lastSurplus, 가족틱 캐시)와 실제 읽는 저장고(homePos 실시간)가
+        //      다르다 — 화면은 15.7 인데 실제 제 거처는 비어 있다.
+        // 그래서 <b>가르는 값들을 같이</b> 남긴다. 침묵은 진단이 아니다.
+        if (crit && isHome() && larderHasFood()) {
+            neglectTicks += interval;
+            if (neglectTicks >= NEGLECT_REPORT_TICKS) {
+                neglectTicks = 0;
+                double live = level() instanceof net.minecraft.server.level.ServerLevel s2
+                        ? LarderStore.get(s2).get(homePos) : -1.0;
+                StringBuilder goals = new StringBuilder();
+                goalSelector.getRunningGoals().forEach(w -> {
+                    if (goals.length() > 0) {
+                        goals.append('+');
+                    }
+                    goals.append(w.getGoal().getClass().getSimpleName()
+                            .replace("Mimic", "").replace("Goal", ""));
+                });
+                SimEvents.event(this, "위급방치", String.format(
+                        "집에 있고 저장고 %.1f(표시 %.1f)인데 H %.2f 로 위급 유지 — 거처까지 %.1f블록"
+                        + " · 실행 goal [%s]", live, lastSurplus, holding,
+                        Math.sqrt(blockPosition().distSqr(homePos)),
+                        goals.length() == 0 ? "없음" : goals.toString()));
+            }
+        } else {
+            neglectTicks = 0;
         }
         if (holding > 0.0) {
             hungerGraceTicks = 0;

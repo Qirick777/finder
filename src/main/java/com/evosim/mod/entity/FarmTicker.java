@@ -152,6 +152,25 @@ public final class FarmTicker {
     /** 한 가구가 하루에 내주는 상한(유닛) — 부자 한 집이 마을 전체를 먹여 살리지 못하게. */
     public static final int ALMS_HOME_CAP = 3;
 
+    /**
+     * <b>구빈원 경유일 때의 상한은 시설 정원이 정한다</b>(가구 상한 3 이 아니라).
+     *
+     * <p>P3 로 구걸 목적지를 구빈원 하나로 모으자 지불처도 주인 집 하나가 됐다. 그런데 상한은
+     * <b>가구</b> 기준이라, 종전에 {@code 집 수 × 3} 이던 마을 전체 구제 능력이 {@code 1 × 3}
+     * 으로 줄었다 — 실측(d11): 열둘이 나가 셋만 받고 아홉이 허탕이었고, 그 아홉의 사유가 전부
+     * "오늘 이미 3 유닛 나감"이었다(주인 저장고에 192 가 남아 있는데도). 구제 창구를 만들어
+     * 놓고 구제량을 집 수 분의 1 로 줄인 것이다.
+     *
+     * <p>구빈원은 집이 아니라 <b>시설</b>이다. 자리 수가 곧 구제 능력이라야 "크게 지으면 더
+     * 구제한다"가 성립하고, 두 채를 세우면 두 배가 된다. 구빈원이 없는 마을의 집집마다 구걸은
+     * 종전 상한 3 을 그대로 쓴다 — 그 상수의 원래 취지(부자 한 집이 마을을 먹여 살리지 못하게)
+     * 는 가구에 대해서는 여전히 옳다.
+     */
+    private static int almsCapFor(ServerLevel level, BlockPos target) {
+        FacilityStore.Entry ph = poorhouseAt(level, target);
+        return ph == null ? ALMS_HOME_CAP : poorhouseSeats(level, ph);
+    }
+
     /** 거리 완충 — 점수가 {@code 잉여/(거리+K)} 라 아래 상한 안에서는 먼 집도 후보로 남는다. */
     private static final double BEG_DIST_K = 32.0;
 
@@ -2710,6 +2729,10 @@ public final class FarmTicker {
             }
             if (larders.get(owner.getHomePos()) - FarmEconomy.INVEST_RESERVE < ALMS_UNIT) {
                 continue; // 주인 지갑이 비었다 — 걸어가 봐야 허탕
+            }
+            if (ALMS_GIVEN.getOrDefault(owner.getHomePos().asLong(), 0)
+                    >= poorhouseSeats(level, e)) {
+                continue; // 오늘 몫을 다 내줬다 — 보내 봐야 허탕이고 하루를 버린다
             }
             double d = m.blockPosition().distSqr(e.pos);
             if (d < bestD) {
@@ -5550,7 +5573,7 @@ public final class FarmTicker {
         double bestSurplus = 0.0;
         for (var e : homes.entrySet()) {
             BlockPos h = e.getValue();
-            if (ALMS_GIVEN.getOrDefault(h.asLong(), 0) >= ALMS_HOME_CAP) {
+            if (ALMS_GIVEN.getOrDefault(h.asLong(), 0) >= almsCapFor(level, h)) {
                 continue; // 오늘 이 집은 할 만큼 했다
             }
             double surplus = larders.get(h) - FarmEconomy.INVEST_RESERVE;
@@ -5624,9 +5647,11 @@ public final class FarmTicker {
             payer = owner.getHomePos();
             atPoorhouse = true;
         }
+        // 상한은 <b>목적지</b>가 정하고(구빈원이면 정원), 셈은 <b>지불처</b> 기준으로 한다.
+        int cap = almsCapFor(level, h);
         int given = ALMS_GIVEN.getOrDefault(payer.asLong(), 0);
         double room = larders.get(payer) - FarmEconomy.INVEST_RESERVE;
-        double units = Math.min(ALMS_UNIT, Math.min(room, ALMS_HOME_CAP - given));
+        double units = Math.min(ALMS_UNIT, Math.min(room, cap - given));
         var fl = FamilyLedger.get(level);
         var pf = fl.get(patron);
         String who = pf != null && pf.name != null ? pf.name : "#" + patron;

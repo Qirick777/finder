@@ -2594,10 +2594,10 @@ public final class FarmTicker {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
                     continue;
                 }
-                // <b>빈곤선</b> — 구걸 일수만 보면 부자가 들어온다(POORHOUSE_ENTER_DAYS 주석의
-                // 실측 결함: 저장고 238 인 자가 입소·퇴소를 매일 뒤집으며 정원을 먹었다).
-                // 퇴소선보다 확실히 낮은 입소선을 두어 죽은 구간을 만든다.
-                if (!belowPovertyLine(level, m)) {
+                // <b>굶주림선</b> — 구걸 일수만 보면 부자가 들어온다(POORHOUSE_HUNGER_DAYS
+                // 주석의 실측 결함: 저장고 238 인 자가 입소·퇴소를 매일 뒤집으며 정원을 먹었다).
+                // 구빈원은 가난한 자가 아니라 <b>굶는 자</b>가 가는 곳이다.
+                if (!starving(level, m)) {
                     continue;
                 }
                 // 낙관은 하루 더 버틴다 — 나아질 것이라 보므로 구빈원행을 미룬다. 즉시 입소
@@ -2718,18 +2718,18 @@ public final class FarmTicker {
     }
 
     /**
-     * <b>빈곤선 아래인가</b> — 가구 저장고 &lt; 성인 하루소모 ×
-     * {@link Facilities#POORHOUSE_ENTER_DAYS}. 구걸과 입소가 같은 식을 읽는다(두 벌이면
-     * "구걸은 하는데 못 들어가는" 유령 구걸자가 생긴다).
+     * <b>굶는가</b> — 가구 저장고 + 제 소지 &lt; 가족 하루소모 ×
+     * {@link Facilities#POORHOUSE_HUNGER_DAYS}. 즉 <b>오늘 먹을 것이 없다</b>.
+     * 구걸과 입소가 같은 식을 읽는다(두 벌이면 "구걸은 하는데 못 들어가는" 유령 구걸자가 생긴다).
      *
      * <p>거처가 없으면 <b>참</b>이다 — 저장고가 0인 것보다 나쁘다.
      */
-    private static boolean belowPovertyLine(ServerLevel level, MimicEntity m) {
+    private static boolean starving(ServerLevel level, MimicEntity m) {
         if (m.getHomePos() == null) {
             return true;
         }
-        double line = m.adultDailyNeed() * Facilities.POORHOUSE_ENTER_DAYS;
-        return LarderStore.get(level).get(m.getHomePos()) < line;
+        double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
+        return have < m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS;
     }
 
     /**
@@ -5520,13 +5520,13 @@ public final class FarmTicker {
         if (m.inPoorhouse()) {
             return false;
         }
-        // <b>가진 자는 구걸하지 않는다.</b>
+        // <b>먹을 것이 있는 자는 구걸하지 않는다.</b>
         //
         // 이 함수를 부르는 조건은 "오늘 밭 배정을 못 받았다" 하나뿐이라 재산을 보지 않았다.
         // 그래서 밭일을 하지 않는 부유한 가구원(지배자의 배우자 등)이 매일 구걸로 셈해졌고,
-        // 그 연속 일수가 그대로 입소 자격이 되었다(Facilities.POORHOUSE_ENTER_DAYS 참조).
+        // 그 연속 일수가 그대로 입소 자격이 되었다(Facilities.POORHOUSE_HUNGER_DAYS 참조).
         // 여기서 먼저 끊어야 하루를 통째로 버리는 69블록 왕복도 함께 사라진다.
-        if (!belowPovertyLine(level, m)) {
+        if (!starving(level, m)) {
             return false;
         }
         // <b>육아에 묶인 부모는 문간을 돌지 않는다.</b>

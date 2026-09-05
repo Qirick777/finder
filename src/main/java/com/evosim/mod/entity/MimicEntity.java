@@ -6513,6 +6513,11 @@ public class MimicEntity extends PathfinderMob {
         return cachedAdultNeed;
     }
 
+    /** 가구 <b>전원</b>의 명목 하루소모 합(유아·소년 포함, 가족틱이 갱신) — 굶주림 판정의 기준. */
+    public double familyDailyNeed() {
+        return cachedFamilyNeed;
+    }
+
     public boolean isProviderRole() {
         return cachedProvider;
     }

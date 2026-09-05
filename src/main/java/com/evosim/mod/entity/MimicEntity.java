@@ -3995,6 +3995,9 @@ public class MimicEntity extends PathfinderMob {
         double gate = Facilities.WELL_COST
                 + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
         if (larder < gate) {
+            wellNote(String.format("보류 — 저장고 %.0f < 문턱 %.0f (값 %.0f + 여유 %.0f)",
+                    larder, gate, Facilities.WELL_COST,
+                    HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR));
             return larder;
         }
         // 자리값 — 등기된 집마다 "반경 안에 집이 몇 채인가"를 세고 최대인 곳을 고른다.
@@ -4025,22 +4028,32 @@ public class MimicEntity extends PathfinderMob {
             }
         }
         if (centre == null || bestNear < Facilities.WELL_MIN_HOMES) {
-            return larder; // 들판에 홀로 선 우물을 만들지 않는다(개수 상한이 아니라 품질 하한)
+            // 들판에 홀로 선 우물을 만들지 않는다(개수 상한이 아니라 품질 하한)
+            wellNote(centre == null
+                    ? "보류 — 물이 안 닿는 집이 없다(마을이 이미 덮였다)"
+                    : String.format("보류 — 가장 모인 곳도 %d채 < 하한 %d채",
+                            bestNear, Facilities.WELL_MIN_HOMES));
+            return larder;
         }
         byte rot = (byte) getRandom().nextInt(4);
         boolean mir = getRandom().nextBoolean();
         java.util.Optional<FacilityTemplate> tpl =
                 FacilityTemplate.of(sl, FacilityTemplate.Kind.WELL, rot, mir);
         if (tpl.isEmpty()) {
+            wellNote("보류 — 도면을 읽지 못했다(well.nbt)");
             return larder;
         }
         BlockPos site = facilitySite(sl, centre, tpl.get(), homes);
         if (site == null) {
-            return larder; // 자리가 없으면 조용히 넘어간다 — 날마다 다시 본다(분수와 같다)
+            wellNote(String.format("자리 없음 — 중심 @%d,%d(%d채) · 거부 집%d 밭%d 물%d 낙차%d",
+                    centre.getX(), centre.getZ(), bestNear,
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]));
+            return larder;
         }
         String clash = facilityGapFault(reg, site, FacilityTemplate.Group.WELL,
                 Facilities.WELL_GAP);
         if (clash != null) {
+            wellNote("보류 — " + clash);
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
@@ -4064,6 +4077,17 @@ public class MimicEntity extends PathfinderMob {
                 Facilities.WELL_COST, larder, larder - Facilities.WELL_COST,
                 reg.countOf(FacilityTemplate.Group.WELL)));
         return larder - Facilities.WELL_COST;
+    }
+
+    /**
+     * 우물 판정이 <b>멈춘 사유</b> — 하루 한 줄, 밭 가진 가구만.
+     *
+     * <p>처음에 모든 실패 경로를 조용히 {@code return} 시켰다가 실측에서 "우물 0건"만 보고
+     * 아무것도 알 수 없었다. 이 코드베이스가 여러 번 적어 둔 규칙을 되풀이해 어긴 것이다 —
+     * <b>침묵은 진단이 아니다.</b> 후보 가구는 많아야 밭 주인 수만큼이라 줄 수가 갇힌다.
+     */
+    private void wellNote(String why) {
+        SimEvents.event(this, "우물", why);
     }
 
     /** 이 집에 이미 어느 우물의 물이 닿는가. */

@@ -417,14 +417,22 @@ public final class EvoSimCommand {
     private static MimicEntity spawnChainElite(ServerLevel level, Vec3 pos) {
         return spawnMatingReady(level, pos, Sex.MALE,
                 java.util.Set.of(Trait.STRONG),
+                // 성향 3칸 — 능력 축이 성향 슬롯을 나눠 쓴다.
                 Trait.HERBALIST, Trait.COMPETENT, Trait.AMBITIOUS,
+                // 신체 3칸 — 게이트 사슬(명석→깜냥 · 활력+재빠름→쿨다운).
                 Trait.BRIGHT, Trait.VIGOROUS, Trait.NIMBLE,
-                Trait.KEEN_EYE);
+                // 보조 3칸 — 종전에는 깜냥 하나뿐이라 두 칸이 비어 있었다. 빈 칸은 무작위로
+                // 채워지지 않고 <b>그냥 빈다</b>(randomFirstGen 이 아니라 지정 시드다). 그래서
+                // 관측 런마다 사람이 손으로 자수성가·끈기를 얹어야 했다 — 그러면 시드가
+                // 두 벌이 되어 로그의 "엘리트"가 무엇을 가리키는지 갈린다.
+                //   자수성가: 만족선 σ 2.0 → 3.5. 부유해져도 안 멈춘다(대지주로 가는 길).
+                //   끈기    : 연속 일수 요구 −1. 상시소작 승격·군인 이탈 판정이 빨라진다.
+                Trait.KEEN_EYE, Trait.SELF_MADE, Trait.TENACIOUS);
     }
 
     /** 엘리트 시드의 한 줄 설명 — 로그·채팅이 같은 문구를 쓰게. */
     private static final String CHAIN_ELITE_DESC =
-            "눈썰미Ⅴ·유능함Ⅴ·야망가 + 명석Ⅴ·활력Ⅴ·재빠름Ⅴ + 깜냥 (7종 사슬)";
+            "눈썰미Ⅴ·유능함Ⅴ·야망가 + 명석Ⅴ·활력Ⅴ·재빠름Ⅴ + 깜냥·자수성가·끈기 (9종 사슬)";
 
     /**
      * 엘리트 방랑자 소환 — 7종 사슬 남성(자연 개체 — 혈통·상속 정상 편입). 관측 런의

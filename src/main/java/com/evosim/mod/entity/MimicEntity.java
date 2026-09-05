@@ -5312,6 +5312,12 @@ public class MimicEntity extends PathfinderMob {
      * <p>저장고 L 은 정수 불변식(B-3)을 지켜야 하므로 소수 유지비는 집의 장부에 잔돈으로 쌓고
      * 1을 넘길 때만 정수로 뺀다. 낼 돈이 없으면 빚으로 쌓이지 않고 그냥 못 낸다 — 굶는 가구를
      * 유지비로 한 번 더 때리면 아사 원인이 뒤섞여 관측이 흐려진다.
+     *
+     * <p><b>코드가 그 주석대로 돌지 않고 있었다.</b> 못 낸 날에도 오늘 몫이 장부에 그대로
+     * 쌓여, 값이 커지면 <b>부채 함정</b>이 된다: 열흘 못 낸 가구는 빚 10 을 지고, 저장고가
+     * 10 에 닿는 순간 전액을 뺏겨 영원히 문턱을 못 넘는다. 유지비를 0.05 → 1.0 으로 올리는
+     * 지금 그 차이가 실제로 드러나므로 여기서 맞춘다 — <b>정수분은 냈든 못 냈든 턴다</b>.
+     * 장부에 남는 것은 1 미만의 잔돈뿐이고, 그것은 빚이 아니라 반올림 이월이다.
      */
     private double payUpkeep(ServerLevel sl, double larder, boolean newDay) {
         if (!newDay || fastSettle) {
@@ -5324,11 +5330,16 @@ public class MimicEntity extends PathfinderMob {
         }
         double due = e.upkeepDue() + HomeTemplate.Tier.of(e.design()).upkeep;
         int pay = (int) Math.floor(due);
-        if (pay > 0 && larder >= pay) {
-            larder -= pay;
-            due -= pay;
-            SimEvents.note(sl, "유지비", String.format("@%d,%d %s −%d (저장고 %.0f)",
-                    homePos.getX(), homePos.getZ(), e.design(), pay, larder));
+        if (pay > 0) {
+            due -= pay; // 냈든 못 냈든 턴다 — 남는 것은 잔돈(1 미만)뿐, 빚이 아니다
+            if (larder >= pay) {
+                larder -= pay;
+                SimEvents.note(sl, "유지비", String.format("@%d,%d %s −%d (저장고 %.0f)",
+                        homePos.getX(), homePos.getZ(), e.design(), pay, larder));
+            } else {
+                SimEvents.note(sl, "유지비", String.format("@%d,%d %s 못냄 %d (저장고 %.0f) — 소멸",
+                        homePos.getX(), homePos.getZ(), e.design(), pay, larder));
+            }
         }
         reg.setUpkeepDue(homePos, due);
         return larder;

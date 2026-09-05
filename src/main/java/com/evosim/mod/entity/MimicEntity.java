@@ -3972,6 +3972,111 @@ public class MimicEntity extends PathfinderMob {
         return larder;
     }
 
+    /**
+     * <b>우물</b> — 기능은 없고 신세만 키운다. 분수와 <b>같은 골격</b>이다.
+     *
+     * <p>자격도(밭 가진 가구) 게이트도(값 + 생활예비×2) 빈도도(하루 하나) 분수를 그대로 따른다.
+     * 분수를 적당한 밀도로 묶어 두는 것이 간격이 아니라 <b>지갑</b>이라는 실측 때문이다
+     * (시드11 d9: 분수 2개가 모두 한 사람 것, 저장고 125→80 · 92→47).
+     *
+     * <p>다른 것은 <b>자리값</b> 하나다. 분수는 "반경 8 안의 길 칸 수"로 광장을 찾는데, 우물은
+     * "반경 {@link Facilities#WELL_REACH} 안의 <b>집</b> 수"로 동네를 찾는다. 같은 꼴의 규칙이고
+     * 세는 대상만 다르다.
+     *
+     * <p><b>미충족 수요를 세지 않는다.</b> "어느 우물에도 안 닿는 집이 N채면 판다" 는 절대 문턱은
+     * 마을이 자라면 영원히 다시 충족되므로 아무것도 막지 못한다 — 개수가 가구 수에 선형으로
+     * 묶인다. 분수에는 그런 게이트가 아예 없고, 그래서 적당하다.
+     */
+    private double considerWell(ServerLevel sl, double larder, double adultNeed) {
+        if (individual == null || homePos == null
+                || FarmStore.get(sl).ownedTiles(individual.id()) <= 0) {
+            return larder; // 밭을 가진 가구만 — 분수·가로등과 같은 자격
+        }
+        double gate = Facilities.WELL_COST
+                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (larder < gate) {
+            return larder;
+        }
+        // 자리값 — 등기된 집마다 "반경 안에 집이 몇 채인가"를 세고 최대인 곳을 고른다.
+        // 후보를 집 좌표로 두는 이유: 들판의 임의 점을 훑으면 격자를 새로 들여야 하는데,
+        // 집이 모인 곳의 중심은 언제나 어느 집 근처다(분수가 길 칸을 후보로 쓰는 것과 같다).
+        java.util.List<BlockPos> homes = HomeStore.get(sl).positions();
+        FacilityStore reg = FacilityStore.get(sl);
+        BlockPos centre = null;
+        int bestNear = 0;
+        for (BlockPos h : homes) {
+            if (wellNearby(reg, h)) {
+                continue; // 이미 물이 닿는 동네 — 여기 또 파지 않는다
+            }
+            int near = 0;
+            for (BlockPos o : homes) {
+                if (h.distSqr(o) <= Facilities.WELL_REACH * Facilities.WELL_REACH) {
+                    near++;
+                }
+            }
+            // 동률이면 좌표순 — 같은 마을이면 언제나 같은 답이 나오게(결정론).
+            boolean better = near > bestNear
+                    || (near == bestNear && centre != null
+                        && (h.getX() < centre.getX()
+                            || (h.getX() == centre.getX() && h.getZ() < centre.getZ())));
+            if (better) {
+                bestNear = near;
+                centre = h;
+            }
+        }
+        if (centre == null || bestNear < Facilities.WELL_MIN_HOMES) {
+            return larder; // 들판에 홀로 선 우물을 만들지 않는다(개수 상한이 아니라 품질 하한)
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.WELL, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos site = facilitySite(sl, centre, tpl.get(), homes);
+        if (site == null) {
+            return larder; // 자리가 없으면 조용히 넘어간다 — 날마다 다시 본다(분수와 같다)
+        }
+        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.WELL,
+                Facilities.WELL_GAP);
+        if (clash != null) {
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.WELL, rot, mir, individual.id(), today(),
+                Facilities.WELL_COST);
+        RoadPlanner.Obstacles.invalidate(); // 몸통이 길의 장애물로 즉시 잡히게
+        // <b>길을 따로 뻗지 않는다.</b> 진입로는 문에서 뻗는데({@code assignFacilityRoad} 가
+        // {@code doorSteps} 를 쓴다) 우물에는 문이 없다. 게다가 아무도 우물로 걸어가지 않는다 —
+        // goal 이 없는 물건이라 길이 닿을 이유가 없다. 자리 자체가 집이 모인 곳이라 이미 길가다.
+        // 실제로 몇 채를 끼고 섰는지 함께 남긴다 — 자리값이 옳게 골랐는지 밖에서 검증할 창구.
+        int serve = 0;
+        for (BlockPos h : homes) {
+            if (h.distSqr(site) <= Facilities.WELL_REACH * Facilities.WELL_REACH) {
+                serve++;
+            }
+        }
+        SimEvents.event(this, "우물", String.format(
+                "착공 @%d,%d 회전%d%s — 끼는 집 %d채(반경 %.0f) · 값 %.0f (저장고 %.0f→%.0f)"
+                        + " · 마을 %d번째",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", serve, Facilities.WELL_REACH,
+                Facilities.WELL_COST, larder, larder - Facilities.WELL_COST,
+                reg.countOf(FacilityTemplate.Group.WELL)));
+        return larder - Facilities.WELL_COST;
+    }
+
+    /** 이 집에 이미 어느 우물의 물이 닿는가. */
+    private static boolean wellNearby(FacilityStore reg, BlockPos home) {
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind == FacilityTemplate.Kind.WELL
+                    && e.pos.distSqr(home) <= Facilities.WELL_REACH * Facilities.WELL_REACH) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 진행 중 목표가 아직 설치 가능하면 유지, 아니면 내가 '소유'(최근접 구성원)한 최근접 설치가능 칸. */
     @Nullable
     private HomeBlueprint.Placement stickyOrNearest(ServerLevel sl, List<HomeBlueprint.Placement> plan,
@@ -5138,6 +5243,9 @@ public class MimicEntity extends PathfinderMob {
             larder = considerLamp(sl, fam, larder, adultNeed, newHomeDay);
             larder = considerFacility(sl, fam, larder, adultNeed, newHomeDay);
             if (newHomeDay && !fastSettle && homePos != null) {
+                // 우물이 꾸밈보다 먼저다 — 값이 같아(45) 순서를 반대로 두면 분수를 세우느라
+                // 곳간이 깎여 우물이 영영 안 선다(분수가 가로수보다 먼저인 것과 같은 이유).
+                larder = considerWell(sl, larder, adultNeed);
                 larder = considerStreet(sl, larder, adultNeed); // 꾸밈은 마지막 — 필수가 아니다
             }
             store.set(homePos, larder);

@@ -211,9 +211,21 @@ public class AllegianceStore extends SavedData {
     private long decayedDay = Long.MIN_VALUE;
 
     public static AllegianceStore get(ServerLevel level) {
-        return level.getDataStorage()
+        AllegianceStore store = level.getDataStorage()
                 .computeIfAbsent(AllegianceStore::load, AllegianceStore::new, KEY);
+        store.level = level;
+        return store;
     }
+
+    /**
+     * 마지막으로 이 장부를 꺼낸 레벨 — <b>휘발</b>(저장하지 않는다).
+     *
+     * <p>{@code SavedData} 는 제 레벨을 들고 있지 않은데, 우물 배수는 채무자의 <b>거처가
+     * 어디인가</b>를 물어야 해서 레벨이 필요하다. 배수를 호출부마다 곱하지 않는 이유는
+     * 호출부가 십수 곳이라 하나만 빠뜨려도 조용히 어긋나기 때문이다 — 곱하는 곳을 한 군데로
+     * 모은다.
+     */
+    private transient ServerLevel level;
 
     /** 신세를 더한다. 자기 자신·무효 id 는 무시한다. */
     public void record(long debtorId, long patronId, double forgivenAdd, double owedAdd,
@@ -234,6 +246,15 @@ public class AllegianceStore extends SavedData {
         }
         if (forgivenAdd <= 0.0 && owedAdd <= 0.0) {
             return;
+        }
+        // <b>우물 배수</b> — 채무자가 채권자의 우물 그늘에 살면 은혜가 더 무겁게 쌓인다.
+        // 물을 대 준 자에게 동네가 빚을 지는 것이라, 새 가중치를 만들지 않고 기존 신세에
+        // 곱하기만 한다(같은 행위가 두 이름으로 갈리면 균형점 계산이 두 벌이 된다).
+        //
+        // <b>갚아야 할 빚(owed)에는 곱하지 않는다.</b> 우물은 은전이지 채무가 아니다 —
+        // 물을 얻어 쓴 것이 미납을 무겁게 만들 이유가 없다.
+        if (level != null && forgivenAdd > 0.0) {
+            forgivenAdd *= FarmTicker.wellBoost(level, debtorId, patronId);
         }
         List<Bond> list = bonds.computeIfAbsent(debtorId, k -> new ArrayList<>());
         Bond hit = null;

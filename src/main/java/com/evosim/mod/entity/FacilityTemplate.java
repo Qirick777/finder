@@ -54,7 +54,8 @@ public final class FacilityTemplate {
         SCHOOL("학교"),
         CHURCH("교회"),
         BARRACKS("막사"),
-        POORHOUSE("구빈원");
+        POORHOUSE("구빈원"),
+        WELL("우물");
 
         public final String label;
 
@@ -77,16 +78,29 @@ public final class FacilityTemplate {
         BARRACKS("barracks", "막사", Group.BARRACKS),
         // 구빈원 — 자리는 카펫으로 나온다(위 Group.POORHOUSE 분기 참조). 도면 실측:
         // 13·6·10 · 실자재 365칸 → 착공비 0.045×365 = 16 · 종1 · 문2 · 카펫 20칸(2×5 둘) · 통 20.
-        POORHOUSE("poorhouse", "구빈원", Group.POORHOUSE);
+        POORHOUSE("poorhouse", "구빈원", Group.POORHOUSE),
+        /**
+         * 우물 — <b>종도 문도 없는</b> 도면이다. 들어가는 건물이 아니라 <b>서 있는 물건</b>이라
+         * 그 둘을 요구할 수 없다. 분수가 같은 처지에서 쓴 방법을 그대로 쓴다: 도면이 홀수 폭
+         * (7×7)이라 기하 중심 칸이 유일하게 정해지고, 실제로 그 열이 물기둥이라 눈으로도 중심이다.
+         */
+        WELL("well", "우물", Group.WELL, true);
 
         public final String design;
         public final String label;
         public final Group group;
+        /** 종·문 표지가 없는 도면 — 앵커를 도면의 <b>기하 중심</b>에서 잡는다(분수와 같은 수법). */
+        public final boolean centerAnchor;
 
         Kind(String design, String label, Group group) {
+            this(design, label, group, false);
+        }
+
+        Kind(String design, String label, Group group, boolean centerAnchor) {
             this.design = design;
             this.label = label;
             this.group = group;
+            this.centerAnchor = centerAnchor;
         }
 
         public static Kind of(String design) {
@@ -242,16 +256,27 @@ public final class FacilityTemplate {
                 carpets.add(pos);
             }
         }
-        if (bell == null) {
+        if (bell == null && !kind.centerAnchor) {
             throw new IllegalStateException(kind.design + ": 종이 없다 — 앵커 표지가 정확히 1개여야 한다");
         }
-        if (doors.isEmpty()) {
+        if (doors.isEmpty() && !kind.centerAnchor) {
             throw new IllegalStateException(kind.design + ": 문이 없다 — 드나들 수 없는 시설");
         }
 
         // 앵커 = 종의 x·z 열, 도면 바닥면의 <b>한 칸 위</b>(사람이 서는 높이).
         // 거처의 금블록 앵커와 같은 뜻이 되도록 맞춘다 — 등기 좌표 아래가 딛는 바닥이다.
-        BlockPos anchor = new BlockPos(bell.getX(), minY + 1, bell.getZ());
+        //
+        // <b>표지가 없는 도면</b>(우물)은 점유 칸의 x·z 중앙값을 쓴다. 홀수 폭이면 중앙값이
+        // 실제 한 칸을 정확히 가리키므로 "기하 중심"과 같은 뜻이고, 회전·대칭 뒤에도 같은
+        // 칸이 나온다(변환을 먼저 적용한 좌표에서 중앙값을 잡기 때문이다).
+        BlockPos anchor;
+        if (bell != null) {
+            anchor = new BlockPos(bell.getX(), minY + 1, bell.getZ());
+        } else {
+            int[] xs = byPos.keySet().stream().mapToInt(BlockPos::getX).sorted().toArray();
+            int[] zs = byPos.keySet().stream().mapToInt(BlockPos::getZ).sorted().toArray();
+            anchor = new BlockPos(xs[xs.length / 2], minY + 1, zs[zs.length / 2]);
+        }
 
         List<Placement> pl = new ArrayList<>();
         List<BlockPos> carve = new ArrayList<>();

@@ -1877,6 +1877,34 @@ public final class FarmTicker {
     private static long lookupTick = Long.MIN_VALUE;
     private static final java.util.Map<Long, MimicEntity> BY_IND = new java.util.HashMap<>();
 
+    /**
+     * <b>우물 배수</b> — 채무자의 거처가 채권자가 판 우물의 반경 안이면
+     * {@link Facilities#WELL_BOOST}, 아니면 1.0.
+     *
+     * <p>우물의 <b>유일한</b> 효과다. goal 도 행동도 붙지 않는다 — 서 있기만 하고, 그 그늘에
+     * 사는 자가 주인에게 지는 신세를 키운다.
+     *
+     * <p>거처를 못 찾으면(미로드·사망) 1.0 이다. 없는 은혜를 만들지 않는다.
+     */
+    public static double wellBoost(ServerLevel level, long debtorId, long patronId) {
+        FacilityStore reg = FacilityStore.get(level);
+        if (reg.countOf(FacilityTemplate.Group.WELL) == 0) {
+            return 1.0; // 마을에 우물이 없다 — 개체 조회 비용조차 치르지 않는다
+        }
+        MimicEntity debtor = byIndividual(level, debtorId);
+        if (debtor == null || debtor.getHomePos() == null) {
+            return 1.0;
+        }
+        double r2 = Facilities.WELL_REACH * Facilities.WELL_REACH;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind == FacilityTemplate.Kind.WELL && e.ownerId == patronId
+                    && e.pos.distSqr(debtor.getHomePos()) <= r2) {
+                return Facilities.WELL_BOOST;
+            }
+        }
+        return 1.0;
+    }
+
     private static MimicEntity byIndividual(ServerLevel level, long indId) {
         long now = SimTime.tick(level);
         if (now != lookupTick) {

@@ -559,6 +559,9 @@ public class MimicFarmGoal extends Goal {
             // 기본 수확 = 일한 개체의 채집 능력, <b>단 마름 솜씨가 바닥</b>이다(FarmStore.handOf).
             // 마름은 감독만 하는 것이 아니라 일을 가르친다 — 못하는 소작은 마름 수준까지 올라오고,
             // 마름보다 잘하는 소작은 제 능력을 유지한다(재능 있는 평민의 상승 경로 보존).
+            //
+            // <p><b>단, 그 증분은 소작의 것이 아니다</b>(소작 분할부 참조). 바닥은 <b>산출</b>을
+            // 올리지 <b>임금</b>을 올리지 않는다 — 조직이 만든 몫은 조직(밭 계정)의 것이다.
             double mine = FoodEconomy.forageYieldMult(mob.getIndividual());
             double useMult = Math.max(mine, hand != null ? hand.stewardForage : 0.0);
             // 칸당 계수는 <b>반드시</b> FarmEconomy 의 상수를 쓴다. 여기에 숫자를 박아 두었더니
@@ -586,15 +589,35 @@ public class MimicFarmGoal extends Goal {
                 double tenantLarder = mob.getHomePos() == null ? 0.0
                         : LarderStore.get(serverLevel()).get(mob.getHomePos());
                 double adultNeed = mob.adultDailyNeed();
-                double tShare = FarmEconomy.tenantShare(base, tenantLarder, adultNeed); // E 미적용
-                double baseShare = FarmEconomy.baseOwnerShare(base, tenantLarder, adultNeed) * e;
+                // ── 마름 증분은 소작이 아니라 <b>계정</b>이 가져간다 ──
+                //   종전에는 소작 몫을 부풀린 총수확(base)에 곱했다. 그래서 무능·멍청 소작이
+                //   마름 밭에 붙기만 하면 제 능력의 몇 배를 집으로 들고 갔다 — 실측(시드11 d11):
+                //   소작수확 558건 중 <b>355건(63%)</b>이 바닥에 걸렸고, 본인 능력 0.33 인 자가
+                //   1.74 로 받아갔다(5.3배). 특성을 아무리 깎아도 소작 소득에는 닿지 않아,
+                //   무능·멍청의 치명성이 통째로 세탁되고 있었다.
+                //   이제 소작은 <b>제 능력분</b>의 소작 몫만 가져가고, 마름이 만든 증분(lift)은
+                //   전액 밭 계정으로 간다. 조직이 만든 것은 조직의 것이다.
+                //   회계 항등식 불변: tShare + lift + base×fee == base.
+                //   mine ≥ 마름이면 lift = 0 → <b>현행과 완전히 동일</b>(재능 있는 평민 무손상).
+                double mineBase = FarmEconomy.TILE_YIELD_MULT * mine;
+                double tFull = FarmEconomy.tenantShare(base, tenantLarder, adultNeed);
+                double tShare = Math.min(tFull,
+                        FarmEconomy.tenantShare(mineBase, tenantLarder, adultNeed)); // E 미적용
+                double lift = tFull - tShare;
+                double baseShare =
+                        (FarmEconomy.baseOwnerShare(base, tenantLarder, adultNeed) + lift) * e;
                 double excessShare = FarmEconomy.excessOwnerShare(base, tenantLarder, adultNeed) * e;
                 mob.addHarvest(tShare);
                 p.account += baseShare;
                 p.excessHoard += excessShare; // 잠금 축장(밤 정산 때 지주 저장고로, 확장 무관)
                 if (mob.getIndividual().id() != p.stewardId) {
-                    // 마름 수당의 입력(소작 1인 평균 일수취) — 마름 본인의 노동 모드 수확은 제외
-                    FarmTicker.recordTenantPay(p.id, tShare, mob.getId());
+                    // 마름 수당의 입력 — 소작이 <b>집에 가져간 것</b>이 아니라 소작이 <b>생산한
+                    // 것</b>(tShare + lift)이 기준이다. 위 변경으로 무능한 소작의 수취가 떨어지는데
+                    // 수당까지 같이 떨어지면, 못하는 일꾼을 끌어올릴수록 마름이 손해를 보는
+                    // 뒤틀린 유인이 생긴다. 마름은 제 조직이 생산한 만큼 받는다.
+                    // (수치상 tShare + lift == 종전 tShare 라, 이 항은 수당을 <b>현행값 그대로</b>
+                    //  붙들어 둔다 — 이번 개편이 수당을 건드리지 않았음을 A/B 로 증명할 수 있다.)
+                    FarmTicker.recordTenantPay(p.id, tShare + lift, mob.getId());
                 }
                 // 원장: totalYield 는 <b>실분배 합</b>(낭비 제외) — totalToOwner+totalToTenant 와 항등.
                 farmStore().recordHarvest(p, tShare + baseShare + excessShare,
@@ -606,7 +629,9 @@ public class MimicFarmGoal extends Goal {
                 SimEvents.event(mob, "소작수확", String.format(
                         "+%.2f (지대 계정 %.2f + 축장 %.2f, E%.2f, G%.2f%s, 오늘 %d타일)",
                         tShare, baseShare, excessShare, e, useMult,
-                        useMult > mine ? "←마름" : "", harvestedToday + 1));
+                        useMult > mine
+                                ? String.format("←마름(본인 %.2f · 증분 %.2f 계정행)", mine, lift)
+                                : "", harvestedToday + 1));
             } else {
                 // 자영 = 전액 지주 몫이므로 E 적용(확장 제동 유지 — 자영 지주만 예외가 되지 않게).
                 double own = base * e;

@@ -2667,6 +2667,44 @@ public final class EvoTest {
                 && close(FarmEconomy.foundReserve(6.9), 13.8)
                 && close(FarmEconomy.foundReserve(8.4), 16.8)
                 && FarmEconomy.NEW_FARM_BASE + FarmEconomy.foundReserve(8.4) > 8.4 * 2 * 2;
+
+        // 3b) 마름 증분 귀속 — 마름 바닥은 <b>산출</b>을 올리지 <b>임금</b>을 올리지 않는다.
+        //     MimicFarmGoal 의 소작 분할식을 그대로 재현해 회계 항등식과 두 경계를 못박는다.
+        //     (실측 근거: 시드11 d11 소작수확 558건 중 355건(63%)이 바닥에 걸렸고, 본인 능력
+        //      0.33 인 소작이 1.74 로 받아갔다 — 무능·멍청의 치명성이 통째로 세탁되고 있었다.)
+        {
+            double L = 21.0, N = 6.0;                     // 소작 가구 저장고·성인 소모
+            double stw = 1.74, dull = 0.33, able = 2.38;  // 마름 · 무능 소작 · 유능 소작(실측값)
+            // 무능 소작: 총수확은 마름 바닥으로 오르되, 가져가는 것은 제 능력분뿐.
+            double baseD = FarmEconomy.TILE_YIELD_MULT * Math.max(dull, stw);
+            double tFullD = FarmEconomy.tenantShare(baseD, L, N);
+            double tShareD = Math.min(tFullD,
+                    FarmEconomy.tenantShare(FarmEconomy.TILE_YIELD_MULT * dull, L, N));
+            double liftD = tFullD - tShareD;
+            // 유능 소작(마름보다 잘함): 바닥 미발동 → 증분 0, 현행과 완전히 동일.
+            double baseA = FarmEconomy.TILE_YIELD_MULT * Math.max(able, stw);
+            double tFullA = FarmEconomy.tenantShare(baseA, L, N);
+            double tShareA = Math.min(tFullA,
+                    FarmEconomy.tenantShare(FarmEconomy.TILE_YIELD_MULT * able, L, N));
+            boolean lift = close(baseD, FarmEconomy.TILE_YIELD_MULT * stw)   // 산출은 마름 수준
+                    && tShareD < tFullD                                       // 임금은 제 능력분
+                    && close(tShareD / tFullD, dull / stw)                    // 정확히 능력 비율
+                    && liftD > 0.0
+                    // 회계 항등식: 소작 + 증분 + 지주 3분할 == 총수확(E 미적용 기준)
+                    && close(tShareD + liftD + FarmEconomy.baseOwnerShare(baseD, L, N)
+                            + FarmEconomy.excessOwnerShare(baseD, L, N), baseD)
+                    // 마름 수당의 입력(tShare+lift)은 종전 값(tFull) 그대로 — 수당 불변
+                    && close(tShareD + liftD, tFullD)
+                    // 재능 있는 평민은 무손상: 증분 0, 수취는 종전과 동일
+                    && close(tShareA, tFullA) && close(baseA, FarmEconomy.TILE_YIELD_MULT * able);
+            report.add("farm/마름증분", lift,
+                    "마름 바닥은 산출만 올린다 — 소작 수취 = 제 능력분 · 증분은 계정행 · "
+                    + "수당 입력 불변 · 마름보다 잘하는 소작은 무손상",
+                    String.format("무능 0.33: 총 %.3f 중 수취 %.3f(현행 %.3f) · 증분 %.3f 계정행"
+                            + " | 유능 2.38: 수취 %.3f = 현행 %.3f",
+                            baseD, tShareD, tFullD, liftD, tShareA, tFullA));
+        }
+
         // 4) 관리 효율(총량 기준 — 수치 유도): 용량 8+g³(무능력 8·Ⅱ16·Ⅲ35·Ⅳ72·Ⅴ133),
         //    E=min(1,C/총소유타일)² — 준엘리트는 다밭 가능하되 총량 묶임(소지주 35), 엘리트만
         //    총 133(다밭 대지주·100명 의존권). 미러 순서 = 공간 적응(막힌 칸 방향 전환).

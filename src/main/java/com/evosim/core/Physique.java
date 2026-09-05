@@ -26,12 +26,22 @@ public final class Physique {
     private static final double RECOVERY_DOWN = 0.15; // 병약 등급당 재생 −
     private static final double STRENGTH_UP = 0.08;   // 힘센 등급당 공격 +
     private static final double STRENGTH_DOWN = 0.06; // 약함 등급당 공격 −
-    private static final double APPETITE_PER = 0.04;  // 힘/약 등급당 소모 ±(V등급 = 종전 고정 ×1.2/×0.8)
+    /** 힘/약 등급당 소모 ± — 0.04 → <b>0.05</b>. 큰 몸은 많이 먹는다. */
+    private static final double APPETITE_PER = 0.05;
+    /**
+     * 튼튼/빈약 등급당 소모 ± — <b>신설</b>.
+     *
+     * <p>종전에 튼튼함은 체력 +5%/등급을 <b>대가 없이</b> 받는 유일한 신체 특성이었다. 힘셈은
+     * 소모를 물고 재빠름은 (활력과 달리) 얻는 것이 이동뿐인데, 튼튼만 순이득이라 신체 3칸의
+     * 무난한 정답이 되어 있었다. 몸집이 크면 먹는 것도 는다 — 힘셈(5%)보다 낮게 둔 것은
+     * 체력 이득이 공격력 이득보다 작기 때문이다.
+     */
+    private static final double TOUGH_APPETITE = 0.03;
     private static final double BRUTISH_UP = 0.06;    // 단순무식 등급당 공격 +(힘센 8%보다 낮게)
     private static final double REFINED_DOWN = 0.04;  // 섬세 등급당 공격 −
-    /** 단순무식 등급당 소모 + — 힘센(4%)의 <b>절반</b>이다. 같은 비율이면 Ⅴ등급에서 하루
-     *  소모가 0.98 이 되어 시혜 1유닛/일에 붙는다: 구걸에 닿아도 굶어 죽는다. 2% 면 0.90. */
-    private static final double BRUTISH_APPETITE = 0.02;
+    /** 단순무식 등급당 소모 + — 힘센의 <b>절반</b>이라는 관계를 유지한다(4%→5% 인상에 맞춰
+     *  2%→2.5%). 같은 비율이면 Ⅴ등급에서 시혜 1유닛/일에 붙어 구걸에 닿아도 굶어 죽는다. */
+    private static final double BRUTISH_APPETITE = APPETITE_PER / 2.0;
     /** 활력/무기력 등급당 이동 속도 ± — 재빠름(3%)의 절반. 자기 힘만으로는
      *  {@link #VITALITY_GATE} 를 못 넘는다(Ⅴ 라도 1.075). */
     private static final double VITALITY_SPEED_PER = 0.015;
@@ -122,6 +132,7 @@ public final class Physique {
     public static double appetite(Individual ind) {
         // 야성은 여기 안 얹는다 — 대가는 이미 증폭된 결손으로 치렀다(Multipliers.feralStrength).
         return factor(ind, Trait.STRONG, APPETITE_PER, Trait.WEAK, APPETITE_PER)
+                * factor(ind, Trait.TOUGH, TOUGH_APPETITE, Trait.FRAIL, TOUGH_APPETITE)
                 * factor(ind, Trait.BRUTISH, BRUTISH_APPETITE, Trait.REFINED, BRUTISH_APPETITE)
                 * factor(ind, Trait.VIGOROUS, VITALITY_APPETITE_PER,
                          Trait.LISTLESS, VITALITY_APPETITE_PER);

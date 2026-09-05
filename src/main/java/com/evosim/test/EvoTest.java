@@ -1742,11 +1742,11 @@ public final class EvoTest {
                         Physique.strength(brute), Physique.strength(bruteFeral)));
 
         // ③ 단순무식 소모는 힘센의 <b>절반</b>. 같은 비율이면 시혜 1유닛에 붙어 굶어 죽는다.
-        boolean appetite = close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)), 1.20)
-                && close(Physique.appetite(brute), 1.10)
+        boolean appetite = close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)), 1.25)
+                && close(Physique.appetite(brute), 1.125)
                 && close(Physique.appetite(feralOnly), 1.0); // 야성은 소모에 안 얹힌다
         report.add("beggar/소모절반", appetite,
-                "단순무식Ⅴ 소모 1.10(힘센Ⅴ 1.20 의 절반폭) · 야성은 소모 무관",
+                "단순무식Ⅴ 소모 1.125(힘센Ⅴ 1.25 의 절반폭) · 야성은 소모 무관",
                 String.format("힘센 %.3f · 단순무식 %.3f · 야성 %.3f",
                         Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)),
                         Physique.appetite(brute), Physique.appetite(feralOnly)));
@@ -1812,19 +1812,22 @@ public final class EvoTest {
         report.add("physique/배수", fac, "튼튼V 1.25·빈약V 0.75·천리안V 1.40·강건V 2.5",
                 fac ? "정상" : "어긋남");
 
-        // 2b) 힘 축 트레이드오프: 공격 힘센 +8%/약함 −6%/등급 ↔ 소모(식욕) ±4%/등급.
-        //     V등급 소모가 종전 고정 배율(×1.2/×0.8)과 일치 — 최대 등급 밸런스 불변 확인.
+        // 2b) 힘 축 트레이드오프: 공격 힘센 +8%/약함 −6%/등급 ↔ 소모(식욕) ±5%/등급.
+        //     치명성 인상(4%→5%)으로 힘센Ⅴ 는 소모 1.25 — 큰 몸이 굶을 수 있어야 한다.
+        //     튼튼/빈약 ±3%/등급도 함께 확인(종전엔 튼튼이 대가 없는 순이득이었다).
         boolean str = close(Physique.strength(graded(Sex.MALE, Trait.STRONG, 5)), 1.40)
                 && close(Physique.strength(graded(Sex.MALE, Trait.STRONG, 1)), 1.08)
                 && close(Physique.strength(graded(Sex.MALE, Trait.WEAK, 5)), 0.70)
                 && close(Physique.strength(graded(Sex.MALE, Trait.WEAK, 2)), 0.88)
                 && close(Physique.strength(one(Sex.MALE)), 1.0)
-                && close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)), 1.20)
-                && close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 3)), 1.12)
-                && close(Physique.appetite(graded(Sex.MALE, Trait.WEAK, 5)), 0.80)
+                && close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 5)), 1.25)
+                && close(Physique.appetite(graded(Sex.MALE, Trait.STRONG, 3)), 1.15)
+                && close(Physique.appetite(graded(Sex.MALE, Trait.WEAK, 5)), 0.75)
+                && close(Physique.appetite(graded(Sex.MALE, Trait.TOUGH, 5)), 1.15)
+                && close(Physique.appetite(graded(Sex.MALE, Trait.FRAIL, 5)), 0.85)
                 && close(Physique.appetite(one(Sex.MALE)), 1.0);
         report.add("physique/힘트레이드오프", str,
-                "공격 힘센V 1.40·I 1.08·약함V 0.70 ↔ 소모 힘센V 1.20(종전 일치)·III 1.12·약함V 0.80",
+                "공격 힘센V 1.40·I 1.08·약함V 0.70 ↔ 소모 힘센V 1.25·III 1.15·약함V 0.75 · 튼튼V 1.15·빈약V 0.85",
                 str ? "정상" : "어긋남");
 
         // 3) 등급 선호 매칭: 강건III선호 → 보유 I·V=1, II·IV=2, III=3, 미보유=0 (사용자 규칙)
@@ -2006,19 +2009,19 @@ public final class EvoTest {
                 && close(FoodEconomy.consumptionPerDay(LifeStage.BOY, Activity.MOVE, man, false), 1.5)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.INFANT, Activity.MOVE, man, false), 0.9)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, true), 3.5)
-                // 힘/약 소모는 등급 비례(±4%/등급): 힘센V ×1.2(종전 고정값과 일치)·III ×1.12·약함V ×0.8.
+                // 힘/약 소모는 등급 비례(±5%/등급): 힘센V ×1.25·III ×1.15·약함V ×0.75.
                 // 무등급 힘센(디버그 of())은 Physique 의미론대로 중립 1.0.
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 5)), false), 3.6)
+                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 5)), false), 3.75)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 3)), false), 3.0 * 1.12)
+                        one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 3)), false), 3.0 * 1.15)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
-                        one(Sex.MALE, TraitInstance.graded(Trait.WEAK, 5)), false), 2.4)
+                        one(Sex.MALE, TraitInstance.graded(Trait.WEAK, 5)), false), 2.25)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
                         one(Sex.MALE, TraitInstance.of(Trait.STRONG)), false), 3.0)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
                         one(Sex.MALE, TraitInstance.of(Trait.LAZY)), false), 2.7);
-        report.add("food/소모", c1, "성인3.0·소년1.5·유아0.9 × 활동 × 특성(힘/약 등급 ±4%/등급) +부상0.5",
+        report.add("food/소모", c1, "성인3.0·소년1.5·유아0.9 × 활동 × 특성(힘/약 등급 ±5%/등급) +부상0.5",
                 c1 ? "정상" : "어긋남");
 
         // [food/배율] 남성 3인 부양·여성 자급 경계·보정특성 잉여↑
@@ -2055,8 +2058,8 @@ public final class EvoTest {
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
                         one(Sex.MALE, TraitInstance.graded(Trait.WEAK, 5), TraitInstance.of(Trait.SICKLY),
                                 TraitInstance.of(Trait.REPRODUCTION_AVERSE)), false),
-                        3.0 * 0.8 * 0.9 * 0.95); // 극단 중첩 2.052(약함V) — 하한 회귀 감시
-        report.add("food/절약특성", sv, "아이불호·번식불호·빈약 ×0.95 · 병약 ×0.9 · 중첩 곱(약함V+병약+번식불호 2.052)",
+                        3.0 * 0.75 * 0.9 * 0.95); // 극단 중첩 1.924(약함V) — 하한 회귀 감시
+        report.add("food/절약특성", sv, "아이불호·번식불호·빈약 ×0.95 · 병약 ×0.9 · 중첩 곱(약함V+병약+번식불호 1.924)",
                 sv ? "정상" : "어긋남");
 
         // [food/날로먹기] 저장 손실 ↔ 섭취 효율(요리 축 v2 배선): L은 항상 정수 유닛 유지

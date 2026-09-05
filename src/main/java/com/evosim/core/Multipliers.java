@@ -544,6 +544,9 @@ public final class Multipliers {
         if (t.contains(Trait.GATHERER) && t.contains(Trait.COOK)) {
             m += 0.1; // 시너지: 수확→가공 파이프라인(채집꾼×요리사 동시 발현)
         }
+        // 무능함 — <b>서툴러 흘린다</b>. 버는 것이 적은 데다 저장까지 샌다. 요리 축(조리·보관)과
+        // 겹치지 않는다: 이쪽은 손질이라 요리사와 함께 걸릴 수 있다. Ⅴ = ×0.75.
+        m -= 0.05 * abilityGrade(ind, Trait.INEPT);
         return Math.max(0.0, m);
     }
 

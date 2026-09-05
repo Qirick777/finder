@@ -2006,8 +2006,8 @@ public final class EvoTest {
         boolean c1 = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, false), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.SLEEP, man, false), 0.0)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.IDLE, man, false), 1.2 * FoodEconomy.BASE_CONSUMPTION_SCALE)
-                && close(FoodEconomy.consumptionPerDay(LifeStage.BOY, Activity.MOVE, man, false), 1.5 * FoodEconomy.BASE_CONSUMPTION_SCALE)
-                && close(FoodEconomy.consumptionPerDay(LifeStage.INFANT, Activity.MOVE, man, false), 0.9 * FoodEconomy.BASE_CONSUMPTION_SCALE)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.BOY, Activity.MOVE, man, false), FoodEconomy.BOY_CONSUMPTION * FoodEconomy.BASE_CONSUMPTION_SCALE)
+                && close(FoodEconomy.consumptionPerDay(LifeStage.INFANT, Activity.MOVE, man, false), FoodEconomy.INFANT_CONSUMPTION * FoodEconomy.BASE_CONSUMPTION_SCALE)
                 && close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE, man, true), 3.0 * FoodEconomy.BASE_CONSUMPTION_SCALE + 0.5)
                 // 힘/약 소모는 등급 비례(±5%/등급): 힘센V ×1.25·III ×1.15·약함V ×0.75.
                 // 무등급 힘센(디버그 of())은 Physique 의미론대로 중립 1.0.

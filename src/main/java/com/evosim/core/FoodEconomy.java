@@ -79,13 +79,36 @@ public final class FoodEconomy {
      */
     public static final double BASE_CONSUMPTION_SCALE = 1.0;
 
+    /**
+     * <b>소년 하루 소모</b> — 1.5 → 2.2.
+     *
+     * <p>표적이 성인 소모와 다르다. 출산 판정이 <b>가족</b> 소모를 항으로 물므로
+     * ({@link #canReproduce}), 성인 값을 올리면 자녀 0 인 신혼의 문턱까지 올라 <b>첫 출산부터</b>
+     * 막힌다 — 그래서 ×1.2 시도가 인구 붕괴로 철회됐다. 아이 값은 <b>자녀가 있는 가구만</b>
+     * 올리므로 첫 출산은 그대로 두고 둘째·셋째만 무거워진다.
+     *
+     * <p><b>유아가 아니라 소년인 이유</b>는 기간이다. 실측(시드11 개체 추적):
+     * <pre>
+     *   출생 d0 → 유아→소년 d1 → 소년→성년 d4
+     *   유아 약 1일 × 0.9 = 0.9   ·   소년 약 3일 × 1.5 = 4.5
+     * </pre>
+     * 아이 하나가 성년까지 먹는 5.4 중 <b>83%가 소년기</b>다. 유아기는 짧아 올려도 거의
+     * 효과가 없어 상징적으로만(0.9 → 1.0) 올린다.
+     *
+     * <p>성인 2인 가구 출산선: 자녀 없음 12.0 <b>불변</b> · 소년1 13.5→14.2 · 소년2 15.0→16.4.
+     */
+    public static final double BOY_CONSUMPTION = 2.2;
+
+    /** 유아 하루 소모 — 기간이 약 1일이라 손잡이로서는 거의 무력하다({@link #BOY_CONSUMPTION}). */
+    public static final double INFANT_CONSUMPTION = 1.0;
+
     /** 하루 기준 소모(단계). 활동일 ~3회 귀가 트립 템포를 만드는 값. */
     static double baseConsumption(LifeStage s) {
         double base = switch (s) {
             case ADULT -> 3.0;
             case ELDER -> Elder.CONSUMPTION; // 노년 2.0 — 적게 먹음
-            case BOY -> 1.5;
-            case INFANT -> 0.9;
+            case BOY -> BOY_CONSUMPTION;
+            case INFANT -> INFANT_CONSUMPTION;
         };
         return base * BASE_CONSUMPTION_SCALE;
     }

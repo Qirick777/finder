@@ -58,6 +58,12 @@ public enum Trait {
     ASCETIC(Axis.GREED, "무욕"),              // 일찍 만족 + 밭 확장 안 함
     LUXURIOUS(Axis.SPENDING, "사치"),         // 소모 +30%(만족 기준 자동 상승) ↔ 과시 매력 +1
     FRUGAL(Axis.SPENDING, "검소"),            // 소모 −10% — 일찍 만족
+    /** 낙관 — 버티면 나아진다고 본다. 퇴각선이 낮아 더 싸우고, 신세가 빨리 쌓이며,
+     *  구걸을 해도 구빈원행을 미룬다(연속 요구치 +1). */
+    OPTIMIST(Axis.EXPECTATION, "낙관"),
+    /** 비관 — 나아질 것이라 보지 않는다. 퇴각선이 높아 일찍 포기하고, 신세가 더디 쌓이며,
+     *  <b>한 번 손을 벌리면 곧장 구빈원</b>으로 간다. */
+    PESSIMIST(Axis.EXPECTATION, "비관"),
 
     // ── 신체 ──
     STRONG(Axis.STRENGTH, "힘센"),

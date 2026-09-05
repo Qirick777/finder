@@ -1722,6 +1722,21 @@ public class MimicEntity extends PathfinderMob {
                 charm += Multipliers.wealthCharm(w, FoodEconomy.consumptionPerDay(
                         m.getStage(), Activity.MOVE, m.getIndividual(), false));
             }
+            // <b>구빈원 여성은 주인에게 기운다.</b>
+            //
+            // 얹혀사는 집의 주인이고, 봉급이 그 손에서 나온다. 기록상 그 사람이 천장을 박살내고
+            // 1위라 사실상 잡힌다 — 여기 걸리는 것은 <b>독신·사별</b>뿐이다(구애 자체가
+            // isSingleAdult 한정). 남편이 있는 여성은 이 경로에 들어오지 않는다.
+            //
+            // 가중을 크게 두는 것이 요점이다. 매력은 선호 일치 +1~+2 와 부유선호 +1~+3 으로
+            // 한 자리 수에서 갈리므로, +10 이면 다른 후보가 뒤집을 수 없다. 첩 편입의 실제
+            // 관문은 매력이 아니라 부양력(Polygyny.canAccept)이라, 여기서 1위를 만들어도
+            // 주인이 못 먹이면 성사되지 않는다 — 문턱은 그대로 두고 <b>줄만</b> 세운다.
+            if (isFemale() && inPoorhouse() && level() instanceof ServerLevel psl
+                    && FarmTicker.poorhouseOwner(psl, getPoorhouse())
+                            == m.getIndividual().id()) {
+                charm += POORHOUSE_OWNER_CHARM;
+            }
             candidateCharm.put(id, charm);
             candidates.add(id);
         }
@@ -1730,6 +1745,9 @@ public class MimicEntity extends PathfinderMob {
         candidates.sort((x, y) -> Integer.compare(
                 candidateCharm.getOrDefault(y, 0), candidateCharm.getOrDefault(x, 0)));
     }
+
+    /** 구빈원 소속 여성이 제 구빈원 주인에게 얹는 매력 — 한 자리 수 경쟁을 통째로 덮는 값. */
+    private static final int POORHOUSE_OWNER_CHARM = 10;
 
     /** 기혼 구혼 대상의 사전 자격 — 다처 부양 게이트(Polygyny.SUPPORT_DAYS) 미러. 통과 못 하면
      *  후보 등록 자체를 안 해, 반복 거절로 성년기를 소진하는 낭비를 입구에서 막는다. */

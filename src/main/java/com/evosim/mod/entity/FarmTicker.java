@@ -2254,6 +2254,32 @@ public final class FarmTicker {
                 + com.evosim.core.Combat.detectionRange(ind) / 8.0;
     }
 
+    /**
+     * <b>창을 들 만한가</b> — 힘·튼튼함·경계 셋의 <b>이점 합</b>이 하한을 넘어야 승격한다.
+     *
+     * <p>종전에는 하한이 없었다. 적합도 순으로 세우기만 하니 후보가 모자라면 <b>아무나</b>
+     * 창을 들었다 — 굼뜨고 약하고 겁 많은 자가 봉급을 받으며 막사에 앉아 있는 그림이다.
+     * 구빈원이 생기며 그 자리가 특히 헐거워졌다: 소속자 중 "능력이 되는 애들이 군인으로
+     * 승격"하고 나머지는 막대기를 든 채 남는 것이 설계인데, 하한이 없으면 전원이 승격한다.
+     *
+     * <p>셋을 <b>합</b>으로 보는 것이 요점이다. 하나만 봐도 되게 하면 힘Ⅰ(+0.08) 하나로
+     * 통과해 사실상 하한이 없는 것과 같고, 셋 다 요구하면 특화형(완력만 센 단순무식,
+     * 경계만 밝은 산만)이 통째로 탈락한다. 합이면 힘Ⅱ 하나로도, 힘Ⅰ+튼튼Ⅰ 로도 넘는다 —
+     * 창을 드는 길이 여럿이라는 {@link #soldierFitness} 의 두 항 설계와 같은 뜻이다.
+     */
+    private static boolean soldierWorthy(com.evosim.core.Individual ind) {
+        if (ind == null) {
+            return false;
+        }
+        double edge = (com.evosim.core.Physique.barehandMight(ind) - 1.0)
+                + (com.evosim.core.Physique.toughness(ind) - 1.0)
+                + (com.evosim.core.Combat.detectionRange(ind) / 8.0 - 1.0);
+        return edge >= SOLDIER_MIN_EDGE;
+    }
+
+    /** 승격 하한 — 중립 대비 이점 합. 힘Ⅱ(+0.16) 하나 · 힘Ⅰ+튼튼Ⅰ(+0.13) 이면 넘는다. */
+    private static final double SOLDIER_MIN_EDGE = 0.10;
+
     /** <b>군인이 봉급 미납을 참는 날수</b> — 끈기 +1 · 변덕 −1(하한 1). 배속이 없으면 효과 0. */
     private static int desertDays(MimicEntity m) {
         int d = Facilities.SOLDIER_DESERT_DAYS;
@@ -2386,6 +2412,10 @@ public final class FarmTicker {
         // 못 버티는 개체가 나온다(구걸 여행 자체가 봉쇄된 상태라 벌충할 길이 없다). 게으름·
         // 멍청과 같은 즉시 입소로 둔다 — 사유는 다르지만 "제 힘으로 벗어날 수 없다"는 같다.
         if (m.isCaregiverBound()) {
+            return true;
+        }
+        // 비관 — 다시 일어설 것이라 보지 않으니 한 번 손을 벌리면 곧장 든다.
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.PESSIMIST)) {
             return true;
         }
         return instantTraitGrade(ind) >= POOR_INSTANT_GRADE
@@ -2545,7 +2575,12 @@ public final class FarmTicker {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
                     continue;
                 }
-                int need = admitsAtOnce(m) ? 1 : Facilities.POORHOUSE_ADMIT_STREAK;
+                // 낙관은 하루 더 버틴다 — 나아질 것이라 보므로 구빈원행을 미룬다. 즉시 입소
+                // 사유(게으름·멍청·무능·비관·육아구속)가 있으면 그쪽이 이긴다.
+                int need = admitsAtOnce(m) ? 1
+                        : Facilities.POORHOUSE_ADMIT_STREAK
+                                + (com.evosim.core.ExpressionResolver.isExpressed(
+                                        m.getIndividual(), com.evosim.core.Trait.OPTIMIST) ? 1 : 0);
                 if (m.getBegStreak() < need) {
                     continue;
                 }
@@ -2937,6 +2972,7 @@ public final class FarmTicker {
             int rejPatron = 0;    // 이 주인을 따르지 않음
             int rejFar = 0;       // 통근 한계 밖
             int rejCare = 0;      // 육아 구속 — 출근-육아 왕복 차단
+            int rejWeak = 0;      // 힘·튼튼함·경계 이점 미달
             int rejElder = 0;     // 노년 — 주둔 goal 이 받지 않는다(아래)
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
             for (MimicEntity m : adults) {
@@ -3007,6 +3043,10 @@ public final class FarmTicker {
                     rejCare++;
                     continue;
                 }
+                if (!soldierWorthy(m.getIndividual())) {
+                    rejWeak++;
+                    continue; // 힘·튼튼함·경계에 이점이 없다 — 창을 들 자리가 아니다
+                }
                 pick.add(m);
             }
             // <b>적합도 순</b> — 종전에는 거리순이라 능력을 아예 안 봤다. 완력과 경계를 각각
@@ -3021,7 +3061,7 @@ public final class FarmTicker {
                     .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             plans.add(new Garrison(bk, owner, tpl.get(), cap, guarded.size(), taxIn, pick,
-                    rejLand, rejNotHead, rejPatron, rejFar, rejElder, rejCare));
+                    rejLand, rejNotHead, rejPatron, rejFar, rejElder, rejCare, rejWeak));
         }
         seatAll(level, ledger, larders, adults, reg, plans, day);
         // 어제는 병사였으나 오늘 자리를 못 받은 자 — 무장을 벗긴다(이탈·정원 축소·주인 사망).
@@ -3054,11 +3094,12 @@ public final class FarmTicker {
         int seatedM;
         int dispatched; // 통근 반경 밖에서 불려온 수 — 증원이 실제로 걸렸는지의 눈금
         final int rejCare; // 육아 구속 탈락 — 출근-육아 왕복 차단이 몇 명을 걸렀는지
+        final int rejWeak; // 승격 하한 미달 — 창을 들 만하지 않은 자
 
         Garrison(FacilityStore.Entry bk, MimicEntity owner, FacilityTemplate tpl, int cap,
                  int guarded, double taxIn, java.util.List<MimicEntity> pick,
                  int rejLand, int rejNotHead, int rejPatron, int rejFar, int rejElder,
-                 int rejCare) {
+                 int rejCare, int rejWeak) {
             this.bk = bk;
             this.owner = owner;
             this.tpl = tpl;
@@ -3072,6 +3113,7 @@ public final class FarmTicker {
             this.rejFar = rejFar;
             this.rejElder = rejElder;
             this.rejCare = rejCare;
+            this.rejWeak = rejWeak;
         }
     }
 
@@ -3166,14 +3208,14 @@ public final class FarmTicker {
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
                     "막사 @%d,%d%s — 지킬가구 %d → 정원 %d(전시 %d) · 배속 %d명(남%d 여%d%s) · 세수 %.1f"
                             + " · 봉급 %.1f · 주인 저장고 %.1f | 후보 %d명 · 탈락: 유전가구 %d ·"
-                            + " 비부양자 %d · 타주인 %d · 원거리 %d · 노년 %d · 육아 %d",
+                            + " 비부양자 %d · 타주인 %d · 원거리 %d · 노년 %d · 육아 %d · 허약 %d",
                     g.bk.pos.getX(), g.bk.pos.getZ(), g.contested ? " §c[교전]§r" : "",
                     g.guarded, g.cap, g.contested ? g.tpl.seats().size() : g.cap,
                     g.seated, g.seatedM, g.seated - g.seatedM,
                     g.dispatched > 0 ? " · §e증원 " + g.dispatched + "명§r" : "", g.taxIn,
                     GUARD_SUM[1], larders.get(g.owner.getHomePos()),
                     g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar, g.rejElder,
-                    g.rejCare));
+                    g.rejCare, g.rejWeak));
         }
     }
 

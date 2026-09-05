@@ -35,6 +35,14 @@ public enum Axis {
     AMBITION(Category.DISPOSITION, true),             // 야망: 야망가 / 안분지족 (만족 기준 — 밭 자산/조기)
     GREED(Category.DISPOSITION, true),                // 축장: 욕심 / 무욕 (만족 불가 / 확장 안 함)
     SPENDING(Category.DISPOSITION, true),             // 소비: 사치 / 검소 (소모 ±, 사치는 과시 매력)
+    /**
+     * 기대: 낙관 / 비관 — <b>세상이 나아질 것이라 보는가</b>. 용기(겁쟁이/용감)와 비슷해
+     * 보이지만 축이 다르다: 용기는 <b>지금 이 싸움</b>에 들어가느냐고, 기대는 <b>버티면
+     * 나아지느냐</b>다. 그래서 비관은 겁이 많은 것이 아니라 <b>일찍 포기</b>하고(퇴각선이
+     * 높다), 남에게 기대는 마음이 더디 자라며(신세 적립이 느리다), 한 번 손을 벌리면
+     * 곧장 구빈원으로 간다(다시 일어설 것이라 보지 않는다).
+     */
+    EXPECTATION(Category.DISPOSITION, true),
 
     // ── 신체 (PHYSICAL) — 전부 반발, 전부 V~I 등급 스탯(배율 특성은 능력으로 이전) ──
     STRENGTH(Category.PHYSICAL, true),                // 힘: 힘센 / 약함

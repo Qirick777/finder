@@ -43,7 +43,7 @@ public final class Combat {
         if (isExpr(ind, Trait.RECKLESS)) {
             return Retreat.HOLD;
         }
-        if (hpFraction <= RETREAT_HP) {
+        if (hpFraction <= retreatHp(ind)) {
             if (isExpr(ind, Trait.PRUDENT) && nearFamily) {
                 return Retreat.HOLD;
             }
@@ -51,6 +51,26 @@ public final class Combat {
         }
         return Retreat.HOLD;
     }
+
+    /**
+     * 이 개체의 퇴각선 — 비관은 높고(일찍 포기) 낙관은 낮다(더 버틴다).
+     *
+     * <p>용기 축(겁쟁이/용감)과 겹치지 않는다: 그쪽은 <b>진입</b>을 정하고 이쪽은 <b>지속</b>을
+     * 정한다. 용감한 비관론자는 겁 없이 들어갔다가 일찍 물러나고, 겁 많은 낙관론자는 좀처럼
+     * 들어가지 않되 한 번 붙으면 끝까지 간다.
+     */
+    public static double retreatHp(Individual ind) {
+        if (isExpr(ind, Trait.PESSIMIST)) {
+            return RETREAT_HP + EXPECTATION_HP;
+        }
+        if (isExpr(ind, Trait.OPTIMIST)) {
+            return Math.max(0.05, RETREAT_HP - EXPECTATION_HP);
+        }
+        return RETREAT_HP;
+    }
+
+    /** 기대 축이 퇴각선을 미는 폭 — 0.30 기준으로 비관 0.45 · 낙관 0.15. */
+    public static final double EXPECTATION_HP = 0.15;
 
     /** ③ 복귀 (다시 오냐). 신중만 체력 상한 회복 시 복귀(치고 빠지기), 중립은 복귀 안 함. */
     public static boolean returnsToCombat(Individual ind, double hpFraction) {

@@ -488,6 +488,9 @@ public class AllegianceStore extends SavedData {
      * <b>신세 적립 배수</b> — 넉살이면 크게, 서먹이면 작게. 호출부가 채무자의 Individual 을
      * 알고 있을 때 가중치에 곱해 쓴다. 관계가 없으면 적립 자체가 없어 효과 0.
      */
+    /** 기대 축의 신세 적립 배율 폭 — 붙임성(0.30)보다 작게 둔다(주는 축이 아니라 곁들이). */
+    public static final double EXPECTATION_GAIN = 0.20;
+
     public static double rapport(com.evosim.core.Individual debtor) {
         if (debtor == null) {
             return 1.0;
@@ -498,6 +501,17 @@ public class AllegianceStore extends SavedData {
         if (com.evosim.core.ExpressionResolver.isExpressed(debtor,
                 com.evosim.core.Trait.STANDOFFISH)) {
             return 1.0 - RAPPORT_GAIN;
+        }
+        // 기대 축 — 비관은 남에게 기대는 마음이 더디 자라고(나아질 것이라 보지 않으니 은혜도
+        // 은혜로 안 남는다), 낙관은 빨리 자란다. 붙임성(넉살/서먹)과 곱하지 않고 <b>대체</b>
+        // 하는 것은 두 축이 같은 값을 두 번 미는 것을 막기 위해서다 — 붙임성이 있으면 그쪽이 이긴다.
+        if (com.evosim.core.ExpressionResolver.isExpressed(debtor,
+                com.evosim.core.Trait.PESSIMIST)) {
+            return 1.0 - EXPECTATION_GAIN;
+        }
+        if (com.evosim.core.ExpressionResolver.isExpressed(debtor,
+                com.evosim.core.Trait.OPTIMIST)) {
+            return 1.0 + EXPECTATION_GAIN;
         }
         return 1.0;
     }

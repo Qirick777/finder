@@ -1646,9 +1646,17 @@ public final class FarmTicker {
     private static final java.util.Map<Long, Double> PRESSURE_NEAREST =
             new java.util.HashMap<>();
 
-    /** 표적 집에 이만큼 다가서면 "문 앞에 섰다"로 본다. 도착 판정(2.5)보다 넉넉한 이유:
-     *  거처 좌표는 천막 구조물 <b>안쪽</b>이라 병사가 그 자리에 설 수 없다. */
-    private static final double PRESSURE_NEAR = 6.0;
+    /**
+     * 표적 집에 이만큼 다가서면 "문 앞에 섰다"로 본다. 좌표 자체(도착 2.5)보다 넉넉한 이유:
+     * 거처 좌표는 구조물 <b>안쪽</b>이라 병사가 그 자리에 설 수 없다.
+     *
+     * <p><b>public 인 이유</b> — 집계와 goal 의 도착 판정이 <b>같은 숫자</b>를 써야 한다.
+     * 종전에는 집계만 6.0 으로 느슨하고 {@code MimicGarrisonGoal.ARRIVE} 는 2.5 였다. 그래서
+     * 압박은 정상 집계되는데 goal 은 영영 "도착"하지 못해 체류 카운터가 안 올라갔고, 병사가
+     * 다음 표적으로 넘어가지 못한 채 그 집 앞에서 하염없이 서 있었다(육안 관측: "군인이 낮에
+     * 거처에서 하늘만 쳐다본다"). 한 개념에 숫자가 둘이면 반드시 갈라진다.
+     */
+    public static final double PRESSURE_NEAR = 6.0;
 
     /**
      * 병사의 현재 위치를 표적들과 견준다 — 순찰 goal 이 매 틱 부른다.

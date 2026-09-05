@@ -27,13 +27,23 @@ public class MimicGarrisonGoal extends Goal {
     /** 한 순찰 지점에 머무는 틱 — 도착한 뒤에만 센다(밭 손질과 같은 리듬). */
     private static final int STAND_TICKS = 60;
 
-    /** 도착 판정. */
+    /** 도착 판정 — 순찰 지점·제 자리처럼 <b>설 수 있는</b> 좌표에 쓴다. */
     private static final double ARRIVE = 2.5;
+
+    /**
+     * 도착에 못 닿은 채 흐를 수 있는 최대 틱 — 넘으면 표적을 <b>놓고</b> 다음 것을 고른다.
+     *
+     * <p>기하가 어떻든 정지가 영구화되지 않게 하는 안전망이다. 압박 표적은 막사에서 최대
+     * COMMUTE_RANGE(96)까지 떨어져 있고 실측 이동이 52블록당 190틱이므로 먼 표적도 350틱이면
+     * 닿는다. 600 은 그 위의 여유다 — 진짜 먼 걸음은 끊지 않고, 못 닿는 자리만 끊는다.
+     */
+    private static final int TRAVEL_LIMIT = 600;
 
     private final MimicEntity mob;
     private BlockPos post;      // 막사 등기 좌표
     private BlockPos spot;      // 지금 가는 곳(낮=제 자리, 밤=순찰 지점)
     private int stand;
+    private int travel;         // 표적에 못 닿은 채 흐른 틱(정지 영구화 방지)
     private boolean night;
     private boolean wounded;
     private int cursor = -1;    // 순찰 경로 커서 — id 기준 시작점(병사마다 다른 구역)
@@ -66,6 +76,7 @@ public class MimicGarrisonGoal extends Goal {
             wounded = mob.isUnderTreatment();
             spot = null;
             stand = 0;
+            travel = 0;
         }
         boolean sleep = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
                 == Schedule.Phase.SLEEP;
@@ -73,6 +84,7 @@ public class MimicGarrisonGoal extends Goal {
             night = sleep;
             spot = null; // 근무가 바뀌면 표적을 새로 고른다
             stand = 0;
+            travel = 0;
         }
         if (spot == null) {
             // <b>낮에는 압박만, 밤에는 전 구역 순찰.</b>
@@ -121,6 +133,7 @@ public class MimicGarrisonGoal extends Goal {
     public void stop() {
         spot = null;
         stand = 0;
+        travel = 0;
         // <b>앵커는 여기서 지우지 않는다.</b> 이 stop 의 대부분은 리시(2)가 MOVE 를 탈취해
         // 생기는 선점이고, 그때 앵커를 지우면 리시가 볼 목적지가 사라져 병사를 막사로
         // 되끌어 버린다 — 출발 → 선점 → 되끌림 → 재출발의 무한 왕복이 된다.
@@ -147,11 +160,24 @@ public class MimicGarrisonGoal extends Goal {
         // 압박은 <b>몸이 어디 있는가</b>로 센다 — 목적지 도착 판정에 기대지 않는다.
         // 거처 좌표는 천막 구조물 안쪽이라 도착(2.5블록)이 영영 성립하지 않을 수 있다.
         FarmTicker.reportPressureNear(post, mob.blockPosition());
-        if (!mob.blockPosition().closerThan(spot, ARRIVE)) {
+        // <b>도착 반경은 표적의 성격을 따른다.</b> 압박 표적은 남의 거처이고 그 좌표는 구조물
+        // 안쪽이라 2.5 로는 영영 도착이 성립하지 않는다 — 그러면 체류 카운터가 안 올라가 다음
+        // 표적으로 넘어가지 못하고, 병사가 그 집 앞에 하염없이 서 있게 된다(육안 관측).
+        // 집계가 이미 쓰던 {@link FarmTicker#PRESSURE_NEAR} 를 그대로 읽어 두 판정이 갈리지
+        // 않게 한다 — "문 앞에 섰다"는 한 가지 뜻이어야 한다.
+        double arrive = !night && pressureDay() ? FarmTicker.PRESSURE_NEAR : ARRIVE;
+        if (!mob.blockPosition().closerThan(spot, arrive)) {
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5,
                     night ? 1.0 : 0.9);
+            // 못 닿는 자리를 붙들고 있지 않는다 — 표적을 놓으면 canUse 가 다음 것을 고른다.
+            if (++travel >= TRAVEL_LIMIT) {
+                travel = 0;
+                stand = 0;
+                spot = null;
+            }
             return;
         }
+        travel = 0;
         mob.getNavigation().stop();
         if (mob.level() instanceof net.minecraft.server.level.ServerLevel ms) {
             // 후송 도착 — 아군 막사에서 급양(스스로 걸어 돌아온 경우).
@@ -176,7 +202,7 @@ public class MimicGarrisonGoal extends Goal {
             return;
         }
         // 낮 — 압박 표적 앞이면 잠시 서 있다가 다음 표적으로. 제 자리면 그대로 머문다.
-        if (!FarmTicker.pressureHomesOf(post).isEmpty()) {
+        if (pressureDay()) {
             if (++stand >= STAND_TICKS) {
                 spot = dayPost();
                 stand = 0;
@@ -192,6 +218,11 @@ public class MimicGarrisonGoal extends Goal {
      * <p>표적을 도는 순서는 {@link #cursor} 를 그대로 쓴다. 병사마다 다른 표적에서 시작해
      * 여럿이 한 집에 몰리지 않는다.
      */
+    /** 낮 근무가 <b>압박</b>인가 — 표적이 있으면 근무지는 남의 거처 앞이다. */
+    private boolean pressureDay() {
+        return post != null && !FarmTicker.pressureHomesOf(post).isEmpty();
+    }
+
     private net.minecraft.server.level.ServerLevel sl0() {
         return (net.minecraft.server.level.ServerLevel) mob.level();
     }

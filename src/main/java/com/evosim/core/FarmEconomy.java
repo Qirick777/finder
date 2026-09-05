@@ -465,22 +465,53 @@ public final class FarmEconomy {
     public static final double FEE_MIN = 0.15;
     /** 자산 누진 지대의 상한 — 부유한 소작이 내는 몫. 1.0에 가까울수록 축적 제동이 단단하다. */
     public static final double FEE_MAX = 0.95;
-    /** 누진 곡선의 급격함. 클수록 기준선 부근에서 급제동. */
-    public static final double FEE_CURVE_K = 1.0;
-    /** 기준선 = <b>성인</b> 명목소모 × 이 일수. 자녀를 빼는 것이 핵심(아래 progressiveFee 참조). */
+    /**
+     * 누진 곡선의 <b>급함</b>(시그모이드 기울기). 클수록 중간점 부근에서 칼같이 꺾인다.
+     *
+     * <p>0.35 는 중간점 ±6 구간에서 소작 몫이 대략 58% → 32% 로 넘어가는 기울기다.
+     */
+    public static final double FEE_CURVE_K = 0.35;
+
+    /**
+     * 급락의 <b>중간점</b> = <b>성인</b> 명목소모 × 이 일수. 성인 2인 가구(6.0)면 <b>10</b>.
+     *
+     * <p>10 을 고른 이유는 <b>번식 임계</b>다. 2인 가구의 출산선이 12
+     * ({@code BIRTH_COST 3 + 가구소모 6 + (성인수+1) 3})이므로, 중간점을 10 에 두면
+     * 첫 아이까지는 수취가 넉넉해 무난히 닿고(저장고 12 에서 아직 32%), 둘째·셋째로
+     * 갈수록(출산선 13.5 · 15) 수취가 20% 아래로 말라 <b>일을 훨씬 더 해야</b> 닿는다.
+     *
+     * <p>자녀를 빼고 <b>성인</b> 소모로만 재는 것은 종전과 같다 — 자녀가 늘면 출산선은
+     * 오르는데 중간점은 그대로라 출산이 스스로 느려진다.
+     */
+    public static final double WEALTH_MID_DAYS = 1.67;
+
+    /**
+     * <b>구빈원 봉급 감액</b>의 기준 일수 — 성인 명목소모 × 이 일수. 지대와는 무관하다.
+     *
+     * <p>원래 자산 누진 지대의 기준선이었는데, 지대가 시그모이드로 바뀌며
+     * {@link #WEALTH_MID_DAYS} 로 갈라졌다. 구빈원 봉급은 여전히 지수 감쇠
+     * ({@code STIPEND × e^(−저장고/기준선)})를 쓰므로 이 상수만 남긴다 — 한 상수를 두
+     * 개념이 나눠 쓰면 한쪽을 조정할 때 다른 쪽이 조용히 따라 움직인다.
+     */
     public static final double WEALTH_CAP_DAYS = 3.5;
 
     /**
      * 자산 누진 지대 — 소작 가구가 <b>부유할수록 수취 비율이 줄어든다</b>.
      *
      * <pre>
-     *   r   = 가구 저장고 ÷ (성인 명목소모 × WEALTH_CAP_DAYS)
-     *   fee = FEE_MIN + (FEE_MAX − FEE_MIN) × (1 − e^(−k·r))
+     *   중간점 = 성인 명목소모 × WEALTH_MID_DAYS      (2인 가구 10)
+     *   fee   = FEE_MIN + (FEE_MAX − FEE_MIN) / (1 + e^(−k·(저장고 − 중간점)))
      * </pre>
      *
-     * <p>지수 감쇠라 소작 <b>수취</b>가 r 에 따라 지수로 줄고, 따라서 누적은 로그처럼 완만해진다.
-     * 가난하면 거의 다 가져가 빠르게 회복하고(애는 빨리 낳게), 기준선에 닿으면 수취가 말라
-     * 더 쌓지 못한다(축적은 못하게).
+     * <p><b>지수 감쇠 → 시그모이드로 바꿨다.</b> 지수는 <b>처음이 가장 가파르다</b> — 빈털터리가
+     * 한 유닛 모을 때마다 수취율이 뚝뚝 떨어져, 정작 빈곤 탈출을 가장 세게 막고 부유한 구간
+     * (저장고 30)에서는 여전히 24% 를 내주고 있었다. 원하는 모양은 그 반대다:
+     * <pre>
+     *   저장고    0     8    10    12    16    21    30
+     *   종전    85%   60%   55%   50%   42%   34%   24%
+     *   현행    83%   58%   45%   32%   14%    7%    5%
+     * </pre>
+     * 빈털터리는 종전만큼 후하게 받아 회복하고, 중간점을 넘기면서 급격히 말라 축적이 멎는다.
      *
      * <p><b>기준선에서 자녀를 빼는 것</b>이 자기제한의 핵심이다. 출산 게이트는 자녀마다 1.8씩
      * 오르는데(BIRTH_COST + 가구소모×REPRO_NEED_DAYS + 성인수+1) 기준선은 그대로이므로,
@@ -495,9 +526,9 @@ public final class FarmEconomy {
      * @param adultNeed 그 가구 <b>성인</b>의 명목 하루소모 합(자녀 제외)
      */
     public static double progressiveFee(double larder, double adultNeed) {
-        double cap = Math.max(1.0E-6, adultNeed * WEALTH_CAP_DAYS);
-        double r = Math.max(0.0, larder) / cap;
-        return FEE_MIN + (FEE_MAX - FEE_MIN) * (1.0 - Math.exp(-FEE_CURVE_K * r));
+        double mid = Math.max(1.0E-6, adultNeed) * WEALTH_MID_DAYS;
+        double x = Math.max(0.0, larder) - mid;
+        return FEE_MIN + (FEE_MAX - FEE_MIN) / (1.0 + Math.exp(-FEE_CURVE_K * x));
     }
 
     /** 소작 몫 — 자산 누진. 아래 두 지주 몫과 합이 정확히 yield(회계 항등식). */

@@ -2631,10 +2631,16 @@ public final class EvoTest {
                         + FarmEconomy.excessOwnerShare(y, 200), y) // 3분할 항등식(E 미적용 기준)
                 // 자산 누진 지대(신) — 기준선 = 성인소모 6.0 × 3.5 = 21.
                 //   무일푼 FEE_MIN 0.15 · 기준선 도달 0.15+0.80×(1−e⁻¹)=0.656 · 부유할수록 FEE_MAX 로.
-                && close(FarmEconomy.progressiveFee(0.0, 6.0), FarmEconomy.FEE_MIN)
-                && FarmEconomy.progressiveFee(21.0, 6.0) > 0.64
-                && FarmEconomy.progressiveFee(21.0, 6.0) < 0.67
-                && FarmEconomy.progressiveFee(63.0, 6.0) > 0.90     // 3배 부유 → 상한 근처
+                // 시그모이드(중간점 = 성인소모 × WEALTH_MID_DAYS = 10):
+                //   저장고 0 은 중간점보다 한참 아래라 FEE_MIN 바로 위 · 10 에서 정확히 중간 ·
+                //   21 이면 이미 상한 근처. 종전 지수 곡선(0 에서 정확히 FEE_MIN · 21 에서 0.656)
+                //   과 다른 것이 이 개편의 요점이다 — 빈털터리는 후하고 중간점 위가 급하다.
+                && FarmEconomy.progressiveFee(0.0, 6.0) > FarmEconomy.FEE_MIN
+                && FarmEconomy.progressiveFee(0.0, 6.0) < FarmEconomy.FEE_MIN + 0.03
+                && close(FarmEconomy.progressiveFee(10.0, 6.0),
+                        (FarmEconomy.FEE_MIN + FarmEconomy.FEE_MAX) / 2.0) // 중간점 = 정확히 중간
+                && FarmEconomy.progressiveFee(21.0, 6.0) > 0.92
+                && FarmEconomy.progressiveFee(63.0, 6.0) > 0.94     // 훨씬 부유 → 상한 근처
                 && FarmEconomy.progressiveFee(200.0, 6.0) < FarmEconomy.FEE_MAX
                 // 단조 증가(부유할수록 소작 수취 감소)
                 && FarmEconomy.tenantShare(y, 0.0, 6.0) > FarmEconomy.tenantShare(y, 21.0, 6.0)

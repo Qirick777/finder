@@ -125,10 +125,10 @@ public final class FoodEconomy {
      * d9 에 148·168.9·336 으로 <b>두 배</b>가 된다. 밭이 커지며 지대가 한꺼번에 돌기 시작하는
      * 지점이라 d8 과 d9 는 다른 경제다. 판정은 최소 d9 까지 받고 <b>그날 마지막 AUDIT</b>으로 한다.
      */
-    public static final double BOY_CONSUMPTION = 1.5;
+    public static final double BOY_CONSUMPTION = 1.8;
 
     /** 유아 하루 소모 — 기간이 약 1일이라 손잡이로서는 거의 무력하다({@link #BOY_CONSUMPTION}). */
-    public static final double INFANT_CONSUMPTION = 0.9;
+    public static final double INFANT_CONSUMPTION = 1.0;
 
     /** 하루 기준 소모(단계). 활동일 ~3회 귀가 트립 템포를 만드는 값. */
     static double baseConsumption(LifeStage s) {

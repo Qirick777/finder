@@ -5925,6 +5925,21 @@ public final class EvoSimCommand {
             return 0;
         }
         LarderStore lar = LarderStore.get(level);
+        // <b>세금 낼 가구를 세운다.</b> poortest 의 거지는 저장고 0 이라 경비세가 영영 0 이다
+        // (꺾임 16 아래 · 유보 2일치까지 겹친다) — 세금이 도는지 볼 수가 없다. 그래서 반경
+        // 안에 저장고를 층으로 깐 가구를 넣는다: 8(면세) · 16(꺾임점 절반) · 24(거의 최대).
+        // 세 값이 곡선의 세 자리를 그대로 짚으므로, 걷힌 액수만 보면 곡선이 맞는지 읽힌다.
+        int[] stocks = {8, 16, 24};
+        java.util.Set<net.minecraft.core.BlockPos> taxHomes = new java.util.HashSet<>();
+        for (int i = 0; i < stocks.length; i++) {
+            BlockPos th = MimicEntity.liftToBase(level,
+                    groundAt(level, ctx.getSource().getPosition(), -14 + i * 9, -14),
+                    "small1", (byte) 0, false);
+            MimicEntity t = spawnAdult(level, Vec3.atBottomCenterOf(th), Sex.FEMALE);
+            t.debugSettleWithHome(level, th, "small1", (byte) 0, false);
+            lar.set(t.getHomePos(), stocks[i]);
+            taxHomes.add(t.getHomePos()); // 이들은 <b>납세자</b>다 — 아래 못박기에서 뺀다
+        }
         // <b>경비대에 머물 수 있는 자를 직접 소환한다.</b> 무작위 특성 미믹을 못박으면 첫
         // 봉급을 받는 순간 굶는 판정이 꺼지고, 채집 능력이 정상이면 요구가 바깥벌이 전액
         // (9.5)으로 뛰어 이탈선(4.5)을 넘는다 — 하루 만에 전원 해고된다(실측).
@@ -5946,7 +5961,7 @@ public final class EvoSimCommand {
         for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
                 new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
                 e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
-                        && !e.inPoorhouse()
+                        && !e.inPoorhouse() && !taxHomes.contains(e.getHomePos())
                         && FarmStore.get(level).ownedCount(e.getIndividual().id()) == 0)) {
             m.setPoorhouse(house.pos);
             m.setGuardWage(Facilities.POORHOUSE_STIPEND);
@@ -5962,6 +5977,8 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format(
                 "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음(식물혼동Ⅴ %d명 신규 포함) —"
                 + " 합의봉급 %.1f · 소지·저장고 지급.\n"
+                + "  납세자 3가구(저장고 8·16·24)를 반경 안에 세웠다 — <경비세> 줄로 읽는다:"
+                + " 8은 면세 · 16은 절반(1.0) · 24는 거의 최대(1.89) 가 나와야 맞다.\n"
                 + "  이제 볼 것은 <경계> 줄 하나다: \"밤 근무 끝 — 순찰 지점 N곳\".\n"
                 + "  N=0 이면 밤에 안 돈 것이다(리시 선점·표적 미도달·위급 중 하나).",
                 house.pos.getX(), house.pos.getZ(), pinned, guards,

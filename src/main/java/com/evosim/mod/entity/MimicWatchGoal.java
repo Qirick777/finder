@@ -90,19 +90,8 @@ public class MimicWatchGoal extends Goal {
             mob.setGuardAnchor(null); // 소속이 풀렸다 — <b>여기서만</b> 앵커를 놓는다(주둔과 같다)
             return false;
         }
-        // <b>군인이 이긴다.</b> 경비대원 중 능력이 되는 자는 군인으로 승격되는데, 그때 두 goal 이
-        // 같은 우선순위(4)에서 같은 guardAnchor 를 두고 다툰다. 무장도 이미 군인 쪽이 이기게
-        // 되어 있다(setPauperGear 는 isSoldier 를 제외한다) — 같은 손을 여기서도 들어 준다.
-        if (FarmTicker.isSoldier(mob)) {
-            return false;
-        }
         post = mob.getPoorhouse();
         if (post == null) {
-            return false;
-        }
-        // 위급이면 물러난다 — 주둔과 같다. 봉급이 끊겨 굶는 상태이므로 경계를 시킬 자리가
-        // 아니고, 구걸 goal 이 시설로 데려간다.
-        if (mob.isCritical()) {
             return false;
         }
         // <b>경계는 NIGHT 부터다.</b> 저녁은 WANDER → NIGHT → SLEEP 순인데 SLEEP 만 밤으로
@@ -131,16 +120,33 @@ public class MimicWatchGoal extends Goal {
                             .replace("Mimic", "").replace("Goal", ""));
                 });
                 SimEvents.event(mob, "경계", String.format(
-                        "밤 근무 끝 — 순찰 지점 %d곳 · 경비대 @%d,%d 에서 %.0f블록 · 실행 goal [%s]",
+                        "밤 근무 끝 — 순찰 지점 %d곳 · 경비대 @%d,%d 에서 %.0f블록 · 실행 goal [%s]%s",
                         visits, post.getX(), post.getZ(),
                         Math.sqrt(mob.blockPosition().distSqr(post)),
-                        gs.length() == 0 ? "없음" : gs.toString()));
+                        gs.length() == 0 ? "없음" : gs.toString(),
+                        mob.isCritical() ? " · 새벽 위급(소지 고갈)" : ""));
             }
             visits = 0;
             night = sleep;
             spot = null; // 근무가 바뀌면 표적을 새로 고른다
             stand = 0;
             travel = 0;
+        }
+        // <b>물러나는 조건은 전이 감지 뒤에 본다.</b> 종전에는 이 두 줄이 위에 있어서, 새벽에
+        // 위급해진 대원은 밤→낮 전이를 만나기 전에 return 되어 <b>근무 보고가 통째로 사라졌다</b>
+        // (실측 런9: 방문 1 이상을 찍고 순찰하던 #2·#34 가 새벽 위급 → "밤 근무 끝" 줄 0개).
+        // 침묵을 "안 돌았다"로 읽어 헛다리를 짚었다 — 물러나더라도 보고는 남긴다.
+        //
+        // 군인이 이긴다: 경비대원 중 능력이 되는 자는 군인으로 승격되는데, 그때 두 goal 이 같은
+        // 우선순위(4)에서 같은 guardAnchor 를 두고 다툰다. 무장도 이미 군인 쪽이 이기게 되어
+        // 있다(setPauperGear 는 isSoldier 를 제외한다) — 같은 손을 여기서도 들어 준다.
+        if (FarmTicker.isSoldier(mob)) {
+            return false;
+        }
+        // 위급이면 물러난다 — 주둔과 같다. 봉급이 끊겨 굶는 상태이므로 경계를 시킬 자리가
+        // 아니고, 구걸 goal 이 시설로 데려간다.
+        if (mob.isCritical()) {
+            return false;
         }
         if (spot == null) {
             spot = night ? watchSpot() : post;

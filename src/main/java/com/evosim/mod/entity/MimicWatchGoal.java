@@ -105,8 +105,12 @@ public class MimicWatchGoal extends Goal {
         if (mob.isCritical()) {
             return false;
         }
-        boolean sleep = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
-                == Schedule.Phase.SLEEP;
+        // <b>경계는 NIGHT 부터다.</b> 저녁은 WANDER → NIGHT → SLEEP 순인데 SLEEP 만 밤으로
+        // 보면, NIGHT 에 먼저 켜지는 귀가 goal(같은 순위 4)이 MOVE 를 잡은 뒤라 SLEEP 에
+        // 들어와도 끼어들 수 없다. 귀가·취침 쪽에 대원 예외를 뒀지만, 창 자체도 귀가와
+        // 같은 시각에 열어 두 goal 이 같은 밤을 보게 한다.
+        Schedule.Phase ph = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime());
+        boolean sleep = ph == Schedule.Phase.SLEEP || ph == Schedule.Phase.NIGHT;
         if (sleep != night) {
             // <b>밤이 끝날 때 한 줄 남긴다.</b> setActivity 는 머리 위 라벨만 바꾸고 로그를
             // 남기지 않는다 — 그대로 두면 "경계가 실제로 도는가"를 로그로 판정할 수 없다.

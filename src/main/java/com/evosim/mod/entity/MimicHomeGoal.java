@@ -58,6 +58,16 @@ public class MimicHomeGoal extends Goal {
         if (home == null) {
             return false;
         }
+        // <b>근무 중인 경비대원은 밤에 귀가하지 않는다.</b> 밤은 이들의 근무 시간이다.
+        //
+        // 실측(경계 무대): 소속 13명이 밤새 한 발도 안 움직였다. 이 goal 이 NIGHT 에 먼저 켜져
+        // MOVE 를 잡으면, 같은 우선순위(4)인 경비 goal 은 SLEEP 에 들어와도 끼어들 수 없다
+        // (선점은 더 높은 순위만 한다). 군인 야간 순찰이 한 번도 작동한 적 없던 것도 밤 스킵
+        // 하나가 아니라 이 구조가 겹친 것이다. 위급이면 예외 — 굶는 자는 경계 goal 도
+        // 물러나므로 귀가해서 먹는 것이 맞다.
+        if (mob.inPoorhouse() && !mob.isCritical() && !FarmTicker.isSoldier(mob)) {
+            return false;
+        }
         Schedule.Phase ph = phase();
         if (ph == Schedule.Phase.NIGHT) {
             return !mob.isCritical(); // 밤 대기 점유(배회 왕복 방지) — 단 위급이면 R6 채집(6)에 양보

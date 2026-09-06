@@ -32,6 +32,12 @@ public class MimicRestGoal extends Goal {
         if (ind == null) {
             return false;
         }
+        // 근무 중인 경비대원은 밤에 자지 않는다 — 귀가 goal 과 같은 예외(MimicHomeGoal 참조).
+        // 우선순위는 경계(4)보다 낮은 5 라 직접 선점하진 않지만, 경계가 잠시 물러난 틈에
+        // 자리를 잡으면 되찾을 수 없어 같은 규칙으로 막는다.
+        if (mob.inPoorhouse() && !mob.isCritical() && !FarmTicker.isSoldier(mob)) {
+            return false;
+        }
         // 공격받는 중·불붙음이면 취침 불가 → 즉시 일어남. (isOnFire: 화염 피해는 간헐이라 hurtTime
         // 만으로는 10틱 기상↔재취침 진동 — 불이 꺼질 때까지 깨어 있는다. getTarget 조건은 미믹이
         // 자기 타깃을 설정하는 코드가 전무해 절대 참이 안 되는 죽은 조건이라 제거.)

@@ -2500,6 +2500,17 @@ public final class FarmTicker {
         }
         double floor = com.evosim.core.FoodEconomy.consumptionPerDay(
                 m.getStage(), com.evosim.core.Activity.MOVE, ind, false);
+        // <b>굶으면 생존선을 부른다.</b> 경사만으로는 "구걸은 하는데 요구가 비싸 안 뽑히는"
+        // 구간이 다시 생긴다: 9.0 × gather × (1−절박도) ≤ 4.5 를 풀면 <b>절박도 0.5 이상</b>
+        // 이라야 하는데, 구걸을 켜는 선(starving)은 그보다 훨씬 헐겁다. 실측(무대 런):
+        // 미충족 5 · 빈자리 10 · 채용 0 — 거지들이 정원 베리를 먹어 절박도가 0.5 아래로
+        // 내려간 순간 전부 배제됐다.
+        //
+        // 굶는 판정을 넘으면 요구를 생존선으로 눌러, <b>구걸하는 자는 뽑힐 수 있게</b> 한다.
+        // 값을 깎는 것이지 자격을 따로 두는 것이 아니다 — 판정선은 여전히 요구 ≤ 캡 하나다.
+        if (starving(level, m)) {
+            return floor;
+        }
         return Math.max(floor, outside * (1.0 - urgency));
     }
 
@@ -2697,7 +2708,20 @@ public final class FarmTicker {
                 }
                 // <b>자격은 협상이 정한다</b>(아래 요구 vs 캡). 여기서는 절대 상한만 미리
                 // 걸러 자리 계산을 아낀다 — 요구가 상한을 넘는 자는 어느 지주도 못 쓴다.
-                if (guardAskWage(level, m) > Facilities.GUARD_WAGE_MAX) {
+                //
+                // <b>조용히 거르지 않는다.</b> 이 필터가 무음이던 탓에 "미충족 5 · 빈자리 10 ·
+                // 채용 0 · 결렬 로그 0" 이라는 읽을 수 없는 상태가 나왔다(실측). 굶어서
+                // 구걸까지 하는 자가 밀렸을 때만 남긴다 — 온 마을이 매일 찍히면 신호가 묻힌다.
+                double pre = guardAskWage(level, m);
+                if (pre > Facilities.GUARD_WAGE_MAX) {
+                    if (m.getBegStreak() > 0) {
+                        com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
+                                "지원배제 — 요구 %.1f > 상한 %.1f (바깥벌이 %.1f · 구걸 %d일)",
+                                pre, Facilities.GUARD_WAGE_MAX,
+                                Facilities.GUARD_OUTSIDE_DAY
+                                        * com.evosim.core.Multipliers.gather(m.getIndividual()),
+                                m.getBegStreak()));
+                    }
                     continue;
                 }
                 FacilityStore.Entry best = null;

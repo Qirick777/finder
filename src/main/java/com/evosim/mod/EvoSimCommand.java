@@ -5946,11 +5946,12 @@ public final class EvoSimCommand {
             pinned++;
         }
         tell(ctx.getSource(), String.format(
-                "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음 — 봉급 %.1f · 소지 %.1f 선지급.\n"
+                "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음 — 합의봉급 %.1f · 소지 2.0 ·"
+                + " 저장고 0(굶는 선 아래 유지 — 안 그러면 요구가 뛰어 그 밤에 이탈한다).\n"
                 + "  이제 볼 것은 <경계> 줄 하나다: \"밤 근무 끝 — 순찰 지점 N곳\".\n"
                 + "  N=0 이면 밤에 안 돈 것이다(리시 선점·표적 미도달·위급 중 하나).",
                 house.pos.getX(), house.pos.getZ(), pinned,
-                Facilities.POORHOUSE_STIPEND, Facilities.POORHOUSE_STIPEND * 2.0));
+                Facilities.POORHOUSE_STIPEND));
         return 1;
     }
 

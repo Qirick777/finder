@@ -3273,7 +3273,9 @@ public class MimicEntity extends PathfinderMob {
         }
         BlockPos centre = studentCentre(sl, id, homePos);
         BlockPos site = facilitySite(sl, centre, tpl.get(),
-                FarmTicker.studentHomesOf(sl, id));
+                FarmTicker.studentHomesOf(sl, id),
+                new GapSpec(reg, FacilityTemplate.Group.SCHOOL, Facilities.SCHOOL_MIN_GAP,
+                        0L, Facilities.SCHOOL_MIN_GAP));
         // <b>학교끼리 거리</b> — 반경이 겹치면 같은 아이를 나눠 가져 둘 다 정원을 못 채우고,
         // 교사 급여는 각각 나가 둘 다 적자가 된다. 수요 판정(빈자리 있는 학교가 닿는가)이
         // 대개 막지만 그것은 그날의 등록 수를 보므로 아이가 자라 빠지는 날에 구멍이 생긴다.
@@ -3287,9 +3289,9 @@ public class MimicEntity extends PathfinderMob {
         }
         if (site == null) {
             SimEvents.event(founder, "학교", String.format(
-                    "자리 없음 — 추종자%d · 저장고 %.0f · 거부 집%d 밭%d 물%d 낙차%d",
+                    "자리 없음 — 추종자%d · 저장고 %.0f · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
                     followers, larder, SITE_REJECT[0], SITE_REJECT[1],
-                    SITE_REJECT[2], SITE_REJECT[3]));
+                    SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4]));
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
@@ -3300,8 +3302,8 @@ public class MimicEntity extends PathfinderMob {
         SimEvents.event(founder, "학교", String.format(
                 "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 자리%d"
                         + " · 이용자중심 @%d,%d 에서 %.0f블록 · 못닿던학생" + unserved
-                        + String.format(" · 안쪽거부 집%d 밭%d 물%d 낙차%d", SITE_REJECT[0],
-                                SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]),
+                        + String.format(" · 안쪽거부 집%d 밭%d 물%d 낙차%d 간격%d", SITE_REJECT[0],
+                                SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4]),
                 site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers,
                 Facilities.SCHOOL_COST, larder, larder - Facilities.SCHOOL_COST,
                 tpl.get().seats().size(), centre.getX(), centre.getZ(),
@@ -3369,11 +3371,14 @@ public class MimicEntity extends PathfinderMob {
         if (tpl.isEmpty()) {
             return larder;
         }
-        BlockPos site = facilitySite(sl, homePos, tpl.get(), FarmTicker.followerHomesOf(id));
+        BlockPos site = facilitySite(sl, homePos, tpl.get(), FarmTicker.followerHomesOf(id),
+                new GapSpec(reg, FacilityTemplate.Group.POORHOUSE, Facilities.POORHOUSE_GAP_OTHER,
+                        id, Facilities.POORHOUSE_GAP_SAME));
         if (site == null) {
             SimEvents.event(founder, "구빈원", String.format(
-                    "자리 없음 — 거부 집%d 밭%d 물%d 낙차%d",
-                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]));
+                    "자리 없음 — 거부 집%d 밭%d 물%d 낙차%d 간격%d",
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
+                    SITE_REJECT[4]));
             return larder;
         }
         String clash = facilityGapFault(reg, site, FacilityTemplate.Group.POORHOUSE,
@@ -3439,7 +3444,9 @@ public class MimicEntity extends PathfinderMob {
         if (tpl.isEmpty()) {
             return larder;
         }
-        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id));
+        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id),
+                new GapSpec(reg, FacilityTemplate.Group.CHURCH, Facilities.CHURCH_MIN_GAP,
+                        0L, Facilities.CHURCH_MIN_GAP));
         if (site != null) {
             // 같은 갈래는 96, 다른 갈래(학교·막사)는 24 — 갈래 간 규칙이 종전에는 없었다.
             String clash = facilityGapFault(reg, site, FacilityTemplate.Group.CHURCH,
@@ -3451,9 +3458,9 @@ public class MimicEntity extends PathfinderMob {
         }
         if (site == null) {
             SimEvents.event(founder, "교회", String.format(
-                    "자리 없음 — %s · 주변%d명 · 거부 집%d 밭%d 물%d 낙차%d",
+                    "자리 없음 — %s · 주변%d명 · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
                     kind.label, nearby, SITE_REJECT[0], SITE_REJECT[1],
-                    SITE_REJECT[2], SITE_REJECT[3]));
+                    SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4]));
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
@@ -3546,11 +3553,14 @@ public class MimicEntity extends PathfinderMob {
         if (tpl.isEmpty()) {
             return larder;
         }
-        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id));
+        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id),
+                new GapSpec(reg, FacilityTemplate.Group.BARRACKS, Facilities.BARRACKS_MIN_GAP,
+                        0L, Facilities.BARRACKS_MIN_GAP));
         if (site == null) {
             SimEvents.event(founder, "막사", String.format(
-                    "자리 없음 — 못지킴%d가구 · 거부 집%d 밭%d 물%d 낙차%d",
-                    unguarded, SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]));
+                    "자리 없음 — 못지킴%d가구 · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
+                    unguarded, SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
+                    SITE_REJECT[4]));
             return larder;
         }
         String clash = facilityGapFault(reg, site, FacilityTemplate.Group.BARRACKS,
@@ -3642,7 +3652,8 @@ public class MimicEntity extends PathfinderMob {
      * 밭인지 물인지 셀 수 없었다. 회피 여유·원 근사·이웃 반경을 차례로 고치면서도 매번
      * <b>추측</b>으로 다음 후보를 골랐다. 이 네 수가 그 추측을 끝낸다.
      */
-    private static final int[] SITE_REJECT = new int[4];
+    /** 부지 후보 거부 사유 집계 — [집, 밭, 물, 낙차, <b>간격</b>]. */
+    private static final int[] SITE_REJECT = new int[5];
 
     /**
      * <b>부지 탐색 시험대</b> — 지정 좌표에서 학교 자리를 찾아 보고, 무엇이 막았는지 돌려준다.
@@ -3662,9 +3673,10 @@ public class MimicEntity extends PathfinderMob {
                 : String.format("@%d,%d (%.0f블록)", site.getX(), site.getZ(),
                         Math.sqrt(from.distSqr(new BlockPos(site.getX(), from.getY(),
                                 site.getZ()))));
-        return String.format("중심 @%d,%d → %s · 거부 집%d 밭%d 물%d 낙차%d · 반폭 x%.1f z%.1f",
+        return String.format("중심 @%d,%d → %s · 거부 집%d 밭%d 물%d 낙차%d 간격%d · 반폭 x%.1f z%.1f",
                 from.getX(), from.getZ(), where, SITE_REJECT[0], SITE_REJECT[1],
-                SITE_REJECT[2], SITE_REJECT[3], tpl.get().halfX(), tpl.get().halfZ());
+                SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4],
+                tpl.get().halfX(), tpl.get().halfZ());
     }
 
     @Nullable
@@ -3672,9 +3684,28 @@ public class MimicEntity extends PathfinderMob {
         return facilitySite(sl, from, tpl, List.of());
     }
 
+    /**
+     * <b>간격 요건</b> — 후보를 고를 때 미리 거르기 위한 묶음. {@code null} 이면 검사하지 않는다.
+     *
+     * <p>종전에는 자리를 <b>고른 뒤에</b> {@link #facilityGapFault} 로 검사해서, 걸리면 그냥
+     * 보류하고 다음 날 <b>같은 자리를 또</b> 골랐다 — 영영 못 짓는다. 실측(시드11 d9):
+     * 지주가 저장고 224 를 쥐고도 학교·교회가 매일 "구빈원와 12블록 (최소 24)" 로 보류됐다.
+     * 탐색은 이용자 무게중심에서 고리를 넓히며 도는데, 그 중심이 구빈원 근처라 안쪽 고리만
+     * 계속 후보로 나왔기 때문이다. 후보 단계에서 걸러야 탐색이 <b>더 먼 고리로 밀려난다</b>.
+     */
+    private record GapSpec(FacilityStore reg, FacilityTemplate.Group group,
+                           double sameGap, long ownerId, double sameOwnerGap) {
+    }
+
     @Nullable
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl,
                                          List<BlockPos> students) {
+        return facilitySite(sl, from, tpl, students, null);
+    }
+
+    @Nullable
+    private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl,
+                                         List<BlockPos> students, @Nullable GapSpec gap) {
         java.util.Arrays.fill(SITE_REJECT, 0);
         BlockPos best = null;
         int bestCover = -1;
@@ -3719,6 +3750,12 @@ public class MimicEntity extends PathfinderMob {
                 if (bad) {
                     SITE_REJECT[0]++;
                     continue;
+                }
+                if (gap != null && facilityGapFault(gap.reg(),
+                        new BlockPos(cx, from.getY(), cz), gap.group(),
+                        gap.sameGap(), gap.ownerId(), gap.sameOwnerGap()) != null) {
+                    SITE_REJECT[4]++;
+                    continue; // 다른 시설과 너무 가깝다 — 더 먼 고리에서 다시 본다
                 }
                 int lo = Integer.MAX_VALUE;
                 int hi = Integer.MIN_VALUE;
@@ -4043,11 +4080,13 @@ public class MimicEntity extends PathfinderMob {
             wellNote("보류 — 도면을 읽지 못했다(well.nbt)");
             return larder;
         }
-        BlockPos site = facilitySite(sl, centre, tpl.get(), homes);
+        BlockPos site = facilitySite(sl, centre, tpl.get(), homes,
+                new GapSpec(reg, FacilityTemplate.Group.WELL, Facilities.WELL_GAP, 0L, Facilities.WELL_GAP));
         if (site == null) {
-            wellNote(String.format("자리 없음 — 중심 @%d,%d(%d채) · 거부 집%d 밭%d 물%d 낙차%d",
+            wellNote(String.format("자리 없음 — 중심 @%d,%d(%d채) · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
                     centre.getX(), centre.getZ(), bestNear,
-                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3]));
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
+                    SITE_REJECT[4]));
             return larder;
         }
         String clash = facilityGapFault(reg, site, FacilityTemplate.Group.WELL,

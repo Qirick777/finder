@@ -208,6 +208,12 @@ public class MimicEntity extends PathfinderMob {
     private int neglectTicks = 0;               // 집·저장고 있음인데 위급 유지 지속 틱(진단, 휘발)
     /** 위급방치 진단을 남기는 지속 틱 — 400틱(20초)이면 가족틱(1200) 한 번을 놓친 뒤다. */
     private static final int NEGLECT_REPORT_TICKS = 400;
+    private long lastIdleWhyTick = -99999L;     // 무노동 진단 마지막 기록 틱(진단, 휘발)
+    /**
+     * <b>무노동</b> 진단을 남기는 무수확 지속 틱 — 6000틱(하루 1/4). 근무 구간을 통째로
+     * 날린 뒤라야 찍히므로, 정상적으로 밭·정원만 손대는 지주는 걸리지 않는다.
+     */
+    private static final long IDLE_REPORT_TICKS = 6000L;
     private boolean wasCritical = false;        // 위급 전이 감지(로그 1회용, 휘발)
     private boolean introLogged = false;        // 등장(개체 변수) 로그 1회용 — 로그 ON 상태에서만 소모
     private int mobilizedState = -1;            // R4 동원 전이 감지(-1 미정 / 0 넉넉 / 1 동원)
@@ -4984,6 +4990,7 @@ public class MimicEntity extends PathfinderMob {
         } else {
             neglectTicks = 0;
         }
+        idleWhy();
         if (holding > 0.0) {
             hungerGraceTicks = 0;
             return;
@@ -6605,6 +6612,59 @@ public class MimicEntity extends PathfinderMob {
 
     public boolean isFastSettle() {
         return fastSettle;
+    }
+
+    /**
+     * <b>무노동</b> — 성인이 근무 시간에 <b>하루 1/4 동안 한 톨도 못 벌었다</b>는 사실을
+     * 관문값과 함께 남긴다.
+     *
+     * <p>{@code 정원멍}(채집 goal 안)과 {@code 위급방치}(굶을 때만)로는 못 잡는 구멍이 있다.
+     * 실측(gap 런): 엘리트 #19 부부가 d1~d9 내내 활동 로그 <b>0줄</b>이었다 — 채집도 정원멍도
+     * 위급방치도 아무것도 안 찍혔다. 채집 기록에는 샘플링이 없으니 0줄은 진짜 0회다. 즉
+     * <b>침묵으로 빠지는 경로</b>가 있다는 뜻인데, 후보가 둘이고 로그가 없어 가릴 수 없었다:
+     *   ⓐ {@link MimicForageGoal#canUse} 앞쪽의 무음 조기 반환(무대시드·건축중·돌봄전담).
+     *   ⓑ 우선순위가 더 높은 goal 이 물고 있어 {@code canUse} 가 <b>아예 안 불린다</b> —
+     *      이 경우 채집 goal 안에 어떤 진단기를 달아도 영영 0을 찍는다.
+     * 그래서 진단기를 goal 밖(가족틱)으로 빼고, 가르는 값을 <b>전부</b> 같이 남긴다.
+     *
+     * <p>순수 계측이다 — 판정을 바꾸지 않는다. 밭·정원만 손대는 지주는 수확이 곧
+     * {@link #addHarvest} 라 걸리지 않고, 유아·소년·돌봄전담은 애초에 제외한다.
+     */
+    private void idleWhy() {
+        if (individual == null || !(level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return;
+        }
+        if (getStage() != LifeStage.ADULT || homePos == null || isCaregiverBound()) {
+            return; // 자급 대상이 아니거나 부엌일 전담 — 무노동이 정상인 쪽(방랑자는 거처가 없다)
+        }
+        Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
+        if (phase != Schedule.Phase.WORK) {
+            return; // 근무 시간에만 묻는다
+        }
+        long now = com.evosim.mod.entity.SimTime.tick(sl);
+        if (now - lastForageSuccessTick < IDLE_REPORT_TICKS
+                || now - lastIdleWhyTick < IDLE_REPORT_TICKS) {
+            return;
+        }
+        lastIdleWhyTick = now;
+        StringBuilder goals = new StringBuilder();
+        goalSelector.getRunningGoals().forEach(w -> {
+            if (goals.length() > 0) {
+                goals.append('+');
+            }
+            goals.append(w.getGoal().getClass().getSimpleName()
+                    .replace("Mimic", "").replace("Goal", ""));
+        });
+        SimEvents.event(this, "무노동", String.format(
+                "근무인데 %d틱째 수확 0 — 무대시드=%b 건축중=%b 채집자격=%b 위급=%b 돌봄전담=%b"
+                + " 제공자=%b 넉넉=%b 밭소유=%b 밭일없음=%b · 저장고 %.1f · 거처까지 %.1f블록"
+                + " · 실행 goal [%s]",
+                now - lastForageSuccessTick, fastSettle, isBuilding(),
+                SurvivalRules.canGather(getStage(), individual), isCritical(), isCaregiverBound(),
+                isProviderRole(), larderComfortable(), ownsFarm(), farmHasNoWork(),
+                LarderStore.get(sl).get(homePos),
+                Math.sqrt(blockPosition().distSqr(homePos)),
+                goals.length() == 0 ? "없음" : goals.toString()));
     }
 
     /** 채집/사냥으로 확보한 식량을 소지분 H에 더한다(R2). 방랑자(집 없음)는 밴드 상한에서 컷. */

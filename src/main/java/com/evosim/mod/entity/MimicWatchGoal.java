@@ -203,6 +203,19 @@ public class MimicWatchGoal extends Goal {
         double dx = mob.getX() - (spot.getX() + 0.5);
         double dz = mob.getZ() - (spot.getZ() + 0.5);
         double d2 = night ? dx * dx + dz * dz : mob.blockPosition().distSqr(spot);
+        // <b>밤 근무 중 400틱마다 상태를 남긴다.</b> 새벽의 "순찰 지점 0곳" 한 줄로는 도착
+        // 실패인지 길찾기 실패인지 표적 선정 오류인지 가릴 수 없다 — 이미 네 번 헛짚었다.
+        // 표적·수평거리·nav 상태·travel·stand 를 같이 찍으면 어느 고리인지 그 자리에서 읽힌다.
+        // (% 400 < 2: Mob.serverAiStep 은 goal tick 을 <b>격틱</b>으로 돌리므로 == 0 만 보면
+        // 홀수 id 개체는 영영 안 찍힌다.)
+        if (night && mob.level() instanceof net.minecraft.server.level.ServerLevel sl
+                && SimTime.tick(sl) % 400L < 2L) {
+            SimEvents.event(mob, "경계중", String.format(
+                    "표적 @%d,%d · 수평 %.1f블록(도착선 %.0f) · nav %s · travel %d · stand %d · 방문 %d",
+                    spot.getX(), spot.getZ(), Math.sqrt(d2), arrive,
+                    mob.getNavigation().isDone() ? "done" : "진행",
+                    travel, stand, visits));
+        }
         if (d2 > arrive * arrive) {
             mob.getLookControl().setLookAt(spot.getX() + 0.5, spot.getY() + 1.0, spot.getZ() + 0.5);
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);

@@ -647,6 +647,30 @@ public final class EvoTest {
         report.add("vocation/군인축분리", vocSoldier,
                 "용감함은 군인 희망도만 올리고 경비 임금계수는 안 건드린다 — 두 축이 안 섞인다",
                 vocSoldier ? "정상" : "어긋남");
+        // ── 경비세 곡선 ──────────────────────────────────────────────────
+        //
+        // 세금이 <b>축적 조절 장치</b>가 되면서 모양이 뜻을 갖는다(지시: "16까지는 적절히,
+        // 그 위로는 많이"). 상수 하나만 흔들려도 "누가 얼마를 내는가"가 통째로 바뀌므로
+        // 꺾임점과 양 끝을 못박는다.
+        double knee = com.evosim.mod.entity.Facilities.GUARD_TAX_KNEE;
+        double tmax = com.evosim.mod.entity.Facilities.GUARD_TAX_MAX;
+        double tk = com.evosim.mod.entity.Facilities.GUARD_TAX_K;
+        checkNum(report, "guardtax/꺾임점절반", tmax / 2.0, guardTax(knee, tmax, tk, knee),
+                "꺾임점(저장고 16)에서 정확히 최대의 절반");
+        boolean taxShape =
+                guardTax(knee - 4.0, tmax, tk, knee) < 0.15          // 12 → 거의 면세
+                && guardTax(knee + 4.0, tmax, tk, knee) > tmax * 0.9 // 20 → 거의 최대
+                && guardTax(0.0, tmax, tk, knee) < 0.01              // 빈털터리는 0
+                && guardTax(100.0, tmax, tk, knee) <= tmax;          // 상한을 넘지 않는다
+        report.add("guardtax/모양", taxShape,
+                "12 면세 · 16 절반 · 20 거의 최대 · 상한 초과 없음",
+                taxShape ? "정상" : "어긋남");
+        // 유보(2일치)가 번식 임계 아래로 못 내려가게 막는지 — 세금이 출산을 막으면 안 된다.
+        boolean taxFloor = com.evosim.core.Tribute.payable(12.0, 6.0) == 0.0
+                && com.evosim.core.Tribute.payable(20.0, 6.0) == 8.0;
+        report.add("guardtax/유보", taxFloor,
+                "부부(소모 6.0)는 저장고 12 아래로 안 내려간다 — 번식 임계와 같은 자리",
+                taxFloor ? "정상" : "어긋남");
         // 관리 등급 — max 에서 합산으로. 종전에는 눈썰미Ⅳ+명석 · 눈썰미Ⅴ+명석 · 능력Ⅴ둘+명석+깜냥이
         // 전부 g5 로 같았다(상한에서 버려짐). 이제 모일수록 오르고, 능력 0이면 여전히 정확히 0이다.
         boolean brainMg = Multipliers.manageAbilityGrade(one(Sex.MALE,
@@ -2514,6 +2538,11 @@ public final class EvoTest {
             ind.addTrait(ti);
         }
         return ind;
+    }
+
+    /** 경비세 곡선 — FarmTicker 의 징수식과 <b>같은 식</b>이어야 한다(두 벌로 두면 어긋난다). */
+    private static double guardTax(double larder, double max, double k, double knee) {
+        return max / (1.0 + Math.exp(-k * (larder - knee)));
     }
 
     private static void checkNum(Report report, String id, double expected, double actual, String note) {

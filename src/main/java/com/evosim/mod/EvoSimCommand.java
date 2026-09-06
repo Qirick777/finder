@@ -101,6 +101,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("homenight").executes(EvoSimCommand::homeNight))
                 .then(Commands.literal("heirtest").executes(EvoSimCommand::heirStage))
                 .then(Commands.literal("poortest").executes(EvoSimCommand::poorStage))
+                .then(Commands.literal("watchtest").executes(EvoSimCommand::watchStage))
                 .then(Commands.literal("heirshow").executes(ctx -> heirShow(ctx, false)))
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
@@ -5892,6 +5893,58 @@ public final class EvoSimCommand {
                 Facilities.POORHOUSE_COST + 6.0 * Facilities.POORHOUSE_RESERVE_MULT,
                 Facilities.POORHOUSE_RANK_RADIUS, Facilities.POORHOUSE_UNSERVED));
         tell(ctx.getSource(), sb.toString());
+        return 1;
+    }
+
+    /**
+     * <b>야간 경계 무대</b> — 경비대를 세우고 대원을 <b>못박은 뒤</b> 순찰만 관찰한다.
+     *
+     * <p>{@code poortest} 로는 순찰을 볼 수 없다. 그 무대는 <b>채용 판정</b>을 재는 것이라
+     * 거지가 실제로 뽑힐지는 그날의 굶주림에 달렸는데, 무대 거지는 구휼·정원 베리로 밤 정산
+     * 시점엔 배가 차 있어 요구가 바깥벌이 전액으로 뛴다(실측: 세 런 연속 "지원배제 — 요구
+     * 9.5 > 상한 4.5"). 우연히 뽑힌 한 명은 이튿날 기근 이주로 마을을 떴다.
+     *
+     * <p>그래서 채용을 건너뛰고 <b>소속을 직접 준다</b> — 군인 쪽 {@code foetest} 가 개체를
+     * 막사 소속으로 못박는 것과 같은 성격의 점검 발판이다. 이 명령이 재는 것은 오직
+     * "밤에 순찰이 도는가"이고, 채용 경제는 {@code poortest} 가 따로 잰다.
+     */
+    private static int watchStage(CommandContext<CommandSourceStack> ctx) {
+        poorStage(ctx);
+        ServerLevel level = ctx.getSource().getLevel();
+        FacilityStore reg = FacilityStore.get(level);
+        FacilityStore.Entry house = null;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.POORHOUSE) {
+                house = e;
+                break;
+            }
+        }
+        if (house == null) {
+            tell(ctx.getSource(), "§c경비대 건물이 아직 없다 — 밤 정산 한 번 뒤에 다시 부른다."
+                    + " (poortest 만 세워진 상태)");
+            return 0;
+        }
+        LarderStore lar = LarderStore.get(level);
+        int pinned = 0;
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
+                e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
+                        && !e.inPoorhouse()
+                        && FarmStore.get(level).ownedCount(e.getIndividual().id()) == 0)) {
+            m.setPoorhouse(house.pos);
+            m.setGuardWage(Facilities.POORHOUSE_STIPEND);
+            // 굶어 죽지 않게 손에 이틀치를 쥐여 준다 — 위급이면 경계 goal 이 물러난다.
+            m.setDayHarvest(m.getHolding() + Facilities.POORHOUSE_STIPEND * 2.0);
+            lar.set(m.getHomePos(), Math.max(lar.get(m.getHomePos()),
+                    Facilities.POORHOUSE_STIPEND * 2.0));
+            pinned++;
+        }
+        tell(ctx.getSource(), String.format(
+                "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음 — 봉급 %.1f · 소지 %.1f 선지급.\n"
+                + "  이제 볼 것은 <경계> 줄 하나다: \"밤 근무 끝 — 순찰 지점 N곳\".\n"
+                + "  N=0 이면 밤에 안 돈 것이다(리시 선점·표적 미도달·위급 중 하나).",
+                house.pos.getX(), house.pos.getZ(), pinned,
+                Facilities.POORHOUSE_STIPEND, Facilities.POORHOUSE_STIPEND * 2.0));
         return 1;
     }
 

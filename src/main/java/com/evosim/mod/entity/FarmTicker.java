@@ -2723,14 +2723,19 @@ public final class FarmTicker {
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
                 GUARD_UNPAID.remove(m.getId());
-                // <b>선지급.</b> 봉급은 밤 정산에서 나가는데, 굶어서 들어온 자는 그 하루를 못
-                // 버틴다 — 낮 노동을 막아 놓았으므로 벌 길이 아예 없다(실측: 채용 당일 밤
-                // 굶주림 피해 → 이튿날 기근 이주). 채용 시점에 하루치를 먼저 준다.
+                // <b>선지급 — 손에 쥐여 준다.</b> 봉급은 밤 정산에서 나가는데, 굶어서 들어온
+                // 자는 그 하루를 못 버틴다(낮 노동을 막아 놓았으므로 벌 길이 없다).
+                //
+                // <b>제 집 저장고에 넣으면 소용이 없다.</b> 실측: 구걸하러 나온 대원이 채용
+                // 시점에 제 집에서 35블록 떨어져 있었고, 저장고를 채워 줬는데도 소지 H 0.00
+                // 으로 그 자리에서 굶주림 피해를 받았다. 위급이면 경계 goal 이 물러나므로
+                // 순찰도 못 돈다. 구휼(receiveAlms)이 소지에 직접 주는 것과 같은 이유다 —
+                // 굶는 자에게 필요한 것은 창고가 아니라 지금 먹을 것이다.
                 double advance = Math.min(Facilities.POORHOUSE_STIPEND,
                         Math.max(0.0, larders.get(boss.getHomePos())));
                 if (advance > 0.0) {
                     larders.set(boss.getHomePos(), larders.get(boss.getHomePos()) - advance);
-                    larders.set(m.getHomePos(), larders.get(m.getHomePos()) + advance);
+                    m.setDayHarvest(m.getHolding() + advance);
                     POOR_SUM[2] += advance;
                 }
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(

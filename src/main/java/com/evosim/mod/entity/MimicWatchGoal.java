@@ -114,10 +114,23 @@ public class MimicWatchGoal extends Goal {
             // 오래 드러나지 않은 것도 재는 눈이 없었기 때문이다. 하룻밤에 한 줄이라 시끄럽지도
             // 않고, 0 이면 0 이라고 말한다 — 침묵은 진단이 아니다.
             if (night && !sleep && mob.level() instanceof net.minecraft.server.level.ServerLevel) {
+                // <b>실행 중인 goal 을 같이 찍는다.</b> 이 로그는 canUse 에서 나오는데 canUse 는
+                // goal 이 <b>선택되지 않아도</b> 매 틱 평가된다 — 즉 "로그가 있다 = 순찰이
+                // 돌았다"가 아니다. 더 높은 우선순위(귀가·리시·전투)가 MOVE 를 물고 있으면
+                // tick() 은 한 번도 안 돌고, 그러면 순찰 지점이 0 인 이유를 밖에서 알 수 없다.
+                StringBuilder gs = new StringBuilder();
+                mob.goalSelector.getRunningGoals().forEach(w -> {
+                    if (gs.length() > 0) {
+                        gs.append('+');
+                    }
+                    gs.append(w.getGoal().getClass().getSimpleName()
+                            .replace("Mimic", "").replace("Goal", ""));
+                });
                 SimEvents.event(mob, "경계", String.format(
-                        "밤 근무 끝 — 순찰 지점 %d곳 · 경비대 @%d,%d 에서 %.0f블록",
+                        "밤 근무 끝 — 순찰 지점 %d곳 · 경비대 @%d,%d 에서 %.0f블록 · 실행 goal [%s]",
                         visits, post.getX(), post.getZ(),
-                        Math.sqrt(mob.blockPosition().distSqr(post))));
+                        Math.sqrt(mob.blockPosition().distSqr(post)),
+                        gs.length() == 0 ? "없음" : gs.toString()));
             }
             visits = 0;
             night = sleep;

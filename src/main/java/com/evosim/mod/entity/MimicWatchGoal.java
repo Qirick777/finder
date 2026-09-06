@@ -32,8 +32,21 @@ public class MimicWatchGoal extends Goal {
     /** 한 순찰 지점에 머무는 틱 — 도착한 뒤에만 센다(주둔과 같은 리듬). */
     private static final int STAND_TICKS = 60;
 
-    /** 도착 판정 — 설 수 있는 좌표에 쓴다(주둔과 같은 눈금). */
+    /** 도착 판정 — 시설처럼 <b>설 수 있는</b> 좌표에 쓴다(주둔과 같은 눈금). */
     private static final double ARRIVE = 2.5;
+
+    /**
+     * <b>집 표적의 도착 판정</b> — 순찰 표적은 남의 거처라 좌표가 구조물 안쪽이다.
+     *
+     * <p>{@link MimicGarrisonGoal} 이 압박 표적에서 이미 겪고 적어 둔 문제다: 2.5 로는 영영
+     * 도착이 성립하지 않아 체류 카운터가 안 올라가고, 다음 표적으로 못 넘어가 그 집 앞에
+     * 하염없이 서 있게 된다. 실측(경계 무대): goal 은 돌았는데 순찰 지점 0곳이었고 대원이
+     * 시설에서 22~30블록 지점에 흩어져 있었다.
+     *
+     * <p>군인이 쓰는 {@link FarmTicker#PRESSURE_NEAR} 를 그대로 읽는다 — "문 앞에 섰다"가
+     * 두 뜻이 되면 안 된다.
+     */
+    private static final double ARRIVE_HOME = FarmTicker.PRESSURE_NEAR;
 
     /**
      * 도착에 못 닿은 채 흐를 수 있는 최대 틱 — 넘으면 표적을 놓고 다음 것을 고른다.
@@ -163,8 +176,10 @@ public class MimicWatchGoal extends Goal {
         // 한 줄을 빠뜨렸다.
         mob.setGuardAnchor(spot);
         mob.setActivity(night ? "경계" : "대기");
+        // 밤 표적은 남의 거처(구조물 안쪽), 낮 표적은 시설(설 수 있는 자리) — 반경이 다르다.
+        double arrive = night ? ARRIVE_HOME : ARRIVE;
         double d2 = mob.blockPosition().distSqr(spot);
-        if (d2 > ARRIVE * ARRIVE) {
+        if (d2 > arrive * arrive) {
             mob.getLookControl().setLookAt(spot.getX() + 0.5, spot.getY() + 1.0, spot.getZ() + 0.5);
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);
             if (++travel >= TRAVEL_LIMIT) {

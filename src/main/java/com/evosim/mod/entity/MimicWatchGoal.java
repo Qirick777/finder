@@ -194,8 +194,15 @@ public class MimicWatchGoal extends Goal {
         mob.setGuardAnchor(spot);
         mob.setActivity(night ? "경계" : "대기");
         // 밤 표적은 남의 거처(구조물 안쪽), 낮 표적은 시설(설 수 있는 자리) — 반경이 다르다.
+        //
+        // <b>집 표적은 수평으로 잰다.</b> 표적 Y 는 heightmap(지붕 위)이고 대원은 지면에 서므로
+        // 3차원 거리로는 수평 0블록이어도 수직 차이만으로 반경을 넘긴다. 실측(경계 무대 7):
+        // 실행 goal [Watch] 로 밤새 걸어 새벽 위치가 @12,0 · @23,0 · @32,0 — 표적 집 좌표
+        // 그대로였는데 순찰 지점 0곳. "문 앞에 섰다"는 수평 판정이어야 한다.
         double arrive = night ? ARRIVE_HOME : ARRIVE;
-        double d2 = mob.blockPosition().distSqr(spot);
+        double dx = mob.getX() - (spot.getX() + 0.5);
+        double dz = mob.getZ() - (spot.getZ() + 0.5);
+        double d2 = night ? dx * dx + dz * dz : mob.blockPosition().distSqr(spot);
         if (d2 > arrive * arrive) {
             mob.getLookControl().setLookAt(spot.getX() + 0.5, spot.getY() + 1.0, spot.getZ() + 0.5);
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);

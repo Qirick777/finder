@@ -1,0 +1,175 @@
+package com.evosim.mod.entity;
+
+import com.evosim.core.LifeStage;
+import com.evosim.core.Schedule;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.ai.goal.Goal;
+
+import java.util.EnumSet;
+
+/**
+ * 경비 goal — 경비대원은 <b>낮에 경비대에서 쉬고 밤에 동네를 돈다</b>.
+ *
+ * <p>소속·봉급·입퇴소는 {@link FarmTicker#runPoorhouses} 가 하루 1회 정한다. 이 goal 은 그
+ * 소속을 읽어 행동만 한다 — 돈을 만지는 곳을 한 군데로 모으는 기존 규칙 그대로다.
+ *
+ * <p><b>군인({@link MimicGarrisonGoal})과 무엇이 다른가.</b> 군인은 주인의 추종 가구를 돌며
+ * 전쟁과 압박을 맡고, 경비대는 <b>시설 둘레의 집</b>을 돌며 밤 경계만 맡는다. 순찰 경로를
+ * 추종 가구가 아니라 시설 반경 안의 등기된 집에서 뽑는 이유가 그것이다 — 경비대는 세력의
+ * 무력이 아니라 동네의 조직이고, 주인이 누구든 이웃을 지킨다.
+ *
+ * <p><b>낮은 진짜로 쉰다.</b> 채집·사냥·정원은 {@link MimicForageGoal#canUse} 가 소속을 보고
+ * 통째로 끊는다. 그래서 이들의 수입은 봉급 하나뿐이고, 봉급은 성인 하루 소모와 같은 수로
+ * 맞춰 두었다({@link Facilities#POORHOUSE_STIPEND}). 지주가 봉급을 못 내면 그대로 굶는다 —
+ * 부양력이 정원을 제한한다는 규칙이 실제로 물리게 하는 자리다.
+ */
+public class MimicWatchGoal extends Goal {
+
+    /** 순찰 경로를 뽑는 시설 둘레 반경 — 이 안의 등기된 집이 곧 경계 구역이다. */
+    private static final double WATCH_RADIUS = 48.0;
+
+    /** 한 순찰 지점에 머무는 틱 — 도착한 뒤에만 센다(주둔과 같은 리듬). */
+    private static final int STAND_TICKS = 60;
+
+    /** 도착 판정 — 설 수 있는 좌표에 쓴다(주둔과 같은 눈금). */
+    private static final double ARRIVE = 2.5;
+
+    /**
+     * 도착에 못 닿은 채 흐를 수 있는 최대 틱 — 넘으면 표적을 놓고 다음 것을 고른다.
+     *
+     * <p>{@link MimicGarrisonGoal} 의 같은 장치와 같은 뜻이다. 경계 구역이 반경 48 이라
+     * 군인(96)보다 좁으므로 한도도 그만큼 짧게 잡는다 — 못 닿는 자리를 오래 붙들지 않는다.
+     */
+    private static final int TRAVEL_LIMIT = 300;
+
+    private final MimicEntity mob;
+    private BlockPos post;   // 경비대 등기 좌표
+    private BlockPos spot;   // 지금 가는 곳(낮=시설, 밤=순찰 지점)
+    private int stand;
+    private int travel;
+    private boolean night;
+    private int cursor = -1; // 순찰 경로 커서 — id 기준 시작점(대원마다 다른 구역)
+
+    public MimicWatchGoal(MimicEntity mob) {
+        this.mob = mob;
+        this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
+    }
+
+    @Override
+    public boolean canUse() {
+        if (mob.getIndividual() == null || mob.getStage() != LifeStage.ADULT
+                || mob.isBuilding() || mob.isFastSettle() || mob.isCourtTravel()) {
+            return false;
+        }
+        if (!mob.inPoorhouse()) {
+            post = null;
+            return false;
+        }
+        post = mob.getPoorhouse();
+        if (post == null) {
+            return false;
+        }
+        // 위급이면 물러난다 — 주둔과 같다. 봉급이 끊겨 굶는 상태이므로 경계를 시킬 자리가
+        // 아니고, 구걸 goal 이 시설로 데려간다.
+        if (mob.isCritical()) {
+            return false;
+        }
+        boolean sleep = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
+                == Schedule.Phase.SLEEP;
+        if (sleep != night) {
+            night = sleep;
+            spot = null; // 근무가 바뀌면 표적을 새로 고른다
+            stand = 0;
+            travel = 0;
+        }
+        if (spot == null) {
+            spot = night ? watchSpot() : post;
+            if (spot == null) {
+                spot = post;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean canContinueToUse() {
+        return canUse();
+    }
+
+    @Override
+    public void start() {
+        // 시설을 출근 앵커로 — 리시(우선순위 2)가 거처로 되끌지 않고 여기까지 데려다 준다.
+        mob.setWorkAnchor(post);
+        mob.setActivity(night ? "경계" : "대기");
+    }
+
+    @Override
+    public void stop() {
+        spot = null;
+        stand = 0;
+        travel = 0;
+        mob.setWorkAnchor(null);
+    }
+
+    @Override
+    public void tick() {
+        if (spot == null) {
+            return;
+        }
+        double d2 = mob.blockPosition().distSqr(spot);
+        if (d2 > ARRIVE * ARRIVE) {
+            mob.getLookControl().setLookAt(spot.getX() + 0.5, spot.getY() + 1.0, spot.getZ() + 0.5);
+            mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);
+            if (++travel >= TRAVEL_LIMIT) {
+                spot = night ? watchSpot() : post; // 못 닿는 자리 — 놓고 다음
+                travel = 0;
+                stand = 0;
+            }
+            return;
+        }
+        travel = 0;
+        if (!night) {
+            stand = 0;
+            return; // 낮 — 시설에 그대로 머문다(쉬는 것이 근무다)
+        }
+        if (++stand >= STAND_TICKS) {
+            spot = watchSpot();
+            stand = 0;
+        }
+    }
+
+    /**
+     * <b>순찰 표적 — 시설 둘레의 집들을 돈다.</b>
+     *
+     * <p>{@link MimicGarrisonGoal#patrolSpot} 과 같은 원리다. 무작위 들판 점을 돌면 아무것도
+     * 없는 곳을 돌게 되고 지형에 처박힌다 — 지킬 대상이 곧 경로여야 한다. 다만 목록을
+     * 뽑는 기준이 다르다: 군인은 <b>주인의 추종 가구</b>, 경비대는 <b>시설 반경 안의 집</b>
+     * 전부다(주인이 누구든 이웃을 지킨다).
+     *
+     * <p>집이 하나도 없으면 시설 자리를 그대로 돌려준다 — 돌 곳이 없으면 안 돈다.
+     */
+    private BlockPos watchSpot() {
+        if (post == null || !(mob.level() instanceof net.minecraft.server.level.ServerLevel sl)) {
+            return null;
+        }
+        java.util.List<BlockPos> route = new java.util.ArrayList<>();
+        for (BlockPos h : HomeStore.get(sl).positions()) {
+            if (h.distSqr(post) <= WATCH_RADIUS * WATCH_RADIUS) {
+                route.add(h);
+            }
+        }
+        if (route.isEmpty()) {
+            return post;
+        }
+        if (cursor < 0) {
+            cursor = (int) Math.floorMod(mob.getIndividual().id(), route.size());
+        }
+        BlockPos home = route.get(Math.floorMod(cursor, route.size()));
+        cursor++;
+        // 집 안이 아니라 문간에 선다 — 남의 거처 한가운데 서 있는 그림을 피한다.
+        int y = sl.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                home).getY();
+        return new BlockPos(home.getX(), y, home.getZ());
+    }
+}

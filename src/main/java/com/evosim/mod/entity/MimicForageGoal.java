@@ -104,6 +104,18 @@ public class MimicForageGoal extends Goal {
         if (!SurvivalRules.canGather(mob.getStage(), ind)) {
             return false; // 유아·일반소년은 자급 불가
         }
+        // <b>경비대는 낮에 쉰다.</b> 밤에 도끼 들고 경계하는 것이 이들의 노동이므로, 낮의
+        // 채집·사냥·정원은 전부 없다(지시 사양 "낮에는 경비대 내에서 쉬고, 야간에는 도끼 들고
+        // 경계한다"). 수입은 봉급 하나뿐이고, 그래서 봉급을 성인 하루 소모와 같은 수로
+        // 맞춰 두었다({@link Facilities#POORHOUSE_STIPEND}).
+        //
+        // <b>위급은 예외로 두지 않는다</b> — 아래 위급 관문보다 먼저 끊는다. 봉급이 소모와
+        // 같으니 정상 상태에서는 위급에 빠지지 않고, 빠졌다면 그것은 지주가 봉급을 못 낸
+        // 것이다. 그때 채집으로 스스로 메우게 하면 <b>부양력이 정원을 제한한다</b>는 규칙이
+        // 무력해진다 — 굶는 것이 곧 이탈 신호여야 한다.
+        if (mob.inPoorhouse()) {
+            return false;
+        }
         // R6/A-3: 위급(소지 고갈) — 저장고에 밥 있으면 귀가가 우선(MimicReturnGoal),
         // 저장고도 비었을 때만 배회·밤·취침 무시하고 채집을 강행한다(생존이 육아 구속보다 우선).
         if (mob.isCritical()) {

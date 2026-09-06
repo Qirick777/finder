@@ -349,6 +349,11 @@ public class MimicEntity extends PathfinderMob {
         // 주둔 — 밭일(6)보다 앞이다. 군인은 전업이라 근무 시간에 밭·채집으로 새면 안 된다.
         // 리시(2)보다는 뒤라 반경 이탈 시 호위를 받는다(막사가 앵커라 막사로 데려다 준다).
         this.goalSelector.addGoal(4, new MimicGarrisonGoal(this));
+        // 경비 — 주둔과 <b>같은 우선순위·같은 자리</b>에 둔다. 한 개체가 둘 다 걸리는 일은
+        // 없다(군인은 막사 배속, 경비대원은 시설 소속이고 승격하면 소속이 풀린다). 밤 귀가(4)
+        // 보다 <b>먼저 등록</b>해야 한다 — 같은 순위에서는 먼저 붙은 쪽이 MOVE 를 잡으므로,
+        // 뒤에 두면 야간 경계가 매일 밤 귀가에 선점당해 한 번도 안 돈다.
+        this.goalSelector.addGoal(4, new MimicWatchGoal(this));
         this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
         this.goalSelector.addGoal(2, new MimicShareGoal(this));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
         this.goalSelector.addGoal(3, new ElderVisitGoal(this));     // 노인 방문: 자식 집 배달·마실 육아(Return보다 앞)
@@ -3364,7 +3369,7 @@ public class MimicEntity extends PathfinderMob {
         double gate = Facilities.POORHOUSE_COST
                 + HomeTemplate.reserve(adultNeed) * Facilities.POORHOUSE_RESERVE_MULT;
         if (larder < gate) {
-            SimEvents.event(founder, "구빈원", String.format(
+            SimEvents.event(founder, "경비대", String.format(
                     "보류 — 저장고 %.0f < 문턱 %.0f (건축 %.0f + 여유 %.0f)",
                     larder, gate, Facilities.POORHOUSE_COST,
                     HomeTemplate.reserve(adultNeed) * Facilities.POORHOUSE_RESERVE_MULT));
@@ -3381,7 +3386,7 @@ public class MimicEntity extends PathfinderMob {
                 new GapSpec(reg, FacilityTemplate.Group.POORHOUSE, Facilities.POORHOUSE_GAP_OTHER,
                         id, Facilities.POORHOUSE_GAP_SAME));
         if (site == null) {
-            SimEvents.event(founder, "구빈원", String.format(
+            SimEvents.event(founder, "경비대", String.format(
                     "자리 없음 — 거부 집%d 밭%d 물%d 낙차%d 간격%d",
                     SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
                     SITE_REJECT[4]));
@@ -3390,7 +3395,7 @@ public class MimicEntity extends PathfinderMob {
         String clash = facilityGapFault(reg, site, FacilityTemplate.Group.POORHOUSE,
                 Facilities.POORHOUSE_GAP_OTHER, id, Facilities.POORHOUSE_GAP_SAME);
         if (clash != null) {
-            SimEvents.event(founder, "구빈원", "보류 — " + clash);
+            SimEvents.event(founder, "경비대", "보류 — " + clash);
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
@@ -3398,7 +3403,7 @@ public class MimicEntity extends PathfinderMob {
                 Facilities.POORHOUSE_COST);
         RoadPlanner.Obstacles.invalidate();
         assignFacilityRoad(sl, site, tpl.get());
-        SimEvents.event(founder, "구빈원", String.format(
+        SimEvents.event(founder, "경비대", String.format(
                 "착공 @%d,%d 회전%d%s — 밭%d타일 · 자리%d · 건축비 %.0f (저장고 %.0f→%.0f)"
                         + " · 기존 %d채",
                 site.getX(), site.getZ(), rot, mir ? "·반전" : "",
@@ -3695,7 +3700,7 @@ public class MimicEntity extends PathfinderMob {
      *
      * <p>종전에는 자리를 <b>고른 뒤에</b> {@link #facilityGapFault} 로 검사해서, 걸리면 그냥
      * 보류하고 다음 날 <b>같은 자리를 또</b> 골랐다 — 영영 못 짓는다. 실측(시드11 d9):
-     * 지주가 저장고 224 를 쥐고도 학교·교회가 매일 "구빈원와 12블록 (최소 24)" 로 보류됐다.
+     * 지주가 저장고 224 를 쥐고도 학교·교회가 매일 "경비대와 12블록 (최소 24)" 로 보류됐다.
      * 탐색은 이용자 무게중심에서 고리를 넓히며 도는데, 그 중심이 구빈원 근처라 안쪽 고리만
      * 계속 후보로 나왔기 때문이다. 후보 단계에서 걸러야 탐색이 <b>더 먼 고리로 밀려난다</b>.
      */
@@ -4477,14 +4482,15 @@ public class MimicEntity extends PathfinderMob {
      * <p>도구 선택은 개체 id 로 결정한다 — 난수를 쓰면 갱신마다 손에 든 것이 바뀐다.
      */
     public void setPauperGear(boolean on) {
-        net.minecraft.world.item.Item[] pool = {
-            net.minecraft.world.item.Items.STICK,
-            net.minecraft.world.item.Items.WOODEN_HOE,
-            net.minecraft.world.item.Items.WOODEN_SHOVEL,
-        };
-        long seed = individual != null ? individual.id() : getId();
+        // <b>돌도끼로 통일한다.</b> 종전에는 막대기·나무괭이·나무삽을 개체 id 로 골라 쥐어
+        // 줬다 — "손에 잡히는 것을 든 빈민"이라는 뜻이었다. 구빈원이 <b>경비대</b>가 되면서
+        // 그 뜻이 바뀐다: 이들은 채용된 야간 경계 인력이고, 지주가 무장을 대준다. 지시 사양
+        // "무장은 돌도끼를 들고 다니게 하자".
+        //
+        // 공격 가산({@link #PAUPER_ATTACK})은 그대로 속성으로 준다 — 무엇을 쥐든 같은 세기라
+        // 도구를 바꿔도 전투 수치는 안 변한다. 즉 이 줄은 <b>보이는 것만</b> 바꾼다.
         ItemStack tool = on
-                ? new ItemStack(pool[(int) Math.floorMod(seed, pool.length)]) : ItemStack.EMPTY;
+                ? new ItemStack(net.minecraft.world.item.Items.STONE_AXE) : ItemStack.EMPTY;
         if (!isBuilding() && !ItemStack.matches(getItemBySlot(EquipmentSlot.MAINHAND), tool)) {
             setItemSlot(EquipmentSlot.MAINHAND, tool);
             setDropChance(EquipmentSlot.MAINHAND, 0.0F);

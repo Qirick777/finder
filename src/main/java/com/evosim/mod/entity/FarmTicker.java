@@ -2437,7 +2437,7 @@ public final class FarmTicker {
      * 서버에 직접 물어야 했다(실측 20명 런). 그 한 번으로 충분하다.
      */
     private static void poorNote(ServerLevel level, String why) {
-        com.evosim.mod.log.SimEvents.note(level, "구빈원", why);
+        com.evosim.mod.log.SimEvents.note(level, "경비대", why);
     }
 
     private static double wealthOf(ServerLevel level, LarderStore larders, MimicEntity m) {
@@ -2617,7 +2617,7 @@ public final class FarmTicker {
                 m.setPoorhouse(null);
                 m.setBegStreak(0);
                 POOR_SUM[1]++;
-                com.evosim.mod.log.SimEvents.event(m, "구빈원", String.format(
+                com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
                         "퇴소 — 저장고 %.1f ≥ 퇴소선 %.0f", lar, Facilities.POORHOUSE_EXIT));
                 continue;
             }
@@ -2663,7 +2663,7 @@ public final class FarmTicker {
                 m.setPoorhouse(best.pos);
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
-                com.evosim.mod.log.SimEvents.event(m, "구빈원", String.format(
+                com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
                         "입소 @%d,%d — 연속구걸 %d일(문턱 %d%s) · %.0f블록",
                         best.pos.getX(), best.pos.getZ(), m.getBegStreak(), need,
                         need == 1 ? " · 게으름/멍청" : "", Math.sqrt(bd)));
@@ -2739,13 +2739,13 @@ public final class FarmTicker {
             boolean arm = m.inPoorhouse() && !isSoldier(m);
             m.setPauperGear(arm);
         }
-        // 하루 한 줄 — 밖에서 "구빈원이 도는가"를 수치로 볼 창구. 시설이 없으면 침묵한다.
+        // 하루 한 줄 — 밖에서 "경비대가 도는가"를 수치로 볼 창구. 시설이 없으면 침묵한다.
         if (!hs.isEmpty()) {
             int cap = 0;
             for (FacilityStore.Entry e : hs) {
                 cap += poorhouseSeats(level, e);
             }
-            com.evosim.mod.log.SimEvents.note(level, "구빈원", String.format(
+            com.evosim.mod.log.SimEvents.note(level, "경비대", String.format(
                     "%d채 · 소속 %.0f/%d · 입소 %.0f · 퇴소 %.0f · 지급 %.2f · 미지급 %.2f",
                     hs.size(), POOR_SUM[4], cap, POOR_SUM[0], POOR_SUM[1],
                     POOR_SUM[2], POOR_SUM[3]));
@@ -2845,7 +2845,7 @@ public final class FarmTicker {
                 }
             }
         }
-        com.evosim.mod.log.SimEvents.note(level, "구빈원", String.format(
+        com.evosim.mod.log.SimEvents.note(level, "경비대", String.format(
                 "등급별 — 멍청·무능 Ⅱ+ %d/%d (%.0f%%) · Ⅰ이하 %d/%d (%.0f%%)  [합격: Ⅱ+ ≥80%% · Ⅰ이하 ≤ Ⅱ+]",
                 hiIn, hiTotal, hiTotal == 0 ? 0.0 : 100.0 * hiIn / hiTotal,
                 loIn, loTotal, loTotal == 0 ? 0.0 : 100.0 * loIn / loTotal));
@@ -5582,7 +5582,7 @@ public final class FarmTicker {
             BEGGED_TODAY.add(m.getId());
             m.noteBegDay(com.evosim.mod.entity.SimTime.tick(level) / 24000L);
             com.evosim.mod.log.SimEvents.event(m, "구걸포기",
-                    "육아 구속 — 젖먹이를 두고 못 나간다(자립 실패로 셈 · 구빈원 즉시 자격)");
+                    "육아 구속 — 젖먹이를 두고 못 나간다(자립 실패로 셈 · 경비대 즉시 자격)");
             return false;
         }
         long me = m.getIndividual().id();
@@ -5606,7 +5606,7 @@ public final class FarmTicker {
             m.setBegTarget(ph.pos, ph.ownerId,
                     com.evosim.mod.entity.SimTime.tick(level) + BEG_TRAVEL);
             com.evosim.mod.log.SimEvents.event(m, "구걸출발", String.format(
-                    "일자리 없음(H %.2f) — 구빈원 @%d,%d 로(%.0f블록)",
+                    "일자리 없음(H %.2f) — 경비대 @%d,%d 로(%.0f블록)",
                     m.getHolding(), ph.pos.getX(), ph.pos.getZ(),
                     Math.sqrt(m.blockPosition().distSqr(ph.pos))));
             return true;
@@ -5707,7 +5707,7 @@ public final class FarmTicker {
             MimicEntity owner = byIndividual(level, ph.ownerId);
             if (owner == null || owner.getHomePos() == null) {
                 com.evosim.mod.log.SimEvents.event(m, "구걸",
-                        "구빈원에 갔으나 주인이 없다 — 허탕");
+                        "경비대에 갔으나 주인이 없다 — 허탕");
                 return;
             }
             payer = owner.getHomePos();
@@ -5724,7 +5724,7 @@ public final class FarmTicker {
         if (units < ALMS_UNIT) {
             com.evosim.mod.log.SimEvents.event(m, "구걸", String.format(
                     "%s 의 %s에서 허탕 — 여유 %.1f · 오늘 이미 %d 유닛 나감",
-                    who, atPoorhouse ? "구빈원" : "집", room, given));
+                    who, atPoorhouse ? "경비대" : "집", room, given));
             return;
         }
         larders.set(payer, larders.get(payer) - units);
@@ -5741,7 +5741,7 @@ public final class FarmTicker {
         double after = ledger.bondTo(m.getIndividual().id(), patron);
         com.evosim.mod.log.SimEvents.event(m, "구걸", String.format(
                 "%s%s 에게 %.1f 받음 — 신세 %.1f→%.1f(적립 +%.2f · 체감 후) · H %.2f",
-                atPoorhouse ? "구빈원에서 " : "", who, units, before, after,
+                atPoorhouse ? "경비대에서 " : "", who, units, before, after,
                 after - before, m.getHolding()));
     }
 

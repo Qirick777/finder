@@ -5844,7 +5844,7 @@ public final class EvoSimCommand {
      * 만드는 관계와 같은 것이고({@code W_RELIEF}), 자격 조건인 "추종 1가구"가 그것이다.
      *
      * <p>판정은 밤 정산이 한다. 세운 뒤 {@code evosim poor} 나 이벤트 로그의
-     * "[구빈원] 판정 — 미충족 N · M채 · 빈자리 K" 한 줄로 어디까지 갔는지 읽는다.
+     * "[경비대] 판정 — 미충족 N · M채 · 빈자리 K" 한 줄로 어디까지 갔는지 읽는다.
      */
     private static int poorStage(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
@@ -5878,7 +5878,7 @@ public final class EvoSimCommand {
             poor.setBegStreak(Facilities.POORHOUSE_ADMIT_STREAK); // noteBegDay 가 1 로 덮으므로 다시
             ledger.record(poor.getIndividual().id(), lordId, 30.0, 0.0, day);
         }
-        sb.append(String.format("§e[구빈원 무대]§r 지주 1(밭 24타일 · 저장고 60 · 재산 108)"
+        sb.append(String.format("§e[경비대 무대]§r 지주 1(밭 24타일 · 저장고 60 · 재산 108)"
                 + " + 거지 %d(저장고 0 · 연속구걸 %d일 · 신세 30)\n",
                 n, Facilities.POORHOUSE_ADMIT_STREAK));
         sb.append(String.format("  지주집 @%d,%d · 거지집 @%d,%d ~ @%d,%d\n",
@@ -5886,7 +5886,7 @@ public final class EvoSimCommand {
                 groundAt(level, b, 12, 0).getX(), groundAt(level, b, 12, 0).getZ(),
                 groundAt(level, b, 12 + (n - 1) * 10, 0).getX(),
                 groundAt(level, b, 12 + (n - 1) * 10, 0).getZ()));
-        sb.append("  판정은 밤 정산 — 이벤트 로그의 \"[구빈원] 판정\" 줄로 읽는다.\n");
+        sb.append("  판정은 밤 정산 — 이벤트 로그의 \"[경비대] 판정\" 줄로 읽는다.\n");
         sb.append(String.format("  문턱: 착공 %.0f + 여유 = %.0f · 자격 반경 %.0f · 정원 문턱 %d",
                 Facilities.POORHOUSE_COST,
                 Facilities.POORHOUSE_COST + 6.0 * Facilities.POORHOUSE_RESERVE_MULT,

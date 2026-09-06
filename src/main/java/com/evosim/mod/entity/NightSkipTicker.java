@@ -26,6 +26,20 @@ public final class NightSkipTicker {
      *  잔여 밤만 점프). 종전 "위급 시 스킵 전면 금지"는 굶주림 국면부터 관측이 ~5배 느려지는
      *  부작용(런6 실측: d5 밤부터 스킵 0회) — 생존 경로 보존과 관측 속도의 절충. */
     private static final long CRITICAL_GRACE_TOD = 18000L;
+    /**
+     * <b>경비 유예 경계</b> — 경비대원이 있으면 스킵을 여기까지 미룬다.
+     *
+     * <p>이 클래스의 전제는 "취침은 소모 0 이라 시뮬 결과 불변"인데, <b>경비대에게 밤은
+     * 근무 시간</b>이라 그 전제가 깨진다. {@link MimicGarrisonGoal} 주석에 적힌 실측이 이
+     * 자리에도 그대로 적용된다: 순찰 창이 tod 14000~14100 의 <b>100틱</b>뿐이면 대원이
+     * 표적에 닿을 수가 없어, 야간 경계가 한 번도 작동하지 않는다.
+     *
+     * <p>전면 금지(압박이 쓰는 방식)가 아니라 <b>유예</b>로 두는 이유는 관측 속도다. 경비대는
+     * 이르면 d4 에 서므로 전면 금지면 그 뒤 모든 런이 두 배로 느려진다. 위급자 유예와 같은
+     * 수(18000)를 쓰면 밤 경계 ~3900틱을 보장하면서 잔여 밤은 그대로 지운다 — 같은 절충을
+     * 같은 눈금으로 한다.
+     */
+    private static final long WATCH_GRACE_TOD = 18000L;
     private static boolean loaded = false;        // SavedData 오프셋 복원(재기동 1회)
 
     private NightSkipTicker() {
@@ -57,6 +71,14 @@ public final class NightSkipTicker {
         boolean anyCritical = !level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null && e.isCritical()).isEmpty();
         if (anyCritical && tod < CRITICAL_GRACE_TOD) {
+            return;
+        }
+        // 경비대가 근무 중인 밤은 <b>절반만</b> 지운다(위 WATCH_GRACE_TOD 참조). 위급자는
+        // 위에서 이미 걸렀으므로 여기서는 실제로 경계를 서고 있는 대원만 센다.
+        boolean anyWatch = !level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.inPoorhouse()
+                        && !e.isCritical()).isEmpty();
+        if (anyWatch && tod < WATCH_GRACE_TOD) {
             return;
         }
         // <b>압박이 걸린 밤은 지우지 않는다.</b> 이 클래스의 전제는 "취침은 소모 0 이라 시뮬

@@ -54,7 +54,7 @@ public final class FacilityTemplate {
         SCHOOL("학교"),
         CHURCH("교회"),
         BARRACKS("막사"),
-        POORHOUSE("구빈원"),
+        POORHOUSE("경비대"),
         WELL("우물");
 
         public final String label;
@@ -78,7 +78,7 @@ public final class FacilityTemplate {
         BARRACKS("barracks", "막사", Group.BARRACKS),
         // 구빈원 — 자리는 카펫으로 나온다(위 Group.POORHOUSE 분기 참조). 도면 실측:
         // 13·6·10 · 실자재 365칸 → 착공비 0.045×365 = 16 · 종1 · 문2 · 카펫 20칸(2×5 둘) · 통 20.
-        POORHOUSE("poorhouse", "구빈원", Group.POORHOUSE),
+        POORHOUSE("poorhouse", "경비대", Group.POORHOUSE),
         /**
          * 우물 — <b>종도 문도 없는</b> 도면이다. 들어가는 건물이 아니라 <b>서 있는 물건</b>이라
          * 그 둘을 요구할 수 없다. 분수가 같은 처지에서 쓴 방법을 그대로 쓴다: 도면이 홀수 폭

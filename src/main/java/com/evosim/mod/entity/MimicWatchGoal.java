@@ -77,6 +77,12 @@ public class MimicWatchGoal extends Goal {
             mob.setGuardAnchor(null); // 소속이 풀렸다 — <b>여기서만</b> 앵커를 놓는다(주둔과 같다)
             return false;
         }
+        // <b>군인이 이긴다.</b> 경비대원 중 능력이 되는 자는 군인으로 승격되는데, 그때 두 goal 이
+        // 같은 우선순위(4)에서 같은 guardAnchor 를 두고 다툰다. 무장도 이미 군인 쪽이 이기게
+        // 되어 있다(setPauperGear 는 isSoldier 를 제외한다) — 같은 손을 여기서도 들어 준다.
+        if (FarmTicker.isSoldier(mob)) {
+            return false;
+        }
         post = mob.getPoorhouse();
         if (post == null) {
             return false;

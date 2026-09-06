@@ -74,6 +74,7 @@ public class MimicWatchGoal extends Goal {
         }
         if (!mob.inPoorhouse()) {
             post = null;
+            mob.setGuardAnchor(null); // 소속이 풀렸다 — <b>여기서만</b> 앵커를 놓는다(주둔과 같다)
             return false;
         }
         post = mob.getPoorhouse();
@@ -122,7 +123,9 @@ public class MimicWatchGoal extends Goal {
     @Override
     public void start() {
         // 시설을 출근 앵커로 — 리시(우선순위 2)가 거처로 되끌지 않고 여기까지 데려다 준다.
+        // 밤에 실제로 리시를 붙드는 것은 guardAnchor 쪽이다(tick 참조).
         mob.setWorkAnchor(post);
+        mob.setGuardAnchor(spot != null ? spot : post);
         mob.setActivity(night ? "경계" : "대기");
     }
 
@@ -132,6 +135,9 @@ public class MimicWatchGoal extends Goal {
         stand = 0;
         travel = 0;
         mob.setWorkAnchor(null);
+        // <b>guardAnchor 는 여기서 놓지 않는다</b>(주둔과 같은 규칙). stop 은 전투 같은 일시
+        // 선점에서도 불리는데, 그때 앵커를 지우면 리시가 곧장 거처로 끌고 가 근무지에 다시
+        // 못 온다. 해제는 소속이 실제로 풀렸을 때(canUse) 한 곳에서만 한다.
     }
 
     @Override
@@ -139,6 +145,18 @@ public class MimicWatchGoal extends Goal {
         if (spot == null) {
             return;
         }
+        mob.setWorkAnchor(post);
+        // <b>리시가 지금 가는 곳을 보게 한다.</b> 이것이 없으면 야간 경계가 영영 안 돈다:
+        // {@link MimicEntity#roamAnchor} 는 guardAnchor 를 먼저 보고, workAnchor 는
+        // <b>WORK 시간대에만</b> 쓰인다. 밤은 SLEEP 이라 workAnchor 가 통째로 무시되고,
+        // 앵커가 거처로 떨어져 리시(우선순위 2)가 대원을 집으로 끌고 간다 — 그러면 경비
+        // goal(4)은 start() 조차 못 하므로 앵커를 고칠 기회도 없다(자기참조 교착).
+        //
+        // 실측(경비대 첫 런 d6): 실행 goal 이 [Leash] 였고 순찰 지점 0곳. 군인 쪽은 매 틱
+        // setGuardAnchor(spot) 으로 같은 문제를 이미 풀어 두었는데, 새 goal 을 쓰면서 그
+        // 한 줄을 빠뜨렸다.
+        mob.setGuardAnchor(spot);
+        mob.setActivity(night ? "경계" : "대기");
         double d2 = mob.blockPosition().distSqr(spot);
         if (d2 > ARRIVE * ARRIVE) {
             mob.getLookControl().setLookAt(spot.getX() + 0.5, spot.getY() + 1.0, spot.getZ() + 0.5);

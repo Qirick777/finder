@@ -5933,10 +5933,16 @@ public final class EvoSimCommand {
                         && FarmStore.get(level).ownedCount(e.getIndividual().id()) == 0)) {
             m.setPoorhouse(house.pos);
             m.setGuardWage(Facilities.POORHOUSE_STIPEND);
-            // 굶어 죽지 않게 손에 이틀치를 쥐여 준다 — 위급이면 경계 goal 이 물러난다.
-            m.setDayHarvest(m.getHolding() + Facilities.POORHOUSE_STIPEND * 2.0);
-            lar.set(m.getHomePos(), Math.max(lar.get(m.getHomePos()),
-                    Facilities.POORHOUSE_STIPEND * 2.0));
+            // <b>굶는 선 바로 아래에 맞춘다.</b> 처음에는 넉넉히(소지 8) 쥐여 줬는데, 그러면
+            // 굶는 판정이 꺼져 요구가 바깥벌이 전액(9.5)으로 뛰고 그 밤 정산에서 이탈선을
+            // 넘어 <b>전원 해고</b>된다 — 무대가 제 손으로 무대를 부순 셈이었다(실측: 못박은
+            // 10명이 d1 밤에 전부 풀렸다).
+            //
+            // 위급이면 경계 goal 이 물러나므로 굶겨서도 안 된다. 그래서 소지는 위급을 벗을
+            // 만큼만 주고 저장고는 비워, 굶는 판정은 켜진 채로 둔다. 실제 경비대원도 봉급이
+            // 소모와 같아 이 근처에 머문다 — 무대가 현실을 왜곡하는 것이 아니다.
+            m.setDayHarvest(2.0);
+            lar.set(m.getHomePos(), 0.0);
             pinned++;
         }
         tell(ctx.getSource(), String.format(

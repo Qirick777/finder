@@ -2517,11 +2517,17 @@ public final class FarmTicker {
     /**
      * <b>지주가 낼 수 있는 상한</b> — 부양력이 정원의 실제 한계라는 규칙을 값 하나로 만든다.
      *
-     * <p>{@code min(절대 상한, 저장고 / (인원+1) / 유보일수)}. 지주가 커질수록 경비대도
-     * 커지고, 저장고가 마르면 새 채용이 먼저 막힌다(이미 있는 대원은 미지급 이탈로 빠진다).
+     * <p>{@code min(절대 상한, (저장고 + 계정) / (인원+1) / 유보일수)}. 지주가 커질수록
+     * 경비대도 커지고, 저장고가 마르면 새 채용이 먼저 막힌다(이미 있는 대원은 미지급
+     * 이탈로 빠진다).
+     *
+     * <p><b>계정을 같이 본다</b> — 봉급은 마을이 낸 경비세로 먼저 치르므로, 재원을 주인
+     * 저장고로만 재면 세수가 쌓여 있는데도 채용이 막힌다. 마을이 클수록 세수가 늘고 그만큼
+     * 경비대가 커지는 되먹임이 여기서 생긴다(지시: "세수가 많이 늘면 인구 규모에 맞게").
+     * 시설 <b>수</b>는 그와 별개로 집 수에 묶여 있어 도배가 안 된다.
      */
-    static double guardWageCap(double ownerLarder, int headAfterHire) {
-        double afford = Math.max(0.0, ownerLarder)
+    static double guardWageCap(double ownerLarder, double account, int headAfterHire) {
+        double afford = (Math.max(0.0, ownerLarder) + Math.max(0.0, account))
                 / Math.max(1, headAfterHire) / Facilities.GUARD_PAYROLL_DAYS;
         return Math.min(Facilities.GUARD_WAGE_MAX, afford);
     }
@@ -2561,6 +2567,17 @@ public final class FarmTicker {
         }
         // ② 정원 — 첫 채가 없거나, 있어도 마을 전체가 만석일 때만 더 짓는다(주인 무관).
         if (!hs.isEmpty() && vac > 0) {
+            return;
+        }
+        // <b>개수는 인구에 묶는다.</b> 경비세가 들어오면 재원이 늘어 둘째·셋째가 연달아 설
+        // 수 있는데, 그것은 수요가 아니라 <b>돈이 남아서</b> 짓는 것이다(지시: "세수가 많이
+        // 늘면 인구 규모에 맞게 설치해야지 무지성 도배해서는 안됨"). 우물에 쓴 규약을 그대로
+        // 쓴다 — 집 N채당 하나. 대원 <b>수</b>는 부양력이 따로 제한하므로 이것과 겹치지 않는다.
+        int homes = HomeStore.get(level).positions().size();
+        int allowed = Math.max(1, homes / Facilities.POORHOUSE_HOMES_PER_HOUSE);
+        if (hs.size() >= allowed) {
+            poorNote(level, String.format("보류 — %d채 ≥ 상한 %d채 (집 %d채 · %d채당 하나)",
+                    hs.size(), allowed, homes, Facilities.POORHOUSE_HOMES_PER_HOUSE));
             return;
         }
         // ③ 자격 — 반경 안 재산 1위. <b>후보는 추종자를 거느린 자로 한정한다</b>(세력의 표식).
@@ -2755,7 +2772,7 @@ public final class FarmTicker {
                 // <b>협상.</b> 부르는 값(요구)이 지주가 낼 수 있는 값(캡) 이하일 때만 성사된다.
                 // 실지급은 요구가에 붙인다 — 아쉬운 쪽은 거지이므로 지주가 삼킴을 다 가져간다.
                 double ask = guardAskWage(level, m);
-                double cap = guardWageCap(purse, head);
+                double cap = guardWageCap(purse, best.earned - best.spent, head);
                 if (ask > cap) {
                     com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
                             "협상결렬 @%d,%d — 요구 %.1f > 캡 %.1f (바깥벌이 %.1f · 주인 저장고 %.1f · %d번째)",
@@ -2795,6 +2812,54 @@ public final class FarmTicker {
             }
         }
 
+        // ②-b 경비세 — 경계 반경 안의 가구가 낸다. 세수는 시설 계정에 모이고 봉급이 거기서
+        // 먼저 나간다(③). 모자란 만큼만 주인이 메운다.
+        //
+        // <b>주인은 빼고 걷는다.</b> 제 시설에 제가 세금을 내는 것은 뜻이 없다 — 저장고에서
+        // 계정으로 옮겼다가 봉급으로 다시 나가는 제자리걸음일 뿐이고, 로그의 세수를 부풀려
+        // "마을이 얼마나 부담하는가"를 못 읽게 만든다. 막사 보호세는 과세 대상이
+        // followerHomesOf(주인) 이라 주인이 애초에 안 들어가는데, 경비대는 반경 안 전부를
+        // 걷으므로 그 성질을 여기서 명시적으로 지켜야 한다.
+        for (FacilityStore.Entry ph : hs) {
+            double take = 0.0;
+            for (BlockPos h : HomeStore.get(level).positions()) {
+                if (h.distSqr(ph.pos) > Facilities.GUARD_TAX_REACH * Facilities.GUARD_TAX_REACH) {
+                    continue;
+                }
+                MimicEntity res = null;
+                for (MimicEntity a : adults) {
+                    if (h.equals(a.getHomePos())) {
+                        res = a;
+                        break;
+                    }
+                }
+                if (res == null || res.getIndividual() == null
+                        || res.getIndividual().id() == ph.ownerId) {
+                    continue; // 빈집이거나 주인의 집
+                }
+                double stock = larders.get(h);
+                double due = Facilities.GUARD_TAX_MAX / (1.0 + Math.exp(
+                        -Facilities.GUARD_TAX_K * (stock - Facilities.GUARD_TAX_KNEE)));
+                // 유보(2일치)를 남기고 그 위에서만 — 세금 때문에 굶지 않는다.
+                double pay = Math.min(due, com.evosim.core.Tribute.payable(
+                        stock, familyDailyNeed(level, res, adults)));
+                if (pay <= 0.0) {
+                    continue;
+                }
+                larders.set(h, stock - pay);
+                take += pay;
+                // 낸 것은 신세가 아니라 <b>대가</b>다 — 지켜 준 값을 치른 것이므로 예속으로
+                // 세지 않는다. 구휼·수업료와 다른 자리다.
+            }
+            if (take > 0.0) {
+                FacilityStore.get(level).earn(ph, take);
+                com.evosim.mod.log.SimEvents.note(level, "경비세", String.format(
+                        "@%d,%d — 반경 %.0f 안에서 %.2f 걷음(주인 제외 · 꺾임 %.0f)",
+                        ph.pos.getX(), ph.pos.getZ(), Facilities.GUARD_TAX_REACH,
+                        take, Facilities.GUARD_TAX_KNEE));
+            }
+        }
+
         // ③ 봉급 — 소속자 1인당. 주인 저장고에서 그 가구 저장고로.
         for (MimicEntity m : adults) {
             if (!m.inPoorhouse() || m.getHomePos() == null || m.getIndividual() == null) {
@@ -2827,8 +2892,16 @@ public final class FarmTicker {
             //
             // 구세이브 호환: 협상 전 코드로 들어온 대원은 합의값이 0 이므로 절대 상한을 쓴다.
             double want = m.getGuardWage() > 0.0 ? m.getGuardWage() : Facilities.GUARD_WAGE_MAX;
+            // <b>계정이 먼저다.</b> 마을이 낸 경비세로 먼저 치르고, 모자란 만큼만 주인이 낸다
+            // (지시: "지주 혼자 다 낼 게 아닌, 본인도 내고 세금으로도 보충하고"). 순서를
+            // 거꾸로 두면 세수가 남아도 주인 저장고가 먼저 마른다.
+            FacilityStore fs = FacilityStore.get(level);
+            double fromAcct = Math.min(want, Math.max(0.0, house.earned - house.spent));
+            if (fromAcct > 0.0) {
+                fs.spend(house, fromAcct);
+            }
             double ownerLar = larders.get(owner.getHomePos());
-            double pay = Math.min(want, Math.max(0.0, ownerLar));
+            double pay = fromAcct + Math.min(want - fromAcct, Math.max(0.0, ownerLar));
             if (pay <= 0.0) {
                 POOR_SUM[3] += want;
                 // <b>못 받으면 나간다.</b> 종전에는 "소속은 유지된다(갈 곳이 없다)"였는데,
@@ -2848,7 +2921,9 @@ public final class FarmTicker {
                 continue;
             }
             GUARD_UNPAID.remove(m.getId());
-            larders.set(owner.getHomePos(), ownerLar - pay);
+            // 주인 저장고에서는 <b>계정으로 못 채운 몫만</b> 뺀다 — pay 를 통째로 빼면 마을이
+            // 낸 세금을 주인이 한 번 더 내는 셈이 되어 회계 항등식이 깨진다.
+            larders.set(owner.getHomePos(), ownerLar - (pay - fromAcct));
             larders.set(m.getHomePos(), larders.get(m.getHomePos()) + pay);
             POOR_SUM[2] += pay;
             POOR_SUM[3] += want - pay;

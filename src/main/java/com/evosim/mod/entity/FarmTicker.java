@@ -2458,39 +2458,38 @@ public final class FarmTicker {
      */
     static final int POOR_INSTANT_GRADE = 2;
 
-    private static boolean admitsAtOnce(MimicEntity m) {
+    /**
+     * <b>경비대 희망도(실효)</b> — 특성 몫 + 굶주림 가산.
+     *
+     * <p>특성 몫은 순수 함수({@link com.evosim.core.Vocation#guard})라 개체만 보면 되지만,
+     * 굶주림은 세계 상태(저장고·가족 크기)를 봐야 하므로 여기서 얹는다.
+     *
+     * <p>굶주림은 <b>자격이 아니라 가산</b>이다(지시: "선호에 따라 선발로 하자. 굶으면 되는게
+     * 아니라"). 그래서 멍청·무능은 배불러도 지원하고, 유능한 자도 굶으면 지원한다 —
+     * 구빈 기능은 남되 선발은 희망도가 정한다.
+     *
+     * <p>육아 구속은 특성이 아니라 상태지만 같은 가산으로 넣는다: 나갈 수가 없어 못 버는
+     * 자리라, 굶주림과 성질이 같다.
+     */
+    static double guardWant(ServerLevel level, MimicEntity m) {
         var ind = m.getIndividual();
         if (ind == null) {
-            return false;
+            return 0.0;
         }
-        // 육아에 묶인 부모 — <b>나갈 수가 없어</b> 굶는다. 연속 3일을 기다리게 하면 그 사흘을
-        // 못 버티는 개체가 나온다(구걸 여행 자체가 봉쇄된 상태라 벌충할 길이 없다). 게으름·
-        // 멍청과 같은 즉시 입소로 둔다 — 사유는 다르지만 "제 힘으로 벗어날 수 없다"는 같다.
-        //
-        // <b>이것만 남는다.</b> 특성으로 즉시 입소를 부르던 나머지(멍청·무능·게으름·비관)는
-        // {@link com.evosim.core.Vocation#guard} 희망도로 옮겼다 — 아래 admitDays 참조.
-        // 육아 구속은 특성이 아니라 <b>상태</b>라 점수로 옮기지 않는다.
-        return m.isCaregiverBound();
-    }
-
-    /**
-     * <b>입소에 필요한 연속 구걸 일수</b> — 경비대 희망도가 문턱을 깎는다.
-     *
-     * <p>종전에는 이진 스위치였다: 멍청Ⅱ 이상이면 1일, 아니면 3일(낙관은 4일). 스위치는
-     * 등급 Ⅰ 과 Ⅴ 를 같게 보고, 자리가 모자랄 때 누구를 먼저 앉힐지도 말해 주지 못한다.
-     * 지시대로 점수로 바꾼다 — "멍청, 무능, 게으름 등은 경비대 선호도로 한다".
-     *
-     * <p>산식은 양 끝을 종전과 같게 맞춘다: 희망도 0 이면 {@link Facilities#POORHOUSE_ADMIT_STREAK}
-     * (3일), 1.0 이면 1일. 낙관이 문턱을 하루 늘리던 효과는 {@code guard} 안에서 점수를 깎는
-     * 것으로 합쳤으므로 여기서 따로 더하지 않는다.
-     */
-    static int admitDays(com.evosim.core.Individual ind) {
-        int base = Facilities.POORHOUSE_ADMIT_STREAK;
         double want = com.evosim.core.Vocation.guard(ind);
-        return Math.max(1, base - (int) Math.round(want * (base - 1)));
+        if (m.isCaregiverBound()) {
+            want += Facilities.GUARD_HUNGER_WANT;
+        } else if (m.getHomePos() != null) {
+            double line = Math.max(1.0E-6,
+                    m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS);
+            double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
+            want += Facilities.GUARD_HUNGER_WANT
+                    * Math.max(0.0, Math.min(1.0, 1.0 - have / line));
+        }
+        return Math.max(0.0, Math.min(1.0, want));
     }
 
-    /** 즉시 입소를 부르는 특성의 실효 등급(멍청·무능함 중 높은 쪽) — 계측이 같은 식을 읽는다. */
+    /** 경비대 희망도를 만드는 특성의 실효 등급(멍청·무능함 중 높은 쪽) — 계측이 같은 식을 읽는다. */
     static int instantTraitGrade(com.evosim.core.Individual ind) {
         return Math.max(com.evosim.core.Multipliers.dullGrade(ind),
                 com.evosim.core.Multipliers.abilityGrade(ind, com.evosim.core.Trait.INEPT));
@@ -2626,12 +2625,19 @@ public final class FarmTicker {
                 continue;
             }
             double lar = m.getHomePos() == null ? 0.0 : larders.get(m.getHomePos());
-            if (lar >= Facilities.POORHOUSE_EXIT) {
+            // <b>이탈은 희망도로 잰다</b>(저장고 30 이 아니라). 봉급을 소모와 같게 올린 뒤로는
+            // 저장고 기준이 진동을 만든다: 배우자가 벌어 가구가 30 을 넘으면 멍청Ⅴ 대원이
+            // 쫓겨나고 다음 날 희망도 1.00 으로 곧장 다시 뽑힌다. 희망도로 재면 특성이 만든
+            // 몫은 변하지 않으므로 멍청·무능은 평생 경비대이고, 굶어서 들어온 유능한 자만
+            // 배가 부르면 나간다(채용 문턱보다 낮은 이탈 문턱 = 히스테리시스).
+            double want = guardWant(level, m);
+            if (want < Facilities.GUARD_EXIT_WANT) {
                 m.setPoorhouse(null);
                 m.setBegStreak(0);
                 POOR_SUM[1]++;
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                        "퇴소 — 저장고 %.1f ≥ 퇴소선 %.0f", lar, Facilities.POORHOUSE_EXIT));
+                        "이탈 — 희망도 %.2f < 이탈선 %.2f (저장고 %.1f)",
+                        want, Facilities.GUARD_EXIT_WANT, lar));
                 continue;
             }
             taken.merge(p.asLong(), 1, Integer::sum);
@@ -2646,8 +2652,9 @@ public final class FarmTicker {
         if (!hs.isEmpty()) {
             java.util.List<MimicEntity> queue = new java.util.ArrayList<>(adults);
             queue.sort((a, b) -> {
-                int c = Double.compare(com.evosim.core.Vocation.guard(b.getIndividual()),
-                        com.evosim.core.Vocation.guard(a.getIndividual()));
+                // 정렬도 <b>실효</b> 희망도로 — 자격을 재는 수와 순서를 정하는 수가 달라지면
+                // "문턱은 넘었는데 뒤로 밀린다"가 생긴다.
+                int c = Double.compare(guardWant(level, b), guardWant(level, a));
                 return c != 0 ? c : Long.compare(a.getIndividual() == null ? 0L
                         : a.getIndividual().id(),
                         b.getIndividual() == null ? 0L : b.getIndividual().id());
@@ -2656,16 +2663,11 @@ public final class FarmTicker {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
                     continue;
                 }
-                // <b>굶주림선</b> — 구걸 일수만 보면 부자가 들어온다(POORHOUSE_HUNGER_DAYS
-                // 주석의 실측 결함: 저장고 238 인 자가 입소·퇴소를 매일 뒤집으며 정원을 먹었다).
-                // 구빈원은 가난한 자가 아니라 <b>굶는 자</b>가 가는 곳이다.
-                if (!starving(level, m)) {
-                    continue;
-                }
-                // 문턱은 <b>경비대 희망도</b>가 깎는다(멍청·무능·게으름·비관은 빨리, 낙관은
-                // 늦게). 육아 구속은 특성이 아니라 상태라 점수 밖에서 즉시로 둔다.
-                int need = admitsAtOnce(m) ? 1 : admitDays(m.getIndividual());
-                if (m.getBegStreak() < need) {
+                // <b>희망도가 자격이다.</b> 굶주림은 자격이 아니라 그 안의 가산이다
+                // (guardWant 주석 참조). 연속 구걸 일수도 더는 보지 않는다 — 굶어야만 뽑히던
+                // 시절의 장치라, 배부른 멍청·무능이 영영 안 뽑히는 원인이었다.
+                double want = guardWant(level, m);
+                if (want < Facilities.GUARD_HIRE_WANT) {
                     continue;
                 }
                 FacilityStore.Entry best = null;
@@ -2683,14 +2685,35 @@ public final class FarmTicker {
                 if (best == null) {
                     continue; // 마을이 다 찼다 — 그 사실이 둘째 채의 착공 조건이 된다
                 }
+                // <b>부양력이 진짜 정원이다.</b> 자리 수는 건물이 정하지만, 봉급을 낼 수 없으면
+                // 그 자리는 비어 있어야 한다. 막사가 운영자금을 착공 문턱에 넣는 것과 같은
+                // 뜻이고, 여기서는 채용 시점마다 본다 — 지주가 커질수록 경비대도 커진다.
+                MimicEntity boss = null;
+                for (MimicEntity o : adults) {
+                    if (o.getIndividual() != null && o.getIndividual().id() == best.ownerId) {
+                        boss = o;
+                        break;
+                    }
+                }
+                int head = taken.getOrDefault(best.pos.asLong(), 0) + 1;
+                double payroll = head * Facilities.POORHOUSE_STIPEND * Facilities.GUARD_PAYROLL_DAYS;
+                double purse = boss == null || boss.getHomePos() == null
+                        ? 0.0 : larders.get(boss.getHomePos());
+                if (purse < payroll) {
+                    com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
+                            "채용보류 @%d,%d — 희망도 %.2f 인데 주인 저장고 %.1f < 봉급 %d명 %.0f일분 %.1f",
+                            best.pos.getX(), best.pos.getZ(), want, purse, head,
+                            Facilities.GUARD_PAYROLL_DAYS, payroll));
+                    continue;
+                }
                 m.setPoorhouse(best.pos);
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                        "채용 @%d,%d — 연속구걸 %d일(문턱 %d) · 희망도 %.2f%s · %.0f블록",
-                        best.pos.getX(), best.pos.getZ(), m.getBegStreak(), need,
+                        "채용 @%d,%d — 희망도 %.2f(특성 %.2f · 문턱 %.2f) · 주인 저장고 %.1f · %.0f블록",
+                        best.pos.getX(), best.pos.getZ(), want,
                         com.evosim.core.Vocation.guard(m.getIndividual()),
-                        admitsAtOnce(m) ? " · 육아구속" : "", Math.sqrt(bd)));
+                        Facilities.GUARD_HIRE_WANT, purse, Math.sqrt(bd)));
             }
         }
 

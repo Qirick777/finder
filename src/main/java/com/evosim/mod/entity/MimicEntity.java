@@ -6659,8 +6659,12 @@ public class MimicEntity extends PathfinderMob {
         if (individual == null || !(level() instanceof net.minecraft.server.level.ServerLevel sl)) {
             return;
         }
-        if (getStage() != LifeStage.ADULT || homePos == null || isCaregiverBound()) {
-            return; // 자급 대상이 아니거나 부엌일 전담 — 무노동이 정상인 쪽(방랑자는 거처가 없다)
+        if (getStage() != LifeStage.ADULT || homePos == null || isCaregiverBound()
+                || inPoorhouse()) {
+            // 자급 대상이 아니거나 부엌일 전담 — 무노동이 정상인 쪽(방랑자는 거처가 없다).
+            // 경비대원도 뺀다: 낮에 아무것도 안 버는 것이 <b>설계</b>이므로(밤 경계가 노동이고
+            // 수입은 봉급뿐) 매일 전원이 이 진단을 울려 진짜 신호를 덮는다.
+            return;
         }
         Schedule.Phase phase = Schedule.phaseAt(individual, level().getDayTime());
         if (phase != Schedule.Phase.WORK) {

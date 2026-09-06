@@ -2479,14 +2479,25 @@ public final class FarmTicker {
             return 0.0;
         }
         double want = com.evosim.core.Vocation.guard(ind);
-        if (m.isCaregiverBound()) {
-            want += Facilities.GUARD_HUNGER_WANT;
-        } else if (m.getHomePos() != null) {
-            double line = Math.max(1.0E-6,
-                    m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS);
-            double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
-            want += Facilities.GUARD_HUNGER_WANT
-                    * Math.max(0.0, Math.min(1.0, 1.0 - have / line));
+        // <b>굶으면 자격은 확보하고, 얼마나 굶었는지는 순서만 가른다.</b>
+        //
+        // 종전에는 가산을 0 까지 내려가는 경사 하나로만 줬다. 그러면 자격선이 실질적으로
+        // "구걸선의 1/5"이 되어(0.5 × (1−보유/선) ≥ 0.4 → 보유 < 선 × 0.2), <b>구걸은 하는데
+        // 채용은 안 되는</b> 구간이 생긴다 — 실측(무대 런): 굶는 5명 · 빈자리 10 · 채용 0.
+        // 거지가 정원 베리를 조금 따먹어 저장고가 3 이 되는 순간 자격을 잃었다.
+        //
+        // 그래서 굶는 판정({@link #starving}, 구걸을 켜는 것과 <b>같은 선</b>)을 넘으면 채용
+        // 문턱만큼을 통째로 얹어 자격을 보장하고, 경사는 그 위에 얹어 <b>더 굶은 자가 먼저
+        // 앉게</b>만 한다. 두 선을 하나로 맞추는 것이 요점이다.
+        if (m.isCaregiverBound() || starving(level, m)) {
+            want += Facilities.GUARD_HIRE_WANT;
+            if (m.getHomePos() != null) {
+                double line = Math.max(1.0E-6,
+                        m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS);
+                double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
+                want += Facilities.GUARD_HUNGER_WANT
+                        * Math.max(0.0, Math.min(1.0, 1.0 - have / line));
+            }
         }
         return Math.max(0.0, Math.min(1.0, want));
     }

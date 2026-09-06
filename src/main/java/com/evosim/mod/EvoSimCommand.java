@@ -5925,6 +5925,23 @@ public final class EvoSimCommand {
             return 0;
         }
         LarderStore lar = LarderStore.get(level);
+        // <b>경비대에 머물 수 있는 자를 직접 소환한다.</b> 무작위 특성 미믹을 못박으면 첫
+        // 봉급을 받는 순간 굶는 판정이 꺼지고, 채집 능력이 정상이면 요구가 바깥벌이 전액
+        // (9.5)으로 뛰어 이탈선(4.5)을 넘는다 — 하루 만에 전원 해고된다(실측).
+        //
+        // 그것은 설계대로다("자립하면 저절로 나간다"). 그래서 순찰을 보려면 <b>배불러도
+        // 요구가 상한 아래인</b> 개체가 필요하다. 식물혼동Ⅴ 는 gather 0.50 이라 요구가 정확히
+        // 4.5 — 상한과 같아 계속 고용된다. 무대가 현실을 왜곡하는 것이 아니라, 실제로
+        // 경비대에 눌러앉는 그 계층을 그대로 세우는 것이다.
+        int guards = 3;
+        for (int i = 0; i < guards; i++) {
+            BlockPos gh = MimicEntity.liftToBase(level,
+                    groundAt(level, ctx.getSource().getPosition(), -20 - i * 8, 12),
+                    "small1", (byte) 0, false);
+            MimicEntity g = spawnGradedAdult(level, Vec3.atBottomCenterOf(gh), Sex.MALE, 0,
+                    Trait.PLANT_CONFUSED);
+            g.debugSettleWithHome(level, gh, "small1", (byte) 0, false);
+        }
         int pinned = 0;
         for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
                 new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
@@ -5933,24 +5950,21 @@ public final class EvoSimCommand {
                         && FarmStore.get(level).ownedCount(e.getIndividual().id()) == 0)) {
             m.setPoorhouse(house.pos);
             m.setGuardWage(Facilities.POORHOUSE_STIPEND);
-            // <b>굶는 선 바로 아래에 맞춘다.</b> 처음에는 넉넉히(소지 8) 쥐여 줬는데, 그러면
-            // 굶는 판정이 꺼져 요구가 바깥벌이 전액(9.5)으로 뛰고 그 밤 정산에서 이탈선을
-            // 넘어 <b>전원 해고</b>된다 — 무대가 제 손으로 무대를 부순 셈이었다(실측: 못박은
-            // 10명이 d1 밤에 전부 풀렸다).
-            //
-            // 위급이면 경계 goal 이 물러나므로 굶겨서도 안 된다. 그래서 소지는 위급을 벗을
-            // 만큼만 주고 저장고는 비워, 굶는 판정은 켜진 채로 둔다. 실제 경비대원도 봉급이
-            // 소모와 같아 이 근처에 머문다 — 무대가 현실을 왜곡하는 것이 아니다.
-            m.setDayHarvest(2.0);
-            lar.set(m.getHomePos(), 0.0);
+            // <b>넉넉히 준다.</b> 한때 굶는 선 아래(소지 2 · 저장고 0)로 맞췄는데, 그러면
+            // 밤중에 소지가 말라 위급이 되고 위급이면 경계 goal 이 물러나 순찰이 영영 안 돈다.
+            // 굶는 선(하루소모 × 1.0)과 하루 소모가 <b>같은 값</b>이라 "굶으면서 위급을 면한다"는
+            // 산술적으로 불가능하다 — 그 줄타기를 그만두고, 대신 배불러도 안 나가는 개체
+            // (위에서 소환한 식물혼동Ⅴ)를 쓴다.
+            m.setDayHarvest(Facilities.POORHOUSE_STIPEND);
+            lar.set(m.getHomePos(), Facilities.POORHOUSE_STIPEND * 2.0);
             pinned++;
         }
         tell(ctx.getSource(), String.format(
-                "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음 — 합의봉급 %.1f · 소지 2.0 ·"
-                + " 저장고 0(굶는 선 아래 유지 — 안 그러면 요구가 뛰어 그 밤에 이탈한다).\n"
+                "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음(식물혼동Ⅴ %d명 신규 포함) —"
+                + " 합의봉급 %.1f · 소지·저장고 지급.\n"
                 + "  이제 볼 것은 <경계> 줄 하나다: \"밤 근무 끝 — 순찰 지점 N곳\".\n"
                 + "  N=0 이면 밤에 안 돈 것이다(리시 선점·표적 미도달·위급 중 하나).",
-                house.pos.getX(), house.pos.getZ(), pinned,
+                house.pos.getX(), house.pos.getZ(), pinned, guards,
                 Facilities.POORHOUSE_STIPEND));
         return 1;
     }

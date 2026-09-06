@@ -2466,15 +2466,28 @@ public final class FarmTicker {
         // 육아에 묶인 부모 — <b>나갈 수가 없어</b> 굶는다. 연속 3일을 기다리게 하면 그 사흘을
         // 못 버티는 개체가 나온다(구걸 여행 자체가 봉쇄된 상태라 벌충할 길이 없다). 게으름·
         // 멍청과 같은 즉시 입소로 둔다 — 사유는 다르지만 "제 힘으로 벗어날 수 없다"는 같다.
-        if (m.isCaregiverBound()) {
-            return true;
-        }
-        // 비관 — 다시 일어설 것이라 보지 않으니 한 번 손을 벌리면 곧장 든다.
-        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.PESSIMIST)) {
-            return true;
-        }
-        return instantTraitGrade(ind) >= POOR_INSTANT_GRADE
-                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.LAZY);
+        //
+        // <b>이것만 남는다.</b> 특성으로 즉시 입소를 부르던 나머지(멍청·무능·게으름·비관)는
+        // {@link com.evosim.core.Vocation#guard} 희망도로 옮겼다 — 아래 admitDays 참조.
+        // 육아 구속은 특성이 아니라 <b>상태</b>라 점수로 옮기지 않는다.
+        return m.isCaregiverBound();
+    }
+
+    /**
+     * <b>입소에 필요한 연속 구걸 일수</b> — 경비대 희망도가 문턱을 깎는다.
+     *
+     * <p>종전에는 이진 스위치였다: 멍청Ⅱ 이상이면 1일, 아니면 3일(낙관은 4일). 스위치는
+     * 등급 Ⅰ 과 Ⅴ 를 같게 보고, 자리가 모자랄 때 누구를 먼저 앉힐지도 말해 주지 못한다.
+     * 지시대로 점수로 바꾼다 — "멍청, 무능, 게으름 등은 경비대 선호도로 한다".
+     *
+     * <p>산식은 양 끝을 종전과 같게 맞춘다: 희망도 0 이면 {@link Facilities#POORHOUSE_ADMIT_STREAK}
+     * (3일), 1.0 이면 1일. 낙관이 문턱을 하루 늘리던 효과는 {@code guard} 안에서 점수를 깎는
+     * 것으로 합쳤으므로 여기서 따로 더하지 않는다.
+     */
+    static int admitDays(com.evosim.core.Individual ind) {
+        int base = Facilities.POORHOUSE_ADMIT_STREAK;
+        double want = com.evosim.core.Vocation.guard(ind);
+        return Math.max(1, base - (int) Math.round(want * (base - 1)));
     }
 
     /** 즉시 입소를 부르는 특성의 실효 등급(멍청·무능함 중 높은 쪽) — 계측이 같은 식을 읽는다. */
@@ -2624,9 +2637,22 @@ public final class FarmTicker {
             taken.merge(p.asLong(), 1, Integer::sum);
         }
 
-        // ② 입소 — 연속 구걸이 문턱에 닿았고 자리가 있는 사람. 가까운 구빈원부터.
+        // ② 입소 — 연속 구걸이 문턱에 닿았고 자리가 있는 사람. 가까운 경비대부터.
+        //
+        // <b>자리가 모자랄 때 희망도가 순서를 정한다.</b> 종전에는 adults 순서(사실상 스폰
+        // 순)대로 앉혀서, 정원이 찬 마을에서는 "누가 경비대에 들어가는가"가 특성과 무관한
+        // 우연이었다. 같은 수로 문턱과 순서를 함께 정하면 규칙5(하드코딩된 신분 분기 금지)가
+        // 지켜진다 — 신분이 특성 값에서 나온다. 동률은 id 순으로 굳혀 결정론을 지킨다.
         if (!hs.isEmpty()) {
-            for (MimicEntity m : adults) {
+            java.util.List<MimicEntity> queue = new java.util.ArrayList<>(adults);
+            queue.sort((a, b) -> {
+                int c = Double.compare(com.evosim.core.Vocation.guard(b.getIndividual()),
+                        com.evosim.core.Vocation.guard(a.getIndividual()));
+                return c != 0 ? c : Long.compare(a.getIndividual() == null ? 0L
+                        : a.getIndividual().id(),
+                        b.getIndividual() == null ? 0L : b.getIndividual().id());
+            });
+            for (MimicEntity m : queue) {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
                     continue;
                 }
@@ -2636,12 +2662,9 @@ public final class FarmTicker {
                 if (!starving(level, m)) {
                     continue;
                 }
-                // 낙관은 하루 더 버틴다 — 나아질 것이라 보므로 구빈원행을 미룬다. 즉시 입소
-                // 사유(게으름·멍청·무능·비관·육아구속)가 있으면 그쪽이 이긴다.
-                int need = admitsAtOnce(m) ? 1
-                        : Facilities.POORHOUSE_ADMIT_STREAK
-                                + (com.evosim.core.ExpressionResolver.isExpressed(
-                                        m.getIndividual(), com.evosim.core.Trait.OPTIMIST) ? 1 : 0);
+                // 문턱은 <b>경비대 희망도</b>가 깎는다(멍청·무능·게으름·비관은 빨리, 낙관은
+                // 늦게). 육아 구속은 특성이 아니라 상태라 점수 밖에서 즉시로 둔다.
+                int need = admitsAtOnce(m) ? 1 : admitDays(m.getIndividual());
                 if (m.getBegStreak() < need) {
                     continue;
                 }
@@ -2664,9 +2687,10 @@ public final class FarmTicker {
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                        "입소 @%d,%d — 연속구걸 %d일(문턱 %d%s) · %.0f블록",
+                        "채용 @%d,%d — 연속구걸 %d일(문턱 %d) · 희망도 %.2f%s · %.0f블록",
                         best.pos.getX(), best.pos.getZ(), m.getBegStreak(), need,
-                        need == 1 ? " · 게으름/멍청" : "", Math.sqrt(bd)));
+                        com.evosim.core.Vocation.guard(m.getIndividual()),
+                        admitsAtOnce(m) ? " · 육아구속" : "", Math.sqrt(bd)));
             }
         }
 

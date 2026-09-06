@@ -2,6 +2,7 @@ package com.evosim.mod.entity;
 
 import com.evosim.core.LifeStage;
 import com.evosim.core.Schedule;
+import com.evosim.mod.log.SimEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.goal.Goal;
 
@@ -49,6 +50,7 @@ public class MimicWatchGoal extends Goal {
     private int travel;
     private boolean night;
     private int cursor = -1; // 순찰 경로 커서 — id 기준 시작점(대원마다 다른 구역)
+    private int visits;      // 이 밤에 실제로 닿은 순찰 지점 수(계측 — 아침에 한 줄로 뱉는다)
 
     public MimicWatchGoal(MimicEntity mob) {
         this.mob = mob;
@@ -77,6 +79,18 @@ public class MimicWatchGoal extends Goal {
         boolean sleep = Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
                 == Schedule.Phase.SLEEP;
         if (sleep != night) {
+            // <b>밤이 끝날 때 한 줄 남긴다.</b> setActivity 는 머리 위 라벨만 바꾸고 로그를
+            // 남기지 않는다 — 그대로 두면 "경계가 실제로 도는가"를 로그로 판정할 수 없다.
+            // 지금까지 야간 순찰이 한 번도 작동한 적 없었다는 사실(MimicGarrisonGoal 주석)이
+            // 오래 드러나지 않은 것도 재는 눈이 없었기 때문이다. 하룻밤에 한 줄이라 시끄럽지도
+            // 않고, 0 이면 0 이라고 말한다 — 침묵은 진단이 아니다.
+            if (night && !sleep && mob.level() instanceof net.minecraft.server.level.ServerLevel) {
+                SimEvents.event(mob, "경계", String.format(
+                        "밤 근무 끝 — 순찰 지점 %d곳 · 경비대 @%d,%d 에서 %.0f블록",
+                        visits, post.getX(), post.getZ(),
+                        Math.sqrt(mob.blockPosition().distSqr(post))));
+            }
+            visits = 0;
             night = sleep;
             spot = null; // 근무가 바뀌면 표적을 새로 고른다
             stand = 0;
@@ -133,6 +147,7 @@ public class MimicWatchGoal extends Goal {
             return; // 낮 — 시설에 그대로 머문다(쉬는 것이 근무다)
         }
         if (++stand >= STAND_TICKS) {
+            visits++; // 여기 왔다는 것은 도착 판정을 통과했다는 뜻이다(계측)
             spot = watchSpot();
             stand = 0;
         }

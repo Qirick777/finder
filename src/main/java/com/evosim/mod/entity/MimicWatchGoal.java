@@ -225,7 +225,13 @@ public class MimicWatchGoal extends Goal {
         if (d2 > arrive * arrive) {
             mob.getLookControl().setLookAt(spot.getX() + 0.5, spot.getY() + 1.0, spot.getZ() + 0.5);
             mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);
-            if (++travel >= TRAVEL_LIMIT) {
+            travel++;
+            // <b>경로가 없으면 기다리지 말고 다음 집으로.</b> nav 가 done 인데 아직 도착선 밖이면
+            // 길찾기가 목표를 못 잡은 것이다(닿을 수 없는 칸·막힌 지형). 종전에는 이 상태로
+            // TRAVEL_LIMIT(600틱=30초)을 다 채워, 못 가는 집 하나에 밤의 상당 부분을 버렸다.
+            // 40틱만 확인하고 넘긴다 — 잠깐의 재계산 공백을 오판하지 않을 만큼은 준다.
+            boolean stuck = mob.getNavigation().isDone() && travel >= 40;
+            if (stuck || travel >= TRAVEL_LIMIT) {
                 spot = night ? watchSpot() : post; // 못 닿는 자리 — 놓고 다음
                 travel = 0;
                 stand = 0;
@@ -272,10 +278,52 @@ public class MimicWatchGoal extends Goal {
         }
         BlockPos home = route.get(Math.floorMod(cursor, route.size()));
         cursor++;
-        // 집 안이 아니라 문간에 선다 — 남의 거처 한가운데 서 있는 그림을 피한다.
-        int y = sl.getHeightmapPos(
-                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                home).getY();
-        return new BlockPos(home.getX(), y, home.getZ());
+        return doorstep(sl, home);
+    }
+
+    /**
+     * <b>집 바깥에서 설 수 있는 칸 — 문간.</b>
+     *
+     * <p>종전에는 집 앵커 열의 heightmap Y 를 그대로 표적으로 삼았다. 그 Y 는 <b>지붕 꼭대기</b>다.
+     * 길찾기는 지붕 위 노드로 가는 경로를 만들지 못해 즉시 종료되고, 대원은 집에서 8~19블록
+     * 떨어진 자리에 굳어 선 채 travel 카운터만 올렸다 — 겉보기엔 "밤새 안 움직임"이었다.
+     *
+     * <p>실측(경계 무대 10): {@code 표적 @22,0 · 수평 8.8블록 · nav done · travel 382 · 방문 1}
+     * — nav 가 done 인데 거리가 도착선 밖이라는 것이 경로 실패의 지문이다. 첫 표적만 방문에
+     * 잡힌 것은 그 집이 마침 대원의 출발 자리였기 때문이다.
+     *
+     * <p>그래서 집 <b>둘레 고리</b>(2~5칸)에서 지면 칸을 찾는다: 발밑이 막고, 머리까지 두 칸이
+     * 비고, 집 앵커와 높이 차가 크지 않은 칸. 그중 집에 가장 가까운 것이 문간이다. 하나도
+     * 없으면 집 좌표를 그대로 돌려준다(그 경우는 도착 실패가 다시 로그에 남는다).
+     */
+    private BlockPos doorstep(net.minecraft.server.level.ServerLevel sl, BlockPos home) {
+        BlockPos best = null;
+        double bestD = Double.MAX_VALUE;
+        for (int dx = -5; dx <= 5; dx++) {
+            for (int dz = -5; dz <= 5; dz++) {
+                int r2 = dx * dx + dz * dz;
+                if (r2 < 4 || r2 > 25) {
+                    continue; // 집 안(≤1칸)도, 너무 먼 곳(>5칸)도 아니다
+                }
+                BlockPos c = sl.getHeightmapPos(
+                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        home.offset(dx, 0, dz));
+                if (Math.abs(c.getY() - home.getY()) > 4) {
+                    continue; // 지붕 위·절벽 — 집과 같은 층이 아니다
+                }
+                if (!sl.getBlockState(c).isAir() || !sl.getBlockState(c.above()).isAir()) {
+                    continue; // 몸이 들어갈 두 칸이 비어야 한다
+                }
+                if (!sl.getBlockState(c.below()).blocksMotion()) {
+                    continue; // 발판이 있어야 한다
+                }
+                double d = c.distSqr(home);
+                if (d < bestD) {
+                    bestD = d;
+                    best = c;
+                }
+            }
+        }
+        return best == null ? home : best;
     }
 }

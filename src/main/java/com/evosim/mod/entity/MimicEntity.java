@@ -4048,6 +4048,25 @@ public class MimicEntity extends PathfinderMob {
         // 집이 모인 곳의 중심은 언제나 어느 집 근처다(분수가 길 칸을 후보로 쓰는 것과 같다).
         java.util.List<BlockPos> homes = HomeStore.get(sl).positions();
         FacilityStore reg = FacilityStore.get(sl);
+        // <b>하루 하나는 마을 기준이다.</b> 이 메서드는 지주마다 제 하루 틱에서 부르므로,
+        // 분수에서 물려받은 "return 으로 하루 하나"는 <b>미믹 한 명 기준</b>이었다 — 지주가
+        // K명이면 하루에 우물이 K개까지 섰다(지시 사양은 "하루 하나로. 나란한 눈금으로").
+        long today = com.evosim.mod.entity.SimTime.tick(sl) / 24000L;
+        int wells = reg.countOf(FacilityTemplate.Group.WELL);
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.WELL && e.foundedDay == today) {
+                wellNote("보류 — 오늘 이미 마을에 우물이 하나 섰다(하루 하나)");
+                return larder;
+            }
+        }
+        // <b>개수 상한</b> — 집 WELL_HOMES_PER_WELL 채당 하나. GAP·피복만으로는 서로 멀리
+        // 떨어진 집무리가 각자 자격을 얻어 계속 늘어난다(육안 관측).
+        int allowed = Math.max(1, homes.size() / Facilities.WELL_HOMES_PER_WELL);
+        if (wells >= allowed) {
+            wellNote(String.format("보류 — 우물 %d개 ≥ 상한 %d개 (집 %d채 · %d채당 하나)",
+                    wells, allowed, homes.size(), Facilities.WELL_HOMES_PER_WELL));
+            return larder;
+        }
         BlockPos centre = null;
         int bestNear = 0;
         for (BlockPos h : homes) {

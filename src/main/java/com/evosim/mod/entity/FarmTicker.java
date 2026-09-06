@@ -1614,6 +1614,8 @@ public final class FarmTicker {
 
     /** 개체 → 그 막사에서 맡은 자리(경계 위치). */
     private static final java.util.Map<Integer, BlockPos> GUARD_SEAT = new java.util.HashMap<>();
+    /** 경비대원별 <b>연속</b> 봉급 미지급 일수 — 이탈 판정용(휘발, 하루 1회 갱신). */
+    private static final java.util.Map<Integer, Integer> GUARD_UNPAID = new java.util.HashMap<>();
 
     /** 개체 → 봉급 미납 연속 일수. 이탈 판정의 입력. */
     private static final java.util.Map<Long, Integer> UNPAID_DAYS = new java.util.HashMap<>();
@@ -2709,6 +2711,17 @@ public final class FarmTicker {
                 m.setPoorhouse(best.pos);
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
+                GUARD_UNPAID.remove(m.getId());
+                // <b>선지급.</b> 봉급은 밤 정산에서 나가는데, 굶어서 들어온 자는 그 하루를 못
+                // 버틴다 — 낮 노동을 막아 놓았으므로 벌 길이 아예 없다(실측: 채용 당일 밤
+                // 굶주림 피해 → 이튿날 기근 이주). 채용 시점에 하루치를 먼저 준다.
+                double advance = Math.min(Facilities.POORHOUSE_STIPEND,
+                        Math.max(0.0, larders.get(boss.getHomePos())));
+                if (advance > 0.0) {
+                    larders.set(boss.getHomePos(), larders.get(boss.getHomePos()) - advance);
+                    larders.set(m.getHomePos(), larders.get(m.getHomePos()) + advance);
+                    POOR_SUM[2] += advance;
+                }
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
                         "채용 @%d,%d — 희망도 %.2f(특성 %.2f · 문턱 %.2f) · 주인 저장고 %.1f · %.0f블록",
                         best.pos.getX(), best.pos.getZ(), want,
@@ -2757,8 +2770,23 @@ public final class FarmTicker {
             double pay = Math.min(want, Math.max(0.0, ownerLar));
             if (pay <= 0.0) {
                 POOR_SUM[3] += want;
-                continue; // 주인 저장고가 비었다 — 소속은 유지된다(갈 곳이 없다)
+                // <b>못 받으면 나간다.</b> 종전에는 "소속은 유지된다(갈 곳이 없다)"였는데,
+                // 낮 노동을 막은 지금은 그것이 곧 <b>가만히 굶어 죽으라는 뜻</b>이 된다.
+                // 부양력이 정원을 제한한다는 규칙은 굶겨 죽이는 것이 아니라 내보내는 것으로
+                // 물려야 한다 — 군인의 SOLDIER_DESERT_DAYS 와 같은 눈금(2일)을 쓴다.
+                int miss = GUARD_UNPAID.merge(m.getId(), 1, Integer::sum);
+                if (miss >= Facilities.SOLDIER_DESERT_DAYS) {
+                    m.setPoorhouse(null);
+                    m.setBegStreak(0);
+                    GUARD_UNPAID.remove(m.getId());
+                    POOR_SUM[1]++;
+                    com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
+                            "이탈 — 봉급 미지급 %d일 연속(주인 저장고 %.1f · 요구 %.1f)",
+                            miss, ownerLar, want));
+                }
+                continue;
             }
+            GUARD_UNPAID.remove(m.getId());
             larders.set(owner.getHomePos(), ownerLar - pay);
             larders.set(m.getHomePos(), larders.get(m.getHomePos()) + pay);
             POOR_SUM[2] += pay;
@@ -5229,10 +5257,14 @@ public final class FarmTicker {
                 // (배정 소멸) — 채집으로 생계 후 재배정. 무한 원거리 강제통근 차단.
                 boolean failedReach = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id
                         && m.blockPosition().distSqr(plot.anchor) > COMMUTE * COMMUTE;
+                // <b>경비대원은 노동시장에 없다.</b> goal 만 막으면 자리는 차지한 채 일을 안 해
+                // 밭이 빈다(실측: 대원이 상시소작 예약석까지 먹고 마름으로 임명됐다). 낮에 쉬는
+                // 것이 이들의 근무 조건이므로 배정 후보에서 아예 뺀다.
                 if (m.getIndividual().id() == plot.ownerId || ASSIGNED.containsKey(m.getId())
                         || (oh != null && oh.equals(m.getHomePos()))
                         || store.ownedCount(m.getIndividual().id()) > 0
                         || m.isSatisfiedToday()
+                        || m.inPoorhouse()
                         || failedReach) {
                     continue;
                 }
@@ -5472,8 +5504,9 @@ public final class FarmTicker {
                         && (e.getStage() == com.evosim.core.LifeStage.ADULT
                                 || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
             if (ASSIGNED.containsKey(m.getId())
-                    || store.ownedCount(m.getIndividual().id()) > 0) {
-                continue; // 이미 오늘 일감이 있거나, 제 밭을 가진 지주
+                    || store.ownedCount(m.getIndividual().id()) > 0
+                    || m.inPoorhouse()) {
+                continue; // 이미 오늘 일감이 있거나, 제 밭을 가진 지주, 또는 낮에 쉬는 경비대원
             }
             // <b>가는 중인 사람의 목적지를 다시 고르지 않는다.</b> 이 정산은 200틱마다 도는데,
             // 여기서 매번 다시 고르면 후보 저장고가 출렁일 때마다 목표가 갈려 길 위에서 방향만

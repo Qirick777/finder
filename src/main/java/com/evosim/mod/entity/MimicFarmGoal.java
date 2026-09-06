@@ -54,6 +54,12 @@ public class MimicFarmGoal extends Goal {
                 || mob.getStage() == LifeStage.INFANT || mob.getStage() == LifeStage.BOY) {
             return false;
         }
+        // <b>경비대는 낮에 쉰다 — 밭일도 노동이다.</b> 채집 goal 에만 관문을 달았더니 실측에서
+        // 대원이 소작으로 배정되고 마름까지 임명됐다(d2: 일용 → 상시소작 → 마름임명 → 긴급고용).
+        // "낮에는 경비대 내에서 쉬고 야간에는 도끼 들고 경계한다"와 정면으로 어긋난다.
+        if (mob.inPoorhouse()) {
+            return false;
+        }
         // 위급 배정자는 시간표를 무시한다 — MimicForageGoal 이 위급 때 배회·밤을 무시하고 채집을
         // 강행하는 것과 같은 예외. 낮에 위급해진 무밭 성년은 FarmTicker.emergencyHire 가 그 자리에서
         // 배정하는데, 노동 시간이 이미 지났으면 그 배정이 다음 날까지 아무 소용이 없다(그 사이 아사).

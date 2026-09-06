@@ -2461,45 +2461,58 @@ public final class FarmTicker {
     static final int POOR_INSTANT_GRADE = 2;
 
     /**
-     * <b>경비대 희망도(실효)</b> — 특성 몫 + 굶주림 가산.
+     * <b>요구 봉급</b> — 이 사람이 경비대에 응하는 최저선.
      *
-     * <p>특성 몫은 순수 함수({@link com.evosim.core.Vocation#guard})라 개체만 보면 되지만,
-     * 굶주림은 세계 상태(저장고·가족 크기)를 봐야 하므로 여기서 얹는다.
+     * <p>희망도 점수를 손으로 매기는 대신 <b>기회비용</b>으로 잰다(지시: "봉급 캡을 두고 봉급
+     * 협상으로 거지들을 채용"). 밖에서 벌 수 있는 것이 적을수록 싸게 응하므로, 채집을 깎는
+     * 특성은 무엇이든 자동으로 경비대 쪽으로 민다 — 목록을 손으로 나열하지 않아도 된다.
      *
-     * <p>굶주림은 <b>자격이 아니라 가산</b>이다(지시: "선호에 따라 선발로 하자. 굶으면 되는게
-     * 아니라"). 그래서 멍청·무능은 배불러도 지원하고, 유능한 자도 굶으면 지원한다 —
-     * 구빈 기능은 남되 선발은 희망도가 정한다.
+     * <pre>
+     *   바깥벌이 = 채집 하루치(9.0) × gather(ind) × 성향계수
+     *   요구     = max(생존선, 바깥벌이 × (1 − 절박도))
+     *   절박도   = clamp(1 − 보유 / 굶는선)
+     * </pre>
      *
-     * <p>육아 구속은 특성이 아니라 상태지만 같은 가산으로 넣는다: 나갈 수가 없어 못 버는
-     * 자리라, 굶주림과 성질이 같다.
+     * <p><b>생존선 바닥이 요점이다.</b> 절박도가 1 이면 요구가 0 으로 수렴하는데, 그 값에
+     * 고용하면 낮 노동을 막아 놓았으므로 그대로 굶어 죽는다 — "지주 우위"가 아사를 뜻하게
+     * 된다. 성인 하루 소모를 밑으로 깐다.
+     *
+     * <p>나오는 그림(캡 4.5 기준): 무특성 배부름 9.0(배제) · 식물혼동Ⅴ 4.5(채용) ·
+     * 멍청Ⅴ 3.0(생존선, 채용) · 굶는 자 3.0(채용). 배가 부르면 요구가 바깥벌이 전액까지
+     * 올라 캡을 넘으므로 <b>자립하면 저절로 나간다</b>.
      */
-    static double guardWant(ServerLevel level, MimicEntity m) {
+    static double guardAskWage(ServerLevel level, MimicEntity m) {
         var ind = m.getIndividual();
         if (ind == null) {
-            return 0.0;
+            return Double.MAX_VALUE;
         }
-        double want = com.evosim.core.Vocation.guard(ind);
-        // <b>굶으면 자격은 확보하고, 얼마나 굶었는지는 순서만 가른다.</b>
-        //
-        // 종전에는 가산을 0 까지 내려가는 경사 하나로만 줬다. 그러면 자격선이 실질적으로
-        // "구걸선의 1/5"이 되어(0.5 × (1−보유/선) ≥ 0.4 → 보유 < 선 × 0.2), <b>구걸은 하는데
-        // 채용은 안 되는</b> 구간이 생긴다 — 실측(무대 런): 굶는 5명 · 빈자리 10 · 채용 0.
-        // 거지가 정원 베리를 조금 따먹어 저장고가 3 이 되는 순간 자격을 잃었다.
-        //
-        // 그래서 굶는 판정({@link #starving}, 구걸을 켜는 것과 <b>같은 선</b>)을 넘으면 채용
-        // 문턱만큼을 통째로 얹어 자격을 보장하고, 경사는 그 위에 얹어 <b>더 굶은 자가 먼저
-        // 앉게</b>만 한다. 두 선을 하나로 맞추는 것이 요점이다.
-        if (m.isCaregiverBound() || starving(level, m)) {
-            want += Facilities.GUARD_HIRE_WANT;
-            if (m.getHomePos() != null) {
-                double line = Math.max(1.0E-6,
-                        m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS);
-                double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
-                want += Facilities.GUARD_HUNGER_WANT
-                        * Math.max(0.0, Math.min(1.0, 1.0 - have / line));
-            }
+        double outside = Facilities.GUARD_OUTSIDE_DAY
+                * com.evosim.core.Multipliers.gather(ind)
+                * com.evosim.core.Vocation.guardWageFactor(ind);
+        double urgency = 0.0;
+        if (m.isCaregiverBound()) {
+            urgency = 1.0; // 나갈 수가 없어 못 번다 — 바깥벌이가 실질 0 이다
+        } else if (m.getHomePos() != null) {
+            double line = Math.max(1.0E-6,
+                    m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS);
+            double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
+            urgency = Math.max(0.0, Math.min(1.0, 1.0 - have / line));
         }
-        return Math.max(0.0, Math.min(1.0, want));
+        double floor = com.evosim.core.FoodEconomy.consumptionPerDay(
+                m.getStage(), com.evosim.core.Activity.MOVE, ind, false);
+        return Math.max(floor, outside * (1.0 - urgency));
+    }
+
+    /**
+     * <b>지주가 낼 수 있는 상한</b> — 부양력이 정원의 실제 한계라는 규칙을 값 하나로 만든다.
+     *
+     * <p>{@code min(절대 상한, 저장고 / (인원+1) / 유보일수)}. 지주가 커질수록 경비대도
+     * 커지고, 저장고가 마르면 새 채용이 먼저 막힌다(이미 있는 대원은 미지급 이탈로 빠진다).
+     */
+    static double guardWageCap(double ownerLarder, int headAfterHire) {
+        double afford = Math.max(0.0, ownerLarder)
+                / Math.max(1, headAfterHire) / Facilities.GUARD_PAYROLL_DAYS;
+        return Math.min(Facilities.GUARD_WAGE_MAX, afford);
     }
 
     /** 경비대 희망도를 만드는 특성의 실효 등급(멍청·무능함 중 높은 쪽) — 계측이 같은 식을 읽는다. */
@@ -2643,14 +2656,19 @@ public final class FarmTicker {
             // 쫓겨나고 다음 날 희망도 1.00 으로 곧장 다시 뽑힌다. 희망도로 재면 특성이 만든
             // 몫은 변하지 않으므로 멍청·무능은 평생 경비대이고, 굶어서 들어온 유능한 자만
             // 배가 부르면 나간다(채용 문턱보다 낮은 이탈 문턱 = 히스테리시스).
-            double want = guardWant(level, m);
-            if (want < Facilities.GUARD_EXIT_WANT) {
+            // <b>이탈도 협상으로 잰다.</b> 배가 부르면 절박도가 0 으로 가 요구가 바깥벌이
+            // 전액까지 오르는데, 그것이 절대 상한을 넘으면 이 자리에 있을 이유가 없다 —
+            // <b>자립하면 저절로 나간다</b>. 반대로 채집 능력이 낮은 자는 배불러도 요구가
+            // 낮아 그대로 남는다(멍청·무능은 평생 경비대).
+            double reAsk = guardAskWage(level, m);
+            if (reAsk > Facilities.GUARD_WAGE_MAX) {
                 m.setPoorhouse(null);
                 m.setBegStreak(0);
+                m.setGuardWage(0.0);
                 POOR_SUM[1]++;
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                        "이탈 — 희망도 %.2f < 이탈선 %.2f (저장고 %.1f)",
-                        want, Facilities.GUARD_EXIT_WANT, lar));
+                        "이탈 — 요구 %.1f > 상한 %.1f (자립 · 저장고 %.1f)",
+                        reAsk, Facilities.GUARD_WAGE_MAX, lar));
                 continue;
             }
             taken.merge(p.asLong(), 1, Integer::sum);
@@ -2665,9 +2683,10 @@ public final class FarmTicker {
         if (!hs.isEmpty()) {
             java.util.List<MimicEntity> queue = new java.util.ArrayList<>(adults);
             queue.sort((a, b) -> {
-                // 정렬도 <b>실효</b> 희망도로 — 자격을 재는 수와 순서를 정하는 수가 달라지면
-                // "문턱은 넘었는데 뒤로 밀린다"가 생긴다.
-                int c = Double.compare(guardWant(level, b), guardWant(level, a));
+                // <b>싼 사람부터</b>. 자격을 재는 수(요구가)와 순서를 정하는 수가 같아야
+                // "문턱은 넘었는데 뒤로 밀린다"가 안 생긴다. 굶는 자와 채집 못 하는 자가
+                // 자연히 앞에 선다 — 순서를 손으로 정하지 않아도 된다.
+                int c = Double.compare(guardAskWage(level, a), guardAskWage(level, b));
                 return c != 0 ? c : Long.compare(a.getIndividual() == null ? 0L
                         : a.getIndividual().id(),
                         b.getIndividual() == null ? 0L : b.getIndividual().id());
@@ -2676,11 +2695,9 @@ public final class FarmTicker {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
                     continue;
                 }
-                // <b>희망도가 자격이다.</b> 굶주림은 자격이 아니라 그 안의 가산이다
-                // (guardWant 주석 참조). 연속 구걸 일수도 더는 보지 않는다 — 굶어야만 뽑히던
-                // 시절의 장치라, 배부른 멍청·무능이 영영 안 뽑히는 원인이었다.
-                double want = guardWant(level, m);
-                if (want < Facilities.GUARD_HIRE_WANT) {
+                // <b>자격은 협상이 정한다</b>(아래 요구 vs 캡). 여기서는 절대 상한만 미리
+                // 걸러 자리 계산을 아낀다 — 요구가 상한을 넘는 자는 어느 지주도 못 쓴다.
+                if (guardAskWage(level, m) > Facilities.GUARD_WAGE_MAX) {
                     continue;
                 }
                 FacilityStore.Entry best = null;
@@ -2709,16 +2726,22 @@ public final class FarmTicker {
                     }
                 }
                 int head = taken.getOrDefault(best.pos.asLong(), 0) + 1;
-                double payroll = head * Facilities.POORHOUSE_STIPEND * Facilities.GUARD_PAYROLL_DAYS;
                 double purse = boss == null || boss.getHomePos() == null
                         ? 0.0 : larders.get(boss.getHomePos());
-                if (purse < payroll) {
+                // <b>협상.</b> 부르는 값(요구)이 지주가 낼 수 있는 값(캡) 이하일 때만 성사된다.
+                // 실지급은 요구가에 붙인다 — 아쉬운 쪽은 거지이므로 지주가 삼킴을 다 가져간다.
+                double ask = guardAskWage(level, m);
+                double cap = guardWageCap(purse, head);
+                if (ask > cap) {
                     com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                            "채용보류 @%d,%d — 희망도 %.2f 인데 주인 저장고 %.1f < 봉급 %d명 %.0f일분 %.1f",
-                            best.pos.getX(), best.pos.getZ(), want, purse, head,
-                            Facilities.GUARD_PAYROLL_DAYS, payroll));
+                            "협상결렬 @%d,%d — 요구 %.1f > 캡 %.1f (바깥벌이 %.1f · 주인 저장고 %.1f · %d번째)",
+                            best.pos.getX(), best.pos.getZ(), ask, cap,
+                            Facilities.GUARD_OUTSIDE_DAY
+                                    * com.evosim.core.Multipliers.gather(m.getIndividual()),
+                            purse, head));
                     continue;
                 }
+                m.setGuardWage(ask);
                 m.setPoorhouse(best.pos);
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
@@ -2739,10 +2762,12 @@ public final class FarmTicker {
                     POOR_SUM[2] += advance;
                 }
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                        "채용 @%d,%d — 희망도 %.2f(특성 %.2f · 문턱 %.2f) · 주인 저장고 %.1f · %.0f블록",
-                        best.pos.getX(), best.pos.getZ(), want,
-                        com.evosim.core.Vocation.guard(m.getIndividual()),
-                        Facilities.GUARD_HIRE_WANT, purse, Math.sqrt(bd)));
+                        "채용 @%d,%d — 봉급 %.1f 합의(요구 %.1f ≤ 캡 %.1f · 바깥벌이 %.1f)"
+                        + " · 주인 저장고 %.1f · %.0f블록",
+                        best.pos.getX(), best.pos.getZ(), ask, ask, cap,
+                        Facilities.GUARD_OUTSIDE_DAY
+                                * com.evosim.core.Multipliers.gather(m.getIndividual()),
+                        purse, Math.sqrt(bd)));
             }
         }
 
@@ -2771,17 +2796,13 @@ public final class FarmTicker {
             if (owner == null || owner.getHomePos() == null) {
                 continue; // 주인이 자리에 없다 — 오늘은 못 준다
             }
-            double adultNeed = 0.0;
-            for (MimicEntity a : adults) {
-                if (m.getHomePos().equals(a.getHomePos())) {
-                    adultNeed += com.evosim.core.FoodEconomy.consumptionPerDay(
-                            a.getStage(), com.evosim.core.Activity.MOVE, a.getIndividual(), false);
-                }
-            }
-            double cap = Math.max(1.0E-6,
-                    adultNeed * com.evosim.core.FarmEconomy.WEALTH_CAP_DAYS);
-            double want = Facilities.POORHOUSE_STIPEND
-                    * Math.exp(-Math.max(0.0, larders.get(m.getHomePos())) / cap);
+            // <b>합의된 값을 그대로 준다.</b> 종전에는 정액 봉급에 저장고 감액 곡선을 곱했는데,
+            // 그러면 협상이 정한 값이 지급 단계에서 다시 깎여 "부른 값과 받는 값이 다르다"가
+            // 된다 — 그 자리에서 굶어 죽던 원인이기도 하다(평형점이 저장고 0). 협상이 이미
+            // 절박도로 싸게 후려친 값이므로 여기서 또 누를 이유가 없다.
+            //
+            // 구세이브 호환: 협상 전 코드로 들어온 대원은 합의값이 0 이므로 절대 상한을 쓴다.
+            double want = m.getGuardWage() > 0.0 ? m.getGuardWage() : Facilities.GUARD_WAGE_MAX;
             double ownerLar = larders.get(owner.getHomePos());
             double pay = Math.min(want, Math.max(0.0, ownerLar));
             if (pay <= 0.0) {

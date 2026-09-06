@@ -1,23 +1,24 @@
 package com.evosim.core;
 
 /**
- * <b>직업 희망도</b> — 특성이 그 자리를 얼마나 원하게(또는 그 자리로 밀리게) 하는가.
- * 0.0 = 아무 이유 없음, 1.0 = 그 자리 말고는 없음.
+ * <b>직업 성향</b> — 특성이 어느 자리로 사람을 미는가. 두 자리는 재는 방식이 다르다.
  *
- * <p><b>왜 점수인가.</b> 종전에는 "멍청Ⅱ 이상이면 즉시 입소"처럼 <b>이진 스위치</b>였다.
- * 스위치는 두 가지가 나쁘다: 등급 Ⅰ 과 Ⅴ 가 같은 대우를 받아 경사가 사라지고, 자리가 모자랄
- * 때 <b>누구를 먼저</b> 앉힐지 말해 주지 못한다. 점수로 두면 문턱과 순서를 같은 수 하나가
- * 정하고, 규칙5(하드코딩된 신분 분기 금지)와도 맞는다 — 신분이 특성 값에서 나온다.
+ * <p><b>경비대는 점수가 아니라 값으로 뽑는다.</b> 한때 "멍청Ⅱ 이상이면 입소" 같은 이진
+ * 스위치였고, 그다음엔 손으로 매긴 희망도 점수였다. 둘 다 목록을 손으로 들고 있어야 해서,
+ * 채집을 깎는 특성(식물혼동·육식·곰손·산만·단순무식·무모)을 넣으려면 그 목록을 늘려야 했고
+ * 그러면 {@link Multipliers#gather} 와 두 벌이 되어 반드시 어긋난다.
  *
- * <p><b>왜 한 클래스에 모으는가.</b> 경비대와 군인은 뽑는 기준이 정반대지만(못하는 자 /
- * 잘하는 자) 쓰는 방식이 같다 — 문턱을 낮추고 자리를 다툴 때 순서를 매긴다. 축을 따로 두면
- * 두 곳의 산식이 갈라져 나중에 한쪽만 고치게 된다.
+ * <p>그래서 경비대 채용은 <b>봉급 협상</b>이 정한다({@code FarmTicker.guardAskWage}):
+ * 요구 봉급을 바깥벌이(채집 하루치 × {@code gather})에서 뽑으므로, 채집을 깎는 특성은
+ * 무엇이든 자동으로 요구를 낮춰 경비대 쪽으로 민다. 규칙5(하드코딩된 신분 분기 금지)가
+ * 목록이 아니라 <b>산식</b>으로 지켜진다. 여기 남는 것은 능력에 안 잡히는 성향뿐이다.
  *
- * <p>등급은 전부 0~5 눈금이고({@link Multipliers}), 발현 여부는 등급이 없는 성향 특성에 쓴다.
+ * <p><b>군인은 아직 점수다.</b> 그쪽 채용은 추종·거리로 뽑고 있어 붙일 자리가 없다 —
+ * 개편이 올 때 같은 틀로 옮긴다.
  */
 public final class Vocation {
 
-    /** 성향(등급 없는) 특성 하나가 희망도에 얹는 몫. 등급Ⅴ 하나(1.0)의 절반이다. */
+    /** 성향(등급 없는) 특성 하나가 군인 희망도에 얹는 몫. 등급Ⅴ 하나(1.0)의 절반이다. */
     private static final double FLAG_WEIGHT = 0.5;
 
     /** 등급 특성의 만점 — Ⅴ 하나면 이 값을 다 채운다. */
@@ -27,33 +28,40 @@ public final class Vocation {
     }
 
     /**
-     * <b>경비대 희망도</b> — 밭일로 먹고살 수 없는 정도.
+     * <b>요구 봉급에 곱하는 성향계수</b> — 같은 벌이라도 누구는 싸게 응하고 누구는 버틴다.
      *
-     * <p>원하는 자리가 아니라 <b>밀려나는</b> 자리다. 그래서 능력이 아니라 무능이 점수가 된다:
-     * 멍청·무능은 등급으로, 게으름·비관은 발현으로 센다. 육아 구속은 특성이 아니라 상태라
-     * 여기 넣지 않는다 — 부르는 쪽에서 따로 본다.
+     * <p>봉급 협상의 밑값은 <b>바깥벌이</b>(채집 하루치 × {@link Multipliers#gather})다. 그것은
+     * 능력만 재므로, 능력에 안 잡히는 성향을 여기서 얹는다:
      *
-     * <p>낙관은 <b>깎는다</b>. 나아질 것이라 보므로 남의 밥을 먹는 자리로 늦게 간다. 종전에
-     * 문턱 일수 +1 로 주던 효과를 같은 뜻으로 여기에 합친다.
+     * <ul>
+     *   <li><b>게으름</b> — 편한 자리를 싸게 받아들인다(밤에 서 있는 것이 밭일보다 낫다).</li>
+     *   <li><b>비관</b> — 나아질 것이라 보지 않으니 눈앞의 자리를 잡는다.</li>
+     *   <li><b>낙관</b> — 더 받겠다고 버틴다. 그래서 늦게, 혹은 영영 안 온다.</li>
+     * </ul>
+     *
+     * <p><b>채집을 깎는 특성은 여기 없다.</b> 식물혼동·육식·곰손·산만·단순무식·무모·멍청·무능은
+     * 이미 {@code gather} 가 다 반영한다 — 목록을 두 벌로 두면 반드시 어긋난다. 새 특성이
+     * 채집을 깎게 되면 요구 봉급도 자동으로 따라 내려간다.
      */
-    public static double guard(Individual ind) {
+    public static double guardWageFactor(Individual ind) {
         if (ind == null) {
-            return 0.0;
+            return 1.0;
         }
-        double dull = Multipliers.dullGrade(ind) / GRADE_FULL;
-        double inept = Multipliers.abilityGrade(ind, Trait.INEPT) / GRADE_FULL;
-        double score = Math.max(dull, inept); // 둘 다면 더 나쁜 쪽 하나로 — 합치면 쉽게 만점이 된다
+        double f = 1.0;
         if (ExpressionResolver.isExpressed(ind, Trait.LAZY)) {
-            score += FLAG_WEIGHT;
+            f -= WAGE_TILT;
         }
         if (ExpressionResolver.isExpressed(ind, Trait.PESSIMIST)) {
-            score += FLAG_WEIGHT;
+            f -= WAGE_TILT;
         }
         if (ExpressionResolver.isExpressed(ind, Trait.OPTIMIST)) {
-            score -= FLAG_WEIGHT;
+            f += WAGE_TILT;
         }
-        return clamp(score);
+        return Math.max(0.1, f);
     }
+
+    /** 성향 하나가 요구 봉급을 기울이는 비율 — 셋이 겹쳐도 부호가 뒤집히지 않는 크기. */
+    private static final double WAGE_TILT = 0.2;
 
     /**
      * <b>군인 희망도</b> — 싸우는 자리를 원하는 정도.

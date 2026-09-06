@@ -525,6 +525,13 @@ public class MimicEntity extends PathfinderMob {
     // 매일 새로 정해지지만 구빈원 소속은 저장고가 {@link Facilities#POORHOUSE_EXIT} 에
     // 닿아야 풀린다.
     private BlockPos poorhousePos = null;
+    /**
+     * <b>합의된 경비대 봉급</b> — 채용 협상에서 부른 값(요구가). 0 이면 미소속·미합의.
+     *
+     * <p>개체마다 다르므로 상수가 아니라 여기 남긴다. 같은 경비대라도 채집 능력이 낮은 자는
+     * 싸게, 굶어서 급한 자는 더 싸게 들어온다(FarmTicker.guardAskWage).
+     */
+    private double guardWage = 0.0;
     /** 연속 구걸 일수 — {@link Facilities#POORHOUSE_ADMIT_STREAK} 에 닿으면 입소. */
     private int begStreak = 0;
     /** 마지막으로 구걸에 나선 날 — 연속 판정의 기준. −1 = 한 번도 없음. */
@@ -537,6 +544,15 @@ public class MimicEntity extends PathfinderMob {
 
     public void setPoorhouse(BlockPos p) {
         this.poorhousePos = p;
+    }
+
+    /** 합의된 경비대 봉급(요구가). 미소속이면 0. */
+    public double getGuardWage() {
+        return guardWage;
+    }
+
+    public void setGuardWage(double w) {
+        this.guardWage = Math.max(0.0, w);
     }
 
     public boolean inPoorhouse() {
@@ -7544,6 +7560,7 @@ public class MimicEntity extends PathfinderMob {
         if (poorhousePos != null) {
             tag.putLong("Poorhouse", poorhousePos.asLong());
         }
+        tag.putDouble("GuardWage", guardWage);
         tag.putInt("BegStreak", begStreak);
         tag.putLong("LastBegDay", lastBegDay);
         tag.putInt("ChurchVisits", churchVisits); // 획득값 — 구애 우위의 입력이라 살아남아야 한다
@@ -7626,6 +7643,7 @@ public class MimicEntity extends PathfinderMob {
         schoolDays = tag.getInt("SchoolDays");
         poorhousePos = tag.contains("Poorhouse")
                 ? BlockPos.of(tag.getLong("Poorhouse")) : null;
+        guardWage = tag.getDouble("GuardWage");
         begStreak = tag.getInt("BegStreak");
         lastBegDay = tag.contains("LastBegDay") ? tag.getLong("LastBegDay") : -1L;
         churchVisits = tag.getInt("ChurchVisits");

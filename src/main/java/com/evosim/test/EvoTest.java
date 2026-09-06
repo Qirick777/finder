@@ -607,47 +607,45 @@ public final class EvoTest {
                 Multipliers.storage(one(Sex.MALE, TraitInstance.of(Trait.GATHERER),
                         TraitInstance.of(Trait.COOK))),
                 "채집꾼×요리사 저장 = 1.0+0.2+0.1");
-        // ── 경비대 희망도 ────────────────────────────────────────────────
+        // ── 경비대 봉급 협상 ──────────────────────────────────────────────
         //
-        // 채용 자격이 굶주림에서 이 점수로 옮겨 왔으므로(FarmTicker.guardWant), 산식이 흔들리면
-        // "누가 경비대에 들어가는가"가 통째로 바뀐다. 양 끝과 문턱 경계를 못박는다.
-        checkNum(report, "vocation/경비무특성", 0.0,
-                com.evosim.core.Vocation.guard(one(Sex.MALE)),
-                "특성 없음 → 0 (배부른 유능한 자는 영영 안 뽑힌다)");
-        checkNum(report, "vocation/경비멍청Ⅴ", 1.0,
-                com.evosim.core.Vocation.guard(one(Sex.MALE, TraitInstance.graded(Trait.DULL, 5))),
-                "멍청Ⅴ = 5/5 → 1.0 (평생 경비대)");
-        checkNum(report, "vocation/경비멍청Ⅱ", 0.4,
-                com.evosim.core.Vocation.guard(one(Sex.MALE, TraitInstance.graded(Trait.DULL, 2))),
-                "멍청Ⅱ = 2/5 → 채용 문턱과 정확히 같다");
-        checkNum(report, "vocation/경비둘합산안함", 0.6,
-                com.evosim.core.Vocation.guard(one(Sex.MALE, TraitInstance.graded(Trait.DULL, 3),
-                        TraitInstance.graded(Trait.INEPT, 3))),
-                "멍청Ⅲ+무능Ⅲ = max 로 0.6 (합치면 쉽게 만점이 된다)");
-        checkNum(report, "vocation/경비게으름", 0.5,
-                com.evosim.core.Vocation.guard(one(Sex.MALE, TraitInstance.of(Trait.LAZY))),
-                "게으름 단독 = 0.5 → 문턱 통과");
-        checkNum(report, "vocation/경비낙관상쇄", 0.1,
-                com.evosim.core.Vocation.guard(one(Sex.MALE, TraitInstance.graded(Trait.DULL, 3),
-                        TraitInstance.of(Trait.OPTIMIST))),
-                "멍청Ⅲ(0.6) − 낙관(0.5) = 0.1 → 문턱 미달(나아질 것이라 본다)");
-        boolean vocGate = com.evosim.core.Vocation.guard(one(Sex.MALE,
-                        TraitInstance.graded(Trait.DULL, 2))) >= com.evosim.mod.entity.Facilities.GUARD_HIRE_WANT
-                && com.evosim.core.Vocation.guard(one(Sex.MALE,
-                        TraitInstance.graded(Trait.DULL, 1))) < com.evosim.mod.entity.Facilities.GUARD_HIRE_WANT
-                && com.evosim.mod.entity.Facilities.GUARD_EXIT_WANT < com.evosim.mod.entity.Facilities.GUARD_HIRE_WANT;
-        report.add("vocation/경비문턱경계", vocGate,
-                "멍청Ⅱ는 통과 · Ⅰ은 탈락 · 이탈선 < 채용선(히스테리시스)",
+        // 채용 자격이 굶주림에서 <b>요구 봉급</b>으로 옮겨 왔다(FarmTicker.guardAskWage).
+        // 요구는 바깥벌이(채집 하루치 × gather)에서 나오므로 채집 배율이 곧 신분을 가른다.
+        checkNum(report, "vocation/임금계수무성향", 1.0,
+                com.evosim.core.Vocation.guardWageFactor(one(Sex.MALE)),
+                "성향 없음 → 요구 그대로");
+        checkNum(report, "vocation/임금계수게으름", 0.8,
+                com.evosim.core.Vocation.guardWageFactor(
+                        one(Sex.MALE, TraitInstance.of(Trait.LAZY))),
+                "게으름 → 편한 자리를 싸게 받는다(요구 −20%)");
+        checkNum(report, "vocation/임금계수낙관", 1.2,
+                com.evosim.core.Vocation.guardWageFactor(
+                        one(Sex.MALE, TraitInstance.of(Trait.OPTIMIST))),
+                "낙관 → 더 받겠다고 버틴다(요구 +20%)");
+        checkNum(report, "vocation/임금계수상쇄", 1.0,
+                com.evosim.core.Vocation.guardWageFactor(one(Sex.MALE,
+                        TraitInstance.of(Trait.LAZY), TraitInstance.of(Trait.OPTIMIST))),
+                "게으름+낙관 = 상쇄");
+        boolean vocGate = com.evosim.mod.entity.Facilities.GUARD_WAGE_MAX
+                        < com.evosim.mod.entity.Facilities.GUARD_OUTSIDE_DAY
+                && Multipliers.gather(one(Sex.MALE, TraitInstance.graded(Trait.PLANT_CONFUSED, 5)))
+                        * com.evosim.mod.entity.Facilities.GUARD_OUTSIDE_DAY
+                        <= com.evosim.mod.entity.Facilities.GUARD_WAGE_MAX
+                && Multipliers.gather(one(Sex.MALE))
+                        * com.evosim.mod.entity.Facilities.GUARD_OUTSIDE_DAY
+                        > com.evosim.mod.entity.Facilities.GUARD_WAGE_MAX;
+        report.add("vocation/경비임금경계", vocGate,
+                "봉급 상한이 바깥벌이를 가른다 — 식물혼동Ⅴ(요구 4.5)는 들어오고 무특성(9.0)은 못 들어온다",
                 vocGate ? "정상" : "어긋남");
         // 군인 희망도 — 아직 쓰는 곳이 없지만 축이 반대라는 것만 못박는다(경비대와 섞이면 안 된다).
         boolean vocSoldier = com.evosim.core.Vocation.soldier(one(Sex.MALE,
                         TraitInstance.of(Trait.BRAVE))) > 0.0
                 && com.evosim.core.Vocation.soldier(one(Sex.MALE,
                         TraitInstance.graded(Trait.DULL, 5))) == 0.0
-                && com.evosim.core.Vocation.guard(one(Sex.MALE,
-                        TraitInstance.of(Trait.BRAVE))) == 0.0;
+                && com.evosim.core.Vocation.guardWageFactor(one(Sex.MALE,
+                        TraitInstance.of(Trait.BRAVE))) == 1.0;
         report.add("vocation/군인축분리", vocSoldier,
-                "용감함은 군인만 · 멍청은 경비만 — 두 축이 서로를 오염시키지 않는다",
+                "용감함은 군인 희망도만 올리고 경비 임금계수는 안 건드린다 — 두 축이 안 섞인다",
                 vocSoldier ? "정상" : "어긋남");
         // 관리 등급 — max 에서 합산으로. 종전에는 눈썰미Ⅳ+명석 · 눈썰미Ⅴ+명석 · 능력Ⅴ둘+명석+깜냥이
         // 전부 g5 로 같았다(상한에서 버려짐). 이제 모일수록 오르고, 능력 0이면 여전히 정확히 0이다.

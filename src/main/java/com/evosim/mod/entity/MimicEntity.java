@@ -5647,6 +5647,18 @@ public class MimicEntity extends PathfinderMob {
      *  정착 시각은 성년·노년만 집계(신생아 출생이 setHomePos로 쿨다운을 계속 리셋하는 결함 방지).
      *  인솔 성년·노년이 하나도 없는 가구는 이주하지 않는다(아이들만의 캐러밴 좌초 방지). */
     private boolean shouldFamilyMigrate(List<MimicEntity> fam, double larder, double need) {
+        // <b>고용된 자는 기근으로 떠나지 않는다.</b> 경비대 봉급은 소모와 같은 값이라 저장고가
+        // 영영 안 늘어난다 — 그것이 이 판정에는 <b>마르지 않는 기근</b>으로 읽혀, 채용된
+        // 대원이 이튿날 마을을 뜬다(실측: d1 채용 → d2 폐가·이주, 그래서 경계 0).
+        //
+        // 이주는 "여기서는 먹고살 수 없다"는 판단인데, 봉급 자리가 있으면 그 전제가 틀렸다.
+        // 봉급이 실제로 끊기면 미지급 이탈(FarmTicker, 2일)이 소속을 풀고, 그때 비로소 이
+        // 판정이 다시 열린다 — 굶는 것이 곧 이탈 신호라는 규칙과 순서가 맞는다.
+        for (MimicEntity m : fam) {
+            if (m.inPoorhouse()) {
+                return false;
+            }
+        }
         long now = com.evosim.mod.entity.SimTime.tick(level());
         // 초기값 0 이면 점검용 과거화(settledTick = now − 쿨다운 − 1000)가 젊은 월드에서 음수가 됐을 때
         // Math.max 가 0으로 클램프 → now − 0 < 쿨다운 → 이주 영구 차단(월드 나이 2일 미만). MIN_VALUE

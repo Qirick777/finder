@@ -5958,20 +5958,22 @@ public final class EvoSimCommand {
             g.debugSettleWithHome(level, gh, "small1", (byte) 0, false);
         }
         int pinned = 0;
+        // 무대 봉급 — 무특성 성인의 최저선(이동 하루소모 3.0 × 배급 배율 4/3)과 같은 수.
+        final double stageWage = 3.0 * Facilities.GUARD_RATION_MULT;
         for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
                 new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
                 e -> e.isAlive() && e.getIndividual() != null && e.getHomePos() != null
                         && !e.inPoorhouse() && !taxHomes.contains(e.getHomePos())
                         && FarmStore.get(level).ownedCount(e.getIndividual().id()) == 0)) {
             m.setPoorhouse(house.pos);
-            m.setGuardWage(Facilities.POORHOUSE_STIPEND);
+            m.setGuardWage(stageWage);
             // <b>넉넉히 준다.</b> 한때 굶는 선 아래(소지 2 · 저장고 0)로 맞췄는데, 그러면
             // 밤중에 소지가 말라 위급이 되고 위급이면 경계 goal 이 물러나 순찰이 영영 안 돈다.
             // 굶는 선(하루소모 × 1.0)과 하루 소모가 <b>같은 값</b>이라 "굶으면서 위급을 면한다"는
             // 산술적으로 불가능하다 — 그 줄타기를 그만두고, 대신 배불러도 안 나가는 개체
             // (위에서 소환한 식물혼동Ⅴ)를 쓴다.
-            m.setDayHarvest(Facilities.POORHOUSE_STIPEND);
-            lar.set(m.getHomePos(), Facilities.POORHOUSE_STIPEND * 2.0);
+            m.setDayHarvest(stageWage);
+            lar.set(m.getHomePos(), stageWage * 2.0);
             pinned++;
         }
         tell(ctx.getSource(), String.format(
@@ -5981,8 +5983,7 @@ public final class EvoSimCommand {
                 + " 8은 면세 · 16은 절반(1.0) · 24는 거의 최대(1.89) 가 나와야 맞다.\n"
                 + "  이제 볼 것은 <경계> 줄 하나다: \"밤 근무 끝 — 순찰 지점 N곳\".\n"
                 + "  N=0 이면 밤에 안 돈 것이다(리시 선점·표적 미도달·위급 중 하나).",
-                house.pos.getX(), house.pos.getZ(), pinned, guards,
-                Facilities.POORHOUSE_STIPEND));
+                house.pos.getX(), house.pos.getZ(), pinned, guards, stageWage));
         return 1;
     }
 

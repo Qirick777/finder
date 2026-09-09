@@ -20,9 +20,10 @@ import java.util.EnumSet;
  * 무력이 아니라 동네의 조직이고, 주인이 누구든 이웃을 지킨다.
  *
  * <p><b>낮은 진짜로 쉰다.</b> 채집·사냥·정원은 {@link MimicForageGoal#canUse} 가 소속을 보고
- * 통째로 끊는다. 그래서 이들의 수입은 봉급 하나뿐이고, 봉급은 성인 하루 소모와 같은 수로
- * 맞춰 두었다({@link Facilities#POORHOUSE_STIPEND}). 지주가 봉급을 못 내면 그대로 굶는다 —
- * 부양력이 정원을 제한한다는 규칙이 실제로 물리게 하는 자리다.
+ * 통째로 끊는다. 그래서 이들의 수입은 봉급 하나뿐이고, 봉급의 바닥은 본인 이동 하루소모에
+ * 배급 배율을 곱한 값이다({@link Facilities#GUARD_RATION_MULT}) — 근무 직전 손에 들어온다.
+ * 지주가 봉급을 못 내면 그대로 굶는다 — 부양력이 정원을 제한한다는 규칙이 실제로 물리게
+ * 하는 자리다.
  */
 public class MimicWatchGoal extends Goal {
 
@@ -177,6 +178,10 @@ public class MimicWatchGoal extends Goal {
         stand = 0;
         travel = 0;
         mob.setWorkAnchor(null);
+        // <b>라벨을 비운다.</b> 라벨을 찍는 goal 은 밭일·경계·주둔뿐이라, 물러난 뒤 귀가·인출·
+        // 구걸 중에도 머리 위에 "경계"가 남았다 — 관측자에게 "낮에도 경계 중"으로 보였다
+        // (실측: 새벽 위급으로 물러난 대원이 낮 내내 그 라벨로 왕복). 다시 켜지면 start 가 찍는다.
+        mob.setActivity(null);
         // <b>guardAnchor 는 여기서 놓지 않는다</b>(주둔과 같은 규칙). stop 은 전투 같은 일시
         // 선점에서도 불리는데, 그때 앵커를 지우면 리시가 곧장 거처로 끌고 가 근무지에 다시
         // 못 온다. 해제는 소속이 실제로 풀렸을 때(canUse) 한 곳에서만 한다.

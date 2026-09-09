@@ -2493,13 +2493,27 @@ public final class FarmTicker {
         if (m.isCaregiverBound()) {
             urgency = 1.0; // 나갈 수가 없어 못 번다 — 바깥벌이가 실질 0 이다
         } else if (m.getHomePos() != null) {
+            // <b>절박도의 눈금은 사흘치다</b>(GUARD_PAYROLL_DAYS). 종전 하루치(POORHOUSE_HUNGER_DAYS)
+            // 로는 봉급 한 번에 절박도가 0 으로 떨어져 이튿날 요구가 바깥벌이 전액(9.5)까지
+            // 올라 나갔다 — 실측(관측 런 d9): 채용 이틀째 두 명이 "요구 9.5 > 상한 4.5" 로
+            // 이탈, 지주는 선지급을 날리고 다시 굶는 자를 뽑았다. 사흘치로 재면 요구가 상한을
+            // 넘는 저축선이 하루치 1.4 에서 4.3 으로 올라간다(9.5 × have/line > 4.5) —
+            // "집이 살 만해지면 나간다"이지 "하루 먹였더니 나간다"가 아니다.
+            //
+            // <b>손에 든 배급은 저축이 아니다.</b> 봉급은 근무 직전 소지로 들어오므로(③ 지급)
+            // 그것을 저축으로 세면 지급 직후 절박도가 뚝 떨어진다. 합의봉급만큼은 뺀다.
             double line = Math.max(1.0E-6,
-                    m.familyDailyNeed() * Facilities.POORHOUSE_HUNGER_DAYS);
-            double have = LarderStore.get(level).get(m.getHomePos()) + m.getHolding();
+                    m.familyDailyNeed() * Facilities.GUARD_PAYROLL_DAYS);
+            double have = LarderStore.get(level).get(m.getHomePos())
+                    + Math.max(0.0, m.getHolding() - m.getGuardWage());
             urgency = Math.max(0.0, Math.min(1.0, 1.0 - have / line));
         }
+        // <b>바닥은 배급이다</b> — 본인 이동 하루소모 × GUARD_RATION_MULT(4/3). 소모 그대로(3.0)
+        // 는 자는 사람의 하루라 밤새 걷는 대원은 새벽에 위급을 스쳤다(실측 H0.23). 배율의
+        // 근거는 상수 주석에 있다.
         double floor = com.evosim.core.FoodEconomy.consumptionPerDay(
-                m.getStage(), com.evosim.core.Activity.MOVE, ind, false);
+                m.getStage(), com.evosim.core.Activity.MOVE, ind, false)
+                * Facilities.GUARD_RATION_MULT;
         // <b>굶으면 생존선을 부른다.</b> 경사만으로는 "구걸은 하는데 요구가 비싸 안 뽑히는"
         // 구간이 다시 생긴다: 9.0 × gather × (1−절박도) ≤ 4.5 를 풀면 <b>절박도 0.5 이상</b>
         // 이라야 하는데, 구걸을 켜는 선(starving)은 그보다 훨씬 헐겁다. 실측(무대 런):
@@ -2787,21 +2801,11 @@ public final class FarmTicker {
                 taken.merge(best.pos.asLong(), 1, Integer::sum);
                 POOR_SUM[0]++;
                 GUARD_UNPAID.remove(m.getId());
-                // <b>선지급 — 손에 쥐여 준다.</b> 봉급은 밤 정산에서 나가는데, 굶어서 들어온
-                // 자는 그 하루를 못 버틴다(낮 노동을 막아 놓았으므로 벌 길이 없다).
-                //
-                // <b>제 집 저장고에 넣으면 소용이 없다.</b> 실측: 구걸하러 나온 대원이 채용
-                // 시점에 제 집에서 35블록 떨어져 있었고, 저장고를 채워 줬는데도 소지 H 0.00
-                // 으로 그 자리에서 굶주림 피해를 받았다. 위급이면 경계 goal 이 물러나므로
-                // 순찰도 못 돈다. 구휼(receiveAlms)이 소지에 직접 주는 것과 같은 이유다 —
-                // 굶는 자에게 필요한 것은 창고가 아니라 지금 먹을 것이다.
-                double advance = Math.min(Facilities.POORHOUSE_STIPEND,
-                        Math.max(0.0, larders.get(boss.getHomePos())));
-                if (advance > 0.0) {
-                    larders.set(boss.getHomePos(), larders.get(boss.getHomePos()) - advance);
-                    m.setDayHarvest(m.getHolding() + advance);
-                    POOR_SUM[2] += advance;
-                }
+                // <b>선지급은 없다 — 첫 봉급이 선불이다.</b> 채용은 밤 정산 안에서 일어나고
+                // 같은 정산의 ③ 이 곧바로 합의봉급을 <b>손에</b> 준다(근무 직전). 종전의 별도
+                // 선지급 4.0 은 회전 비용이었다: 실측(관측 런 d8) 지급 27 중 12 가 선지급이고,
+                // 그 대원들은 이튿날 배가 불러 나갔다. 굶는 자에게 지금 먹을 것을 쥐여 준다는
+                // 뜻은 ③ 이 소지로 지급하는 것으로 그대로 살아 있다.
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
                         "채용 @%d,%d — 봉급 %.1f 합의(요구 %.1f ≤ 캡 %.1f · 바깥벌이 %.1f)"
                         + " · 주인 저장고 %.1f · %.0f블록",
@@ -2924,7 +2928,12 @@ public final class FarmTicker {
             // 주인 저장고에서는 <b>계정으로 못 채운 몫만</b> 뺀다 — pay 를 통째로 빼면 마을이
             // 낸 세금을 주인이 한 번 더 내는 셈이 되어 회계 항등식이 깨진다.
             larders.set(owner.getHomePos(), ownerLar - (pay - fromAcct));
-            larders.set(m.getHomePos(), larders.get(m.getHomePos()) + pay);
+            // <b>손에 준다, 집 저장고가 아니라.</b> 정산은 근무 직전(tod 13000)이고 대원은 그
+            // 길로 밤새 순찰을 돈다 — 저장고에 넣으면 근무 중에는 한 입도 못 먹는다. 실측
+            // (관측 런 d8~d9): 봉급을 받은 대원이 새벽에 "위급 — 소지 고갈 임박 · 저장고
+            // 있음(귀가 우선)". 창고는 찼는데 손이 비어 굶었다. 선지급을 손에 쥐여 주던 것과
+            // 같은 이유이고, 남는 몫은 집에 들르면 가족 정산이 알아서 저장고로 넣는다.
+            m.setDayHarvest(m.getHolding() + pay);
             POOR_SUM[2] += pay;
             POOR_SUM[3] += want - pay;
             // 구휼 가중치를 그대로 쓴다 — 굶는 자에게 먹을 것을 준 것이라 물건이 같다.

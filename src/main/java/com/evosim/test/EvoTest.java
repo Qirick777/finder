@@ -637,6 +637,20 @@ public final class EvoTest {
         report.add("vocation/경비임금경계", vocGate,
                 "봉급 상한이 바깥벌이를 가른다 — 식물혼동Ⅴ(요구 4.5)는 들어오고 무특성(9.0)은 못 들어온다",
                 vocGate ? "정상" : "어긋남");
+        // 최저 봉급(배급) — 무특성 성인은 상한 안이라 굶으면 뽑힐 수 있고, 힘센Ⅴ(소모 ×1.25)는
+        // 상한을 넘어 굶어도 못 들어온다. 배율 하나가 두 경계를 다 정한다.
+        double rationPlain = FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                one(Sex.MALE), false) * com.evosim.mod.entity.Facilities.GUARD_RATION_MULT;
+        double rationStrong = FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,
+                one(Sex.MALE, TraitInstance.graded(Trait.STRONG, 5)), false)
+                * com.evosim.mod.entity.Facilities.GUARD_RATION_MULT;
+        checkNum(report, "guardwage/배급무특성", 4.0, rationPlain,
+                "이동 하루소모 3.0 × 4/3 — 밤 순찰 1.4 를 내고 다음 정산까지 남는 값");
+        boolean rationGate = rationPlain <= com.evosim.mod.entity.Facilities.GUARD_WAGE_MAX
+                && rationStrong > com.evosim.mod.entity.Facilities.GUARD_WAGE_MAX;
+        report.add("guardwage/배급상한경계", rationGate,
+                "무특성(4.0)은 상한 4.5 안 · 힘센Ⅴ(5.0)는 밖 — 많이 먹는 자는 굶어도 못 들어온다",
+                rationGate ? "정상" : "어긋남");
         // 군인 희망도 — 아직 쓰는 곳이 없지만 축이 반대라는 것만 못박는다(경비대와 섞이면 안 된다).
         boolean vocSoldier = com.evosim.core.Vocation.soldier(one(Sex.MALE,
                         TraitInstance.of(Trait.BRAVE))) > 0.0
@@ -657,8 +671,10 @@ public final class EvoTest {
         double tk = com.evosim.mod.entity.Facilities.GUARD_TAX_K;
         checkNum(report, "guardtax/꺾임점절반", tmax / 2.0, guardTax(knee, tmax, tk, knee),
                 "꺾임점(저장고 16)에서 정확히 최대의 절반");
+        // 양 끝은 최대에 대한 <b>비율</b>로 잰다 — 절대값(0.15)으로 두면 높이(GUARD_TAX_MAX)만
+        // 올려도 모양이 그대로인데 깨진다(2.0 → 3.0 때 실제로 그랬다: 12 에서 0.11 → 0.17).
         boolean taxShape =
-                guardTax(knee - 4.0, tmax, tk, knee) < 0.15          // 12 → 거의 면세
+                guardTax(knee - 4.0, tmax, tk, knee) < tmax * 0.075  // 12 → 거의 면세(5.7%)
                 && guardTax(knee + 4.0, tmax, tk, knee) > tmax * 0.9 // 20 → 거의 최대
                 && guardTax(0.0, tmax, tk, knee) < 0.01              // 빈털터리는 0
                 && guardTax(100.0, tmax, tk, knee) <= tmax;          // 상한을 넘지 않는다

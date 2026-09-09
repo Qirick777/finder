@@ -488,6 +488,11 @@ public final class FarmTicker {
             // 달려 있으므로 평민에 대한 "만족의 덫"(규칙2)은 그대로 유지된다.
             if (!hasTenant && (ownerEnt.isSatisfiedToday()
                     || com.evosim.core.Satisfaction.neverExpands(ownerEnt.getIndividual()))) {
+                // 조용히 건너뛰지 않는다 — "왜 오늘 안 넓혔나"가 로그에서 읽혀야 한다(실측 관측 런 2:
+                // 하루 0~5칸의 원인을 자금·노동·상한 중 무엇인지 로그로 가릴 수 없었다).
+                com.evosim.mod.log.SimEvents.event(ownerEnt, "확장보류", String.format(
+                        "구획 %d(%d타일) — %s(자영 밭은 오늘 안 넓힌다)", plot.id, plot.tiles.length,
+                        ownerEnt.isSatisfiedToday() ? "만족" : "무욕"));
                 continue;
             }
             // 규모 상한 없음(하드캡 폐지) — 관리 효율 감쇠(FarmEconomy.manageEfficiency)가
@@ -524,9 +529,13 @@ public final class FarmTicker {
             // 라이브 코드에서만 꺼져 있었다. 복원 시 확장 14.3/일 · 저장고 +33.3/일.
             // 부수 효과로 확장 속도가 3.5배 느려져, 노동(소작 1인당 +8타일/일)이 확장을 따라잡는
             // 범위로 들어온다 — 익은 채 방치되던 타일(실측 79/303)이 함께 줄어든다.
-            int afford = com.evosim.core.FarmEconomy.reinvestTiles(
+            // 자금은 두 갈래를 따로 센다 — 로그가 "계정 몇 칸 · 저장고 몇 칸"을 말해야 어느 쪽이
+            // 마른 것인지 읽힌다.
+            int acctTiles = com.evosim.core.FarmEconomy.reinvestTiles(
                     plot.account * com.evosim.core.FarmEconomy.MATURE_REINVEST_SHARE, plot.steps + 1);
+            int larderTiles = 0;
             double ownerFunds = 0.0;
+            double reserve = 0.0;
             // 부트스트랩 — 밭이 <b>자립 규모에 못 미치면</b> 지주 저장고가 받친다.
             //
             // 종전 조건은 nTen == 0, 즉 "상시소작이 하나라도 있는가"였다. 밭의 크기를 전혀 보지
@@ -547,19 +556,28 @@ public final class FarmTicker {
                 ownerFunds = ownerEnt.getHomePos() != null
                         ? larders.get(ownerEnt.getHomePos()) : 0.0;
                 boolean eligible = nextFarmEligible(store, adults, plot.ownerId);
-                double reserve = com.evosim.core.FarmEconomy.expandReserve(
+                reserve = com.evosim.core.FarmEconomy.expandReserve(
                         eligible, store.ownedCount(plot.ownerId),
                         familyDailyNeed(level, ownerEnt, adults));
-                afford += (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
+                larderTiles = (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
                         / com.evosim.core.FarmEconomy.expandCost(plot.steps + 1));
             }
+            int afford = acctTiles + larderTiles;
             // 구획 타일 상한 — 밭은 흔하되 마구 커지지 않는다. 상한이 추종자 수에 비례해
             // 올라가므로 <b>사람을 거느린 자만</b> 크게 키운다. 일반민은 밭을 열 수는 있으나
             // 키울 수 없다(목표 9: 시도하나 능력이 안 됨).
-            int cap = com.evosim.core.FarmEconomy.plotTileCap(
-                    FOLLOWERS.getOrDefault(plot.ownerId, 0));
+            int followers = FOLLOWERS.getOrDefault(plot.ownerId, 0);
+            int cap = com.evosim.core.FarmEconomy.plotTileCap(followers);
             int k = Math.min(Math.min(room, afford), Math.max(0, cap - plot.tiles.length));
+            // <b>네 항을 같이 찍는다</b> — 노동·자금(계정/저장고)·타일 상한·(심기에서) 기하. 종전에는
+            // 결과 칸수만 남아 "왜 5칸인가"를 밖에서 알 수 없었고, 원인을 세 번 잘못 짚었다.
+            String terms = String.format(
+                    "노동 %d · 자금 %d[계정 %.1f→%d칸 · 저장고 %.1f−예비 %.0f→%d칸 · 칸당 %.2f] · 상한 %d(추종 %d)",
+                    room, afford, plot.account, acctTiles, ownerFunds, reserve, larderTiles,
+                    com.evosim.core.FarmEconomy.expandCost(plot.steps + 1), cap, followers);
             if (k <= 0) {
+                com.evosim.mod.log.SimEvents.event(grower, "확장보류", String.format(
+                        "구획 %d(%d타일) — 청구 0 · %s", plot.id, plot.tiles.length, terms));
                 continue;
             }
             // ── 덩어리 도면 성장 ────────────────────────────────────────────
@@ -632,10 +650,12 @@ public final class FarmTicker {
                 grownToday.merge(grower.getId(), placed, Integer::sum);
                 store.recordExpand(plot, grower.getIndividual().id(), placed,
                         com.evosim.mod.entity.SimTime.tick(level) / 24000L, hasTenant); // 밭 원장(P3): 자영/소작 귀속
+                // 꼬리표 "(계정 소진)"은 고정 문구였다 — 저장고가 냈든 안 냈든 붙어서 "계정만으로
+                // 자란다"로 읽혔다(실측: 사용자 관측·관측 런 2 분석 오독). 실제 출처를 찍는다.
                 com.evosim.mod.log.SimEvents.event(grower, "밭확장", String.format(
-                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.0f(계정 소진) 소작 %d",
+                        "%s 구획 %d: +%d타일(총 %d) — 비용 %.1f(계정 %.1f · 저장고 %.1f) · 청구 %d · %s · 소작 %d",
                         hasTenant ? "재투자" : "자영",
-                        plot.id, placed, plot.tiles.length, bill, nTen));
+                        plot.id, placed, plot.tiles.length, bill, fromAccount, fromLarder, k, terms, nTen));
             }
         }
         // ①c 죽은 타일 정비(A-3) — 블록이 사라진 타일은 무상 재식수, 구조물(천막 등)에 깔려

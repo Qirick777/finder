@@ -110,6 +110,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
                 .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
                 .then(Commands.literal("facilities").executes(EvoSimCommand::facilities))
+                .then(Commands.literal("goals").executes(EvoSimCommand::goalsReport))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
@@ -6576,6 +6577,43 @@ public final class EvoSimCommand {
 
     private static void tell(CommandSourceStack src, String msg) {
         src.sendSuccess(() -> Component.literal(msg).withStyle(ChatFormatting.AQUA), false);
+    }
+
+    /**
+     * <b>경비대원 goal 점검</b> — 소속 대원마다 지금 실행 중인 goal 과 그 goal 이 보는 상태를 한 줄로.
+     *
+     * <p>왜 필요한가: 순찰이 멈춘 밤(경계 무대 12·13)에 로그만으로는 "누가 몸을 쥐고 있는가"를 알 수
+     * 없었다. 경계 goal 의 새벽 보고는 더 높은 순위가 MOVE 를 쥐면 평가조차 안 되고, NBT 에는 goal
+     * 도 앵커도 없다. 그래서 추측을 네 번 했다. 실행 goal·리시 앵커·구걸·구혼여행·위급·건축을 같이
+     * 찍으면 "왜 안 도는가"가 한 줄에서 읽힌다.
+     */
+    private static int goalsReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int n = 0;
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
+                e -> e.isAlive() && e.getIndividual() != null && e.inPoorhouse())) {
+            StringBuilder gs = new StringBuilder();
+            m.goalSelector.getRunningGoals().forEach(w -> {
+                if (gs.length() > 0) {
+                    gs.append('+');
+                }
+                gs.append(w.getGoal().getClass().getSimpleName().replace("Mimic", "").replace("Goal", ""));
+            });
+            var ph = com.evosim.core.Schedule.phaseAt(m.getIndividual(), level.getDayTime());
+            BlockPos ra = m.debugRoamAnchor();
+            BlockPos bp = m.blockPosition();
+            tell(ctx.getSource(), String.format(
+                    "%s#%d @%d,%d H%.2f %s [%s] 라벨=%s 리시앵커=%s(%.0f블록) 구걸=%d 구혼=%s 위급=%s 건축=%s 봉급=%.1f",
+                    m.getIndividual().shortName(), m.getId(), bp.getX(), bp.getZ(), m.getHolding(), ph,
+                    gs.length() == 0 ? "없음" : gs.toString(), m.activity(),
+                    ra == null ? "없음" : ra.getX() + "," + ra.getZ(),
+                    ra == null ? 0.0 : Math.sqrt(bp.distSqr(ra)),
+                    m.debugBegLeft(), m.isCourtTravel(), m.isCritical(), m.isBuilding(), m.getGuardWage()));
+            n++;
+        }
+        tell(ctx.getSource(), "소속 대원 " + n + "명");
+        return n;
     }
 
     /** 건축 연출: 즉시 짝 성사 → 두 미믹이 천막을 직접 지음. */

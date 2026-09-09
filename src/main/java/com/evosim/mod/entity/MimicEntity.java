@@ -488,6 +488,17 @@ public class MimicEntity extends PathfinderMob {
         return guardAnchor != null;
     }
 
+    /** 점검용(evosim goals) — 리시가 실제로 보는 앵커를 그대로 돌려준다. */
+    @Nullable
+    public BlockPos debugRoamAnchor() {
+        return roamAnchor();
+    }
+
+    /** 점검용(evosim goals) — 구걸 상태의 남은 틱(0 이면 구걸 아님). */
+    public long debugBegLeft() {
+        return isBegging() ? begUntil - com.evosim.mod.entity.SimTime.tick(level()) : 0L;
+    }
+
     /** 노인 방문 goal 이 설정하는 임시 앵커(null = 해제) — 리시가 자식 집으로 끌게 한다. */
     public void setVisitAnchor(@Nullable BlockPos pos) {
         this.visitAnchor = pos;

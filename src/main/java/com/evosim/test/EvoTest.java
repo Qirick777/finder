@@ -2128,16 +2128,18 @@ public final class EvoTest {
         // [food/배급유보] 경비 봉급(reserve 4.0)은 입금 문턱 위에 얹힌다 — 받자마자 저장고로
         // 새던 실측(경계 무대 11: "입금 4개 저장" → H1.0 으로 밤 시작)을 막는 자리.
         {
+            // 입금은 "문턱(밴드 2.0 + 유보) 이상인 동안" 1개씩이라 문턱 바로 아래에서 멈춘다 —
+            // 유보 4.0 이면 6.0 아래, 즉 5.x 를 손에 남긴다(배급 4.0 보다 크다).
             var keep = new FoodEconomy.Eater(man, LifeStage.ADULT, 5.5, true, 4.0);  // 문턱 6.0 미만 → 그대로
-            var over = new FoodEconomy.Eater(man, LifeStage.ADULT, 7.5, true, 4.0);  // 6.0 위 → 1개만 입금
-            var none = new FoodEconomy.Eater(man, LifeStage.ADULT, 5.5, true);       // 유보 0 → 종전대로 3개 입금
+            var over = new FoodEconomy.Eater(man, LifeStage.ADULT, 7.5, true, 4.0);  // 7.5 → 6.5 → 5.5 (2개)
+            var none = new FoodEconomy.Eater(man, LifeStage.ADULT, 5.5, true);       // 유보 0 → 종전대로 4개 입금
             double l1 = FoodEconomy.settleHome(0.0, java.util.List.of(keep));
             double l2 = FoodEconomy.settleHome(0.0, java.util.List.of(over));
             double l3 = FoodEconomy.settleHome(0.0, java.util.List.of(none));
             boolean r = close(keep.holding, 5.5) && close(l1, 0.0)
-                    && close(over.holding, 6.5) && close(l2, 1.0)
+                    && close(over.holding, 5.5) && close(l2, 2.0)
                     && close(none.holding, 1.5) && close(l3, 4.0);
-            report.add("food/배급유보", r, "유보 4.0: 5.5 는 그대로 · 7.5 → 6.5(1개) · 유보 0 이면 5.5 → 1.5(4개)",
+            report.add("food/배급유보", r, "유보 4.0: 5.5 는 그대로 · 7.5 → 5.5(2개) · 유보 0 이면 5.5 → 1.5(4개)",
                     r ? "정상" : String.format("keep %.2f/%.0f over %.2f/%.0f none %.2f/%.0f",
                             keep.holding, l1, over.holding, l2, none.holding, l3));
         }

@@ -2125,6 +2125,22 @@ public final class EvoTest {
             report.add("food/밴드", b, "여분 정수 입금 → 1.7 / 0.5→1.5 인출 / 집 밖 불변 / L 정수",
                     b ? "정상" : String.format("dad %.2f mom %.2f L %.2f", dad.holding, mom.holding, l));
         }
+        // [food/배급유보] 경비 봉급(reserve 4.0)은 입금 문턱 위에 얹힌다 — 받자마자 저장고로
+        // 새던 실측(경계 무대 11: "입금 4개 저장" → H1.0 으로 밤 시작)을 막는 자리.
+        {
+            var keep = new FoodEconomy.Eater(man, LifeStage.ADULT, 5.5, true, 4.0);  // 문턱 6.0 미만 → 그대로
+            var over = new FoodEconomy.Eater(man, LifeStage.ADULT, 7.5, true, 4.0);  // 6.0 위 → 1개만 입금
+            var none = new FoodEconomy.Eater(man, LifeStage.ADULT, 5.5, true);       // 유보 0 → 종전대로 3개 입금
+            double l1 = FoodEconomy.settleHome(0.0, java.util.List.of(keep));
+            double l2 = FoodEconomy.settleHome(0.0, java.util.List.of(over));
+            double l3 = FoodEconomy.settleHome(0.0, java.util.List.of(none));
+            boolean r = close(keep.holding, 5.5) && close(l1, 0.0)
+                    && close(over.holding, 6.5) && close(l2, 1.0)
+                    && close(none.holding, 1.5) && close(l3, 4.0);
+            report.add("food/배급유보", r, "유보 4.0: 5.5 는 그대로 · 7.5 → 6.5(1개) · 유보 0 이면 5.5 → 1.5(4개)",
+                    r ? "정상" : String.format("keep %.2f/%.0f over %.2f/%.0f none %.2f/%.0f",
+                            keep.holding, l1, over.holding, l2, none.holding, l3));
+        }
 
         // [food/절약특성] 페널티 특성의 반대급부(소모↓): 아이불호·번식불호·빈약 ×0.95 / 병약 ×0.9 / 중첩 곱
         boolean sv = close(FoodEconomy.consumptionPerDay(LifeStage.ADULT, Activity.MOVE,

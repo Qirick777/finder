@@ -544,6 +544,9 @@ public class MimicEntity extends PathfinderMob {
 
     public void setPoorhouse(BlockPos p) {
         this.poorhousePos = p;
+        if (p == null) {
+            guardWage = 0.0; // 소속이 풀리면 합의봉급도 없다 — 배급 유보(Eater.reserve)가 남지 않게
+        }
     }
 
     /** 합의된 경비대 봉급(요구가). 미소속이면 0. */
@@ -5154,7 +5157,8 @@ public class MimicEntity extends PathfinderMob {
 
         List<FoodEconomy.Eater> eaters = new ArrayList<>(ordered.size());
         for (MimicEntity m : ordered) {
-            eaters.add(new FoodEconomy.Eater(m.getIndividual(), m.getStage(), m.holding, m.isHome()));
+            eaters.add(new FoodEconomy.Eater(m.getIndividual(), m.getStage(), m.holding, m.isHome(),
+                    m.guardWage)); // 경비 배급은 입금하지 않는다(Eater.reserve)
         }
         double need = FoodEconomy.nominalDailyNeed(eaters);
         // 성인만의 명목소모 합 — 자산 누진 지대의 기준선(FarmEconomy.progressiveFee)에 쓴다.
@@ -6877,7 +6881,8 @@ public class MimicEntity extends PathfinderMob {
         double larder = store.getOrInit(homePos,
                 fastSettle ? 0.0 : FoodEconomy.initialLarder(cachedFamilyNeed));
         double before = holding;
-        FoodEconomy.Eater self = new FoodEconomy.Eater(individual, getStage(), holding, true);
+        FoodEconomy.Eater self = new FoodEconomy.Eater(individual, getStage(), holding, true,
+                guardWage); // 경비 배급은 입금하지 않는다(Eater.reserve)
         larder = FoodEconomy.settleHome(larder, List.of(self));
         holding = self.holding;
         store.set(homePos, larder);

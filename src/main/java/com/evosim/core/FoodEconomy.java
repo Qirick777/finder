@@ -190,7 +190,7 @@ public final class FoodEconomy {
      */
     public static double settleHome(double larder, List<Eater> familyInPriority) {
         for (Eater e : familyInPriority) { // ① 입금: 여분 정수 유닛만 — 무책임은 문턱 3.0(가족 몫 기여↓)
-            double depositAt = depositThreshold(e.ind);
+            double depositAt = depositThreshold(e.ind) + e.reserve; // 배급(경비 봉급)은 손에 남긴다
             // 저장 배율(요리 축)은 L 정수성을 지키기 위해 "1유닛에 드는 H"로 적용 —
             // 요리사 0.83H/유닛(가공 이득), 날로먹기 1.25H/유닛(보관하면 상함). 무특성 1.0(종전과 동일).
             double hPerUnit = 1.0 / Multipliers.storage(e.ind);
@@ -343,12 +343,27 @@ public final class FoodEconomy {
         public final LifeStage stage;
         public double holding;
         public boolean home;
+        /**
+         * <b>손에 남겨 둘 몫</b> — 입금 문턱 위에 얹힌다. 경비대원의 합의봉급이 여기 들어온다.
+         *
+         * <p>봉급을 손에 주기로 한 뒤(FarmTicker ③) 실측(경계 무대 11): 대원 전원이 받자마자
+         * 집 정산에서 "입금 4개 저장"으로 저장고에 넣고 H1.0 으로 밤을 시작해 한밤에 위급 →
+         * 귀가 → 인출 2 를 반복했다. 손 지급이 이 입금 규칙 하나에 통째로 상쇄된 것이다.
+         * 배급은 저축이 아니라 오늘 밤 먹을 것이므로 입금 대상에서 뺀다 — 문턱을 봉급만큼
+         * 올리는 것으로 표현한다(미소속은 0 이라 종전과 같다).
+         */
+        public double reserve;
 
         public Eater(Individual ind, LifeStage stage, double holding, boolean home) {
+            this(ind, stage, holding, home, 0.0);
+        }
+
+        public Eater(Individual ind, LifeStage stage, double holding, boolean home, double reserve) {
             this.ind = ind;
             this.stage = stage;
             this.holding = holding;
             this.home = home;
+            this.reserve = Math.max(0.0, reserve);
         }
     }
 }

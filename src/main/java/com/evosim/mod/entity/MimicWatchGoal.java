@@ -109,9 +109,11 @@ public class MimicWatchGoal extends Goal {
             // 않고, 0 이면 0 이라고 말한다 — 침묵은 진단이 아니다.
             if (night && !sleep && mob.level() instanceof net.minecraft.server.level.ServerLevel) {
                 // <b>실행 중인 goal 을 같이 찍는다.</b> 이 로그는 canUse 에서 나오는데 canUse 는
-                // goal 이 <b>선택되지 않아도</b> 매 틱 평가된다 — 즉 "로그가 있다 = 순찰이
-                // 돌았다"가 아니다. 더 높은 우선순위(귀가·리시·전투)가 MOVE 를 물고 있으면
-                // tick() 은 한 번도 안 돌고, 그러면 순찰 지점이 0 인 이유를 밖에서 알 수 없다.
+                // goal 이 선택되지 않아도 평가된다 — 단, <b>MOVE 를 쥔 더 높은 순위가 있으면
+                // 평가조차 안 된다</b>(GoalSelector 는 깃발을 뺏을 수 있는 goal 만 canUse 를
+                // 부른다. 실측 무대 12: 귀가(3)가 밤새 MOVE 를 쥐자 이 줄이 0개). 즉 "로그가
+                // 있다 = 순찰이 돌았다"도 아니고, "로그가 없다 = 밤이 안 왔다"도 아니다 —
+                // 없으면 더 높은 순위가 밤새 몸을 쥐고 있었다는 뜻이다.
                 StringBuilder gs = new StringBuilder();
                 mob.goalSelector.getRunningGoals().forEach(w -> {
                     if (gs.length() > 0) {

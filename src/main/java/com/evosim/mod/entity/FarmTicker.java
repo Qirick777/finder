@@ -2481,6 +2481,28 @@ public final class FarmTicker {
      * 멍청Ⅴ 3.0(생존선, 채용) · 굶는 자 3.0(채용). 배가 부르면 요구가 바깥벌이 전액까지
      * 올라 캡을 넘으므로 <b>자립하면 저절로 나간다</b>.
      */
+    /**
+     * <b>저축 비율 — 가구 저장고가 사흘치 소모의 몇 배인가</b>(1.0 = 사흘치). 요구 봉급의
+     * 절박도({@code 1 − 이 값})와 자립 이탈({@code ≥ 1.0})이 같은 수를 본다.
+     *
+     * <p>눈금이 사흘치(GUARD_PAYROLL_DAYS)인 이유: 종전 하루치(POORHOUSE_HUNGER_DAYS)로는 봉급
+     * 한 번에 절박도가 0 으로 떨어져 이튿날 요구가 바깥벌이 전액(9.5)까지 올라 나갔다 —
+     * 실측(관측 런 d9): 채용 이틀째 두 명이 "요구 9.5 > 상한 4.5" 로 이탈, 지주는 선지급을
+     * 날리고 다시 굶는 자를 뽑았다.
+     *
+     * <p><b>손에 든 배급은 저축이 아니다.</b> 봉급은 근무 직전 소지로 들어오므로(③ 지급) 그것을
+     * 저축으로 세면 지급 직후 절박도가 뚝 떨어진다. 합의봉급만큼은 뺀다. 집이 없으면 0.
+     */
+    static double guardSavings(ServerLevel level, MimicEntity m) {
+        if (m.getHomePos() == null) {
+            return 0.0;
+        }
+        double line = Math.max(1.0E-6, m.familyDailyNeed() * Facilities.GUARD_PAYROLL_DAYS);
+        double have = LarderStore.get(level).get(m.getHomePos())
+                + Math.max(0.0, m.getHolding() - m.getGuardWage());
+        return have / line;
+    }
+
     static double guardAskWage(ServerLevel level, MimicEntity m) {
         var ind = m.getIndividual();
         if (ind == null) {
@@ -2493,20 +2515,7 @@ public final class FarmTicker {
         if (m.isCaregiverBound()) {
             urgency = 1.0; // 나갈 수가 없어 못 번다 — 바깥벌이가 실질 0 이다
         } else if (m.getHomePos() != null) {
-            // <b>절박도의 눈금은 사흘치다</b>(GUARD_PAYROLL_DAYS). 종전 하루치(POORHOUSE_HUNGER_DAYS)
-            // 로는 봉급 한 번에 절박도가 0 으로 떨어져 이튿날 요구가 바깥벌이 전액(9.5)까지
-            // 올라 나갔다 — 실측(관측 런 d9): 채용 이틀째 두 명이 "요구 9.5 > 상한 4.5" 로
-            // 이탈, 지주는 선지급을 날리고 다시 굶는 자를 뽑았다. 사흘치로 재면 요구가 상한을
-            // 넘는 저축선이 하루치 1.4 에서 4.3 으로 올라간다(9.5 × have/line > 4.5) —
-            // "집이 살 만해지면 나간다"이지 "하루 먹였더니 나간다"가 아니다.
-            //
-            // <b>손에 든 배급은 저축이 아니다.</b> 봉급은 근무 직전 소지로 들어오므로(③ 지급)
-            // 그것을 저축으로 세면 지급 직후 절박도가 뚝 떨어진다. 합의봉급만큼은 뺀다.
-            double line = Math.max(1.0E-6,
-                    m.familyDailyNeed() * Facilities.GUARD_PAYROLL_DAYS);
-            double have = LarderStore.get(level).get(m.getHomePos())
-                    + Math.max(0.0, m.getHolding() - m.getGuardWage());
-            urgency = Math.max(0.0, Math.min(1.0, 1.0 - have / line));
+            urgency = Math.max(0.0, 1.0 - guardSavings(level, m));
         }
         // <b>바닥은 배급이다</b> — 본인 이동 하루소모 × GUARD_RATION_MULT(4/3). 소모 그대로(3.0)
         // 는 자는 사람의 하루라 밤새 걷는 대원은 새벽에 위급을 스쳤다(실측 H0.23). 배율의
@@ -2702,15 +2711,22 @@ public final class FarmTicker {
             // 전액까지 오르는데, 그것이 절대 상한을 넘으면 이 자리에 있을 이유가 없다 —
             // <b>자립하면 저절로 나간다</b>. 반대로 채집 능력이 낮은 자는 배불러도 요구가
             // 낮아 그대로 남는다(멍청·무능은 평생 경비대).
+            // <b>자립은 두 수가 같이 말한다</b> — 요구가 상한을 넘고, <b>저축이 사흘치 이상</b>.
+            // 요구 하나로만 재면 경사(9.5 × 저축비율)가 상한 4.5 를 넘는 지점이 저축 0.47 사흘치
+            // = 하루 반이라, 실측(경계 무대 12) 저장고 5.0 인 독신이 "자립"으로 나갔다. 승인된
+            // 규칙은 "저축이 사흘치 쌓여야 나간다"이므로 그 선을 그대로 조건에 둔다. 채집 능력이
+            // 낮은 자(식물혼동Ⅴ 등)는 요구가 상한 아래라 저축이 있어도 남는다 — 평생 경비대.
             double reAsk = guardAskWage(level, m);
-            if (reAsk > Facilities.GUARD_WAGE_MAX) {
+            double saved = guardSavings(level, m);
+            if (reAsk > Facilities.GUARD_WAGE_MAX && saved >= 1.0) {
                 m.setPoorhouse(null);
                 m.setBegStreak(0);
                 m.setGuardWage(0.0);
                 POOR_SUM[1]++;
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                        "이탈 — 요구 %.1f > 상한 %.1f (자립 · 저장고 %.1f)",
-                        reAsk, Facilities.GUARD_WAGE_MAX, lar));
+                        "이탈 — 요구 %.1f > 상한 %.1f · 저축 %.1f일치 (자립 · 저장고 %.1f)",
+                        reAsk, Facilities.GUARD_WAGE_MAX,
+                        saved * Facilities.GUARD_PAYROLL_DAYS, lar));
                 continue;
             }
             taken.merge(p.asLong(), 1, Integer::sum);

@@ -64,7 +64,13 @@ public class MimicReturnGoal extends Goal {
         if (FarmTicker.isSoldier(mob) && mob.getHolding() >= mob.carryCap()) {
             return false;
         }
-        if (mob.getHolding() >= mob.carryCap()) {
+        // <b>경비대원의 배급도 같다.</b> 봉급을 손에 주자(FarmTicker ③) 대원 전원이 소지 4.0 ≥
+        // 운반 상한 2.0 으로 "넣으러" 귀가했고, 집에서는 유보(Eater.reserve) 때문에 입금이
+        // 안 되니 경계(4)가 끌고 나가면 이 goal(3)이 다시 끌고 들어오는 줄다리기가 밤새
+        // 이어졌다 — 실측(경계 무대 12): 새벽 위치가 전원 제 집 앞, 순찰 0, 새벽 보고 0
+        // (더 높은 순위가 MOVE 를 쥐면 경계 goal 은 canUse 평가조차 안 받는다).
+        // 배급을 뺀 여분이 상한을 넘을 때만 넣으러 간다 — 미소속은 봉급 0 이라 종전과 같다.
+        if (mob.getHolding() - mob.getGuardWage() >= mob.carryCap()) {
             return true; // 여분 정수 → 넣으러 (수확 세션 중엔 운반 상한 6.0까지 미룸 — 소작 루프 v2)
         }
         return mob.getHolding() < FoodEconomy.RETURN_LOW && mob.larderHasFood(); // 꺼내러

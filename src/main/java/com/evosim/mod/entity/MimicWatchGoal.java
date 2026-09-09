@@ -147,8 +147,11 @@ public class MimicWatchGoal extends Goal {
             return false;
         }
         // 위급이면 물러난다 — 주둔과 같다. 봉급이 끊겨 굶는 상태이므로 경계를 시킬 자리가
-        // 아니고, 구걸 goal 이 시설로 데려간다.
+        // 아니고, 구걸 goal 이 시설로 데려간다. <b>앵커도 놓는다</b>: 리시는 근무 중엔 대원을
+        // 끌지 않지만(MimicLeashGoal.onGuardDuty) 위급이면 다시 끌기 시작하는데, 그때 앵커가
+        // 순찰 표적으로 남아 있으면 굶는 자를 남의 집 앞으로 끌고 간다. 집으로 가야 한다.
         if (mob.isCritical()) {
+            mob.setGuardAnchor(null);
             return false;
         }
         if (spot == null) {
@@ -315,8 +318,11 @@ public class MimicWatchGoal extends Goal {
                 BlockPos c = sl.getHeightmapPos(
                         net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                         home.offset(dx, 0, dz));
-                if (Math.abs(c.getY() - home.getY()) > 4) {
-                    continue; // 지붕 위·절벽 — 집과 같은 층이 아니다
+                // <b>지붕은 문간이 아니다.</b> 종전 |Δy| ≤ 4 는 3~4칸 높이 지붕 위 칸을 통과시켰고,
+                // 그 칸은 닿을 수 없어 대원이 담 밑에 밤새 섰다(실측 무대 14: 앵커 -20,-2 에
+                // 7블록 거리로 8명이 굳음). 집 바닥과 같은 층(+1 계단)까지만 문간으로 본다.
+                if (c.getY() > home.getY() + 1 || c.getY() < home.getY() - 3) {
+                    continue; // 지붕 위·절벽 아래 — 집과 같은 층이 아니다
                 }
                 if (!sl.getBlockState(c).isAir() || !sl.getBlockState(c.above()).isAir()) {
                     continue; // 몸이 들어갈 두 칸이 비어야 한다

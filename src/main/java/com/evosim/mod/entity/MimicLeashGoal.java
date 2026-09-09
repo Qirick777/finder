@@ -32,6 +32,9 @@ public class MimicLeashGoal extends Goal {
         if (mob.getIndividual() == null || mob.isBuilding() || mob.isUnderThreat()) {
             return false; // 전투·건축은 우선
         }
+        if (onGuardDuty()) {
+            return false;
+        }
         BlockPos anchor = mob.roamAnchor();
         if (anchor == null) {
             return false;
@@ -40,9 +43,28 @@ public class MimicLeashGoal extends Goal {
         return mob.blockPosition().distSqr(anchor) > r * r;
     }
 
+    /**
+     * <b>근무 중인 경비대원은 리시가 끌지 않는다</b> — 경계 goal 이 스스로 데려간다.
+     *
+     * <p>경계 goal 은 매 틱 guardAnchor 를 순찰 표적으로 놓는데, 표적이 활동반경 밖이면 이
+     * goal(2)이 경계(4)를 밀어내고 "호위"를 맡는다. 표적이 지붕·벽 안처럼 닿을 수 없는 칸이면
+     * 5블록 도착선에 영영 못 들어가 밤새 여기 붙들린다 — 경계 goal 의 "못 가면 다음 집"
+     * 안전망은 밀려난 뒤라 돌지 않는다. 실측(경계 무대 14, evosim goals): 13명 중 12명이
+     * [Leash] · 앵커 7~74블록 · 라벨 없음, 순찰 표본이 밤 초반 2400틱에서 끊김.
+     *
+     * <p>귀가·취침·채집·밭일과 같은 가름(소속 · 위급 아님 · 군인 아님)이다. 위급이면 경계 goal
+     * 이 앵커를 놓고 물러나므로 리시가 다시 집으로 데려간다. 군인은 종전대로 리시가 호위한다.
+     */
+    private boolean onGuardDuty() {
+        return mob.inPoorhouse() && !mob.isCritical() && !FarmTicker.isSoldier(mob);
+    }
+
     @Override
     public boolean canContinueToUse() {
         if (mob.getIndividual() == null || mob.isUnderThreat()) {
+            return false;
+        }
+        if (onGuardDuty()) {
             return false;
         }
         BlockPos anchor = mob.roamAnchor();

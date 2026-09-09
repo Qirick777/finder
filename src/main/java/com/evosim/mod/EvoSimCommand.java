@@ -5980,7 +5980,10 @@ public final class EvoSimCommand {
                 "§e[경계 무대]§r 경비대 @%d,%d 에 %d명 못박음(식물혼동Ⅴ %d명 신규 포함) —"
                 + " 합의봉급 %.1f · 소지·저장고 지급.\n"
                 + "  납세자 3가구(저장고 8·16·24)를 반경 안에 세웠다 — <경비세> 줄로 읽는다:"
-                + " 8은 면세 · 16은 절반(1.0) · 24는 거의 최대(1.89) 가 나와야 맞다.\n"
+                + String.format(" 8은 면세 · 16은 절반(%.2f) · 24는 거의 최대(%.2f) 가 나와야 맞다.\n",
+                        Facilities.GUARD_TAX_MAX / 2.0,
+                        Facilities.GUARD_TAX_MAX / (1.0 + Math.exp(-Facilities.GUARD_TAX_K
+                                * (24.0 - Facilities.GUARD_TAX_KNEE))))
                 + "  이제 볼 것은 <경계> 줄 하나다: \"밤 근무 끝 — 순찰 지점 N곳\".\n"
                 + "  N=0 이면 밤에 안 돈 것이다(리시 선점·표적 미도달·위급 중 하나).",
                 house.pos.getX(), house.pos.getZ(), pinned, guards, stageWage));

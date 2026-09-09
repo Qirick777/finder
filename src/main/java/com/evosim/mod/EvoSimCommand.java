@@ -5910,7 +5910,12 @@ public final class EvoSimCommand {
      * "밤에 순찰이 도는가"이고, 채용 경제는 {@code poortest} 가 따로 잰다.
      */
     private static int watchStage(CommandContext<CommandSourceStack> ctx) {
-        poorStage(ctx);
+        // <b>poorStage 를 여기서 다시 부르지 않는다.</b> 이 명령은 경비대 건물이 서 있어야 하고,
+        // 건물은 poortest 뒤 밤 정산이 세우므로 호출 시점엔 poortest 무대가 이미 있다. 종전에는
+        // 첫 줄에서 poorStage 를 또 불러 <b>같은 좌표에 거지집을 한 채 더</b> 지었다 — heightmap
+        // 이 첫 집 지붕을 돌려줘 집 위에 집이 얹혔고(HomeY 1 → 7), 그 위층 다섯 명은 문이
+        // 지붕 위라 밤새 아무 데도 못 갔다(실측 무대 15: 순찰 0곳 둘 · HomeStore 에 @22,0·@32,0·
+        // @42,0 이 두 채씩). 무대 결함이 순찰 결함으로 읽히던 자리다.
         ServerLevel level = ctx.getSource().getLevel();
         FacilityStore reg = FacilityStore.get(level);
         FacilityStore.Entry house = null;

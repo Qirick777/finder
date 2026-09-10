@@ -143,6 +143,8 @@ public class MimicEntity extends PathfinderMob {
      * 없다 — 수업료는 내고 능력은 안 오르는 것이 오히려 정직하고, 그 격차가 통학 문제를 드러낸다.
      */
     private int schoolDays = 0;
+    /** 왕국 성립일(영지 수지 흑자 연속 — Realm) · −1 = 아직. NBT. 칭호 "[군주]"의 유일한 출처. */
+    private int realmDay = -1;
     private long schoolCreditedDay = Long.MIN_VALUE;
     /**
      * <b>깔아야 할 길</b>(중심선, 진입 칸 → 도로망 순). 집을 다 지은 미믹이 삽을 들고
@@ -1252,6 +1254,14 @@ public class MimicEntity extends PathfinderMob {
     public boolean isSpouseWith(MimicEntity other) {
         return (individual != null && other.spouseId == individual.id())
                 || (other.getIndividual() != null && spouseId == other.getIndividual().id());
+    }
+
+    public int getRealmDay() {
+        return realmDay;
+    }
+
+    public void setRealmDay(int day) {
+        this.realmDay = day;
     }
 
     /** 학교에 앉은 날 수 — 획득 능력치. 유전되지 않는다. */
@@ -7621,6 +7631,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
         tag.putInt("SchoolDays", schoolDays);
+        tag.putInt("RealmDay", realmDay);
         if (poorhousePos != null) {
             tag.putLong("Poorhouse", poorhousePos.asLong());
         }
@@ -7705,6 +7716,7 @@ public class MimicEntity extends PathfinderMob {
                 homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
         schoolDays = tag.getInt("SchoolDays");
+        realmDay = tag.contains("RealmDay") ? tag.getInt("RealmDay") : -1;
         poorhousePos = tag.contains("Poorhouse")
                 ? BlockPos.of(tag.getLong("Poorhouse")) : null;
         guardWage = tag.getDouble("GuardWage");

@@ -253,7 +253,7 @@ public final class SimAudit {
                         + " homes_owner=%d homes_tenant=%d homes_landless=%d"
                         + " larder_owner=%.1f larder_tenant=%.1f larder_landless=%.1f"
                         + " wage=%.1f cls_farmer=%d cls_owner=%d cls_landlord=%d cls_lord=%d"
-                        + " cls_steward=%d",
+                        + " cls_steward=%d tax_poll=%.1f tax_prop=%.1f tax_arrears=%.1f tax_up=%.1f",
                 day, mimics.size(), adult, adultF, boy, infant, elder, homes.size(), births,
                 INCOME.getOrDefault(Src.GRASS, 0.0), INCOME.getOrDefault(Src.GARDEN, 0.0),
                 INCOME.getOrDefault(Src.HUNT, 0.0), INCOME.getOrDefault(Src.FARM_SELF, 0.0),
@@ -267,7 +267,9 @@ public final class SimAudit {
                 tenantHomes.isEmpty() ? 0.0 : tenantLarder / tenantHomes.size(),
                 landlessHomes == 0 ? 0.0 : landlessLarder / landlessHomes,
                 INCOME.getOrDefault(Src.WAGE, 0.0),
-                clsFarmer, clsOwner, clsLandlord, clsLord, clsSteward);
+                clsFarmer, clsOwner, clsLandlord, clsLord, clsSteward,
+                FarmTicker.taxSums()[0], FarmTicker.taxSums()[4], FarmTicker.taxSums()[1],
+                FarmTicker.taxSums()[2]);
         SimEvents.note(level, "AUDIT", line);
         if (reset) {
             INCOME.clear();

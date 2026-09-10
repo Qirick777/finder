@@ -142,6 +142,7 @@ public final class EvoTest {
             case "elder" -> elder(report);
             case "illness" -> illness(report);
             case "support" -> support(report);
+            case "realm" -> realm(report);
             case "lineage" -> lineage(report);
             case "farm" -> farm(report);
             case "satisfaction" -> satisfaction(report);
@@ -192,7 +193,50 @@ public final class EvoTest {
         elder(report);
         illness(report);
         support(report);
+        realm(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest realm — 왕국 세수안: 재산세 · 흑자 연속 · 왕국 성립
+    // ──────────────────────────────────────────────────────────────
+    private static void realm(Report report) {
+        boolean p1 = close(com.evosim.core.Tribute.propertyTax(12.0), 0.0)
+                && close(com.evosim.core.Tribute.propertyTax(30.0), 0.0)
+                && close(com.evosim.core.Tribute.propertyTax(40.0), 1.0)
+                && close(com.evosim.core.Tribute.propertyTax(182.0), 15.2)
+                && close(com.evosim.core.Tribute.PROPERTY_TAX_FLOOR,
+                        com.evosim.core.FarmEconomy.newFarmCost(0)
+                                + com.evosim.core.FarmEconomy.FOUND_RESERVE_MIN);
+        report.add("realm/재산세", p1,
+                "저장고 12·30 → 0 · 40 → 1.0 · 182 → 15.2 (30 초과 10%) · 면세선 = 착공 문턱 30",
+                p1 ? "정상" : "어긋남");
+        // 번식 관문(12)·만족선(24)은 면세선 아래 — 재산세가 출산·굶주림에 닿을 길이 없다.
+        boolean p2 = com.evosim.core.Tribute.PROPERTY_TAX_FLOOR > 24.0
+                && close(com.evosim.core.Tribute.payable(12.0, 6.0), 0.0)
+                && close(com.evosim.core.Tribute.payable(13.0, 6.0), 1.0);
+        report.add("realm/관문분리", p2, "면세선 30 > 만족선 24 · 예비 12(부부) 아래 납부 0 · 13 → 1.0",
+                p2 ? "정상" : "어긋남");
+        int s = 0;
+        s = com.evosim.core.Realm.streak(s, 30.0, 25.0, 8);   // 흑자·신민 8 → 1
+        boolean k1 = s == 1;
+        s = com.evosim.core.Realm.streak(s, 30.0, 40.0, 12);  // 적자 → 0
+        boolean k2 = s == 0;
+        s = com.evosim.core.Realm.streak(s, 30.0, 10.0, 7);   // 신민 7 < 8 → 0
+        boolean k3 = s == 0;
+        s = com.evosim.core.Realm.streak(s, 0.0, 0.0, 20);    // 아무 일도 없던 날 → 0
+        boolean k4 = s == 0;
+        s = com.evosim.core.Realm.streak(s, 50.0, 40.0, 10);
+        s = com.evosim.core.Realm.streak(s, 50.0, 40.0, 10);
+        boolean k5 = !com.evosim.core.Realm.kingdomFounded(s);
+        s = com.evosim.core.Realm.streak(s, 50.0, 50.0, 10);
+        boolean k6 = com.evosim.core.Realm.kingdomFounded(s)
+                && close(com.evosim.core.Realm.outOfPocket(30.0, 45.0), 15.0)
+                && close(com.evosim.core.Realm.outOfPocket(60.0, 45.0), 0.0);
+        boolean k = k1 && k2 && k3 && k4 && k5 && k6;
+        report.add("realm/왕국성립", k,
+                "흑자+신민 8 → 1 · 적자 → 0 · 신민 7 → 0 · 무거래 → 0 · 2일 미성립 · 3일(동률 포함) 성립 · 사비 15/0",
+                k ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

@@ -1380,8 +1380,46 @@ public final class FarmTicker {
     /** 개체가 오늘 <b>낸</b> 것 — 제 세금 + 제 빚 상환 + 위로 올린 상납. */
     private static final java.util.Map<Long, Double> TAX_OUT = new java.util.HashMap<>();
     /** [징수, 미납, 상납, 상환] 총액과 [납부자, 미납자] 수 — 한 줄 보고용. */
-    private static final double[] TAX_SUM = new double[4];
+    /** [인두세 납부, 미납, 상납, 상환, 재산세] — 오늘 합계. */
+    private static final double[] TAX_SUM = new double[5];
     private static final int[] TAX_CNT = new int[2];
+
+    // ── 영지 수지(왕국 세수안, 사용자 승인) — 지배자별 오늘의 세수·지출·신민 ─────────────
+    /** lordId → [인두세, 재산세, 보호세(막사+경비), 상납받음] — 밤 징세에서 채우고 에필로그가 읽는다. */
+    private static final java.util.Map<Long, double[]> REALM_IN = new java.util.HashMap<>();
+    /** lordId → [군인 봉급, 경비 봉급, 구휼, 자식 지원] — 지급 지점마다 더하고 에필로그가 비운다. */
+    private static final java.util.Map<Long, double[]> REALM_OUT = new java.util.HashMap<>();
+    /** lordId → 추종 가구(집 좌표) — 오늘 징세 순회에서. */
+    private static final java.util.Map<Long, java.util.Set<Long>> REALM_FOLLOW_HOMES = new java.util.HashMap<>();
+    /** lordId → 무력 도달 가구(집 좌표) — 그 지배자의 막사 통근 반경 안. */
+    private static final java.util.Map<Long, java.util.Set<Long>> REALM_REACHED_HOMES = new java.util.HashMap<>();
+    /** lordId → 흑자 연속 일수(Realm.streak). */
+    private static final java.util.Map<Long, Integer> REALM_STREAK = new java.util.HashMap<>();
+
+    private static double[] realmIn(long lordId) {
+        return REALM_IN.computeIfAbsent(lordId, k -> new double[4]);
+    }
+
+    private static double[] realmOut(long lordId) {
+        return REALM_OUT.computeIfAbsent(lordId, k -> new double[4]);
+    }
+
+    /**
+     * 무력 도달 — 그 지배자의 막사 중 하나라도 통근 반경({@link Facilities#COMMUTE_RANGE}) 안에
+     * 이 집이 있는가. 막사의 "지킬 가구" 판정과 같은 반경이라, 병사가 지키는 집이 곧 세금 내는 집이다.
+     */
+    private static boolean reachedByForce(java.util.List<BlockPos> forts, BlockPos home) {
+        if (forts == null || home == null) {
+            return false;
+        }
+        double r2 = Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE;
+        for (BlockPos f : forts) {
+            if (f.distSqr(home) <= r2) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     public static java.util.Map<Long, Double> taxIn() {
         return TAX_IN;
@@ -1436,6 +1474,16 @@ public final class FarmTicker {
         }
         java.util.List<MimicEntity> payers = new java.util.ArrayList<>(adults);
         payers.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id()));
+        // 징세의 조건 = 무력 도달(왕국 세수안). 지배자별 막사 좌표를 한 번 모은다.
+        REALM_IN.clear();
+        REALM_FOLLOW_HOMES.clear();
+        REALM_REACHED_HOMES.clear();
+        java.util.Map<Long, java.util.List<BlockPos>> forts = new java.util.HashMap<>();
+        for (FacilityStore.Entry fe : FacilityStore.get(level).all()) {
+            if (fe.kind.group == FacilityTemplate.Group.BARRACKS) {
+                forts.computeIfAbsent(fe.ownerId, k -> new java.util.ArrayList<>()).add(fe.pos);
+            }
+        }
 
         for (MimicEntity m : payers) {
             long id = m.getIndividual().id();
@@ -1450,15 +1498,28 @@ public final class FarmTicker {
                     || home.equals(lord.getHomePos())) {
                 continue;
             }
+            // 무력이 닿는 집만 인두세·재산세를 낸다. 안 닿으면 신세 상환(25%)만 — 추종은 장부의
+            // 관계이고 세금은 창끝의 관계다. 군대 이전의 지배자는 사비로 봉사한다.
+            boolean reached = reachedByForce(forts.get(patronId), home);
+            REALM_FOLLOW_HOMES.computeIfAbsent(patronId, k -> new java.util.HashSet<>()).add(home.asLong());
+            if (reached) {
+                REALM_REACHED_HOMES.computeIfAbsent(patronId, k -> new java.util.HashSet<>()).add(home.asLong());
+            }
             double larder = larders.get(home);
             double spare = com.evosim.core.Tribute.payable(
                     larder, familyDailyNeed(level, m, adults));
-            double due = com.evosim.core.Tribute.due(true);
+            double due = com.evosim.core.Tribute.due(reached);
             double pay = Math.min(due, spare);
             spare -= pay;
             double arrears = due - pay;
+            double prop = reached ? Math.min(com.evosim.core.Tribute.propertyTax(larder), spare) : 0.0;
+            spare -= prop;
             double repayCut = com.evosim.core.Tribute.repayment(spare, ledger.owedOf(id));
-            double moved = pay + repayCut;
+            double moved = pay + prop + repayCut;
+            if (prop > 0.0) {
+                TAX_SUM[4] += prop;
+                realmIn(patronId)[1] += prop;
+            }
 
             if (moved > 0.0) {
                 larders.set(home, larder - moved);
@@ -1479,6 +1540,7 @@ public final class FarmTicker {
             if (pay > 0.0) {
                 TAX_SUM[0] += pay;
                 TAX_CNT[0]++;
+                realmIn(patronId)[0] += pay;
             }
         }
 
@@ -1512,6 +1574,7 @@ public final class FarmTicker {
             TAX_OUT.merge(id, send, Double::sum);
             TAX_IN.merge(up, send, Double::sum);
             TAX_SUM[2] += send;
+            realmIn(up)[3] += send;
         }
     }
 
@@ -2916,6 +2979,7 @@ public final class FarmTicker {
             }
             if (take > 0.0) {
                 FacilityStore.get(level).earn(ph, take);
+                realmIn(ph.ownerId)[2] += take;
                 com.evosim.mod.log.SimEvents.note(level, "경비세", String.format(
                         "@%d,%d — 반경 %.0f 안에서 %.2f 걷음(주인 제외 · 꺾임 %.0f)",
                         ph.pos.getX(), ph.pos.getZ(), Facilities.GUARD_TAX_REACH,
@@ -2994,6 +3058,7 @@ public final class FarmTicker {
             // 같은 이유이고, 남는 몫은 집에 들르면 가족 정산이 알아서 저장고로 넣는다.
             m.setDayHarvest(m.getHolding() + pay);
             POOR_SUM[2] += pay;
+            realmOut(house.ownerId)[1] += pay;
             POOR_SUM[3] += want - pay;
             // 구휼 가중치를 그대로 쓴다 — 굶는 자에게 먹을 것을 준 것이라 물건이 같다.
             // 새 상수를 만들면 같은 행위가 두 이름으로 갈려 균형점 계산이 두 벌이 된다
@@ -3229,6 +3294,7 @@ public final class FarmTicker {
             larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + taxIn);
             reg.earn(bk, taxIn);
             GUARD_SUM[2] += taxIn;
+            realmIn(bk.ownerId)[2] += taxIn;
 
             POST_OWNER.put(bk.pos.asLong(), bk.ownerId);
 
@@ -3629,6 +3695,7 @@ public final class FarmTicker {
                     larders.set(s.getHomePos(), larders.get(s.getHomePos()) + paid);
                     reg.spend(bk, paid);
                     GUARD_SUM[1] += paid;
+                    realmOut(bk.ownerId)[0] += paid;
                 }
                 if (paid < wage - 1.0E-9) {
                     int miss = UNPAID_DAYS.merge(sid, 1, Integer::sum);
@@ -5298,6 +5365,57 @@ public final class FarmTicker {
         everyone.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id())); // 결정론
         infantIllness(level, everyone, day);
         supportChildren(level, everyone, day);
+        realmReport(level, everyone, day);
+    }
+
+    /**
+     * 영지 수지 한 줄(왕국 세수안) — 지배자마다 오늘의 신민(추종/도달)·세수(인두·재산·보호·상납)·
+     * 통치 지출(군·경비·구휼·지원)·수지·사비 보전·흑자 연속을 남기고, {@link com.evosim.core.Realm}
+     * 의 판정으로 왕국 성립을 한 번 기록한다. 지출 누계는 여기서 비운다(다음 하루치 시작).
+     */
+    private static void realmReport(ServerLevel level, java.util.List<MimicEntity> everyone, long day) {
+        java.util.Set<Long> lords = new java.util.TreeSet<>();
+        lords.addAll(REALM_IN.keySet());
+        lords.addAll(REALM_OUT.keySet());
+        lords.addAll(REALM_FOLLOW_HOMES.keySet());
+        for (long lid : lords) {
+            MimicEntity lord = null;
+            for (MimicEntity m : everyone) {
+                if (m.getIndividual().id() == lid) {
+                    lord = m;
+                    break;
+                }
+            }
+            double[] in = REALM_IN.getOrDefault(lid, new double[4]);
+            double[] out = REALM_OUT.getOrDefault(lid, new double[4]);
+            int follow = REALM_FOLLOW_HOMES.getOrDefault(lid, java.util.Set.of()).size();
+            int reached = REALM_REACHED_HOMES.getOrDefault(lid, java.util.Set.of()).size();
+            double taxIn = in[0] + in[1] + in[2] + in[3];
+            double ruleOut = out[0] + out[1] + out[2] + out[3];
+            if (lord == null || (follow == 0 && taxIn <= 0.0 && ruleOut <= 0.0)) {
+                continue;
+            }
+            int streak = com.evosim.core.Realm.streak(REALM_STREAK.getOrDefault(lid, 0),
+                    taxIn, ruleOut, reached);
+            REALM_STREAK.put(lid, streak);
+            boolean king = lord.getRealmDay() >= 0;
+            if (!king && com.evosim.core.Realm.kingdomFounded(streak)) {
+                lord.setRealmDay((int) day);
+                king = true;
+                com.evosim.mod.log.SimEvents.event(lord, "왕국성립", String.format(
+                        "세수 %.1f ≥ 통치지출 %.1f 가 %d일 연속 · 신민 %d가구(무력 도달) — 지배자가 제 곳간이 아니라 영지의 세로 다스린다",
+                        taxIn, ruleOut, streak, reached));
+            }
+            com.evosim.mod.log.SimEvents.event(lord, "영지", String.format(
+                    "%s신민 %d/%d가구(도달/추종) · 세수 %.1f(인두 %.1f · 재산 %.1f · 보호 %.1f · 상납 %.1f)"
+                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f)"
+                            + " · 수지 %+.1f · 사비 %.1f · 흑자 %d일",
+                    king ? "[군주] " : "", reached, follow, taxIn, in[0], in[1], in[2], in[3],
+                    ruleOut, out[0], out[1], out[2], out[3],
+                    com.evosim.core.Realm.balance(taxIn, ruleOut),
+                    com.evosim.core.Realm.outOfPocket(taxIn, ruleOut), streak));
+        }
+        REALM_OUT.clear();
     }
 
     /**
@@ -5479,6 +5597,7 @@ public final class FarmTicker {
                 larders.set(c.getHomePos(), cl + give);
                 larders.set(home, larders.get(home) - give);
                 budget -= give;
+                realmOut(headId)[3] += give;
                 com.evosim.mod.log.SimEvents.event(head, "자식지원", String.format(
                         "%d → %s(저장고 %.1f→%.1f · 문턱 %.0f) · 부모 여유 %.1f→%.1f(예비 %.0f)",
                         give, c.getIndividual().shortName(), cl, cl + give, threshold,
@@ -5813,6 +5932,7 @@ public final class FarmTicker {
             if (home != null && aid >= 1.0) {
                 int units = (int) Math.floor(aid); // 정수 유닛(L 정수성)
                 LarderStore.get(level).set(home, larder - units);
+                realmOut(plot.ownerId)[2] += units;
                 m.addHarvest(units);
                 com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.AID, aid);
                 com.evosim.mod.log.SimEvents.event(m, "구휼", String.format(

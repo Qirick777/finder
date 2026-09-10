@@ -54,6 +54,28 @@ public final class Tribute {
      */
     public static final double REPAY_SHARE = 0.25;
 
+    /**
+     * <b>재산세</b>(왕국 세수안, 사용자 승인) — 신민 가구 저장고가 {@link #PROPERTY_TAX_FLOOR}
+     * 를 넘는 몫의 이 비율을 매일 걷는다. 인두세가 "머릿수"라면 이것은 "곳간 크기"다.
+     *
+     * <p>왜 필요한가: 인두세 1.0 은 소작 가구(저장고 14~22)에서 더 올릴 수 없다 — 예비 12 위
+     * 여유가 얇다. 후반에 세수를 키울 밑천은 마름(저장고 182)·자영 지주(100) 같은 부유 신민이고,
+     * 그들에게서 걷으려면 곳간에 비례해야 한다. 런 9 d14 구성이면 재산세 약 30/일(마름 182 →
+     * 15, 지주 2가구 14), 인두세 40 과 합쳐 세수 70 — 통치 지출(봉급·구휼·지원 30~40)을 넘는다.
+     *
+     * <p>바닥이 30 인 이유: 착공 문턱(비용 12 + 예비 18)과 같은 선이다. 그 아래 저축은 첫 밭을
+     * 위한 돈이라 손대지 않는다 — 자식 세대의 착공을 세금이 막지 않는다. 번식 관문(12)·만족선
+     * (24)보다 훨씬 위라 굶주림·출산에는 닿지 않는다.
+     */
+    public static final double PROPERTY_TAX_RATE = 0.10;
+    /** 재산세 면세선 — 착공 문턱(FarmEconomy.newFarmCost(0) 12 + FOUND_RESERVE_MIN 18)과 같은 30. */
+    public static final double PROPERTY_TAX_FLOOR = 30.0;
+
+    /** 오늘의 재산세 = max(0, 저장고 − 면세선) × 세율. 걷을 때는 예비 위 여유로 다시 한 번 캡된다. */
+    public static double propertyTax(double larder) {
+        return Math.max(0.0, larder - PROPERTY_TAX_FLOOR) * PROPERTY_TAX_RATE;
+    }
+
     /** 이 가구가 오늘 세금·상환에 쓸 수 있는 몫 — 예비를 뺀 나머지(음수면 0). */
     public static double payable(double larder, double familyDailyNeed) {
         return Math.max(0.0, larder - familyDailyNeed * TAX_RESERVE_DAYS);

@@ -2625,12 +2625,17 @@ public final class FarmTicker {
         }
         // ③ 자격 — 반경 안 재산 1위. <b>후보는 추종자를 거느린 자로 한정한다</b>(세력의 표식).
         //    동률은 개체 id 로 가른다(순회 순서에 결과가 매달리지 않게).
+        //    <b>밭 한 구획(12타일)도 조건이다</b> — 건축비를 8 로 낮춘 뒤 무밭 미믹이 선점하지
+        //    못하게(Facilities.POORHOUSE_MIN_TILES).
         java.util.List<MimicEntity> pool = new java.util.ArrayList<>();
+        FarmStore fsPool = FarmStore.get(level);
         for (MimicEntity m : adults) {
             if (m.getIndividual() == null || m.getHomePos() == null) {
                 continue;
             }
-            if (followersOf(m.getIndividual().id()) >= Facilities.POORHOUSE_MIN_FOLLOWERS) {
+            long mid = m.getIndividual().id();
+            if (followersOf(mid) >= Facilities.POORHOUSE_MIN_FOLLOWERS
+                    && fsPool.ownedTiles(mid) >= Facilities.POORHOUSE_MIN_TILES) {
                 pool.add(m);
             }
         }
@@ -2646,7 +2651,7 @@ public final class FarmTicker {
             }
         }
         if (best == null) {
-            poorNote(level, String.format("보류 — 구걸자 %d명인데 추종자를 거느린 자가 없다",
+            poorNote(level, String.format("보류 — 구걸자 %d명인데 추종자 1명 + 밭 12타일을 갖춘 자가 없다",
                     unserved));
             return;
         }

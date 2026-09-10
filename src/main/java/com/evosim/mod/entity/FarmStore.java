@@ -765,8 +765,9 @@ public class FarmStore extends SavedData {
         int bs = -1;
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() != 0L)) {
-            if (!pool.test(m) || ownedCount(m.getIndividual().id()) > 0) {
-                continue; // 소유자 제외(겸직 금지)
+            if (!pool.test(m) || ownedCount(m.getIndividual().id()) > 0
+                    || m.getStage() == com.evosim.core.LifeStage.ELDER) {
+                continue; // 소유자 제외(겸직 금지) · 노년 제외(은퇴 — 밭에 안 나온다)
             }
             double v = com.evosim.core.FarmEconomy.tileYield(m.getIndividual())
                     * com.evosim.core.FarmEconomy.manageEfficiency(m.getIndividual(), load);

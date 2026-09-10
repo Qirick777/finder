@@ -51,7 +51,8 @@ public class MimicFarmGoal extends Goal {
     @Override
     public boolean canUse() {
         if (mob.getIndividual() == null || mob.isFastSettle() || mob.isBuilding()
-                || mob.getStage() == LifeStage.INFANT || mob.getStage() == LifeStage.BOY) {
+                || mob.getStage() == LifeStage.INFANT || mob.getStage() == LifeStage.BOY
+                || mob.getStage() == LifeStage.ELDER) { // 노년 = 은퇴(밭일 없음, 인구 제동 1단계)
             return false;
         }
         // <b>경비대는 낮에 쉰다 — 밭일도 노동이다.</b> 채집 goal 에만 관문을 달았더니 실측에서

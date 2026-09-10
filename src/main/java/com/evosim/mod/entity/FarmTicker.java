@@ -2775,7 +2775,8 @@ public final class FarmTicker {
                         b.getIndividual() == null ? 0L : b.getIndividual().id());
             });
             for (MimicEntity m : queue) {
-                if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null) {
+                if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null
+                        || m.getStage() == com.evosim.core.LifeStage.ELDER) { // 은퇴 — 경계 못 섬
                     continue;
                 }
                 // <b>자격은 협상이 정한다</b>(아래 요구 vs 캡). 여기서는 절대 상한만 미리
@@ -5276,6 +5277,191 @@ public final class FarmTicker {
         recordTenantPay(plotId, share, workerId);
     }
 
+    // ── 밤 정산 에필로그(인구 제동 1단계, 사용자 승인) — 유아 병듦 · 여유금 자식 지원 ──────
+    private static long epilogueDay = -1;
+
+    /**
+     * 하루 한 번, <b>확장·착공·시설·봉급(growFarms)과 지대 이체(settleRent)가 오늘 끝난 뒤</b>에만
+     * 돈다 — 같은 틱 순서(onServerTick)에 두 정산의 day 표식이 오늘로 바뀌었는지로 확인한다.
+     * 순서가 곧 규칙이다: 자식 지원은 모든 지출 뒤의 여유에서만 나가야 확장을 끊지 않는다.
+     */
+    private static void nightlyEpilogue(ServerLevel level) {
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        long tod = level.getDayTime() % 24000L;
+        if (day == epilogueDay || tod < 13000L || growDay != day || rentDay != day) {
+            return;
+        }
+        epilogueDay = day;
+        java.util.List<MimicEntity> everyone = new java.util.ArrayList<>(
+                level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null));
+        everyone.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id())); // 결정론
+        infantIllness(level, everyone, day);
+        supportChildren(level, everyone, day);
+    }
+
+    /**
+     * 유아 병듦({@link com.evosim.core.InfantIllness}) — 유아마다 하루 한 번 굴린다. 확률은
+     * 집 반경 32 안의 <b>사람이 사는</b> 이웃 집 수(제 집 제외)와 부모 중 높은 쪽 교육수준으로
+     * 정해지고, 현 단계에서는 발병 = 사망이다(회복·병원은 뒤). 부모가 이미 죽었으면 그 쪽
+     * 학력은 0 으로 본다. 로그에 이웃 수·학력·p 를 남겨 사망률을 밀집·교육별로 집계할 수 있게 한다.
+     */
+    private static void infantIllness(ServerLevel level, java.util.List<MimicEntity> everyone,
+                                      long day) {
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : everyone) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        java.util.List<Long> homes = HomeStore.get(level).occupiedPositions((int) day);
+        double r2 = com.evosim.core.InfantIllness.NEIGHBOR_RADIUS
+                * com.evosim.core.InfantIllness.NEIGHBOR_RADIUS;
+        java.util.Map<Long, Integer> neighborsOf = new java.util.HashMap<>();
+        int checked = 0;
+        int died = 0;
+        for (MimicEntity m : everyone) {
+            if (m.getStage() != com.evosim.core.LifeStage.INFANT || m.getHomePos() == null) {
+                continue;
+            }
+            BlockPos h = m.getHomePos();
+            int n = neighborsOf.computeIfAbsent(h.asLong(), k -> {
+                int c = 0;
+                for (long o : homes) {
+                    if (o != k && BlockPos.of(o).distSqr(h) <= r2) {
+                        c++;
+                    }
+                }
+                return c;
+            });
+            int lv = 0;
+            MimicEntity pa = byId.get(m.getIndividual().parentAId());
+            MimicEntity pb = byId.get(m.getIndividual().parentBId());
+            if (pa != null) {
+                lv = Math.max(lv, com.evosim.core.Schooling.level(pa.getSchoolDays()));
+            }
+            if (pb != null) {
+                lv = Math.max(lv, com.evosim.core.Schooling.level(pb.getSchoolDays()));
+            }
+            double p = com.evosim.core.InfantIllness.dailyOnset(n, lv);
+            checked++;
+            if (p <= 0.0 || level.random.nextDouble() >= p) {
+                continue;
+            }
+            died++;
+            com.evosim.mod.log.SimEvents.event(m, "병사", String.format(
+                    "유아 병듦 — 이웃 %d채(반경 %.0f) · 부모 학력 %s · p %.3f", n,
+                    com.evosim.core.InfantIllness.NEIGHBOR_RADIUS,
+                    com.evosim.core.Schooling.name(lv), p));
+            if (!m.hurt(level.damageSources().magic(), Float.MAX_VALUE)) {
+                m.kill();
+            }
+        }
+        if (checked > 0) {
+            com.evosim.mod.log.SimEvents.note(level, "유아병듦",
+                    String.format("검사 %d · 발병(사망) %d", checked, died));
+        }
+    }
+
+    /**
+     * 여유금 자식 지원({@link com.evosim.core.ChildSupport}) — 가구마다 한 번. 여유 = 저장고 −
+     * 예비(밭 있으면 확장 예비 {@link FarmEconomy#expandReserve}, 없으면 착공 문턱 = 비용+
+     * {@link FarmEconomy#foundReserve}), 그 25% 를 정수로 반경 96 안 <b>분가한 성년 자식</b>
+     * 가구 중 저장고가 제 착공 문턱 아래인 곳에 — 가장 가난한 자식부터, 문턱까지만. 걷지 않고
+     * 장부 이체(저장고→저장고). 부모는 예비 아래로 내려가지 않는다.
+     *
+     * <p>주는 쪽은 성년이 있는 가구(노년만 남은 집은 안 준다 — 자식 케어는 성년의 몫). 부모
+     * 링크는 그 집 성년·노년 전원의 id 로 본다(아버지가 노년이고 어머니가 성년인 집도 준다).
+     */
+    private static void supportChildren(ServerLevel level, java.util.List<MimicEntity> everyone,
+                                        long day) {
+        FarmStore store = FarmStore.get(level);
+        LarderStore larders = LarderStore.get(level);
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>();
+        java.util.Map<Long, java.util.List<MimicEntity>> households = new java.util.TreeMap<>();
+        for (MimicEntity m : everyone) {
+            if (m.getStage() != com.evosim.core.LifeStage.ADULT
+                    && m.getStage() != com.evosim.core.LifeStage.ELDER) {
+                continue;
+            }
+            adults.add(m);
+            if (m.getHomePos() != null) {
+                households.computeIfAbsent(m.getHomePos().asLong(),
+                        k -> new java.util.ArrayList<>()).add(m);
+            }
+        }
+        double r2 = com.evosim.core.ChildSupport.RADIUS * com.evosim.core.ChildSupport.RADIUS;
+        for (var he : households.entrySet()) {
+            BlockPos home = BlockPos.of(he.getKey());
+            java.util.List<MimicEntity> members = he.getValue();
+            MimicEntity head = null;
+            int headTiles = -1;
+            java.util.Set<Long> parentIds = new java.util.HashSet<>();
+            for (MimicEntity m : members) {
+                parentIds.add(m.getIndividual().id());
+                if (m.getStage() != com.evosim.core.LifeStage.ADULT) {
+                    continue;
+                }
+                int t = store.ownedTiles(m.getIndividual().id());
+                if (t > headTiles) {
+                    headTiles = t;
+                    head = m;
+                }
+            }
+            if (head == null) {
+                continue; // 성년 없는 집
+            }
+            long headId = head.getIndividual().id();
+            int owned = store.ownedCount(headId);
+            boolean eligible = owned > 0 && nextFarmEligible(store, adults, headId);
+            double reserve = FarmEconomy.expandReserve(owned == 0 || eligible, owned,
+                    familyDailyNeed(level, head, adults));
+            double larder = larders.get(home);
+            int budget = com.evosim.core.ChildSupport.budget(larder, reserve);
+            if (budget <= 0) {
+                continue;
+            }
+            // 분가한 성년 자식 가구 — 집 단위로 한 번(형제가 한 집이면 한 번), 가난한 순.
+            java.util.Map<Long, MimicEntity> childHomes = new java.util.HashMap<>();
+            for (MimicEntity c : everyone) {
+                if (c.getStage() != com.evosim.core.LifeStage.ADULT || c.getHomePos() == null
+                        || c.getHomePos().equals(home)
+                        || !(parentIds.contains(c.getIndividual().parentAId())
+                                || parentIds.contains(c.getIndividual().parentBId()))
+                        || c.getHomePos().distSqr(home) > r2) {
+                    continue;
+                }
+                childHomes.putIfAbsent(c.getHomePos().asLong(), c);
+            }
+            if (childHomes.isEmpty()) {
+                continue;
+            }
+            java.util.List<MimicEntity> kids = new java.util.ArrayList<>(childHomes.values());
+            kids.sort(java.util.Comparator
+                    .comparingDouble((MimicEntity c) -> larders.get(c.getHomePos()))
+                    .thenComparingLong(c -> c.getIndividual().id()));
+            double surplus = larder - reserve;
+            for (MimicEntity c : kids) {
+                if (budget <= 0) {
+                    break;
+                }
+                double cl = larders.get(c.getHomePos());
+                double threshold = FarmEconomy.newFarmCost(store.ownedCount(c.getIndividual().id()))
+                        + FarmEconomy.foundReserve(familyDailyNeed(level, c, adults));
+                int give = com.evosim.core.ChildSupport.grant(budget, cl, threshold);
+                if (give <= 0) {
+                    continue;
+                }
+                larders.set(c.getHomePos(), cl + give);
+                larders.set(home, larders.get(home) - give);
+                budget -= give;
+                com.evosim.mod.log.SimEvents.event(head, "자식지원", String.format(
+                        "%d → %s(저장고 %.1f→%.1f · 문턱 %.0f) · 부모 여유 %.1f→%.1f(예비 %.0f)",
+                        give, c.getIndividual().shortName(), cl, cl + give, threshold,
+                        surplus, surplus - give, reserve));
+                surplus -= give;
+            }
+        }
+    }
+
     /** 검증 전용 — 밤 정산(수당·상환·지대 이체)을 즉시 1회 강제(rentDay 리셋). */
     public static void debugSettle(ServerLevel level) {
         rentDay = -1;
@@ -5468,6 +5654,7 @@ public final class FarmTicker {
                         || store.ownedCount(m.getIndividual().id()) > 0
                         || m.isSatisfiedToday()
                         || m.inPoorhouse()
+                        || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 출근 없음
                         || failedReach) {
                     continue;
                 }
@@ -5704,8 +5891,10 @@ public final class FarmTicker {
                 e -> e.isAlive() && e.getIndividual() != null
                         && (e.isCritical() || e.forageDry())
                         && e.getTenantFarm() == 0L
-                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
-                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+                        // 노년은 은퇴라 밭에 못 붙인다(MimicFarmGoal 이 노년을 닫음) — 배정해도
+                        // 출근이 없어 자리만 잡는다. 이 루프의 구걸 배정(assignBeg)도 함께 안 탄다:
+                        // 노인은 가구 저장고가 부양하고, 그것이 비면 가구 전체가 굶는 상황이다.
+                        && e.getStage() == com.evosim.core.LifeStage.ADULT)) {
             if (ASSIGNED.containsKey(m.getId())
                     || store.ownedCount(m.getIndividual().id()) > 0
                     || m.inPoorhouse()) {
@@ -6040,6 +6229,7 @@ public final class FarmTicker {
         assignDawn(level);
         growFarms(level); // 재투자(계정 차감)가 지대 이체보다 먼저 — 같은 밤, 남은 정수만 주인에게(R1)
         settleRent(level);
+        nightlyEpilogue(level); // 맨 마지막 — 유아 병듦 · 여유금 자식 지원(모든 지출 뒤의 여유에서)
         protectTenants(level);
         emergencyHire(level); // 구휼(기존 소작) 다음 — 아직 소작이 아닌 위급자의 입구
         expireVacant(level);

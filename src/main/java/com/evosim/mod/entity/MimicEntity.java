@@ -356,7 +356,9 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(4, new MimicWatchGoal(this));
         this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
         this.goalSelector.addGoal(2, new MimicShareGoal(this));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
-        this.goalSelector.addGoal(3, new ElderVisitGoal(this));     // 노인 방문: 자식 집 배달·마실 육아(Return보다 앞)
+        // 노인 방문(ElderVisitGoal — 자식 집 배달·마실 육아)은 <b>등록하지 않는다</b>(인구 제동
+        // 1단계): 노년은 은퇴라 goal 을 돌리지 않고, 자식 지원은 성년 부모의 밤 정산
+        // (FarmTicker.supportChildren · ChildSupport)이 맡는다. 클래스는 기록으로 남긴다.
         this.goalSelector.addGoal(3, new MimicReturnGoal(this));    // 식량 귀가: 넣으러/꺼내러(v2, 밥이 구애보다 먼저)
         // 구걸(3) — 복귀(3) <b>뒤</b>에 등록한다. 같은 우선순위에서는 먼저 등록된 쪽이 MOVE 를
         // 먼저 집으므로, 제 저장고에 꺼낼 것이 남았으면 남의 집에 손 벌리기 전에 집으로 간다.
@@ -6758,6 +6760,35 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
+    /**
+     * 노년 진입 = <b>은퇴</b>(인구 제동 1단계, 사용자 승인) — 소작 예약석·경비대 소속·마름직을
+     * 내려놓는다. goal 쪽(밭일·채집·경비·마름 후보·구직)은 노년을 각자 닫으므로 여기서는 이미
+     * 맺힌 관계만 정리한다. 남기면 자리는 차지한 채 출근이 없어 밭·경비대가 빈다(경비대원의
+     * 노동시장 제외와 같은 이유). 밭·집·저장고는 그대로 — 상속은 사망 때.
+     */
+    private void retire() {
+        if (!(level() instanceof ServerLevel sl) || individual == null) {
+            return;
+        }
+        java.util.List<String> left = new java.util.ArrayList<>();
+        if (tenantFarm != 0L) {
+            left.add("소작 구획 " + tenantFarm);
+            setTenant(0L, 0);
+        }
+        if (inPoorhouse()) {
+            left.add("경비대");
+            setPoorhouse(null);
+        }
+        FarmStore fs = FarmStore.get(sl);
+        if (fs.stewardOf(individual.id()) != 0L) {
+            left.add("마름");
+            fs.stewardGone(sl, individual.id(), "노년 은퇴");
+        }
+        if (!left.isEmpty()) {
+            SimEvents.event(this, "은퇴", String.join(" · ", left) + " 내려놓음");
+        }
+    }
+
     /** 노년 쿼터 충족? — 오늘 채집 누적 ≥ dailyQuota(책임+2·부지런/게으름 반영)면 쉼. */
     public boolean elderQuotaMet() {
         if (getStage() != LifeStage.ELDER || individual == null) {
@@ -7434,7 +7465,11 @@ public class MimicEntity extends PathfinderMob {
     private void growthTick() {
         LifeStage stage = getStage();
         growthTicks++;
-        // 단계별 임계(2배속 압축판): 유아 0.75일 · 소년 3일 · 청년 11일 · 노년 3일±특성.
+        // 단계별 임계: 유아 1.75일 · 소년 3일 · 청년 15일 · 노년 2일±특성 (합 21.75일).
+        //
+        // 유아 0.75→1.75일 · 노년 3→2일(인구 제동 1단계, 사용자 승인): 노년의 하루를 유아기로
+        // 옮겼다. 유아기는 병듦(InfantIllness — 밀집·부모 교육)에 노출되는 창이라 길수록 제동이
+        // 세고, 노년은 은퇴(goal 없음)라 짧아져도 잃는 것이 없다. 수명 합은 그대로다.
         //
         // 소년기 1.25일 → 3일. 학교가 붙으면서 그 길이가 기능을 굶겼다 — 소년으로 사는 날이
         // 하루 남짓이면 등교할 수 있는 날도 하루뿐이라, 획득 능력치가 쌓일 수 없고 "등교/비등교
@@ -7448,7 +7483,7 @@ public class MimicEntity extends PathfinderMob {
         int threshold;
         switch (stage) {
             case INFANT -> threshold = fastGrowth ? 40
-                    : (int) (18000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
+                    : (int) (42000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case BOY -> threshold = fastGrowth ? 40
                     : (int) (72000 * SurvivalRules.growthMult(stage, individual, cachedMaternal));
             case ADULT -> threshold = fastGrowth ? 40 : Elder.ADULT_DAYS * 24000;
@@ -7479,6 +7514,7 @@ public class MimicEntity extends PathfinderMob {
         }
         if (next == LifeStage.ELDER) {
             clearCourtshipPool(); // 노년 = 구애 은퇴 — 후보·거절 기록을 사망까지 들고 있지 않게
+            retire();             // 노년 = 노동 은퇴 — 소작·마름·경비 직을 내려놓는다(인구 제동 1단계)
         }
         com.evosim.mod.stage.StageObserver.record(this.getId(), "grow:" + next.name());
         SimEvents.event(this, "성장", stageKo(stage) + "→" + stageKo(next));

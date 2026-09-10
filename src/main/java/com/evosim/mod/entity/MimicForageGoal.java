@@ -135,10 +135,11 @@ public class MimicForageGoal extends Goal {
             return p != Schedule.Phase.SLEEP && ripeHomeBerry() != null;
         }
         Schedule.Phase phase = Schedule.phaseAt(ind, mob.level().getDayTime());
-        // 노년 쿼터 노동: 노동시간(마감 6000) 안에서 하루 필요량(dailyQuota)만 벌고 쉼. R4 동원 제외.
+        // 노년은 은퇴(인구 제동 1단계) — 채집·사냥 없음. 저장고에서 2.0/일을 먹고 집에 머문다.
+        // 종전 '쿼터 노동'(마감 6000 안 dailyQuota 까지)은 노년 goal 을 매 틱 돌게 하는 값이었고,
+        // 자식 지원은 성년 부모의 정산(ChildSupport)으로 옮겼으므로 노동을 남길 이유가 없다.
         if (mob.getStage() == LifeStage.ELDER) {
-            long tod = mob.level().getDayTime() % 24000L;
-            return phase == Schedule.Phase.WORK && tod < Elder.WORK_END && !mob.elderQuotaMet();
+            return false;
         }
         if (phase != Schedule.Phase.WORK && phase != Schedule.Phase.WANDER) {
             return gardenWhy("근무·배회 시간이 아님(" + phase + ")");

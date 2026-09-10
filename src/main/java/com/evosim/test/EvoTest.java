@@ -140,6 +140,8 @@ public final class EvoTest {
             case "traitfx" -> traitfx(report);
             case "polygyny" -> polygyny(report);
             case "elder" -> elder(report);
+            case "illness" -> illness(report);
+            case "support" -> support(report);
             case "lineage" -> lineage(report);
             case "farm" -> farm(report);
             case "satisfaction" -> satisfaction(report);
@@ -147,7 +149,7 @@ public final class EvoTest {
             case "encounter" -> encounter(report);
             case "all" -> all(report);
             default -> report.add("evotest", false,
-                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | beggar | roaming | ability | berry | food | famine | traitfx | polygyny | elder | lineage | farm | satisfaction | caregiving | encounter | all",
+                    "genetics | traits | multiplier | simulate | combat | feeding | lifecycle | lifespan | mating | settlement | reproduction | parenting | cycle | courtship | matechoice | matehome | homeresolution | physique | beggar | roaming | ability | berry | food | famine | traitfx | polygyny | elder | illness | support | lineage | farm | satisfaction | caregiving | encounter | all",
                     "알 수 없는 검증: " + cmd);
         }
         return report;
@@ -188,7 +190,78 @@ public final class EvoTest {
         traitfx(report);
         polygyny(report);
         elder(report);
+        illness(report);
+        support(report);
         // Phase 4↑: family_lifecycle, 경쟁 … 를 여기에 누적.
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest illness — 유아 병듦(인구 제동 1단계): 밀집 제곱·상한·교육 감면
+    // ──────────────────────────────────────────────────────────────
+    private static void illness(Report report) {
+        boolean d1 = close(com.evosim.core.InfantIllness.densityRate(0), 0.0)
+                && close(com.evosim.core.InfantIllness.densityRate(4), 0.00625)
+                && close(com.evosim.core.InfantIllness.densityRate(8), 0.025)
+                && close(com.evosim.core.InfantIllness.densityRate(16), 0.1)
+                && close(com.evosim.core.InfantIllness.densityRate(24), 0.225)
+                && close(com.evosim.core.InfantIllness.densityRate(40), 0.3);
+        report.add("illness/밀집", d1,
+                "이웃 0→0 · 4→0.006 · 8→0.025 · 16→0.1 · 24→0.225 · 40→0.3(상한) — 제곱 상승",
+                d1 ? "정상" : "어긋남");
+        boolean mono = true;
+        double prev = -1.0;
+        for (int n = 0; n <= 60; n++) {
+            double r = com.evosim.core.InfantIllness.densityRate(n);
+            if (r < prev || r > com.evosim.core.InfantIllness.CAP + 1e-12) {
+                mono = false;
+            }
+            prev = r;
+        }
+        report.add("illness/단조상한", mono, "이웃 0~60 에서 단조 증가 · 상한 0.3 초과 없음",
+                mono ? "정상" : "어긋남");
+        boolean e1 = close(com.evosim.core.InfantIllness.dailyOnset(16, 0), 0.1)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 1), 0.08)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 2), 0.06)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 3), 0.04)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 9),
+                        com.evosim.core.InfantIllness.dailyOnset(16, 3))
+                && close(com.evosim.core.InfantIllness.dailyOnset(40, 3), 0.12);
+        report.add("illness/학력", e1,
+                "이웃 16: 무학 0.10 · 초급 0.08 · 중급 0.06 · 상급 0.04(상한 3 초과는 상급과 같음) · 상한 밀집+상급 0.12",
+                e1 ? "정상" : "어긋남");
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // /evotest support — 여유금 자식 지원: 예비 아래 0 · 25% 정수 · 문턱까지만
+    // ──────────────────────────────────────────────────────────────
+    private static void support(Report report) {
+        boolean b1 = com.evosim.core.ChildSupport.budget(40.0, 12.0) == 7
+                && com.evosim.core.ChildSupport.budget(12.0, 12.0) == 0
+                && com.evosim.core.ChildSupport.budget(10.0, 30.0) == 0
+                && com.evosim.core.ChildSupport.budget(52.0, 36.0) == 4
+                && com.evosim.core.ChildSupport.budget(15.9, 12.0) == 0;
+        report.add("support/예산", b1,
+                "저장고 40·예비 12 → 7 · 12/12 → 0 · 10/30 → 0 · 52/36 → 4 · 15.9/12 → 0(정수 내림)",
+                b1 ? "정상" : "어긋남");
+        boolean g1 = com.evosim.core.ChildSupport.grant(7, 25.0, 30.0) == 5
+                && com.evosim.core.ChildSupport.grant(7, 30.0, 30.0) == 0
+                && com.evosim.core.ChildSupport.grant(3, 20.0, 30.0) == 3
+                && com.evosim.core.ChildSupport.grant(0, 20.0, 30.0) == 0
+                && com.evosim.core.ChildSupport.grant(7, 25.5, 30.0) == 5;
+        report.add("support/문턱", g1,
+                "예산 7·자식 25/문턱 30 → 5 · 문턱 도달 → 0 · 예산 3 → 3 · 예산 0 → 0 · 25.5 → 5(올림)",
+                g1 ? "정상" : "어긋남");
+        boolean noDeficit = true;
+        for (double l = 0.0; l <= 120.0; l += 0.7) {
+            for (double r : new double[] {12.0, 30.0, 36.0, 45.0}) {
+                int b = com.evosim.core.ChildSupport.budget(l, r);
+                if (b < 0 || l - b < r - 1e-9 && b > 0) {
+                    noDeficit = false;
+                }
+            }
+        }
+        report.add("support/무적자", noDeficit, "저장고 0~120 × 예비 12/30/36/45 — 지원 뒤 저장고 ≥ 예비",
+                noDeficit ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -2436,10 +2509,10 @@ public final class EvoTest {
         // 공유 자격·노년 기간
         boolean s1 = Elder.sharesLeftover(plain) && Elder.sharesLeftover(resp)
                 && !Elder.sharesLeftover(irre)
-                && Elder.elderDays(plain) == 3
-                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 4
-                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 2;
-        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 3일(강건4/병약2 — 2배속 압축)",
+                && Elder.elderDays(plain) == 2
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.HARDY))) == 3
+                && Elder.elderDays(one(Sex.MALE, TraitInstance.of(Trait.SICKLY))) == 1;
+        report.add("elder/공유기간", s1, "무책임만 안 나눔 · 기간 2일(강건3/병약1 — 하루를 유아기로 이전)",
                 s1 ? "정상" : "어긋남");
 
         // 능력치: 소모 2.0 · 속도 0.8 · 채집·전투 가능 · 수확 배율 상수 0.5

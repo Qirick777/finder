@@ -2571,7 +2571,7 @@ public final class FarmTicker {
      */
     static double guardWageCap(double ownerLarder, double account, int headAfterHire) {
         double afford = (Math.max(0.0, ownerLarder) + Math.max(0.0, account))
-                / Math.max(1, headAfterHire) / Facilities.GUARD_PAYROLL_DAYS;
+                / Math.max(1, headAfterHire) / Facilities.GUARD_HIRE_DAYS;
         return Math.min(Facilities.GUARD_WAGE_MAX, afford);
     }
 
@@ -2817,15 +2817,21 @@ public final class FarmTicker {
                     }
                 }
                 int head = taken.getOrDefault(best.pos.asLong(), 0) + 1;
+                // <b>재원은 확장 예비를 뺀 저장고다.</b> 지주 저장고는 36타일 아래 밭의 확장비도
+                // 대는 주머니라(FarmTicker.growFarms bootstrap · 예비 INVEST_RESERVE 12), 통째로
+                // 봉급 재원으로 세면 경비대가 밭보다 먼저 먹는다. 실측(관측 런 3): 저장고 82 에
+                // 6명이 한꺼번에 붙어 봉급 24/일, 사흘 뒤 저장고 6.1 로 구획 2 확장이 "저장고 −
+                // 예비 12 < 0" 에 막혔다. 밭 몫을 먼저 남기고 남는 것으로만 뽑는다(지시: 밭이 먼저).
                 double purse = boss == null || boss.getHomePos() == null
-                        ? 0.0 : larders.get(boss.getHomePos());
+                        ? 0.0 : Math.max(0.0, larders.get(boss.getHomePos())
+                                - com.evosim.core.FarmEconomy.INVEST_RESERVE);
                 // <b>협상.</b> 부르는 값(요구)이 지주가 낼 수 있는 값(캡) 이하일 때만 성사된다.
                 // 실지급은 요구가에 붙인다 — 아쉬운 쪽은 거지이므로 지주가 삼킴을 다 가져간다.
                 double ask = guardAskWage(level, m);
                 double cap = guardWageCap(purse, best.earned - best.spent, head);
                 if (ask > cap) {
                     com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
-                            "협상결렬 @%d,%d — 요구 %.1f > 캡 %.1f (바깥벌이 %.1f · 주인 저장고 %.1f · %d번째)",
+                            "협상결렬 @%d,%d — 요구 %.1f > 캡 %.1f (바깥벌이 %.1f · 주인 재원 %.1f(저장고−예비) · %d번째)",
                             best.pos.getX(), best.pos.getZ(), ask, cap,
                             Facilities.GUARD_OUTSIDE_DAY
                                     * com.evosim.core.Multipliers.gather(m.getIndividual()),
@@ -2844,7 +2850,7 @@ public final class FarmTicker {
                 // 뜻은 ③ 이 소지로 지급하는 것으로 그대로 살아 있다.
                 com.evosim.mod.log.SimEvents.event(m, "경비대", String.format(
                         "채용 @%d,%d — 봉급 %.1f 합의(요구 %.1f ≤ 캡 %.1f · 바깥벌이 %.1f)"
-                        + " · 주인 저장고 %.1f · %.0f블록",
+                        + " · 주인 재원 %.1f(저장고−예비) · %.0f블록",
                         best.pos.getX(), best.pos.getZ(), ask, ask, cap,
                         Facilities.GUARD_OUTSIDE_DAY
                                 * com.evosim.core.Multipliers.gather(m.getIndividual()),
@@ -2862,9 +2868,21 @@ public final class FarmTicker {
         // 걷으므로 그 성질을 여기서 명시적으로 지켜야 한다.
         for (FacilityStore.Entry ph : hs) {
             double take = 0.0;
+            // <b>주인 집은 좌표로 가린다.</b> 종전에는 "그 집에서 처음 찾은 성인의 id = 주인"이었는데,
+            // 배우자가 먼저 잡히면 주인 집이 과세된다(실측 관측 런 3: 주인 집에 아내 먼저 등록).
+            BlockPos ownerHome = null;
+            for (MimicEntity a : adults) {
+                if (a.getIndividual() != null && a.getIndividual().id() == ph.ownerId) {
+                    ownerHome = a.getHomePos();
+                    break;
+                }
+            }
             for (BlockPos h : HomeStore.get(level).positions()) {
                 if (h.distSqr(ph.pos) > Facilities.GUARD_TAX_REACH * Facilities.GUARD_TAX_REACH) {
                     continue;
+                }
+                if (h.equals(ownerHome)) {
+                    continue; // 주인의 집 — 자기에게 세금을 내지 않는다
                 }
                 MimicEntity res = null;
                 for (MimicEntity a : adults) {
@@ -2873,9 +2891,8 @@ public final class FarmTicker {
                         break;
                     }
                 }
-                if (res == null || res.getIndividual() == null
-                        || res.getIndividual().id() == ph.ownerId) {
-                    continue; // 빈집이거나 주인의 집
+                if (res == null || res.getIndividual() == null) {
+                    continue; // 빈집
                 }
                 double stock = larders.get(h);
                 double due = Facilities.GUARD_TAX_MAX / (1.0 + Math.exp(

@@ -739,10 +739,19 @@ public class AllegianceStore extends SavedData {
             java.util.function.LongFunction<com.evosim.core.Individual> who) {
         Map<Long, Long> out = new HashMap<>();
         for (long debtor : bonds.keySet()) {
-            long p = patronOf(debtor, (int) ownedTiles.applyAsLong(debtor), false, who);
-            if (p != 0L) {
-                out.put(debtor, p);
+            int mine = (int) ownedTiles.applyAsLong(debtor);
+            long p = patronOf(debtor, mine, false, who);
+            if (p == 0L) {
+                continue;
             }
+            // <b>봉신은 주인보다 클 수 없다</b>(런 15 실측): 창업 엘리트가 노년이 되자 아내가 가구
+            // 대표로 아들에게 자식지원·대부를 줬고, 그 신세로 아들이 어머니의 추종자가 됐다. 아들이
+            // 밭 272타일을 상속한 뒤에도 관계가 남아 세금의 50%(114.5)를 0타일 어머니에게 올렸다.
+            // 밭을 가진 자는 저보다 밭이 작은 이를 주인으로 두지 않는다(같으면 유지 — 무산끼리).
+            if (mine > 0 && ownedTiles.applyAsLong(p) < mine) {
+                continue;
+            }
+            out.put(debtor, p);
         }
         return out;
     }

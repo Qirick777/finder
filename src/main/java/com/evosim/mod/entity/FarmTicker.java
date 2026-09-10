@@ -443,7 +443,9 @@ public final class FarmTicker {
                 long id = m.getIndividual().id();
                 if (!PATRON_OF.containsKey(id) && ledger.owedOf(id) > 0.0) {
                     long cr = creditorOf(ledger, id);
-                    if (cr != 0L && cr != id) {
+                    // 채권자도 같은 규칙 — 봉신은 주인보다 클 수 없다(AllegianceStore.patronMap 참조).
+                    int mine = store.ownedTiles(id);
+                    if (cr != 0L && cr != id && !(mine > 0 && store.ownedTiles(cr) < mine)) {
                         PATRON_OF.put(id, cr);
                     }
                 }

@@ -229,10 +229,10 @@ public final class EvoTest {
                 && com.evosim.core.Lending.rentTribute(20, 2.5) == 3;
         report.add("lending/지대상납", t1, "지대 5·빚 10 → 1 · 2 → 0 · 20 → 4 · 빚 0 → 0 · 빚 2.5 → 3(빚 올림 이하)",
                 t1 ? "정상" : "어긋남");
-        boolean cap = com.evosim.core.FarmEconomy.C_BASE == 12
-                && com.evosim.core.FarmEconomy.capacity(one(Sex.MALE), LifeStage.ADULT) == 12
-                && com.evosim.core.FarmEconomy.capacity(one(Sex.MALE), LifeStage.ELDER) == 6;
-        report.add("lending/수확용량", cap, "사람당 하루 수확 8 → 12 · 노년 ×0.5 = 6",
+        boolean cap = com.evosim.core.FarmEconomy.C_BASE == 8
+                && com.evosim.core.FarmEconomy.capacity(one(Sex.MALE), LifeStage.ADULT) == 8
+                && com.evosim.core.FarmEconomy.capacity(one(Sex.MALE), LifeStage.ELDER) == 4;
+        report.add("lending/수확용량", cap, "사람당 하루 수확 8 유지(12 는 소작 고용을 몰아냄 — 런 12) · 노년 4",
                 cap ? "정상" : "어긋남");
     }
 
@@ -2856,19 +2856,20 @@ public final class EvoTest {
                 "2번째=둘째줄 · 발자국 9→3x5, 15→5x5, 25→5x9, 49→7x13 · 49타일 좌표 중복 0",
                 (seq && !dup) ? "정상" : "어긋남");
 
-        // 2) 용량·슬롯(소작 루프 v2): 기본 12(8→12, 런 11 실측 — 용량 소진이 병목) · 부지런
-        //    14(14.4↓) · 게으름 9(9.6↓) · 노년 6 / 부족분 최소 일감 2 게이트 — 첫 고용 밭 = 14타일.
+        // 2) 용량·슬롯(소작 루프 v2): 기본 8 · 부지런 9(9.6↓) · 게으름 6(6.4↓) · 노년 4 /
+        //    부족분 최소 일감 2 게이트 — 첫 고용 밭 = 착공 9 + 하루 확장 = 10타일.
+        //    (12 로 올렸다 되돌림 — FarmEconomy.C_BASE 주석: 지주 자가 수확이 소작을 몰아낸다.)
         Individual man = one(Sex.MALE);
-        boolean cap = FarmEconomy.capacity(man, LifeStage.ADULT) == 12
-                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)), LifeStage.ADULT) == 14
-                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), LifeStage.ADULT) == 9
-                && FarmEconomy.capacity(man, LifeStage.ELDER) == 6
-                && FarmEconomy.shortfall(13, 12) == 0     // 잔여 1 < 최소일감 2 → 게시 안 함
-                && FarmEconomy.shortfall(14, 12) == 2     // 첫 고용
-                && FarmEconomy.shortfall(35, 24) == 11    // 부부(12×2) 기준
-                && FarmEconomy.shortfall(49, 24) == 25
+        boolean cap = FarmEconomy.capacity(man, LifeStage.ADULT) == 8
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)), LifeStage.ADULT) == 9
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.LAZY)), LifeStage.ADULT) == 6
+                && FarmEconomy.capacity(man, LifeStage.ELDER) == 4
+                && FarmEconomy.shortfall(9, 8) == 0       // 잔여 1 < 최소일감 2 → 게시 안 함
+                && FarmEconomy.shortfall(10, 8) == 2      // 첫 고용(착공 9타일 + 하루 확장)
+                && FarmEconomy.shortfall(35, 16) == 19    // 부부(8×2) 기준 7칸5줄
+                && FarmEconomy.shortfall(49, 16) == 33
                 && FarmEconomy.shortfall(9, 24) == 0;     // 소형 밭 절대 무고용(슬롯0 가드의 순수부)
-        report.add("farm/용량슬롯", cap, "C 12/14/9/6 · 부족 13→0(1<2)·14→2·35→11·49→25·9→0",
+        report.add("farm/용량슬롯", cap, "C 8/9/6/4 · 부족 9→0(1<2)·10→2·35→19·49→33·9→0",
                 cap ? "정상" : "어긋남");
 
         // 3) 지대 회계 항등식 + 비용 체증 (FEE 0.45 — 계층 분화 v2: 소작임금 8타일×0.4125=3.3/일)

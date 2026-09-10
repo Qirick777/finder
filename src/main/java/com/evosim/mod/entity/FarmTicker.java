@@ -5454,7 +5454,23 @@ public final class FarmTicker {
                     break;
                 }
                 double cl = larders.get(c.getHomePos());
-                double threshold = FarmEconomy.newFarmCost(store.ownedCount(c.getIndividual().id()))
+                // 자식 가구의 착공 문턱은 <b>그 집 주 지주</b>(최대 소유 타일) 기준이다 — 개간 판정
+                // (growFarms)이 배우자에게는 주 지주의 다음 밭 몫을 예비에 얹으므로, 실제로 먼저
+                // 열리는 문턱은 주 지주 쪽이다. 자식 본인이 무산이고 배우자가 밭을 가진 집에서
+                // 자식 기준(12+18=30)으로 재면 그 집의 진짜 문턱(18+18=36)보다 낮게 잰다.
+                MimicEntity chead = c;
+                int cheadTiles = store.ownedTiles(c.getIndividual().id());
+                for (MimicEntity a : adults) {
+                    if (a != c && a.getHomePos() != null && a.getHomePos().equals(c.getHomePos())) {
+                        int t = store.ownedTiles(a.getIndividual().id());
+                        if (t > cheadTiles || (t == cheadTiles
+                                && a.getIndividual().id() < chead.getIndividual().id())) {
+                            cheadTiles = t;
+                            chead = a;
+                        }
+                    }
+                }
+                double threshold = FarmEconomy.newFarmCost(store.ownedCount(chead.getIndividual().id()))
                         + FarmEconomy.foundReserve(familyDailyNeed(level, c, adults));
                 int give = com.evosim.core.ChildSupport.grant(budget, cl, threshold);
                 if (give <= 0) {

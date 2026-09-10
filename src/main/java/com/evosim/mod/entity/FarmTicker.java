@@ -5318,6 +5318,10 @@ public final class FarmTicker {
         java.util.Map<Long, Integer> neighborsOf = new java.util.HashMap<>();
         int checked = 0;
         int died = 0;
+        int nMin = Integer.MAX_VALUE;
+        int nMax = 0;
+        int nSum = 0;
+        double pSum = 0.0;
         for (MimicEntity m : everyone) {
             if (m.getStage() != com.evosim.core.LifeStage.INFANT || m.getHomePos() == null) {
                 continue;
@@ -5343,6 +5347,10 @@ public final class FarmTicker {
             }
             double p = com.evosim.core.InfantIllness.dailyOnset(n, lv);
             checked++;
+            nMin = Math.min(nMin, n);
+            nMax = Math.max(nMax, n);
+            nSum += n;
+            pSum += p;
             if (p <= 0.0 || level.random.nextDouble() >= p) {
                 continue;
             }
@@ -5356,8 +5364,10 @@ public final class FarmTicker {
             }
         }
         if (checked > 0) {
-            com.evosim.mod.log.SimEvents.note(level, "유아병듦",
-                    String.format("검사 %d · 발병(사망) %d", checked, died));
+            // 발병 0 인 날에도 <b>왜 0 인지</b>(이웃이 적어서인지) 읽히게 이웃 수·기대 발병을 함께 남긴다.
+            com.evosim.mod.log.SimEvents.note(level, "유아병듦", String.format(
+                    "검사 %d · 발병(사망) %d · 이웃 %d~%d(평균 %.1f) · 기대 발병 %.2f",
+                    checked, died, nMin, nMax, nSum / (double) checked, pSum));
         }
     }
 

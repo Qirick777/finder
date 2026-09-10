@@ -868,7 +868,13 @@ public final class FarmTicker {
             if (funds < cost + reserve) {
                 // 대부(Lending) — "돈만 있으면 지금 착공할 자"가 빌린다. 개간의 모든 관문(기혼·
                 // 불만족·무욕 아님)을 통과한 뒤 자금에서만 막힌 이 지점이 트리거다.
-                double loan = tryLoan(level, store, larders, adults, m, funds, cost + reserve, day);
+                //
+                // <b>무산 가구만.</b> 런 13 실측: 남편이 이미 밭을 가진 집의 아내가 빌렸는데(20·17),
+                // 그 뒤 관문 "가구는 한 번에 한 명의로만 넓힌다"(주 지주 밭 미성숙)에 막혀 착공이
+                // 안 됐다 — 빚만 지고 곳간만 불었다. 승인 사양대로 가구에 밭이 없는(주 지주 타일 0)
+                // 경우만 꾸어 주고, 뒤 관문(자기 밭 성숙)은 무산 가구엔 해당이 없다.
+                double loan = headTiles <= 0 && owned == 0
+                        ? tryLoan(level, store, larders, adults, m, funds, cost + reserve, day) : 0.0;
                 if (loan > 0.0) {
                     funds += loan; // 그 밤에 바로 착공한다(아래 착공 코드가 funds 를 쓴다)
                 } else {

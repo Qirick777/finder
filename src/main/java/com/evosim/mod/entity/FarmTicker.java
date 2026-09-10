@@ -1047,9 +1047,17 @@ public final class FarmTicker {
         // 동기 = 대지주 축(야망가·욕심·경쟁·자수성가) 또는 중소지주 축(미래지향·개척선호·자립심·텃밭꾼).
         // 의탁·품팔이는 청하지 않는다. 순위는 호출부(founders)가 수율 G 내림차순이라 그 밤 청구자
         // 중 밭을 제일 잘 칠 자가 먼저 온다.
-        if (!com.evosim.core.Lending.wantsLoan(ind)
-                || !com.evosim.core.Lending.equityOk(funds, threshold, ind)) {
-            return 0.0; // 정상 상태(저축 중) — 조용히
+        if (!com.evosim.core.Lending.wantsLoan(ind)) {
+            return 0.0;
+        }
+        if (!com.evosim.core.Lending.equityOk(funds, threshold, ind)) {
+            // 저축 중(정상)이지만 <b>왜 안 빌리는지</b>는 남긴다 — 런 14: 동기 특성 평민 9명 중 1명만
+            // 빌렸는데 나머지가 자기자본에서 막힌 건지 아예 못 온 건지 로그로 가릴 수 없었다.
+            com.evosim.mod.log.SimEvents.event(m, "대부후보", String.format(
+                    "저축 %.0f < 자기자본 %.0f(문턱 %.0f × %.2f) — 아직 안 빌림", funds,
+                    threshold * com.evosim.core.Lending.equityShare(ind), threshold,
+                    com.evosim.core.Lending.equityShare(ind)));
+            return 0.0;
         }
         AllegianceStore ledger = AllegianceStore.get(level);
         if (ledger.owedOf(id) > 0.0) {

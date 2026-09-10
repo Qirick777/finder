@@ -210,10 +210,14 @@ public final class EvoSimCommand {
                                     return 1;
                                 })))
                 .then(Commands.literal("obs")
-                        .executes(ctx -> obsStart(ctx, 6))
+                        .executes(ctx -> obsStart(ctx, 6, false))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))
                                 .executes(ctx -> obsStart(ctx,
-                                        IntegerArgumentType.getInteger(ctx, "pairs")))))
+                                        IntegerArgumentType.getInteger(ctx, "pairs"), false))
+                                // wild — 평민을 완전 랜덤 유전체로(고정 템플릿 아님). 특성 구동
+                                // 장치(대부·봉신·중소지주 축)는 이쪽으로 봐야 실제 분포가 보인다.
+                                .then(Commands.literal("wild").executes(ctx -> obsStart(ctx,
+                                        IntegerArgumentType.getInteger(ctx, "pairs"), true)))))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -488,14 +492,21 @@ public final class EvoSimCommand {
      * 관측 런 원클릭 조성 — 이벤트 로그 ON + 평민 부부 후보 pairs쌍 + 엘리트(야망+약초Ⅴ) 1명.
      * 이후는 전부 자연 경로: 짝→정착→정원→풀 고갈→개간→소작. AUDIT이 매일 1줄 채점 근거를 남긴다.
      */
-    private static int obsStart(CommandContext<CommandSourceStack> ctx, int pairs) {
+    private static int obsStart(CommandContext<CommandSourceStack> ctx, int pairs, boolean wild) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 base = ctx.getSource().getPosition();
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         com.evosim.mod.entity.SimTime.setSkipEnabled(level, true); // 관측 가속 — 밤 스킵 ON
         for (int i = 0; i < pairs; i++) {
-            spawnMatingReady(level, scatter(level, base), Sex.MALE);
-            spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
+            if (wild) {
+                // 완전 랜덤 유전체(Genetics.randomFirstGen) — 런 12·13 실측: 고정 템플릿 평민은 특성이
+                // 전부 같아(힘센·재빠름·명석+선호 3) 동기 특성 발현자가 0 이었다.
+                spawnWild(level, scatter(level, base), Sex.MALE);
+                spawnWild(level, scatter(level, base), Sex.FEMALE);
+            } else {
+                spawnMatingReady(level, scatter(level, base), Sex.MALE);
+                spawnMatingReady(level, scatter(level, base), Sex.FEMALE);
+            }
         }
         MimicEntity elite = spawnChainElite(level, scatter(level, base));
         spawnMatingReady(level, scatter(level, base), Sex.FEMALE); // 엘리트 몫 여성 1 보충
@@ -503,9 +514,9 @@ public final class EvoSimCommand {
             SimEvents.event(elite, "엘리트투입", "관측 런 시드 — " + CHAIN_ELITE_DESC);
         }
         tell(ctx.getSource(), String.format(
-                "관측 런 시작: 평민 %d쌍 + 엘리트 1명(%s) 소환, 이벤트 로그 ON. "
+                "관측 런 시작: 평민 %d쌍(%s) + 엘리트 1명(%s) 소환, 이벤트 로그 ON. "
                         + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.",
-                pairs, CHAIN_ELITE_DESC));
+                pairs, wild ? "랜덤 유전체" : "고정 템플릿", CHAIN_ELITE_DESC));
         return pairs * 2 + 2;
     }
 

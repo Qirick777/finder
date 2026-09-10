@@ -29,12 +29,52 @@ public final class Lending {
     /** 신용 — 상시소작 근속 일수(그 밭 주인이 아는 사람). */
     public static final int TENANT_DAYS = 2;
 
+    /** 텃밭꾼의 자기 자본 비율 — 종자를 아껴 두는 자라 ⅓ 이면 된다. */
+    public static final double EQUITY_SHARE_SMALLHOLDER = 1.0 / 3.0;
+    /** 의탁·품팔이의 착공 문턱 배율 — 제 밭에 관심이 없는 자는 웬만해선 안 연다. */
+    public static final double FOUND_GATE_MULT_DEPENDENT = 1.5;
+    /** 대부자의 다음 대출 조건 — 직전 대출 밭이 이 타일(소작이 붙는 크기 = 부부 용량 16 + 최소 일감 2)에 닿아야. */
+    public static final int PREV_LOAN_PLOT_TILES = FarmEconomy.C_BASE * 2 + FarmEconomy.MIN_JOB;
+
     private Lending() {
+    }
+
+    /** 대지주 축 — 지주와 경쟁하는 자: 야망가·욕심·경쟁·자수성가. */
+    public static boolean grandAxis(java.util.Set<Trait> t) {
+        return t.contains(Trait.AMBITIOUS) || t.contains(Trait.GREEDY)
+                || t.contains(Trait.COMPETITIVE) || t.contains(Trait.SELF_MADE);
+    }
+
+    /** 대부를 청하는가 — 두 축 중 하나 발현, 의탁·품팔이는 절대 아님. */
+    public static boolean wantsLoan(Individual ind) {
+        java.util.Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        if (t.contains(Trait.DEPENDENT) || t.contains(Trait.HIRELING)) {
+            return false;
+        }
+        return grandAxis(t) || Satisfaction.smallholderAxis(t);
+    }
+
+    /** 자기 자본 비율 — 텃밭꾼 ⅓, 그 외 ½. */
+    public static double equityShare(Individual ind) {
+        return ExpressionResolver.isExpressed(ind, Trait.SMALLHOLDER)
+                ? EQUITY_SHARE_SMALLHOLDER : EQUITY_SHARE;
+    }
+
+    /** 착공 문턱 배율 — 의탁·품팔이 ×1.5, 그 외 1. */
+    public static double foundGateMult(Individual ind) {
+        return ExpressionResolver.isExpressed(ind, Trait.DEPENDENT)
+                || ExpressionResolver.isExpressed(ind, Trait.HIRELING)
+                ? FOUND_GATE_MULT_DEPENDENT : 1.0;
     }
 
     /** 자기 자본 충족 — 저축 ≥ 문턱 × {@link #EQUITY_SHARE}. */
     public static boolean equityOk(double larder, double threshold) {
         return larder >= threshold * EQUITY_SHARE;
+    }
+
+    /** 자기 자본 충족(특성 반영) — 저축 ≥ 문턱 × equityShare(ind). */
+    public static boolean equityOk(double larder, double threshold, Individual ind) {
+        return larder >= threshold * equityShare(ind);
     }
 
     /** 빌릴 액수 = ceil(문턱 − 저축), 0 이하면 0. 자기 자본 조건 아래에서 문턱의 절반 이하. */

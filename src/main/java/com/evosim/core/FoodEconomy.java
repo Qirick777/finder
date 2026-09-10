@@ -315,7 +315,11 @@ public final class FoodEconomy {
 
     /** 입금 문턱(책임감 축) — 무책임은 3까지 들고 다니며 가족 저장고 기여가 줄어든다. */
     public static double depositThreshold(Individual ind) {
-        return ExpressionResolver.isExpressed(ind, Trait.IRRESPONSIBLE) ? 3.0 : BAND_HIGH;
+        if (ExpressionResolver.isExpressed(ind, Trait.IRRESPONSIBLE)) {
+            return 3.0;
+        }
+        // 자립심 — 번 것을 곳간에 빨리 넣는다(입금 문턱 −20%): 저축이 빨라 대부 자기 자본에 먼저 닿는다.
+        return ExpressionResolver.isExpressed(ind, Trait.SELF_RELIANT) ? BAND_HIGH * 0.8 : BAND_HIGH;
     }
 
     /** 저장고 "넉넉" 기준 일수(시간지향 축) — 미래지향은 더 모아야 쉬고, 현재지향은 일찍 쉰다(R4). */

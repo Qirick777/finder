@@ -24,6 +24,16 @@ public final class Satisfaction {
     public static final double RESUME_FACTOR = 0.8;
     /** 야망가의 만족 기준 — 소유 밭 타일 합이 이 값 이상이어야(대지주 규모 T5). */
     public static final int AMBITION_TILE_GOAL = 54; // 49→54: 5단계 경계(덩어리 도면)
+    /** 중소지주 축(미래지향·개척선호·자립심·텃밭꾼)의 만족 기준 — 제 밭 이 타일 전까지 불만족.
+     *  24 = 소작이 붙는 크기(부부 용량 16 + 최소 일감 2)를 넘긴 첫 단계. 그 위는 기본 만족이라
+     *  "소작 1~2명 둔 자영농"에서 스스로 멈춘다 — 대지주 축(54·영원·이웃)과 갈리는 지점. */
+    public static final int SMALLHOLD_TILE_GOAL = 24;
+
+    /** 중소지주 축 — 제 밭 하나를 바라는 자. {@link Lending} 의 대부 자격과 같은 집합. */
+    public static boolean smallholderAxis(java.util.Set<Trait> t) {
+        return t.contains(Trait.FUTURE_ORIENTED) || t.contains(Trait.PREF_PIONEER)
+                || t.contains(Trait.SELF_RELIANT) || t.contains(Trait.SMALLHOLDER);
+    }
 
     private Satisfaction() {
     }
@@ -44,6 +54,9 @@ public final class Satisfaction {
         }
         if (t.contains(Trait.AMBITIOUS) && farmTiles < AMBITION_TILE_GOAL) {
             return false; // 야망가: 부가 아니라 자산(밭)이 기준
+        }
+        if (smallholderAxis(t) && farmTiles < SMALLHOLD_TILE_GOAL) {
+            return false; // 중소지주 축: 제 밭 24타일 전까지 불만족 — 그 뒤는 기본 만족(작은 밭에서 멈춤)
         }
         double bar = bar(ind, dailyNeed);
         return wealth > (wasSatisfied ? bar * RESUME_FACTOR : bar);

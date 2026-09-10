@@ -23,6 +23,8 @@ public enum Axis {
     RESOURCE_COMPETITION(Category.DISPOSITION, true), // 자원경쟁: 평화 / 경쟁
     GREGARIOUSNESS(Category.DISPOSITION, true),       // 군집: 고독 / 군집
     TIME_ORIENTATION(Category.DISPOSITION, true),     // 미래관: 현재지향 / 미래지향
+    INDEPENDENCE(Category.DISPOSITION, true),         // 자립: 자립심 / 의탁 (중소지주 축 — 제 밭 24 전까지 불만족·구휼 거절 / 지주 밑이 편함)
+    LIVELIHOOD(Category.DISPOSITION, true),           // 생업: 텃밭꾼 / 품팔이 (중소지주 축 — 정원·작은 밭 / 남의 밭 일꾼)
     MARRIAGE_TIMING(Category.DISPOSITION, true),      // 혼기: 조혼 / 만혼
     PARENTING_SPEED(Category.DISPOSITION, true),      // 육아속도: 느린육아 / 빠른육아
     INVESTMENT(Category.DISPOSITION, true),           // 투자: 장기투자 / 신속투자

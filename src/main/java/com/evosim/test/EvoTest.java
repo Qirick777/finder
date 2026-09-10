@@ -234,6 +234,46 @@ public final class EvoTest {
                 && com.evosim.core.FarmEconomy.capacity(one(Sex.MALE), LifeStage.ELDER) == 4;
         report.add("lending/수확용량", cap, "사람당 하루 수확 8 유지(12 는 소작 고용을 몰아냄 — 런 12) · 노년 4",
                 cap ? "정상" : "어긋남");
+        // 두 축(사용자 승인): 대지주 축 = 야망가·욕심·경쟁·자수성가 / 중소지주 축 = 미래지향·개척선호·
+        // 자립심·텃밭꾼 / 의탁·품팔이는 절대 안 빌림 / 무특성도 안 빌림.
+        boolean axes = com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))
+                && com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.SELF_MADE)))
+                && com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.FUTURE_ORIENTED)))
+                && com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.PREF_PIONEER)))
+                && com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.SELF_RELIANT)))
+                && com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER)))
+                && !com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.DEPENDENT)))
+                && !com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.HIRELING)))
+                && !com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS),
+                        TraitInstance.of(Trait.HIRELING)))
+                && !com.evosim.core.Lending.wantsLoan(one(Sex.MALE));
+        report.add("lending/동기축", axes,
+                "대지주 4·중소 4 → 청함 · 의탁·품팔이 → 안 청함(야망가+품팔이도) · 무특성 → 안 청함",
+                axes ? "정상" : "어긋남");
+        boolean eq = close(com.evosim.core.Lending.equityShare(one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER))), 1.0 / 3.0)
+                && close(com.evosim.core.Lending.equityShare(one(Sex.MALE)), 0.5)
+                && com.evosim.core.Lending.equityOk(10.0, 30.0, one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER)))
+                && !com.evosim.core.Lending.equityOk(10.0, 30.0, one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))
+                && close(com.evosim.core.Lending.foundGateMult(one(Sex.MALE, TraitInstance.of(Trait.DEPENDENT))), 1.5)
+                && close(com.evosim.core.Lending.foundGateMult(one(Sex.MALE)), 1.0)
+                && com.evosim.core.Lending.PREV_LOAN_PLOT_TILES == 18;
+        report.add("lending/축별수치", eq, "텃밭꾼 자기자본 ⅓(10/30 가능) · 그 외 ½ · 의탁 문턱 ×1.5 · 직전 대출 밭 18타일",
+                eq ? "정상" : "어긋남");
+        // 중소지주 축의 만족 — 제 밭 24 전까지 불만족, 24 부터 기본 판정. 무특성은 밭과 무관.
+        Individual small = one(Sex.MALE, TraitInstance.of(Trait.SELF_RELIANT));
+        boolean sat = !Satisfaction.satisfied(small, 6.0, 100.0, 0.0, 12, false)
+                && Satisfaction.satisfied(small, 6.0, 100.0, 0.0, 24, false)
+                && Satisfaction.satisfied(one(Sex.MALE), 6.0, 100.0, 0.0, 0, false)
+                && Satisfaction.SMALLHOLD_TILE_GOAL == 24;
+        report.add("lending/중소만족", sat, "자립심: 밭 12 → 불만족 · 24 → 만족(저장고 100) · 무특성은 밭 0 도 만족",
+                sat ? "정상" : "어긋남");
+        // 신설 축은 대립쌍(반발) — 자립심/의탁, 텃밭꾼/품팔이.
+        boolean excl = Trait.SELF_RELIANT.conflictsWith(Trait.DEPENDENT)
+                && Trait.SMALLHOLDER.conflictsWith(Trait.HIRELING)
+                && !Trait.SELF_RELIANT.conflictsWith(Trait.SMALLHOLDER)
+                && close(com.evosim.core.Vocation.soldier(one(Sex.MALE, TraitInstance.of(Trait.DEPENDENT))), 0.5);
+        report.add("lending/신설축", excl, "자립심↔의탁 · 텃밭꾼↔품팔이 반발 · 자립심+텃밭꾼 공존 · 의탁 군인 선호 +0.5",
+                excl ? "정상" : "어긋남");
     }
 
     // ──────────────────────────────────────────────────────────────

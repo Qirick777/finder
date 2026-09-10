@@ -199,7 +199,13 @@ public final class FarmEconomy {
             return 1.0;
         }
         double r = Math.min(1.0, (double) manageCapacity(owner) / tiles);
-        return r * r;
+        double e = r * r;
+        // 텃밭꾼 — 작은 밭(중소 만족 기준 24타일 이하)은 손이 간다: 관리 효율 ×1.1(상한 1.0).
+        if (tiles <= Satisfaction.SMALLHOLD_TILE_GOAL
+                && ExpressionResolver.isExpressed(owner, Trait.SMALLHOLDER)) {
+            e = Math.min(1.0, e * 1.1);
+        }
+        return e;
     }
 
     /** 타일당 수확 수율 G = 0.5 × 채집수확배율(성별×gather) — 소득 격차·개간 로그 병기의 입력.

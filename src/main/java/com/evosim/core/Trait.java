@@ -52,6 +52,12 @@ public enum Trait {
     STRONG_MATERNAL(Axis.MATERNAL, "강한모성애"),
     STRICT_MATE(Axis.MATE_CHOICE, "엄격"),
     OPEN_MATE(Axis.MATE_CHOICE, "완전개방"),
+    // ── 중소지주 축(사용자 승인) — 대지주 축(야망가·욕심·경쟁·자수성가)과 갈라 "소작 1~2명 둔 자영농"을 만든다.
+    //    밭이 없을 때도 매일 도는 부가 효과를 하나씩 얹었다(Lending·Satisfaction·FarmTicker 참조).
+    SELF_RELIANT(Axis.INDEPENDENCE, "자립심"),  // 제 밭 24 전까지 불만족 · 대부 자격 · 구휼·구걸 거절 · 입금 문턱 −20% · 경비 요구 ×1.25
+    DEPENDENT(Axis.INDEPENDENCE, "의탁"),       // 착공 문턱 ×1.5 · 대부 안 함 · 신세 체감 ×1.25 · 승격 근속 −1 · 경비 요구 ×0.8 · 군인 +0.5 · 마름 후보 ×1.1
+    SMALLHOLDER(Axis.LIVELIHOOD, "텃밭꾼"),     // 제 밭 24 전까지 불만족 · 대부 자격(자기자본 ⅓) · 정원 ×1.15 · 24타일 이하 관리 ×1.1
+    HIRELING(Axis.LIVELIHOOD, "품팔이"),        // 착공 문턱 ×1.5 · 대부 안 함 · 남의 밭 수확 용량 +1 · 승격 근속 −1 · 마름 후보 ×1.1
     AMBITIOUS(Axis.AMBITION, "야망가"),       // 만족 기준이 밭 자산(49타일) — 대지주 동기(능력 필요)
     CONTENT(Axis.AMBITION, "안분지족"),        // 일찍 만족(σ 절반) — 소농 수렴
     GREEDY(Axis.GREED, "욕심"),               // 어떤 부에도 만족 불가 — 무한 축장(영원한 노동이 대가)

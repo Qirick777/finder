@@ -86,7 +86,7 @@ public class MimicFarmGoal extends Goal {
         // ("출근하면 수확 + 수확할 게 없어도 놀지 않고 작물관리"). 관리는 수확량·소득을
         // 만들지 않으므로 용량·쿼터가 지키려는 것(수취 상한·노년 지원 누수)은 그대로 지켜진다.
         boolean harvestBlocked = false;
-        if (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())) {
+        if (harvestedToday >= dailyCap()) {
             harvestBlocked = true; // 전담창 소진 — 수확은 끝, 관리는 가능
         }
         if (!urgent && mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
@@ -106,16 +106,16 @@ public class MimicFarmGoal extends Goal {
             mob.setFarmHasNoWork(false);
             tendTarget = null; // 익은 게 있으면 언제나 수확이 먼저
             mob.setActivity("수확 " + harvestedToday + "/"
-                    + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()));
+                    + dailyCap());
             return true;
         }
         // 사유는 <b>여기서 적어만 두고</b>, 실제로 노는 경로에 닿았을 때만 내보낸다. 곧장
         // 찍었더니 관리하러 가는 개체까지 "익은 걸 안 딴다"로 잡혀 47건이 쏟아졌다 — 일하는
         // 중인데 결함으로 세는 거짓 양성이다.
         String why = harvestBlocked
-                ? (harvestedToday >= FarmEconomy.capacity(mob.getIndividual(), mob.getStage())
+                ? (harvestedToday >= dailyCap()
                         ? "하루 수확 용량 소진(" + harvestedToday + "/"
-                                + FarmEconomy.capacity(mob.getIndividual(), mob.getStage()) + ")"
+                                + dailyCap() + ")"
                         : "노년 쿼터 소진")
                 : "익은 표적을 못 찾음(돌봄 반경 밖이거나 남의 밭)";
         if (harvestBlocked && !tendAfterCap) {
@@ -667,6 +667,26 @@ public class MimicFarmGoal extends Goal {
     }
 
     /** 이 타일이 속한 구획. */
+    /**
+     * 오늘의 수확 용량 — {@link FarmEconomy#capacity} + 품팔이 보정. 품팔이(중소지주 축의 짝)는
+     * <b>남의 밭</b>에서만 +1(일꾼으로 유능, 자기 밭엔 없음). 밭 산출은 타일이 상한이라 총량은
+     * 그대로이고 그 사람의 임금만 오른다.
+     */
+    private int dailyCap() {
+        int c = FarmEconomy.capacity(mob.getIndividual(), mob.getStage());
+        if (mob.getIndividual() != null
+                && com.evosim.core.ExpressionResolver.isExpressed(mob.getIndividual(),
+                        com.evosim.core.Trait.HIRELING)
+                && mob.level() instanceof net.minecraft.server.level.ServerLevel sl) {
+            long pid = FarmTicker.assignedPlot(mob.getId());
+            FarmStore.Plot p = pid != 0L ? FarmStore.get(sl).get(pid) : null;
+            if (p != null && p.ownerId != mob.getIndividual().id()) {
+                c += 1;
+            }
+        }
+        return c;
+    }
+
     private FarmStore.Plot plotOf(BlockPos pos) {
         for (FarmStore.Plot p : farmStore().all().values()) {
             for (long l : p.tiles) {

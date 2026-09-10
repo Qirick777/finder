@@ -5264,6 +5264,16 @@ public class MimicEntity extends PathfinderMob {
             }
             double rG = bestG / 5.0;
             m.cachedGardenMult = 1.0 + 3.3 * rG * rG * rG; // Multipliers.gardenAbility 와 동일 식
+            // 텃밭꾼(중소지주 축) — 집 정원을 잘 가꾼다: 가구에 하나라도 있으면 정원 산출 ×1.15.
+            // 밭이 없어도 매일 도는 효과(가구 하루 +0.7 남짓 — 출산 관문에는 못 닿는 크기).
+            for (MimicEntity a : fam) {
+                if (a.getIndividual() != null && (a.getStage() == LifeStage.ADULT
+                        || a.getStage() == LifeStage.ELDER)
+                        && ExpressionResolver.isExpressed(a.getIndividual(), Trait.SMALLHOLDER)) {
+                    m.cachedGardenMult *= 1.15;
+                    break;
+                }
+            }
             // 모성애 축은 각 자식의 <b>친어미</b>(부모 링크 PA/PB)로 판정 — 명단 첫 성년 여성 추측은
             // 성년 딸·(일부다처의) 다른 부인 특성이 남의 자식에게 적용되는 오류였다.
             m.cachedMaternal = (m.getStage() == LifeStage.INFANT || m.getStage() == LifeStage.BOY)

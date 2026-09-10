@@ -516,6 +516,10 @@ public class AllegianceStore extends SavedData {
         if (debtor == null) {
             return 1.0;
         }
+        // 의탁(중소지주 축의 짝) — 신세를 잘 진다: 체감 ×1.25 로 추종·인두세 대상이 빨리 된다.
+        if (com.evosim.core.ExpressionResolver.isExpressed(debtor, com.evosim.core.Trait.DEPENDENT)) {
+            return 1.25;
+        }
         if (com.evosim.core.ExpressionResolver.isExpressed(debtor, com.evosim.core.Trait.AFFABLE)) {
             return 1.0 + RAPPORT_GAIN;
         }

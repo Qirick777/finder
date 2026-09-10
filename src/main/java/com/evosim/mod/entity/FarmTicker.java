@@ -363,6 +363,7 @@ public final class FarmTicker {
         }
         growDay = day;
         LENT_TONIGHT.clear();
+        PENDING_LOAN_LENDER = 0L;
         FarmStore store = FarmStore.get(level);
         LarderStore larders = LarderStore.get(level);
         java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
@@ -524,7 +525,11 @@ public final class FarmTicker {
             // 넘고, 야망가 예외도 밭 49타일에서 이미 소진된다(AMBITION_TILE_GOAL). 그 시점부터
             // 규칙4(밭의 지속 성장)가 통째로 멈추는 구조였다. 자영 밭은 종전대로 주인 동기에
             // 달려 있으므로 평민에 대한 "만족의 덫"(규칙2)은 그대로 유지된다.
-            if (!hasTenant && (ownerEnt.isSatisfiedToday()
+            // 만족 면제(사용자 승인): 소작이 붙을 크기(부부 용량 16 + 최소 일감 2 = 18) 아래 자영 밭은
+            // 만족해도 마저 넓힌다 — "심다 만 밭은 일꾼 쓸 만큼은 마저 심는다". 런 13 실측: 6타일
+            // 밭이 만족으로 사흘 서 있었고, 그 크기는 부족분 0 이라 소작·마름이 붙을 길이 없었다.
+            boolean tooSmallToHire = plot.tiles.length < com.evosim.core.Lending.PREV_LOAN_PLOT_TILES;
+            if (!hasTenant && !tooSmallToHire && (ownerEnt.isSatisfiedToday()
                     || com.evosim.core.Satisfaction.neverExpands(ownerEnt.getIndividual()))) {
                 // 조용히 건너뛰지 않는다 — "왜 오늘 안 넓혔나"가 로그에서 읽혀야 한다(실측 관측 런 2:
                 // 하루 0~5칸의 원인을 자금·노동·상한 중 무엇인지 로그로 가릴 수 없었다).
@@ -858,6 +863,8 @@ public final class FarmTicker {
                 // 비야망가 선발(①)+만족의 덫(②)+근속 수당(③)을 뚫는 예외(유산 유입 등)를 봉쇄.
                 reserve *= com.evosim.core.FarmEconomy.STEWARD_FOUND_RESERVE_MULT;
             }
+            // 의탁·품팔이(중소지주 축의 짝) — 제 밭에 관심이 없는 자: 예비 ×1.5(문턱 30 → 39).
+            reserve *= com.evosim.core.Lending.foundGateMult(m.getIndividual());
             // <b>막힌 사유를 남긴다.</b> 종전에는 세 관문 전부 조용히 continue 해서, 저장고가
             // 문턱을 넘은 야망가가 며칠째 개간을 안 해도 로그에 단서가 한 줄도 없었다(실측:
             // 엘리트 저장고 29 · 문턱 ~21 · d5 까지 밭 0). 막사 쪽에서 같은 침묵으로 원인을
@@ -967,6 +974,10 @@ public final class FarmTicker {
             FarmStore.Plot plot = store.create(site, newOwnerId);
             plot.founderId = m.getIndividual().id(); // 원장: 창설자 = 착공 실행자(귀속과 무관)
             plot.foundedDay = com.evosim.mod.entity.SimTime.tick(level) / 24000L; // 밭 원장(P3) — 개간 게임일
+            if (PENDING_LOAN_LENDER != 0L) {
+                LAST_LOAN_PLOT.put(PENDING_LOAN_LENDER, plot.id); // 대부로 선 밭 — 대부자의 "하나 세우고 다음"
+                PENDING_LOAN_LENDER = 0L;
+            }
             // 1단계 발자국을 그대로 앉힌다 — 원목은 즉시, 재배 칸은 노동에 따라 차오른다.
             int[] br1 = com.evosim.core.FarmLayout.stage(1);
             plot.beds = br1[0];
@@ -1033,10 +1044,11 @@ public final class FarmTicker {
                                   double funds, double threshold, long day) {
         com.evosim.core.Individual ind = m.getIndividual();
         long id = ind.id();
-        boolean motivated = com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.AMBITIOUS)
-                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.GREEDY)
-                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.COMPETITIVE);
-        if (!motivated || !com.evosim.core.Lending.equityOk(funds, threshold)) {
+        // 동기 = 대지주 축(야망가·욕심·경쟁·자수성가) 또는 중소지주 축(미래지향·개척선호·자립심·텃밭꾼).
+        // 의탁·품팔이는 청하지 않는다. 순위는 호출부(founders)가 수율 G 내림차순이라 그 밤 청구자
+        // 중 밭을 제일 잘 칠 자가 먼저 온다.
+        if (!com.evosim.core.Lending.wantsLoan(ind)
+                || !com.evosim.core.Lending.equityOk(funds, threshold, ind)) {
             return 0.0; // 정상 상태(저축 중) — 조용히
         }
         AllegianceStore ledger = AllegianceStore.get(level);
@@ -1091,6 +1103,18 @@ public final class FarmTicker {
             }
         }
         long lid = lender.getIndividual().id();
+        // 한 번에 하나만 키운다(사용자 승인): 직전 대출 밭이 소작 붙을 크기(18)에 닿기 전엔 다음 대출 없음.
+        Long prev = LAST_LOAN_PLOT.get(lid);
+        if (prev != null) {
+            FarmStore.Plot pp = store.get(prev);
+            if (pp != null && pp.tiles.length < com.evosim.core.Lending.PREV_LOAN_PLOT_TILES) {
+                com.evosim.mod.log.SimEvents.event(m, "대부보류", String.format(
+                        "저축 %.0f/문턱 %.0f 인데 %s 의 직전 대출 밭 구획 %d 가 아직 %d타일 < %d — 하나 세우고 다음",
+                        funds, threshold, lender.getIndividual().shortName(), pp.id, pp.tiles.length,
+                        com.evosim.core.Lending.PREV_LOAN_PLOT_TILES));
+                return 0.0;
+            }
+        }
         if (LENT_TONIGHT.contains(lid)) {
             com.evosim.mod.log.SimEvents.event(m, "대부보류", String.format(
                     "저축 %.0f/문턱 %.0f 인데 %s 는 오늘 이미 꾸어 줬다(하루 1건)", funds, threshold,
@@ -1114,6 +1138,7 @@ public final class FarmTicker {
         larders.set(m.getHomePos(), funds + need);
         ledger.record(id, lid, AllegianceStore.W_RELIEF * need, need, day);
         LENT_TONIGHT.add(lid);
+        PENDING_LOAN_LENDER = lid; // 이 밤 착공이 확정되면 그 구획을 직전 대출 밭으로 적는다
         // 대부는 지출이 아니라 채권 — 영지 줄의 통치지출에는 싣지 않는다(상환·상납이 세수로 돌아온다).
         com.evosim.mod.log.SimEvents.event(m, "대부", String.format(
                 "%s 에게 %.0f 빌림(저장고 %.1f→%.1f · 문턱 %.0f) — 빚 %.0f · 대부자 저장고 %.1f→%.1f(예비 %.0f) · 신용 %s",
@@ -1561,6 +1586,10 @@ public final class FarmTicker {
     private static final java.util.Map<Long, Long> PATRON_OF = new java.util.HashMap<>();
     /** 오늘 밤 이미 꾸어 준 지주 — 하루 1건. */
     private static final java.util.Set<Long> LENT_TONIGHT = new java.util.HashSet<>();
+    /** 대부자 → 직전 대출로 선 구획 id — 그 밭이 18타일에 닿기 전엔 다음 대출 없음(한 번에 하나). */
+    private static final java.util.Map<Long, Long> LAST_LOAN_PLOT = new java.util.HashMap<>();
+    /** 이 밤 대부가 성사된 대부자(착공 확정 시 LAST_LOAN_PLOT 에 옮긴다), 0 = 없음. */
+    private static long PENDING_LOAN_LENDER = 0L;
 
     /** 빚이 가장 큰 채권자(없으면 0). */
     private static long creditorOf(AllegianceStore ledger, long debtorId) {
@@ -2549,6 +2578,11 @@ public final class FarmTicker {
         if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.FICKLE)) {
             return d + 1;
         }
+        // 의탁·품팔이 — 붙박이 소작·일꾼: 예약석 승격이 하루 빠르다(중소지주 축의 짝).
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.DEPENDENT)
+                || com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.HIRELING)) {
+            return Math.max(1, d - 1);
+        }
         return d;
     }
 
@@ -2773,6 +2807,12 @@ public final class FarmTicker {
         double outside = Facilities.GUARD_OUTSIDE_DAY
                 * com.evosim.core.Multipliers.gather(ind)
                 * com.evosim.core.Vocation.guardWageFactor(ind);
+        // 자립심은 남 밑에 잘 안 들어가고(요구 ×1.25), 의탁은 지주 밑이 편하다(×0.8) — 중소지주 축.
+        if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.SELF_RELIANT)) {
+            outside *= 1.25;
+        } else if (com.evosim.core.ExpressionResolver.isExpressed(ind, com.evosim.core.Trait.DEPENDENT)) {
+            outside *= 0.8;
+        }
         double urgency = 0.0;
         if (m.isCaregiverBound()) {
             urgency = 1.0; // 나갈 수가 없어 못 번다 — 바깥벌이가 실질 0 이다
@@ -6142,6 +6182,11 @@ public final class FarmTicker {
             }
             double larder = home == null ? 0.0 : LarderStore.get(level).get(home);
             double aid = Math.min(2.0, larder - com.evosim.core.FarmEconomy.INVEST_RESERVE);
+            // 자립심은 구휼을 받지 않는다 — 남의 곳간에 손 벌리느니 굶는다(신세를 안 져 추종도 안 됨).
+            if (com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(),
+                    com.evosim.core.Trait.SELF_RELIANT)) {
+                aid = 0.0;
+            }
             if (home != null && aid >= 1.0) {
                 int units = (int) Math.floor(aid); // 정수 유닛(L 정수성)
                 LarderStore.get(level).set(home, larder - units);
@@ -6385,6 +6430,11 @@ public final class FarmTicker {
         // 여기서 또 얻으면 이중 수입이다. 다만 일자리는 계속 받는다(false 를 돌려주면 호출부가
         // 밭 배정으로 이어간다) — 그래야 저장고가 올라 언젠가 퇴소선에 닿는다.
         if (m.inPoorhouse()) {
+            return false;
+        }
+        // 자립심(중소지주 축) — 굶어도 남의 문간에 손을 벌리지 않는다. 일자리(긴급고용)는 받는다.
+        if (com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(),
+                com.evosim.core.Trait.SELF_RELIANT)) {
             return false;
         }
         // <b>먹을 것이 있는 자는 구걸하지 않는다.</b>

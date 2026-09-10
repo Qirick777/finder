@@ -771,6 +771,11 @@ public class FarmStore extends SavedData {
             }
             double v = com.evosim.core.FarmEconomy.tileYield(m.getIndividual())
                     * com.evosim.core.FarmEconomy.manageEfficiency(m.getIndividual(), load);
+            // 의탁(충성)·품팔이(일 잘하는 일꾼)는 마름 후보에서 ×1.1 — 중소지주 축의 짝이 감독 층의 재료.
+            if (com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(), com.evosim.core.Trait.DEPENDENT)
+                    || com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(), com.evosim.core.Trait.HIRELING)) {
+                v *= 1.1;
+            }
             int s = m.getTenantStreak();
             boolean better = best == null || v > bv + 1e-9
                     || (Math.abs(v - bv) <= 1e-9 && (s > bs

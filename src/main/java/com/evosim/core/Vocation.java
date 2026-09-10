@@ -90,6 +90,9 @@ public final class Vocation {
         }
         // 사냥 계열은 <b>살짝</b>만 — 반 몫의 반이다. 사냥꾼이 곧 군인은 아니다.
         score += Multipliers.abilityGrade(ind, Trait.BUTCHER) / GRADE_FULL * (FLAG_WEIGHT / 2.0);
+        if (ExpressionResolver.isExpressed(ind, Trait.DEPENDENT)) {
+            score += FLAG_WEIGHT; // 의탁 — 지주 밑의 창이 편한 자(중소지주 축의 짝)
+        }
         if (ExpressionResolver.isExpressed(ind, Trait.COWARD)) {
             score -= FLAG_WEIGHT;
         }

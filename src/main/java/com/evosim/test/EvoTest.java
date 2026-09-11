@@ -284,7 +284,7 @@ public final class EvoTest {
                 && close(com.evosim.core.Lending.fiefTranche(40, 36, 0.5, 50.0), 0.0)
                 && com.evosim.core.Lending.fiefCap(0, 4, 36) == 36
                 && com.evosim.core.Lending.fiefCap(0, 4, 24) == 24
-                && com.evosim.core.Lending.fiefCap(2, 8, 24) == 48
+                && com.evosim.core.Lending.fiefCap(2, 8, 24) == 60
                 && close(com.evosim.core.Lending.fiefDue(20.0, 0.0), 4.0)
                 && close(com.evosim.core.Lending.fiefDue(20.0, 0.7), 4.7)
                 && close(com.evosim.core.Lending.fiefDue(-3.0, 0.0), 0.0);

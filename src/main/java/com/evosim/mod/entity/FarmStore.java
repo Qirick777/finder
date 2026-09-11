@@ -151,6 +151,10 @@ public class FarmStore extends SavedData {
         // ── fee 분할(E11) — 지주 몫 초과분(누진분)의 잠금 축장. 밭 계정과 별도라 확장(growFarms)이
         //    건드리지 않는다. 밤 정산 때 정수 유닛만 지주 저장고로(L 정수성, 소수 이월). ──
         public double excessHoard = 0.0;
+        /** 봉토세(산출 기준)가 이미 걷힌 누적 주인 몫 — totalToOwner 와의 차가 이 밤 과세 대상. */
+        public double taxedOwnerTake = 0.0;
+        /** 봉토세 소수·미납 이월(곳간 부족분 포함). */
+        public double fiefCarry = 0.0;
 
         /**
          * 이 구획에 들어간 <b>개간 지출</b> 누계 — 부양력 계산의 입력.
@@ -1029,6 +1033,8 @@ public class FarmStore extends SavedData {
             p.wageCarry = c.getDouble("WageCarry");
             p.careBonus = c.getLong("CareBonus");
             p.excessHoard = c.getDouble("ExHrd"); // fee 분할(E11) — 구세계 로드는 0
+            p.taxedOwnerTake = c.getDouble("TaxTake"); // 봉토 수여 — 구세계 로드는 0
+            p.fiefCarry = c.getDouble("FiefCarry");
             p.totalSpentExpand = c.getDouble("SpentExp");
             s.plots.put(p.id, p);
             for (long l : p.tiles) {
@@ -1087,6 +1093,8 @@ public class FarmStore extends SavedData {
             c.putDouble("WageCarry", p.wageCarry);
             c.putLong("CareBonus", p.careBonus);
             c.putDouble("ExHrd", p.excessHoard);
+            c.putDouble("TaxTake", p.taxedOwnerTake);
+            c.putDouble("FiefCarry", p.fiefCarry);
             c.putDouble("SpentExp", p.totalSpentExpand);
             list.add(c);
         }

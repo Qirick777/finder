@@ -345,40 +345,68 @@ public final class FarmTicker {
                         "구획 %d: +%d 저장고(잠금 축장 — 이월 %.2f)", plot.id, hoardUnits, plot.excessHoard));
             }
             int units = (int) Math.floor(plot.account);
-            if (units <= 0) {
-                continue;
+            if (units > 0) {
+                larder.set(home, larder.get(home) + units);
+                plot.account -= units;
+                store.setDirty();
+                // 이체가 실제로 끝난 뒤에만 기록(결과값 원칙) — 소작농화 추적의 경제 사슬 링크.
+                com.evosim.mod.log.SimEvents.event(ownerEnt, "지대", String.format(
+                        "구획 %d: +%d 저장고(이월 %.2f)", plot.id, units, plot.account));
             }
-            larder.set(home, larder.get(home) + units);
-            plot.account -= units;
-            store.setDirty();
-            // 이체가 실제로 끝난 뒤에만 기록(결과값 원칙) — 소작농화 추적의 경제 사슬 링크.
-            com.evosim.mod.log.SimEvents.event(ownerEnt, "지대", String.format(
-                    "구획 %d: +%d 저장고(이월 %.2f)", plot.id, units, plot.account));
-            // 봉토세(사용자 승인) — 봉신(주인 있는 밭 소유자)은 빚과 무관하게 곳간 도착 지대의 20% 를
-            // 주인에게 올린다. 봉신 상한(주인 추종자의 ¼)을 받는 대가이자 봉건 지대 분배 그대로다.
-            // 빚이 있으면 그 돈이 상환도 겸한다. 주인은 PATRON_OF(추종, 없으면 채권자) — "봉신은
-            // 주인보다 클 수 없다" 규칙을 이미 통과한 관계다.
             AllegianceStore lg = AllegianceStore.get(level);
             double owed = lg.owedOf(plot.ownerId);
             Long liege = PATRON_OF.get(plot.ownerId);
-            int send = liege != null ? com.evosim.core.Lending.fiefTax(units)
-                    : com.evosim.core.Lending.rentTribute(units, owed);
-            if (send > 0) {
-                long creditor = liege != null ? liege : creditorOf(lg, plot.ownerId);
+            if (liege != null) {
+                // 봉토세(사용자 승인, 산출 기준) — 봉신은 이 밭의 <b>주인 몫 산출</b>(자영 + 소작 지대 +
+                // 축장)의 2할을 밤마다 주군에게 올린다. 종전 "곳간 도착 지대의 2할"은 봉신이 제 손으로
+                // 따는 수입을 전부 비껴갔고(런 20 길버트 15/일 비과세), 지대는 확장비로 먼저 소진돼
+                // 과세 대상이 0 이었다. 곳간에서 정수 유닛만 이체, 부족·소수는 이월. 빚 상환 겸함.
+                double take = plot.totalToOwner - plot.taxedOwnerTake;
+                double due = com.evosim.core.Lending.fiefDue(take, plot.fiefCarry);
+                plot.taxedOwnerTake = plot.totalToOwner;
                 MimicEntity cr = null;
                 for (MimicEntity c : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                         e -> e.isAlive() && e.getIndividual() != null
-                                && e.getIndividual().id() == creditor)) {
+                                && e.getIndividual().id() == liege)) {
                     cr = c;
                 }
-                if (cr != null && cr.getHomePos() != null && !cr.getHomePos().equals(home)) {
+                if (cr == null || cr.getHomePos() == null || cr.getHomePos().equals(home)) {
+                    plot.fiefCarry = due; // 주군 부재·동거 — 이월(다음 밤 재시도)
+                    store.setDirty();
+                    continue;
+                }
+                int send = (int) Math.floor(Math.min(due, Math.max(0.0, larder.get(home))));
+                plot.fiefCarry = Math.max(0.0, due - send);
+                store.setDirty();
+                if (send > 0) {
                     larder.set(home, larder.get(home) - send);
                     larder.set(cr.getHomePos(), larder.get(cr.getHomePos()) + send);
                     double paid = owed > 0.0 ? lg.repay(plot.ownerId, Math.min(send, owed)) : 0.0;
-                    realmIn(creditor)[3] += send;
+                    realmIn(liege)[3] += send;
                     com.evosim.mod.log.SimEvents.event(ownerEnt, "봉토세", String.format(
-                            "구획 %d 지대 %d 중 %d → %s (빚 %.1f→%.1f)", plot.id, units, send,
-                            cr.getIndividual().shortName(), owed, owed - paid));
+                            "구획 %d 산출 %.1f 의 2할 %d → %s (이월 %.1f · 빚 %.1f→%.1f)", plot.id, take,
+                            send, cr.getIndividual().shortName(), plot.fiefCarry, owed, owed - paid));
+                }
+            } else if (units > 0) {
+                // 주군 없는 채무자 — 종전대로 빚이 있는 동안 곳간 도착 지대의 2할 상환.
+                int send = com.evosim.core.Lending.rentTribute(units, owed);
+                if (send > 0) {
+                    long creditor = creditorOf(lg, plot.ownerId);
+                    MimicEntity cr = null;
+                    for (MimicEntity c : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                            e -> e.isAlive() && e.getIndividual() != null
+                                    && e.getIndividual().id() == creditor)) {
+                        cr = c;
+                    }
+                    if (cr != null && cr.getHomePos() != null && !cr.getHomePos().equals(home)) {
+                        larder.set(home, larder.get(home) - send);
+                        larder.set(cr.getHomePos(), larder.get(cr.getHomePos()) + send);
+                        double paid = lg.repay(plot.ownerId, Math.min(send, owed));
+                        realmIn(creditor)[3] += send;
+                        com.evosim.mod.log.SimEvents.event(ownerEnt, "봉토세", String.format(
+                                "구획 %d 지대 %d 중 %d → %s (빚 %.1f→%.1f)", plot.id, units, send,
+                                cr.getIndividual().shortName(), owed, owed - paid));
+                    }
                 }
             }
         }
@@ -665,13 +693,15 @@ public final class FarmTicker {
                                 familyDailyNeed(level, trancheLender, adults));
                         double lroom = com.evosim.core.Lending.lenderRoom(
                                 larders.get(trancheLender.getHomePos()), lreserve);
-                        double owed = AllegianceStore.get(level).owedOf(plot.ownerId);
-                        tranche = com.evosim.core.Lending.trancheRoom(
-                                Math.max(0.0, ownerFunds - reserve), lroom, owed);
-                        ownerFunds += tranche; // 가상 가산 — 실제 이체는 확장이 확정된 뒤 쓴 만큼만
+                        // 봉토 확장(사용자 승인): 봉토 크기(중견 36 · 소지주 24)까지의 확장비를 주군이
+                        // 전액 댄다 — 봉신 곳간·잔액 상한과 무관, 주군 여유(절반) 안에서. 실제 이체는
+                        // 확장이 확정된 뒤 쓴 만큼만(아래 "봉토확장").
+                        tranche = com.evosim.core.Lending.fiefTranche(plot.tiles.length,
+                                com.evosim.core.Lending.fiefTiles(ownerEnt.getIndividual()),
+                                com.evosim.core.FarmEconomy.expandCost(plot.steps + 1), lroom);
                     }
                 }
-                larderTiles = (int) Math.floor(Math.max(0.0, ownerFunds - reserve)
+                larderTiles = (int) Math.floor((Math.max(0.0, ownerFunds - reserve) + tranche)
                         / com.evosim.core.FarmEconomy.expandCost(plot.steps + 1));
             }
             int afford = acctTiles + larderTiles;
@@ -682,7 +712,9 @@ public final class FarmTicker {
             // 봉신 상한(Lending): 주인이 있으면 주인 추종자의 ¼ 을 제 몫으로 얹는다 — 봉신은 주인 밑에서 큰다.
             Long liege = PATRON_OF.get(plot.ownerId);
             int liegeFollowers = liege == null ? 0 : FOLLOWERS.getOrDefault(liege, 0);
-            int cap = com.evosim.core.Lending.vassalCap(followers, liegeFollowers);
+            int cap = liege == null ? com.evosim.core.Lending.vassalCap(followers, liegeFollowers)
+                    : com.evosim.core.Lending.fiefCap(followers, liegeFollowers,
+                            com.evosim.core.Lending.fiefTiles(ownerEnt.getIndividual())); // 봉토 크기는 주군이 정한다
             int k = Math.min(Math.min(room, afford), Math.max(0, cap - plot.tiles.length));
             // <b>네 항을 같이 찍는다</b> — 노동·자금(계정/저장고)·타일 상한·(심기에서) 기하. 종전에는
             // 결과 칸수만 남아 "왜 5칸인가"를 밖에서 알 수 없었고, 원인을 세 번 잘못 짚었다.
@@ -762,7 +794,7 @@ public final class FarmTicker {
                     // 분할 대출 실행 — 저장고 몫의 절반(트랜치 한도 안)을 주인 곳간에서 봉신 곳간으로
                     // 옮기고 빚으로 적는다(신세 가중 없음 — 이미 봉신). 나머지는 봉신이 낸다.
                     if (tranche > 0.0 && trancheLender != null) {
-                        double lenderPay = Math.min(fromLarder * com.evosim.core.Lending.TRANCHE_SHARE, tranche);
+                        double lenderPay = Math.min(fromLarder, tranche); // 봉토 확장 — 주군 전액
                         lenderPay = Math.min(lenderPay, larders.get(trancheLender.getHomePos()));
                         if (lenderPay > 0.0) {
                             larders.set(trancheLender.getHomePos(),
@@ -772,7 +804,7 @@ public final class FarmTicker {
                             AllegianceStore lg = AllegianceStore.get(level);
                             double owedBefore = lg.owedOf(plot.ownerId);
                             lg.record(plot.ownerId, trancheLender.getIndividual().id(), 0.0, lenderPay, day);
-                            com.evosim.mod.log.SimEvents.event(ownerEnt, "종자대출", String.format(
+                            com.evosim.mod.log.SimEvents.event(ownerEnt, "봉토확장", String.format(
                                     "구획 %d 확장비 %.1f 중 %s 가 %.1f (봉신 %.1f) — 빚 %.1f→%.1f",
                                     plot.id, bill, trancheLender.getIndividual().shortName(), lenderPay,
                                     fromLarder - lenderPay, owedBefore, owedBefore + lenderPay));
@@ -889,8 +921,12 @@ public final class FarmTicker {
         MimicEntity foundNear = null;
         String foundNearText = null;
         double foundNearGap = -Double.MAX_VALUE;
+        // 개간은 <b>가구당</b> 하룻밤 1건(사용자 승인, 런 19·20 실측). 종전 "세계 1건"은 군주 밭까지
+        // 합쳐 d12 까지 최대 12개라, 군주 아래 소지주·중견지주 층이 설 수가 없었다.
+        java.util.Set<BlockPos> foundedHomes = new java.util.HashSet<>();
+        int foundedTonight = 0;
         for (MimicEntity m : founders) {
-            if (m.getHomePos() == null) {
+            if (m.getHomePos() == null || foundedHomes.contains(m.getHomePos())) {
                 continue;
             }
             // 착공 = 독립가구 자격(설계 지시): 미혼 성년(spouseId==0)은 아직 부모 가구 동거인이라
@@ -960,6 +996,7 @@ public final class FarmTicker {
             //
             // 하루 한 번, <b>가장 부유한 무산 후보</b>에게만 찍는다(전원 매일이면 도배된다).
             // 자금 미달은 정상 상태라 조용히 두고, 자금을 넘긴 뒤 막히는 것만 남긴다.
+            double grant = 0.0; // 봉토 착공비(주군이 댐) — 0 이면 자력 착공
             if (funds < cost + reserve) {
                 // 대부(Lending) — "돈만 있으면 지금 착공할 자"가 빌린다. 개간의 모든 관문(기혼·
                 // 불만족·무욕 아님)을 통과한 뒤 자금에서만 막힌 이 지점이 트리거다.
@@ -969,9 +1006,10 @@ public final class FarmTicker {
                 // 안 됐다 — 빚만 지고 곳간만 불었다. 승인 사양대로 가구에 밭이 없는(주 지주 타일 0)
                 // 경우만 꾸어 주고, 뒤 관문(자기 밭 성숙)은 무산 가구엔 해당이 없다.
                 double loan = headTiles <= 0 && owned == 0
-                        ? tryLoan(level, store, larders, adults, m, funds, cost + reserve, day) : 0.0;
+                        ? tryLoan(level, store, larders, adults, m, funds, cost + reserve, cost, day) : 0.0;
                 if (loan > 0.0) {
                     funds += loan; // 그 밤에 바로 착공한다(아래 착공 코드가 funds 를 쓴다)
+                    grant = loan;
                 } else {
                 // 자금 미달은 정상 상태지만 <b>얼마나 모자란지</b>는 남겨야 한다. 이 수가 없으면
                 // "아무도 개간을 안 한다"에서 문턱이 높은 건지 벌이가 없는 건지 가릴 수 없다
@@ -1050,7 +1088,8 @@ public final class FarmTicker {
             // 한 번 더 열 만큼 모은 자를 가른다 — 신분 분기가 아니라 저축액이 가른다(규칙5).
             double selfThreshold = 2.0 * (cost + reserve);
             boolean selfMade = funds >= selfThreshold;
-            MimicEntity familyLord = (owned == 0 && !selfMade)
+            // 봉토는 제 이름으로 — 주군이 댄 밭이 친족 지주에게 귀속되면 봉신이 서지 않는다.
+            MimicEntity familyLord = (owned == 0 && !selfMade && grant <= 0.0)
                     ? findFamilyLord(level, store, adults, m) : null;
             if (owned == 0 && selfMade) {
                 com.evosim.mod.log.SimEvents.event(m, "자력착공", String.format(
@@ -1108,11 +1147,11 @@ public final class FarmTicker {
                     }
                 }
             }
-            foundNear = null; // 오늘은 착공이 있었다 — 보류 사유를 남기지 않는다
-            break; // 하루 1건
+            foundedHomes.add(m.getHomePos()); // 가구당 1건 — 다른 가구는 같은 밤에 이어서 연다
+            foundedTonight++;
         }
         // 오늘 아무도 착공하지 못했다면, 문턱에 가장 가까웠던 한 명의 수를 남긴다.
-        if (foundNear != null && foundNearText != null) {
+        if (foundedTonight == 0 && foundNear != null && foundNearText != null) {
             com.evosim.mod.log.SimEvents.event(foundNear, "개간보류", foundNearText);
         }
     }
@@ -1129,7 +1168,7 @@ public final class FarmTicker {
      */
     private static double tryLoan(ServerLevel level, FarmStore store, LarderStore larders,
                                   java.util.List<MimicEntity> adults, MimicEntity m,
-                                  double funds, double threshold, long day) {
+                                  double funds, double threshold, double cost, long day) {
         com.evosim.core.Individual ind = m.getIndividual();
         long id = ind.id();
         // 동기 = 대지주 축(야망가·욕심·경쟁·자수성가) 또는 중소지주 축(미래지향·개척선호·자립심·텃밭꾼).
@@ -1138,15 +1177,8 @@ public final class FarmTicker {
         if (!com.evosim.core.Lending.wantsLoan(ind)) {
             return 0.0;
         }
-        if (!com.evosim.core.Lending.equityOk(funds, threshold, ind)) {
-            // 저축 중(정상)이지만 <b>왜 안 빌리는지</b>는 남긴다 — 런 14: 동기 특성 평민 9명 중 1명만
-            // 빌렸는데 나머지가 자기자본에서 막힌 건지 아예 못 온 건지 로그로 가릴 수 없었다.
-            com.evosim.mod.log.SimEvents.event(m, "대부후보", String.format(
-                    "저축 %.0f < 자기자본 %.0f(문턱 %.0f × %.2f) — 아직 안 빌림", funds,
-                    threshold * com.evosim.core.Lending.equityShare(ind), threshold,
-                    com.evosim.core.Lending.equityShare(ind)));
-            return 0.0;
-        }
+        // 봉토 수여(사용자 승인): 저축 문턱·자기자본 조건 없음 — 주군이 착공비를 댄다. 남는 조건은
+        // 특성 축 · 빚 없음 · 신용(출근 하루 또는 신세) · 주군 여유 · 주군 하루 1건.
         AllegianceStore ledger = AllegianceStore.get(level);
         if (ledger.owedOf(id) > 0.0) {
             com.evosim.mod.log.SimEvents.event(m, "대부보류", String.format(
@@ -1198,25 +1230,15 @@ public final class FarmTicker {
             }
         }
         long lid = lender.getIndividual().id();
-        // 한 번에 하나만 키운다(사용자 승인): 직전 대출 밭이 소작 붙을 크기(18)에 닿기 전엔 다음 대출 없음.
-        Long prev = LAST_LOAN_PLOT.get(lid);
-        if (prev != null) {
-            FarmStore.Plot pp = store.get(prev);
-            if (pp != null && pp.tiles.length < com.evosim.core.Lending.PREV_LOAN_PLOT_TILES) {
-                com.evosim.mod.log.SimEvents.event(m, "대부보류", String.format(
-                        "저축 %.0f/문턱 %.0f 인데 %s 의 직전 대출 밭 구획 %d 가 아직 %d타일 < %d — 하나 세우고 다음",
-                        funds, threshold, lender.getIndividual().shortName(), pp.id, pp.tiles.length,
-                        com.evosim.core.Lending.PREV_LOAN_PLOT_TILES));
-                return 0.0;
-            }
-        }
+        // "하나 세우고 다음"(직전 대출 밭 18타일 조건)은 폐지 — 봉토 확장을 주군이 대므로 착공 뒤
+        // 나흘이면 36 이고, 층을 세우려면 하루 한 봉신씩 계속 세워야 한다(주군 하루 1건은 유지).
         if (LENT_TONIGHT.contains(lid)) {
             com.evosim.mod.log.SimEvents.event(m, "대부보류", String.format(
                     "저축 %.0f/문턱 %.0f 인데 %s 는 오늘 이미 꾸어 줬다(하루 1건)", funds, threshold,
                     lender.getIndividual().shortName()));
             return 0.0;
         }
-        double need = com.evosim.core.Lending.loanNeeded(funds, threshold);
+        double need = cost; // 봉토 착공 — 주군이 착공비 전액을 댄다(봉신 곳간은 그대로)
         int lowned = store.ownedCount(lid);
         boolean leligible = lowned > 0 && nextFarmEligible(store, adults, lid);
         double lreserve = FarmEconomy.expandReserve(lowned == 0 || leligible, lowned,
@@ -1234,10 +1256,12 @@ public final class FarmTicker {
         ledger.record(id, lid, AllegianceStore.W_RELIEF * need, need, day);
         LENT_TONIGHT.add(lid);
         PENDING_LOAN_LENDER = lid; // 이 밤 착공이 확정되면 그 구획을 직전 대출 밭으로 적는다
-        // 대부는 지출이 아니라 채권 — 영지 줄의 통치지출에는 싣지 않는다(상환·상납이 세수로 돌아온다).
-        com.evosim.mod.log.SimEvents.event(m, "대부", String.format(
-                "%s 에게 %.0f 빌림(저장고 %.1f→%.1f · 문턱 %.0f) — 빚 %.0f · 대부자 저장고 %.1f→%.1f(예비 %.0f) · 신용 %s",
-                lender.getIndividual().shortName(), need, funds, funds + need, threshold, need,
+        // 봉토 수여는 지출이 아니라 채권 — 영지 줄의 통치지출에는 싣지 않는다(봉토세가 세수로 돌아온다).
+        // 착공비는 이 밤 착공 코드가 곧바로 곳간에서 빼므로 봉신 곳간은 결과적으로 그대로다.
+        com.evosim.mod.log.SimEvents.event(m, "봉토착공", String.format(
+                "%s 가 착공비 %.0f 을 댄다(봉신 저장고 %.1f · 문턱 %.0f 무관 · 봉토 %d칸) — 빚 %.0f · 주군 저장고 %.1f→%.1f(예비 %.0f) · 신용 %s",
+                lender.getIndividual().shortName(), need, funds, threshold,
+                com.evosim.core.Lending.fiefTiles(ind), need,
                 llar, llar - need, lreserve,
                 tenantCredit ? ("상시소작 " + m.getTenantStreak() + "일") : "신세"));
         return need;

@@ -41,6 +41,49 @@ public final class Lending {
     /** 분할(반반) 대출 — 봉신 밭 36 미만의 확장비 중 주인이 대는 몫. 나머지는 봉신 곳간(예비 위). */
     public static final double TRANCHE_SHARE = 0.5;
 
+    // ── 봉토 수여(사용자 승인, 런 19·20 실측 뒤) ──────────────────────────────────────
+    //
+    // 대부는 곳간으로 들어가 집·식비로 샜다(런 20 길버트: 대출 43 중 이틀 만에 23 이 이사·부양).
+    // 저축 문턱(30~66)과 잔액 상한 40 은 "먼저 모아야 빌린다"를 강제해 봉신이 늦고 큰 가구일수록
+    // 못 받았다. 봉토세는 소작 지대에만 걸려 봉신이 제 손으로 따는 15/일은 비과세였다.
+    //
+    // 봉건 그대로 간다 — 주군이 봉토를 떼어 주고, 봉신은 산출을 바친다. 착공비와 확장비는 주군
+    // 곳간에서 <b>밭으로 직접</b> 들어가고(봉신 곳간 경유 없음), 봉신은 밭 산출(자영 + 지대 +
+    // 축장 = 주인 몫)의 2할을 밤마다 올린다. 중견 축(야망가·욕심·경쟁·자수성가)은 36칸까지,
+    // 소지주 축(미래지향·개척선호·자립심·텃밭꾼)은 24칸까지 받는다.
+
+    /** 중견 봉토 — 대지주 축이 받는 밭 크기(둘째 밭은 제 힘으로). */
+    public static final int FIEF_TILES_GRAND = 36;
+    /** 소지주 봉토 — 중소지주 축이 받는 밭 크기(밭 하나로 산다). */
+    public static final int FIEF_TILES_SMALL = 24;
+    /** 봉토세 — 봉신 밭 산출(주인 몫) 중 주군에게 올리는 비율. */
+    public static final double FIEF_OUTPUT_TAX = 0.2;
+
+    /** 봉토 크기 — 대지주 축 36, 그 외(중소지주 축) 24. 축이 겹치면 큰 쪽. */
+    public static int fiefTiles(Individual ind) {
+        java.util.Set<Trait> t = ExpressionResolver.expressedTraits(ind);
+        return grandAxis(t) ? FIEF_TILES_GRAND : FIEF_TILES_SMALL;
+    }
+
+    /** 이 밤 주군이 대는 확장비 = min(봉토 잔여 칸 비용, 주군 여유). 봉토가 다 찼으면 0. */
+    public static double fiefTranche(int plotTiles, int fiefTiles, double costPerTile, double lenderRoom) {
+        int left = Math.max(0, fiefTiles - plotTiles);
+        return Math.max(0.0, Math.min(left * costPerTile, lenderRoom));
+    }
+
+    /** 봉신 밭 타일 상한 — 봉토 크기와 추종 상한 중 큰 쪽(봉토 크기는 주군이 정한다). */
+    public static int fiefCap(int ownFollowers, int liegeFollowers, int fiefTiles) {
+        return Math.max(vassalCap(ownFollowers, liegeFollowers), fiefTiles);
+    }
+
+    /**
+     * 봉토세 청구액 — (마지막 과세 뒤 늘어난 주인 몫 산출) × 2할 + 이월. 곳간에서 정수 유닛만
+     * 이체하고 나머지는 이월한다(L 정수성). 이체 가능액은 호출부가 곳간으로 자른다.
+     */
+    public static double fiefDue(double ownerTakeSinceTax, double carry) {
+        return Math.max(0.0, ownerTakeSinceTax) * FIEF_OUTPUT_TAX + Math.max(0.0, carry);
+    }
+
     private Lending() {
     }
 

@@ -272,6 +272,24 @@ public final class EvoTest {
                 && com.evosim.core.FarmEconomy.noShowRelease(5);
         report.add("farm/출근불능해제", ns, "출근포기 0·1일 유지 · 2일 이상 예약석 반납",
                 ns ? "정상" : "어긋남");
+        // 봉토 수여(사용자 승인): 중견 축 36 · 소지주 축 24 · 확장비 = min(잔여 칸 비용, 주군 여유) ·
+        // 상한 = max(추종 상한, 봉토) · 봉토세 = 주인 몫 산출 2할 + 이월.
+        boolean fg = com.evosim.core.Lending.fiefTiles(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS))) == 36
+                && com.evosim.core.Lending.fiefTiles(one(Sex.MALE, TraitInstance.of(Trait.SELF_RELIANT))) == 24
+                && com.evosim.core.Lending.fiefTiles(one(Sex.MALE, TraitInstance.of(Trait.GREEDY),
+                        TraitInstance.of(Trait.SMALLHOLDER))) == 36
+                && close(com.evosim.core.Lending.fiefTranche(12, 36, 0.5, 50.0), 12.0)
+                && close(com.evosim.core.Lending.fiefTranche(12, 36, 0.5, 4.0), 4.0)
+                && close(com.evosim.core.Lending.fiefTranche(36, 36, 0.5, 50.0), 0.0)
+                && close(com.evosim.core.Lending.fiefTranche(40, 36, 0.5, 50.0), 0.0)
+                && com.evosim.core.Lending.fiefCap(0, 4, 36) == 36
+                && com.evosim.core.Lending.fiefCap(0, 4, 24) == 24
+                && com.evosim.core.Lending.fiefCap(2, 8, 24) == 48
+                && close(com.evosim.core.Lending.fiefDue(20.0, 0.0), 4.0)
+                && close(com.evosim.core.Lending.fiefDue(20.0, 0.7), 4.7)
+                && close(com.evosim.core.Lending.fiefDue(-3.0, 0.0), 0.0);
+        report.add("lending/봉토수여", fg, "봉토 36/24(겹치면 36) · 확장비 12칸×0.5=12, 여유 4→4, 다 찼으면 0 · 상한 max(추종, 봉토) · 산출 20의 2할 4(+이월)",
+                fg ? "정상" : "어긋남");
         // 두 축(사용자 승인): 대지주 축 = 야망가·욕심·경쟁·자수성가 / 중소지주 축 = 미래지향·개척선호·
         // 자립심·텃밭꾼 / 의탁·품팔이는 절대 안 빌림 / 무특성도 안 빌림.
         boolean axes = com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))

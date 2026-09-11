@@ -226,12 +226,12 @@ public final class EvoTest {
                 && close(com.evosim.core.Lending.lenderRoom(100.0, 36.0), 32.0);
         report.add("lending/대부여유", r1, "저장고 60·예비 12 → 24 · 12/12 → 0 · 100/36 → 32 (여유의 절반)",
                 r1 ? "정상" : "어긋남");
-        boolean c1 = com.evosim.core.Lending.vassalCap(0, 0) == 12
-                && com.evosim.core.Lending.vassalCap(0, 10) == 36
-                && com.evosim.core.Lending.vassalCap(0, 30) == 96
-                && com.evosim.core.Lending.vassalCap(2, 30) == 120
+        boolean c1 = com.evosim.core.Lending.vassalCap(0, 0) == 24
+                && com.evosim.core.Lending.vassalCap(0, 10) == 48
+                && com.evosim.core.Lending.vassalCap(0, 30) == 108
+                && com.evosim.core.Lending.vassalCap(2, 30) == 132
                 && com.evosim.core.Lending.vassalCap(3, 0) == com.evosim.core.FarmEconomy.plotTileCap(3);
-        report.add("lending/봉신상한", c1, "주인 없음 12 · 주인 추종 10 → 36 · 30 → 96 · 자기 2+주인 30 → 120 · 주인 없으면 종전 식",
+        report.add("lending/봉신상한", c1, "주인 없음 24 · 주인 추종 10 → 48 · 30 → 108 · 자기 2+주인 30 → 132 · 주인 없으면 종전 식",
                 c1 ? "정상" : "어긋남");
         boolean t1 = com.evosim.core.Lending.rentTribute(5, 10.0) == 1
                 && com.evosim.core.Lending.rentTribute(2, 10.0) == 0
@@ -283,8 +283,8 @@ public final class EvoTest {
                 && close(com.evosim.core.Lending.fiefTranche(36, 36, 0.5, 50.0), 0.0)
                 && close(com.evosim.core.Lending.fiefTranche(40, 36, 0.5, 50.0), 0.0)
                 && com.evosim.core.Lending.fiefCap(0, 4, 36) == 36
-                && com.evosim.core.Lending.fiefCap(0, 4, 24) == 24
-                && com.evosim.core.Lending.fiefCap(2, 8, 24) == 60
+                && com.evosim.core.Lending.fiefCap(0, 4, 24) == 36
+                && com.evosim.core.Lending.fiefCap(2, 8, 24) == 72
                 && close(com.evosim.core.Lending.fiefDue(20.0, 0.0), 4.0)
                 && close(com.evosim.core.Lending.fiefDue(20.0, 0.7), 4.7)
                 && close(com.evosim.core.Lending.fiefDue(-3.0, 0.0), 0.0);

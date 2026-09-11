@@ -397,13 +397,13 @@ public final class EvoTest {
     // ──────────────────────────────────────────────────────────────
     private static void illness(Report report) {
         boolean d1 = close(com.evosim.core.InfantIllness.densityRate(0), 0.0)
-                && close(com.evosim.core.InfantIllness.densityRate(4), 0.00625)
-                && close(com.evosim.core.InfantIllness.densityRate(8), 0.025)
-                && close(com.evosim.core.InfantIllness.densityRate(16), 0.1)
-                && close(com.evosim.core.InfantIllness.densityRate(24), 0.225)
+                && close(com.evosim.core.InfantIllness.densityRate(4), 0.00875)
+                && close(com.evosim.core.InfantIllness.densityRate(8), 0.035)
+                && close(com.evosim.core.InfantIllness.densityRate(16), 0.14)
+                && close(com.evosim.core.InfantIllness.densityRate(24), 0.3)
                 && close(com.evosim.core.InfantIllness.densityRate(40), 0.3);
         report.add("illness/밀집", d1,
-                "이웃 0→0 · 4→0.006 · 8→0.025 · 16→0.1 · 24→0.225 · 40→0.3(상한) — 제곱 상승",
+                "이웃 0→0 · 4→0.009 · 8→0.035 · 16→0.14 · 24→0.3(상한) · 40→0.3(상한) — 제곱 상승",
                 d1 ? "정상" : "어긋남");
         boolean mono = true;
         double prev = -1.0;
@@ -416,15 +416,15 @@ public final class EvoTest {
         }
         report.add("illness/단조상한", mono, "이웃 0~60 에서 단조 증가 · 상한 0.3 초과 없음",
                 mono ? "정상" : "어긋남");
-        boolean e1 = close(com.evosim.core.InfantIllness.dailyOnset(16, 0), 0.1)
-                && close(com.evosim.core.InfantIllness.dailyOnset(16, 1), 0.08)
-                && close(com.evosim.core.InfantIllness.dailyOnset(16, 2), 0.06)
-                && close(com.evosim.core.InfantIllness.dailyOnset(16, 3), 0.04)
+        boolean e1 = close(com.evosim.core.InfantIllness.dailyOnset(16, 0), 0.14)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 1), 0.112)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 2), 0.084)
+                && close(com.evosim.core.InfantIllness.dailyOnset(16, 3), 0.056)
                 && close(com.evosim.core.InfantIllness.dailyOnset(16, 9),
                         com.evosim.core.InfantIllness.dailyOnset(16, 3))
                 && close(com.evosim.core.InfantIllness.dailyOnset(40, 3), 0.12);
         report.add("illness/학력", e1,
-                "이웃 16: 무학 0.10 · 초급 0.08 · 중급 0.06 · 상급 0.04(상한 3 초과는 상급과 같음) · 상한 밀집+상급 0.12",
+                "이웃 16: 무학 0.14 · 초급 0.112 · 중급 0.084 · 상급 0.056(상한 3 초과는 상급과 같음) · 상한 밀집+상급 0.12",
                 e1 ? "정상" : "어긋남");
     }
 

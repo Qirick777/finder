@@ -30,8 +30,11 @@ public final class InfantIllness {
     public static final double NEIGHBOR_RADIUS = 96.0;
     /** 상한이 닿는 이웃 수 — 반경 96 의 마을에 집 16채면 "빽빽하다". */
     public static final int DENSE_HOMES = 16;
-    /** 이웃 {@link #DENSE_HOMES}채에서의 하루 발병 확률(캡 적용 전). */
-    public static final double BASE_RATE = 0.1;
+    /** 이웃 {@link #DENSE_HOMES}채에서의 하루 발병 확률(캡 적용 전).
+     *  0.10 → 0.14(사용자 지시 — 인구 증가가 과하면 영아사망률로, 실제 중세~르네상스 수준 이하면 살짝
+     *  올린다): 런 22 실측 d15 인구 106(런 21 76), 유아 사망 6/출산 96 = 6%. 중세 1세 전 사망 25~35%.
+     *  16채 마을에서 두 밤 검사 기준 1−0.86² = 26% 로 그 하한에 맞춘다(8채 7% · 24채+ 51%). */
+    public static final double BASE_RATE = 0.14;
     /** 하루 발병 확률 상한 — 아무리 빽빽해도 하루 30% 를 넘지 않는다. */
     public static final double CAP = 0.3;
     /** 부모 교육 1등급당 감면(무학 0 · 초급 1 · 중급 2 · 상급 3 → 최대 −60%). */

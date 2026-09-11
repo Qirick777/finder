@@ -917,8 +917,52 @@ public class FarmStore extends SavedData {
         // 사임하고 같은 틱 승계를 발동한다(소유자는 마름 불가 — "자기 밭 소작 불가"의 확장).
         if (heir != null) {
             stewardGone(level, heir.getIndividual().id(), "상속 소유 전환 — 마름 사임");
+            restoreHouseName(level, heir, deadId);
         }
         setDirty();
+    }
+
+    /**
+     * 가문 성 원복(사용자 승인) — 딸이 승계하면 혼인으로 바뀐 성을 고인의 성으로 되돌리고, 남편과
+     * 이미 태어난 자식도 같은 성으로 바꾼다(데릴사위 — "가문을 잇는 자가 성을 잇는다"). 상속인에
+     * houseHeir 표시를 두어 앞으로의 혼인에서도 남편이 처가 성을 따르게 한다(MimicEntity 혼인 개성).
+     * 장남 승계는 성이 같아 아무 일도 없다. 이름은 표시·원장·로그에만 쓰이고 판정은 전부 id 라
+     * 규칙에는 영향이 없다.
+     */
+    private static void restoreHouseName(ServerLevel level, MimicEntity heir, long deadId) {
+        FamilyLedger ledger = FamilyLedger.get(level);
+        FamilyLedger.Rec dead = ledger.get(deadId);
+        String house = null;
+        if (dead != null && dead.name != null && dead.name.contains(" ")) {
+            house = dead.name.substring(dead.name.lastIndexOf(' ') + 1).trim();
+        }
+        if (house == null || house.isEmpty()) {
+            house = com.evosim.core.NameBook.surname(deadId);
+        }
+        if (house == null || house.isEmpty() || heir.getIndividual() == null
+                || house.equals(heir.getIndividual().surname())) {
+            return;
+        }
+        heir.setHouseHeir(true);
+        String before = heir.getIndividual().shortName();
+        heir.getIndividual().setSurname(house);
+        ledger.updateName(heir.getIndividual().id(), heir.getIndividual().shortName());
+        long hid = heir.getIndividual().id();
+        int renamed = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e != heir)) {
+            var ind = m.getIndividual();
+            boolean spouse = m.getSpouseId() == hid || heir.getSpouseId() == ind.id();
+            boolean child = ind.parentAId() == hid || ind.parentBId() == hid;
+            if ((spouse || child) && !house.equals(ind.surname())) {
+                ind.setSurname(house);
+                ledger.updateName(ind.id(), ind.shortName());
+                renamed++;
+            }
+        }
+        com.evosim.mod.log.SimEvents.event(heir, "개성", String.format(
+                "가문 승계 — %s → %s (남편·자식 %d명 포함, 이후 혼인도 처가 성)", before,
+                heir.getIndividual().shortName(), renamed));
     }
 
     /** 검증 전용 정리 — 무대 밭 회수(규칙 7). 멱등. */

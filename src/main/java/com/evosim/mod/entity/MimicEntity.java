@@ -145,6 +145,8 @@ public class MimicEntity extends PathfinderMob {
     private int schoolDays = 0;
     /** 왕국 성립일(영지 수지 흑자 연속 — Realm) · −1 = 아직. NBT. 칭호 "[군주]"의 유일한 출처. */
     private int realmDay = -1;
+    /** 가문 계승자(딸 승계로 고인의 성을 이은 자) — 혼인 때 성을 안 바꾸고 남편이 처가 성을 따른다. NBT. */
+    private boolean houseHeir = false;
     private long schoolCreditedDay = Long.MIN_VALUE;
     /**
      * <b>깔아야 할 길</b>(중심선, 진입 칸 → 도로망 순). 집을 다 지은 미믹이 삽을 들고
@@ -1260,6 +1262,14 @@ public class MimicEntity extends PathfinderMob {
         return realmDay;
     }
 
+    public boolean isHouseHeir() {
+        return houseHeir;
+    }
+
+    public void setHouseHeir(boolean on) {
+        this.houseHeir = on;
+    }
+
     public void setRealmDay(int day) {
         this.realmDay = day;
     }
@@ -1961,16 +1971,21 @@ public class MimicEntity extends PathfinderMob {
         }
         StageObserver.record(getId(), "mating:pair");
         // 혼인 개성(改姓) — 아내가 남편 성으로(서양식·가구=한 성). 로그로 1회 기록.
+        // 가문 계승자(딸 승계, houseHeir)는 반대다 — 남편이 처가 성을 따른다(데릴사위): 가문을
+        // 잇는 자가 성을 잇고, 그래야 앞으로 태어날 자식(아버지 성)이 가문 성을 받는다.
         MimicEntity wife = isFemale() ? this : other;
         MimicEntity husband = isFemale() ? other : this;
         if (wife.getIndividual() != null && husband.getIndividual() != null) {
-            String before = wife.getIndividual().shortName();
-            wife.getIndividual().setSurname(husband.getIndividual().surname());
-            if (!before.equals(wife.getIndividual().shortName())) {
-                SimEvents.event(wife, "개성", before + " → " + wife.getIndividual().shortName());
+            MimicEntity taker = wife.isHouseHeir() ? husband : wife;
+            MimicEntity giver = wife.isHouseHeir() ? wife : husband;
+            String before = taker.getIndividual().shortName();
+            taker.getIndividual().setSurname(giver.getIndividual().surname());
+            if (!before.equals(taker.getIndividual().shortName())) {
+                SimEvents.event(taker, "개성", before + " → " + taker.getIndividual().shortName()
+                        + (wife.isHouseHeir() ? " (데릴사위 — 가문 계승자의 성)" : ""));
                 if (level() instanceof ServerLevel psl) {
-                    FamilyLedger.get(psl).updateName(wife.getIndividual().id(),
-                            wife.getIndividual().shortName()); // 가계도·랭킹 동기(원장 박제 갱신)
+                    FamilyLedger.get(psl).updateName(taker.getIndividual().id(),
+                            taker.getIndividual().shortName()); // 가계도·랭킹 동기(원장 박제 갱신)
                 }
             }
         }
@@ -7642,6 +7657,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("Building", building);
         tag.putInt("SchoolDays", schoolDays);
         tag.putInt("RealmDay", realmDay);
+        tag.putBoolean("HouseHeir", houseHeir);
         if (poorhousePos != null) {
             tag.putLong("Poorhouse", poorhousePos.asLong());
         }
@@ -7727,6 +7743,7 @@ public class MimicEntity extends PathfinderMob {
         building = tag.getBoolean("Building");
         schoolDays = tag.getInt("SchoolDays");
         realmDay = tag.contains("RealmDay") ? tag.getInt("RealmDay") : -1;
+        houseHeir = tag.getBoolean("HouseHeir");
         poorhousePos = tag.contains("Poorhouse")
                 ? BlockPos.of(tag.getLong("Poorhouse")) : null;
         guardWage = tag.getDouble("GuardWage");

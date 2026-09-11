@@ -203,13 +203,24 @@ public final class EvoTest {
     // /evotest lending — 대부·봉신: 자기 자본 · 대부 여유 · 봉신 상한 · 지대 상납 · 수확 용량
     // ──────────────────────────────────────────────────────────────
     private static void lending(Report report) {
-        boolean e1 = !com.evosim.core.Lending.equityOk(14.0, 30.0)
-                && com.evosim.core.Lending.equityOk(15.0, 30.0)
-                && close(com.evosim.core.Lending.loanNeeded(15.0, 30.0), 15.0)
+        boolean e1 = !com.evosim.core.Lending.equityOk(9.0, 30.0)
+                && com.evosim.core.Lending.equityOk(10.0, 30.0)
+                && close(com.evosim.core.Lending.loanNeeded(10.0, 30.0), 20.0)
                 && close(com.evosim.core.Lending.loanNeeded(22.4, 30.0), 8.0)
-                && close(com.evosim.core.Lending.loanNeeded(30.0, 30.0), 0.0);
-        report.add("lending/자기자본", e1, "저축 14/30 불가 · 15/30 가능 · 청구 15 · 22.4 → 8(올림) · 30 → 0",
+                && close(com.evosim.core.Lending.loanNeeded(30.0, 30.0), 0.0)
+                && com.evosim.core.Lending.TENANT_DAYS == 1;
+        report.add("lending/자기자본", e1, "저축 9/30 불가 · 10/30 가능(⅓) · 청구 20 · 22.4 → 8(올림) · 30 → 0 · 신용 출근 1일",
                 e1 ? "정상" : "어긋남");
+        boolean tr = com.evosim.core.Lending.fiefTax(5) == 1 && com.evosim.core.Lending.fiefTax(2) == 0
+                && com.evosim.core.Lending.fiefTax(26) == 5 && com.evosim.core.Lending.fiefTax(0) == 0
+                && close(com.evosim.core.Lending.trancheRoom(6.0, 50.0, 0.0), 6.0)
+                && close(com.evosim.core.Lending.trancheRoom(8.0, 3.0, 0.0), 3.0)
+                && close(com.evosim.core.Lending.trancheRoom(8.0, 50.0, 37.0), 3.0)
+                && close(com.evosim.core.Lending.trancheRoom(8.0, 50.0, 40.0), 0.0)
+                && close(com.evosim.core.Lending.TRANCHE_SHARE, 0.5);
+        report.add("lending/봉토세분할", tr,
+                "봉토세 지대 5 → 1 · 2 → 0 · 26 → 5 (20% 반올림, 빚 무관) · 트랜치 = min(봉신 몫 6, 주인 여유, 상한 40 − 잔액) · 반반",
+                tr ? "정상" : "어긋남");
         boolean r1 = close(com.evosim.core.Lending.lenderRoom(60.0, 12.0), 24.0)
                 && close(com.evosim.core.Lending.lenderRoom(12.0, 12.0), 0.0)
                 && close(com.evosim.core.Lending.lenderRoom(100.0, 36.0), 32.0);
@@ -250,14 +261,14 @@ public final class EvoTest {
         report.add("lending/동기축", axes,
                 "대지주 4·중소 4 → 청함 · 의탁·품팔이 → 안 청함(야망가+품팔이도) · 무특성 → 안 청함",
                 axes ? "정상" : "어긋남");
-        boolean eq = close(com.evosim.core.Lending.equityShare(one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER))), 1.0 / 3.0)
-                && close(com.evosim.core.Lending.equityShare(one(Sex.MALE)), 0.5)
-                && com.evosim.core.Lending.equityOk(10.0, 30.0, one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER)))
-                && !com.evosim.core.Lending.equityOk(10.0, 30.0, one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))
+        boolean eq = close(com.evosim.core.Lending.equityShare(one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER))), 0.25)
+                && close(com.evosim.core.Lending.equityShare(one(Sex.MALE)), 1.0 / 3.0)
+                && com.evosim.core.Lending.equityOk(8.0, 30.0, one(Sex.MALE, TraitInstance.of(Trait.SMALLHOLDER)))
+                && !com.evosim.core.Lending.equityOk(8.0, 30.0, one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))
                 && close(com.evosim.core.Lending.foundGateMult(one(Sex.MALE, TraitInstance.of(Trait.DEPENDENT))), 1.5)
                 && close(com.evosim.core.Lending.foundGateMult(one(Sex.MALE)), 1.0)
                 && com.evosim.core.Lending.PREV_LOAN_PLOT_TILES == 18;
-        report.add("lending/축별수치", eq, "텃밭꾼 자기자본 ⅓(10/30 가능) · 그 외 ½ · 의탁 문턱 ×1.5 · 직전 대출 밭 18타일",
+        report.add("lending/축별수치", eq, "텃밭꾼 자기자본 ¼(8/30 가능) · 그 외 ⅓ · 의탁 문턱 ×1.5 · 직전 대출 밭 18타일",
                 eq ? "정상" : "어긋남");
         // 중소지주 축의 만족 — 제 밭 24 전까지 불만족, 24 부터 기본 판정. 무특성은 밭과 무관.
         Individual small = one(Sex.MALE, TraitInstance.of(Trait.SELF_RELIANT));

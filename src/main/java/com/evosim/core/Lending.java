@@ -19,7 +19,7 @@ package com.evosim.core;
 public final class Lending {
 
     /** 자기 자본 — 착공 문턱의 이 비율은 제 저축이어야 빌려준다. 종자 반은 제 것. */
-    public static final double EQUITY_SHARE = 0.5;
+    public static final double EQUITY_SHARE = 1.0 / 3.0; // ½ → ⅓(사용자 승인, 런 15·16): 후보 저축 10~13 이 15 문턱에 며칠씩 걸렸다
     /** 대부자가 하루에 내주는 상한 — 여유(저장고 − 확장 예비)의 이 비율. */
     public static final double LENDER_SHARE = 0.5;
     /** 봉신 상한 — 주인 추종자 중 제 몫으로 얹는 비율(⌊주인 추종자 × 이 값⌋). */
@@ -27,16 +27,31 @@ public final class Lending {
     /** 빚이 있는 동안 곳간 도착 지대에서 주인에게 올리는 비율(반올림 정수). */
     public static final double RENT_TRIBUTE = 0.2;
     /** 신용 — 상시소작 근속 일수(그 밭 주인이 아는 사람). */
-    public static final int TENANT_DAYS = 2;
+    public static final int TENANT_DAYS = 1; // 2 → 1(사용자 승인): 출근 하루면 아는 사람
 
     /** 텃밭꾼의 자기 자본 비율 — 종자를 아껴 두는 자라 ⅓ 이면 된다. */
-    public static final double EQUITY_SHARE_SMALLHOLDER = 1.0 / 3.0;
+    public static final double EQUITY_SHARE_SMALLHOLDER = 0.25; // 전원 ⅓ 로 내리면서 텃밭꾼은 ¼ 로 한 단 더
     /** 의탁·품팔이의 착공 문턱 배율 — 제 밭에 관심이 없는 자는 웬만해선 안 연다. */
     public static final double FOUND_GATE_MULT_DEPENDENT = 1.5;
     /** 대부자의 다음 대출 조건 — 직전 대출 밭이 이 타일(소작이 붙는 크기 = 부부 용량 16 + 최소 일감 2)에 닿아야. */
     public static final int PREV_LOAN_PLOT_TILES = FarmEconomy.C_BASE * 2 + FarmEconomy.MIN_JOB;
 
+    /** 봉신 한 명에게 묶이는 미상환 잔액 상한 — 36타일 총비용(착공 12 + 확장 22) + 여유. */
+    public static final double LOAN_CAP = 40.0;
+    /** 분할(반반) 대출 — 봉신 밭 36 미만의 확장비 중 주인이 대는 몫. 나머지는 봉신 곳간(예비 위). */
+    public static final double TRANCHE_SHARE = 0.5;
+
     private Lending() {
+    }
+
+    /** 봉토세 — 봉신(주인 있는 밭 소유자)의 곳간 도착 지대 중 주인에게 올리는 정수(빚과 무관). */
+    public static int fiefTax(int units) {
+        return units <= 0 ? 0 : (int) Math.round(units * RENT_TRIBUTE);
+    }
+
+    /** 분할 대출의 이 밤 주인 몫 = min(봉신이 제 곳간에서 낼 수 있는 몫, 주인 여유, 상한 − 잔액). */
+    public static double trancheRoom(double vassalBudget, double lenderRoom, double owed) {
+        return Math.max(0.0, Math.min(Math.min(vassalBudget, lenderRoom), LOAN_CAP - owed));
     }
 
     /** 대지주 축 — 지주와 경쟁하는 자: 야망가·욕심·경쟁·자수성가. */

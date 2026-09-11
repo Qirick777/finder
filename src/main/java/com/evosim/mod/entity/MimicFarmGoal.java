@@ -493,6 +493,10 @@ public class MimicFarmGoal extends Goal {
                     3, 0.25, 0.2, 0.25, 0.0);
         }
         if (++tendStay >= TEND_STAY_TICKS) {
+            FarmStore.Plot tp = farmStore().get(tendPlot);
+            if (tp != null && (tp.ownerId == mob.getIndividual().id() || mob.marriedTo(tp.ownerId))) {
+                FarmTicker.recordSelfTend(mob.getId()); // 자기 밭에 나와 손질했다(딸 게 없던 날)
+            }
             tendTarget = null; // 다음 자리는 canUse 가 고른다
             tendStay = 0;
         }
@@ -540,6 +544,11 @@ public class MimicFarmGoal extends Goal {
             } else if (++stuckTicks >= NO_PROGRESS_DROP_TICKS) {
                 FarmStore.Plot p = plotOf(target);
                 FarmTicker.reportUnreachable(mob.getId(), p != null ? p.id : 0L);
+                if (p != null && mob.getTenantFarm() == p.id) {
+                    // 자기 상시 밭으로 못 갔다 — 예약석 반납 카운터(FarmEconomy.noShowRelease)
+                    mob.noteTenantNoShow(
+                            com.evosim.mod.entity.SimTime.tick(mob.level()) / 24000L);
+                }
                 SimEvents.event(mob, "출근포기", String.format(
                         "구획%d 까지 %.0f블록 — %d틱 동안 더 가까워지지 못해 배정을 반납한다"
                                 + "(최근접 %.0f블록%s)",
@@ -615,6 +624,9 @@ public class MimicFarmGoal extends Goal {
                         (FarmEconomy.baseOwnerShare(base, tenantLarder, adultNeed) + lift) * e;
                 double excessShare = FarmEconomy.excessOwnerShare(base, tenantLarder, adultNeed) * e;
                 mob.addHarvest(tShare);
+                if (mob.getTenantFarm() == p.id) {
+                    mob.resetTenantNoShow(); // 상시 밭에 실제로 나왔다
+                }
                 p.account += baseShare;
                 p.excessHoard += excessShare; // 잠금 축장(밤 정산 때 지주 저장고로, 확장 무관)
                 if (mob.getIndividual().id() != p.stewardId) {
@@ -645,6 +657,7 @@ public class MimicFarmGoal extends Goal {
                 mob.addHarvest(own); // 자기 밭 = 100% 본인 몫
                 if (p != null) {
                     farmStore().recordHarvest(p, own, own, 0.0); // 자영 수확도 원장에(주인 몫)
+                    FarmTicker.recordSelfHarvest(mob.getId()); // 내일 새벽 가구 몫의 근거(실제 손)
                 }
                 com.evosim.mod.log.SimAudit.record(
                         com.evosim.mod.log.SimAudit.Src.FARM_SELF, own);

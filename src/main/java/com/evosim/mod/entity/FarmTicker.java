@@ -106,6 +106,41 @@ public final class FarmTicker {
         return ASSIGNED.getOrDefault(entityId, 0L);
     }
 
+    /** 오늘 자기 가구 밭에서 딴 칸 수(개체 id → 칸, 휘발) — 새벽에 어제 값으로 넘긴다. */
+    private static final java.util.Map<Integer, Integer> SELF_HARVEST_TODAY = new java.util.HashMap<>();
+    /** 어제 자기 가구 밭에서 딴 칸 수 — assignDawn 가구 몫(FarmEconomy.careBudget)의 입력. */
+    private static final java.util.Map<Integer, Integer> SELF_HARVEST_YDAY = new java.util.HashMap<>();
+    /** 자영 수확 기록이 한 번이라도 있는 개체 — 없으면 careBudget 부트스트랩(용량 그대로). */
+    private static final java.util.Set<Integer> SELF_HARVEST_EVER = new java.util.HashSet<>();
+
+    /** 오늘 자기 가구 밭을 손질(관리)한 개체 — 나왔는데 딸 게 없던 날(careBudget 참조). */
+    private static final java.util.Set<Integer> SELF_TEND_TODAY = new java.util.HashSet<>();
+    private static final java.util.Set<Integer> SELF_TEND_YDAY = new java.util.HashSet<>();
+
+    /** 자영 수확 기록(수확 시점, MimicFarmGoal 가구 밭 분기) — 다음 새벽 가구 몫 산정 입력. */
+    public static void recordSelfHarvest(int entityId) {
+        SELF_HARVEST_TODAY.merge(entityId, 1, Integer::sum);
+        SELF_HARVEST_EVER.add(entityId);
+    }
+
+    /** 자기 가구 밭 손질 기록(한 자리 손질 완료 시점) — 출근은 했다는 증거. */
+    public static void recordSelfTend(int entityId) {
+        SELF_TEND_TODAY.add(entityId);
+        SELF_HARVEST_EVER.add(entityId);
+    }
+
+    static boolean selfTendedYesterday(int entityId) {
+        return SELF_TEND_YDAY.contains(entityId);
+    }
+
+    /** 어제 자영 칸 수 — 기록이 한 번도 없으면 null(부트스트랩). */
+    static Integer selfHarvestYesterday(int entityId) {
+        if (!SELF_HARVEST_EVER.contains(entityId)) {
+            return null;
+        }
+        return SELF_HARVEST_YDAY.getOrDefault(entityId, 0);
+    }
+
     /** 소작 임금 적립 기록(수확 시점) — 마름 수당 산정 입력(마름 본인 노동분은 호출부에서 제외). */
     public static void recordTenantPay(long plotId, double share, int workerId) {
         TENANT_PAY_TODAY.merge(plotId, share, Double::sum);
@@ -5963,6 +5998,13 @@ public final class FarmTicker {
         LAST_ASSIGNED.putAll(ASSIGNED);
         ASSIGNED.clear();
         UNREACHABLE.clear(); // 하루 지나면 다시 시도(지형·군집은 변한다)
+        // 자영 장부 넘김 — 오늘 딴 손이 내일 가구 몫이 된다(FarmEconomy.careBudget).
+        SELF_HARVEST_YDAY.clear();
+        SELF_HARVEST_YDAY.putAll(SELF_HARVEST_TODAY);
+        SELF_HARVEST_TODAY.clear();
+        SELF_TEND_YDAY.clear();
+        SELF_TEND_YDAY.addAll(SELF_TEND_TODAY);
+        SELF_TEND_TODAY.clear();
         FarmStore store = FarmStore.get(level);
         java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
                 com.evosim.mod.reg.ModEntities.MIMIC.get(),
@@ -5993,9 +6035,13 @@ public final class FarmTicker {
                     ownerHomes.put(oid, home);
                 }
                 int budget = 0;
+                // 가구 몫 = 어제 실제로 딴 칸(런 19 실측 수정 — FarmEconomy.careBudget 주석).
                 if (ownerEnt != null && !ownerEnt.isSatisfiedToday()) { // 만족 구성원 제외 유지(R6)
-                    budget += com.evosim.core.FarmEconomy.capacity(
-                            ownerEnt.getIndividual(), ownerEnt.getStage());
+                    budget += com.evosim.core.FarmEconomy.careBudget(
+                            com.evosim.core.FarmEconomy.capacity(
+                                    ownerEnt.getIndividual(), ownerEnt.getStage()),
+                            selfHarvestYesterday(ownerEnt.getId()),
+                            selfTendedYesterday(ownerEnt.getId()));
                 }
                 if (ownerEnt != null && home != null) {
                     // 배우자 노동 합산은 수확 권한(MimicFarmGoal.nearestWorkRipe: 수확자 spouseId==주인)과
@@ -6010,8 +6056,11 @@ public final class FarmTicker {
                         if (m.getIndividual().id() != oid && m.getSpouseId() == oid
                                 && home.equals(m.getHomePos()) && !m.isSatisfiedToday()
                                 && !m.isCaregiverBound()) {
-                            budget += com.evosim.core.FarmEconomy.capacity(
-                                    m.getIndividual(), m.getStage());
+                            budget += com.evosim.core.FarmEconomy.careBudget(
+                                    com.evosim.core.FarmEconomy.capacity(
+                                            m.getIndividual(), m.getStage()),
+                                    selfHarvestYesterday(m.getId()),
+                                    selfTendedYesterday(m.getId()));
                         }
                     }
                 }
@@ -6072,6 +6121,15 @@ public final class FarmTicker {
                     // 유령 상시 방어 정리 — 밭 주인이 된 상시는 명부에서 해제(기존 월드 소급 포함)
                     m.setTenant(0L, 0);
                     com.evosim.mod.log.SimEvents.event(m, "소작해제", "지주 전환 — 상시 명부 정리");
+                    continue;
+                }
+                if (com.evosim.core.FarmEconomy.noShowRelease(m.getTenantNoShow())) {
+                    // 출근 불능(런 19 실측 수정) — 예약석은 출근하는 사람의 것. 못 오는 상시가 자리를
+                    // 채운 것으로 계산되면 그 밭은 하루 종일 빈다(FarmEconomy.noShowRelease 주석).
+                    int days = m.getTenantNoShow();
+                    m.setTenant(0L, 0);
+                    com.evosim.mod.log.SimEvents.event(m, "소작해제", String.format(
+                            "출근 불능 %d일 — 구획 %d 예약석 반납(자리는 오늘 시장에)", days, plot.id));
                     continue;
                 }
                 perm.add(m);

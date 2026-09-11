@@ -415,6 +415,45 @@ public final class FarmEconomy {
     }
 
     /** 부족 타일 = T − 가구 용량. 최소 일감 미만이면 0(게시 안 함 — 잔여는 익은 채 이월). */
+    /**
+     * 주인 가구 케어 몫(런 19 실측 수정) — <b>장부가 아니라 어제 실제로 딴 손</b>.
+     *
+     * <p>종전에는 주인·동거 배우자를 무조건 용량(8)으로 잡았다. 봉신 스칼릿 퀸시는 하루 종일
+     * 0칸을 땄고 남편은 남의 밭 일용으로 나갔는데도 25칸 밭에서 16칸이 "가구 몫"으로 빠져,
+     * 시장에는 자리 1개만 났다(런 19 d8~d12: 하루 6칸 익은 채 방치 → d11 수확 0건). 지주는
+     * 어제 밭에 나온 손을 보고 오늘 일꾼을 부른다 — 안 나오는 식구 몫까지 비워 두는 지주는 없다.
+     *
+     * <p>딸 게 없어서 못 딴 날은 결근이 아니다 — 막 개간·확장한 밭은 익은 칸이 없어 주인이
+     * 종일 관리(손질)만 한다. 그날을 0으로 세면 다음 날 밭 전체가 소작에 게시돼 주인이 제 밭에서
+     * 밀려난다. 어제 자기 밭을 <b>손질했으면</b> 나온 것이므로 용량으로 잡는다.
+     *
+     * @param capacity    그 사람의 하루 수확 용량
+     * @param ydaySelf    어제 자기 가구 밭에서 실제로 딴 칸 수. {@code null} = 자영 기록이 아직
+     *                    한 번도 없음(막 개간한 첫날 등) → 용량 그대로(부트스트랩, 종전 거동)
+     * @param ydayTended  어제 자기 가구 밭을 손질(관리)했는가 — 나왔는데 딸 게 없던 날
+     */
+    public static int careBudget(int capacity, Integer ydaySelf, boolean ydayTended) {
+        if (ydaySelf == null || ydayTended) {
+            return capacity;
+        }
+        return Math.max(0, Math.min(capacity, ydaySelf));
+    }
+
+    /** 상시 소작 예약석 반납 문턱 — 자기 밭으로 출근포기(무진전 반납)가 이 일수 연속이면 해제. */
+    public static final int NO_SHOW_RELEASE_DAYS = 2;
+
+    /**
+     * 출근 불능 상시 소작 해제(런 19 실측 수정) — 예약석은 <b>출근하는 사람의 것</b>.
+     *
+     * <p>출근포기는 그날 배정만 반납하고 예약석은 남겼다. 다음 새벽에 다시 그가 자리를 채운 것으로
+     * 계산돼 다른 소작을 뽑지 않았고, 그는 또 못 왔다(런 19 다리우스 퀸시 d10~d12 연속 출근포기,
+     * 구획 2 d11 수확 0건). 이틀 못 오면 지주는 자리를 다른 이에게 넘긴다 — 이사·길 막힘·구혼여행
+     * 같은 사유는 카운터가 알아서 걸러 준다.
+     */
+    public static boolean noShowRelease(int consecutiveNoShowDays) {
+        return consecutiveNoShowDays >= NO_SHOW_RELEASE_DAYS;
+    }
+
     public static int shortfall(int tiles, int ownCapacity) {
         int s = tiles - ownCapacity;
         return s >= MIN_JOB ? s : 0;

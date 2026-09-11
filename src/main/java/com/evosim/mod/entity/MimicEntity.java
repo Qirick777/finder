@@ -240,6 +240,8 @@ public class MimicEntity extends PathfinderMob {
     private boolean satisfiedToday = false;     // 만족 캐시(휘발 — 새벽마다 재계산, M7)
     private boolean competitiveDriven = false;  // 경쟁 발동 캐시(이웃 우위 — 배회 노동 트리거)
     private int tenantStreak = 0;               // 같은 밭 연속 출근 일수(NBT — 승격 카운터)
+    private int tenantNoShow = 0;               // 상시 밭 연속 출근포기 일수(NBT — 예약석 반납 카운터)
+    private long tenantNoShowDay = -1L;         // 마지막으로 센 날(휘발 — 같은 날 중복 집계 방지)
     private boolean ledgerChecked = false;      // 원장 등록 1회 시도 가드(휘발 — register 자체는 멱등)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
     private boolean lastFed = true;             // 위급 아님(스캐너 표시)
@@ -6697,8 +6699,31 @@ public class MimicEntity extends PathfinderMob {
         return tenantStreak;
     }
 
+    /** 상시 밭 연속 출근포기 일수 — FarmEconomy.noShowRelease 의 입력. */
+    public int getTenantNoShow() {
+        return tenantNoShow;
+    }
+
+    /** 자기 상시 밭으로 출근포기(무진전 반납) — 하루 1회만 센다(같은 날 반복 반납은 1일). */
+    public void noteTenantNoShow(long day) {
+        if (tenantNoShowDay == day) {
+            return;
+        }
+        tenantNoShowDay = day;
+        tenantNoShow++;
+    }
+
+    /** 상시 밭에서 실제로 수확했다 — 출근 불능 카운터 초기화. */
+    public void resetTenantNoShow() {
+        tenantNoShow = 0;
+        tenantNoShowDay = -1L;
+    }
+
     /** 소작 관계 갱신(FarmTicker 전용 + 검증 조성) — 승격·해제·연속일. */
     public void setTenant(long farmId, int streak) {
+        if (farmId != this.tenantFarm) {
+            resetTenantNoShow(); // 밭이 바뀌면 출근 불능 이력은 그 밭의 것이라 버린다
+        }
         this.tenantFarm = farmId;
         this.tenantStreak = streak;
     }
@@ -7642,6 +7667,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("StageActor", stageActor); // 무대 표식 유지 — 리로드 후 원장 재등록 방지
         tag.putLong("TenantFarm", tenantFarm);    // 봉건 소작 관계(상시) — 리로드에도 유지
         tag.putInt("TenantStreak", tenantStreak);
+        tag.putInt("TenantNoShow", tenantNoShow);
         tag.putLong("PlayDay", lastPlayDay);      // 배회 생활(놀이·마실) 쿨다운·대화 기록
         tag.putLong("VisitDay", lastVisitDay);
         tag.putLong("ChatId", lastChatId);
@@ -7727,6 +7753,7 @@ public class MimicEntity extends PathfinderMob {
         stageActor = tag.getBoolean("StageActor");
         tenantFarm = tag.getLong("TenantFarm");
         tenantStreak = tag.getInt("TenantStreak");
+        tenantNoShow = tag.getInt("TenantNoShow");
         lastPlayDay = tag.contains("PlayDay") ? tag.getLong("PlayDay") : -1L;
         lastVisitDay = tag.contains("VisitDay") ? tag.getLong("VisitDay") : -100L;
         lastChatId = tag.getLong("ChatId");

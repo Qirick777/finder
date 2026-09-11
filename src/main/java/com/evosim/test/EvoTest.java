@@ -255,6 +255,23 @@ public final class EvoTest {
                 && com.evosim.core.FarmEconomy.capacity(plainMan, LifeStage.ADULT) == 8;
         report.add("lending/소작용량", tc, "남의 밭 12 → 8 · 36 → 9 · 36+마름 → 11 · 108+마름 → 14(상한) · 자가 8",
                 tc ? "정상" : "어긋남");
+        // 가구 몫 = 어제 실제로 딴 손(런 19 수정): 기록 없음 → 용량 / 어제 0 → 0 / 어제 5 → 5 /
+        // 어제 12(용량 초과) → 8 / 손질만 한 날 → 용량(딸 게 없던 날은 결근이 아님).
+        boolean cb = com.evosim.core.FarmEconomy.careBudget(8, null, false) == 8
+                && com.evosim.core.FarmEconomy.careBudget(8, 0, false) == 0
+                && com.evosim.core.FarmEconomy.careBudget(8, 5, false) == 5
+                && com.evosim.core.FarmEconomy.careBudget(8, 12, false) == 8
+                && com.evosim.core.FarmEconomy.careBudget(8, 0, true) == 8;
+        report.add("farm/케어예산실측", cb, "기록 없음 → 8 · 어제 0 → 0 · 5 → 5 · 12 → 8 · 손질만 → 8",
+                cb ? "정상" : "어긋남");
+        // 출근 불능 상시 해제(런 19 수정): 출근포기 0·1일 → 유지, 2일 → 예약석 반납.
+        boolean ns = com.evosim.core.FarmEconomy.NO_SHOW_RELEASE_DAYS == 2
+                && !com.evosim.core.FarmEconomy.noShowRelease(0)
+                && !com.evosim.core.FarmEconomy.noShowRelease(1)
+                && com.evosim.core.FarmEconomy.noShowRelease(2)
+                && com.evosim.core.FarmEconomy.noShowRelease(5);
+        report.add("farm/출근불능해제", ns, "출근포기 0·1일 유지 · 2일 이상 예약석 반납",
+                ns ? "정상" : "어긋남");
         // 두 축(사용자 승인): 대지주 축 = 야망가·욕심·경쟁·자수성가 / 중소지주 축 = 미래지향·개척선호·
         // 자립심·텃밭꾼 / 의탁·품팔이는 절대 안 빌림 / 무특성도 안 빌림.
         boolean axes = com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))

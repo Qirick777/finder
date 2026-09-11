@@ -5388,7 +5388,7 @@ public class MimicEntity extends PathfinderMob {
                         - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출
                 long now = com.evosim.mod.entity.SimTime.tick(level());
                 boolean cooldownOk = now - mother.lastBirthTick
-                        >= (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
+                        >= (long) (Reproduction.FEMALE_COOLDOWN_DAYS * 24000L);
                 boolean underLimit = mother.childrenBorn
                         < Reproduction.birthLimit(mother.getIndividual(), father.getIndividual());
                 // 지역 과밀 상한(LOCAL_POP_CAP)은 폐기(지시) — 식량 압력이 자연 조절자:
@@ -5398,6 +5398,28 @@ public class MimicEntity extends PathfinderMob {
                         && FoodEconomy.canReproduce(larder - gardenDebt, need, adults, adj, starving)
                         && mother.spawnChild(sl, father)) {
                     larder -= FoodEconomy.BIRTH_COST; // 비용은 출산이 실제 성사됐을 때만 차감(결과 기반)
+                    // 다태아(사용자 승인) — 둘째·셋째도 아이당 출산비와 식량 관문을 각각 넘어야 한다.
+                    // 곳간이 둘째 몫을 못 대면 하나로 끝난다(굶으면서 낳지 않는다).
+                    int extra = Reproduction.extraBirths(sl.getRandom().nextDouble(),
+                            mother.getIndividual(), father.getIndividual());
+                    int born = 1;
+                    for (int i = 0; i < extra; i++) {
+                        if (FoodEconomy.canReproduce(larder - gardenDebt, need, adults, adj, starving)
+                                && mother.spawnChild(sl, father)) {
+                            larder -= FoodEconomy.BIRTH_COST;
+                            born++;
+                        } else {
+                            break;
+                        }
+                    }
+                    if (born > 1) {
+                        SimEvents.event(mother, born == 2 ? "쌍둥이" : "삼둥이", String.format(
+                                "한 밤에 %d명 (굴림 %d명 · 쌍둥이 확률 %.0f%% · 삼둥이 %.0f%%) · 저장고 %.1f",
+                                born, 1 + extra,
+                                Reproduction.twinChance(mother.getIndividual(), father.getIndividual()) * 100.0,
+                                Reproduction.tripletChance(mother.getIndividual(), father.getIndividual()) * 100.0,
+                                larder));
+                    }
                 }
             }
         }
@@ -6103,7 +6125,7 @@ public class MimicEntity extends PathfinderMob {
                 s.reproLack = (float) Math.max(0.0, s.reproNeed - larder);
                 // 시간 게이트(쿨다운) 잔여일 — 식량이 충족이어도 이 값이 남아 있으면 출산하지 않는다.
                 long since = com.evosim.mod.entity.SimTime.tick(sl) - mother.lastBirthTick;
-                long cdTicks = (long) Reproduction.FEMALE_COOLDOWN_DAYS * 24000L;
+                long cdTicks = (long) (Reproduction.FEMALE_COOLDOWN_DAYS * 24000L);
                 s.reproCooldown = mother.childrenBorn == 0 ? 0.0F
                         : (float) Math.max(0.0, (cdTicks - since) / 24000.0);
             } else if (allMothersDone) {

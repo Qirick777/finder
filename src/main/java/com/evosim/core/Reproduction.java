@@ -14,7 +14,48 @@ public final class Reproduction {
      *  엘리트 지주 전용 영역 — 규칙이 아닌 능력 계단(무능력 소작 2~3·약초Ⅰ~Ⅱ 3~4)이 가른다. */
     public static final int BASE_BIRTH_LIMIT = 10;
     /** 여성 출산 쿨다운 (설계서 §6). */
-    public static final int FEMALE_COOLDOWN_DAYS = 3; // 1→3(A안 후속 — 부유층 상한): 정원 배율
+    public static final double FEMALE_COOLDOWN_DAYS = 2.5; // 1→3(A안 후속 — 부유층 상한): 정원 배율 → 2.5(사용자 승인, 런 21: 출산이 쿨다운 상한에 붙어 있었다 — 젖 떼고(유아 1.75일) 사흘 뒤)
+
+    // ── 다태아(사용자 승인) — 세대로 쌓이는 장기 가속. 초반은 +10% 남짓, 다산 가문이 커지며
+    //    곡선이 꺾이고, 후반은 유아 병듦(밀집)이 깎는다. 출산 판정을 통과한 뒤 굴리며, 둘째·셋째도
+    //    아이당 출산비·식량 관문을 각각 넘어야 한다(호출부).
+    /** 기본 쌍둥이 확률. */
+    public static final double TWIN_RATE = 0.10;
+    /** 기본 삼둥이 확률. */
+    public static final double TRIPLET_RATE = 0.02;
+    /** 다산 어머니의 쌍둥이 가산. */
+    public static final double TWIN_PROLIFIC_FEMALE = 0.15;
+    /** 다산 아버지의 쌍둥이 가산. */
+    public static final double TWIN_PROLIFIC_MALE = 0.05;
+
+    /** 쌍둥이 확률(삼둥이 제외) — 불임이 끼면 0. */
+    public static double twinChance(Individual female, Individual male) {
+        if (has(female, Trait.INFERTILE) > 0 || has(male, Trait.INFERTILE) > 0) {
+            return 0.0;
+        }
+        return TWIN_RATE + TWIN_PROLIFIC_FEMALE * has(female, Trait.PROLIFIC)
+                + TWIN_PROLIFIC_MALE * has(male, Trait.PROLIFIC);
+    }
+
+    /** 삼둥이 확률 — 불임이 끼면 0. */
+    public static double tripletChance(Individual female, Individual male) {
+        if (has(female, Trait.INFERTILE) > 0 || has(male, Trait.INFERTILE) > 0) {
+            return 0.0;
+        }
+        return TRIPLET_RATE;
+    }
+
+    /** 추가 출생 수(0·1·2) — roll ∈ [0,1): 삼둥이 구간 → 2, 쌍둥이 구간 → 1, 그 외 0. */
+    public static int extraBirths(double roll, Individual female, Individual male) {
+        double tri = tripletChance(female, male);
+        if (roll < tri) {
+            return 2;
+        }
+        if (roll < tri + twinChance(female, male)) {
+            return 1;
+        }
+        return 0;
+    }
     // 계수 상향(M(5) 2.6→4.3)으로 엘리트 순잉여가 +3.16/일이 되면 자식 1명당 소요가
     // (게이트상승 1.8 + 출산비 3.0)/3.16 = 1.5일로 쿨다운 1일보다 짧아져, 가임창 13일 동안
     // 8~9명까지 간다(목표 "부유가문 3~4 포화" 위반). 쿨다운 3일이면 13/3 = 4.3명으로 묶인다.

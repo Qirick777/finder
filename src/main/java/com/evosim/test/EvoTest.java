@@ -288,6 +288,24 @@ public final class EvoTest {
                 && close(com.evosim.core.Lending.fiefDue(20.0, 0.0), 4.0)
                 && close(com.evosim.core.Lending.fiefDue(20.0, 0.7), 4.7)
                 && close(com.evosim.core.Lending.fiefDue(-3.0, 0.0), 0.0);
+        // 다태아(사용자 승인): 기본 쌍둥이 10% · 삼둥이 2% · 다산 어머니 +15%p · 다산 아버지 +5%p · 불임 0 ·
+        // 쿨다운 2.5일. 굴림 0.01 → 삼둥이(+2), 0.05 → 쌍둥이(+1), 0.5 → 0, 다산 어머니 0.25 → +1.
+        Individual plainF = one(Sex.FEMALE);
+        Individual plainM = one(Sex.MALE);
+        Individual prolF = one(Sex.FEMALE, TraitInstance.of(Trait.PROLIFIC));
+        Individual infM = one(Sex.MALE, TraitInstance.of(Trait.INFERTILE));
+        boolean tw = close(com.evosim.core.Reproduction.twinChance(plainF, plainM), 0.10)
+                && close(com.evosim.core.Reproduction.tripletChance(plainF, plainM), 0.02)
+                && close(com.evosim.core.Reproduction.twinChance(prolF, plainM), 0.25)
+                && close(com.evosim.core.Reproduction.twinChance(plainF, infM), 0.0)
+                && com.evosim.core.Reproduction.extraBirths(0.01, plainF, plainM) == 2
+                && com.evosim.core.Reproduction.extraBirths(0.05, plainF, plainM) == 1
+                && com.evosim.core.Reproduction.extraBirths(0.5, plainF, plainM) == 0
+                && com.evosim.core.Reproduction.extraBirths(0.25, prolF, plainM) == 1
+                && com.evosim.core.Reproduction.extraBirths(0.25, plainF, plainM) == 0
+                && close(com.evosim.core.Reproduction.FEMALE_COOLDOWN_DAYS, 2.5);
+        report.add("repro/다태아", tw, "쌍둥이 10%·삼둥이 2%·다산 모 25%·불임 0 · 굴림 0.01→+2, 0.05→+1, 0.5→0 · 쿨다운 2.5일",
+                tw ? "정상" : "어긋남");
         report.add("lending/봉토수여", fg, "봉토 36/24(겹치면 36) · 확장비 12칸×0.5=12, 여유 4→4, 다 찼으면 0 · 상한 max(추종, 봉토) · 산출 20의 2할 4(+이월)",
                 fg ? "정상" : "어긋남");
         // 두 축(사용자 승인): 대지주 축 = 야망가·욕심·경쟁·자수성가 / 중소지주 축 = 미래지향·개척선호·

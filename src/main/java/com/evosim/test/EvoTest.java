@@ -245,6 +245,16 @@ public final class EvoTest {
                 && com.evosim.core.FarmEconomy.capacity(one(Sex.MALE), LifeStage.ELDER) == 4;
         report.add("lending/수확용량", cap, "사람당 하루 수확 8 유지(12 는 소작 고용을 몰아냄 — 런 12) · 노년 4",
                 cap ? "정상" : "어긋남");
+        // 소작 용량(남의 밭) = 8 + ⌊타일/24⌋ + 마름 2, 상한 14 — 자가 수확은 8 그대로.
+        Individual plainMan = one(Sex.MALE);
+        boolean tc = com.evosim.core.FarmEconomy.tenantCapacity(plainMan, LifeStage.ADULT, 12, false) == 8
+                && com.evosim.core.FarmEconomy.tenantCapacity(plainMan, LifeStage.ADULT, 36, false) == 9
+                && com.evosim.core.FarmEconomy.tenantCapacity(plainMan, LifeStage.ADULT, 36, true) == 11
+                && com.evosim.core.FarmEconomy.tenantCapacity(plainMan, LifeStage.ADULT, 108, true) == 14
+                && com.evosim.core.FarmEconomy.tenantCapacity(plainMan, LifeStage.ADULT, 300, true) == 14
+                && com.evosim.core.FarmEconomy.capacity(plainMan, LifeStage.ADULT) == 8;
+        report.add("lending/소작용량", tc, "남의 밭 12 → 8 · 36 → 9 · 36+마름 → 11 · 108+마름 → 14(상한) · 자가 8",
+                tc ? "정상" : "어긋남");
         // 두 축(사용자 승인): 대지주 축 = 야망가·욕심·경쟁·자수성가 / 중소지주 축 = 미래지향·개척선호·
         // 자립심·텃밭꾼 / 의탁·품팔이는 절대 안 빌림 / 무특성도 안 빌림.
         boolean axes = com.evosim.core.Lending.wantsLoan(one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)))

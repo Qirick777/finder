@@ -675,13 +675,17 @@ public class MimicFarmGoal extends Goal {
     private int dailyCap() {
         int c = FarmEconomy.capacity(mob.getIndividual(), mob.getStage());
         if (mob.getIndividual() != null
-                && com.evosim.core.ExpressionResolver.isExpressed(mob.getIndividual(),
-                        com.evosim.core.Trait.HIRELING)
                 && mob.level() instanceof net.minecraft.server.level.ServerLevel sl) {
             long pid = FarmTicker.assignedPlot(mob.getId());
             FarmStore.Plot p = pid != 0L ? FarmStore.get(sl).get(pid) : null;
             if (p != null && p.ownerId != mob.getIndividual().id()) {
-                c += 1;
+                // 남의 밭 = 소작 용량(밭 크기·마름 항, 상한 14) — FarmEconomy.tenantCapacity 참조.
+                c = FarmEconomy.tenantCapacity(mob.getIndividual(), mob.getStage(),
+                        p.tiles.length, p.stewardId != 0L);
+                if (com.evosim.core.ExpressionResolver.isExpressed(mob.getIndividual(),
+                        com.evosim.core.Trait.HIRELING)) {
+                    c += 1; // 품팔이 — 일꾼으로 유능
+                }
             }
         }
         return c;

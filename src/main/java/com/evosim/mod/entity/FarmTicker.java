@@ -6089,7 +6089,8 @@ public final class FarmTicker {
                     continue;
                 }
                 ASSIGNED.put(m.getId(), plot.id);
-                covered += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+                covered += com.evosim.core.FarmEconomy.tenantCapacity(m.getIndividual(), m.getStage(),
+                        plot.tiles.length, plot.stewardId != 0L); // 소작 용량(밭 크기·마름 항)
             }
             if (need <= 0 || covered >= need) {
                 continue;
@@ -6135,7 +6136,8 @@ public final class FarmTicker {
                     break;
                 }
                 ASSIGNED.put(m.getId(), plot.id);
-                covered += com.evosim.core.FarmEconomy.capacity(m.getIndividual(), m.getStage());
+                covered += com.evosim.core.FarmEconomy.tenantCapacity(m.getIndividual(), m.getStage(),
+                        plot.tiles.length, plot.stewardId != 0L); // 소작 용량(밭 크기·마름 항)
                 // 연속 출근 카운터: 어제도 같은 밭이면 +1, 아니면 1 — PROMOTE_DAYS 도달 시 상시 승격
                 int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id
                         ? m.getTenantStreak() + 1 : 1;

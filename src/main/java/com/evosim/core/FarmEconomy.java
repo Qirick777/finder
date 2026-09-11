@@ -376,6 +376,31 @@ public final class FarmEconomy {
     }
 
     /** 개인 수확 용량 — 부지런 ×1.2 / 게으름 ×0.8 / 노년 ×0.5 (내림). */
+    /** 소작 용량의 밭 크기 항 — 이 타일마다 +1(큰 밭은 익은 것이 촘촘해 헛걸음이 적다). */
+    public static final int TENANT_CAP_TILES_PER = 24;
+    /** 소작 용량의 마름 항 — 감독이 일을 짜 주면 같은 사람이 더 딴다. */
+    public static final int TENANT_CAP_STEWARD = 2;
+    /** 소작 용량 상한. */
+    public static final int TENANT_CAP_MAX = 14;
+
+    /**
+     * <b>남의 밭에서 일하는 소작</b>의 하루 수확 용량(사용자 승인, 런 18 실측) = {@link #capacity} +
+     * ⌊타일 ÷ 24⌋ + (마름 있으면 2), 상한 14. 지주 부부의 자가 수확은 {@link #capacity}(8) 그대로다 —
+     * 용량 12 실험(런 12)에서 부부가 24타일을 혼자 다 따 소작이 사라진 것은 <b>자가 몫</b>이 커진
+     * 탓이었고, 이번엔 소작에게만 붙는다.
+     *
+     * <p>왜: 런 18 d16 군주 밭 셋(108·114·85)의 부족분 259타일을 사람당 8 로 덮으려면 34명인데 마을
+     * 소작이 26명이라 군주 밭이 일손을 다 흡수했고, 봉신 밭 다섯(29~40타일)은 0~3명뿐이라 지대
+     * 1~8·봉토세 1~3 에 그쳤다. 용량 14 면 군주 밭에 19명이면 되어 7명이 봉신 밭으로 흐른다.
+     * 소작 몫은 자산 누진(progressiveFee)이라 늘어난 수확은 대부분 지대로 간다 — 소작 곳간이
+     * 아니라 지대·봉토세가 커지는 손잡이다.
+     */
+    public static int tenantCapacity(Individual ind, LifeStage stage, int plotTiles, boolean stewarded) {
+        int c = capacity(ind, stage) + Math.max(0, plotTiles) / TENANT_CAP_TILES_PER
+                + (stewarded ? TENANT_CAP_STEWARD : 0);
+        return Math.min(TENANT_CAP_MAX, c);
+    }
+
     public static int capacity(Individual ind, LifeStage stage) {
         double c = C_BASE;
         if (ExpressionResolver.isExpressed(ind, Trait.DILIGENT)) {

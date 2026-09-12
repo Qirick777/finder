@@ -109,7 +109,7 @@ public class MimicGarrisonGoal extends Goal {
             spot = mob.isUnderTreatment()
                     ? FarmTicker.nearestFriendlyBarracks(sl0(), mob)
                     : (down != null ? down.blockPosition()
-                            : (night ? patrolSpot() : dayPost()));
+                            : (night ? post : dayPost())); // 밤은 막사 취침 — 야간은 경비대 몫(사용자 승인)
             if (spot == null) {
                 spot = post;
             }
@@ -126,7 +126,7 @@ public class MimicGarrisonGoal extends Goal {
     public void start() {
         // 막사를 출근 앵커로 — 리시가 거처로 되끌지 않고 오히려 여기까지 데려다 준다.
         mob.setWorkAnchor(post);
-        mob.setActivity(night ? "경계" : "주둔");
+        mob.setActivity(night ? "막사취침" : "주둔");
     }
 
     @Override
@@ -156,7 +156,7 @@ public class MimicGarrisonGoal extends Goal {
         // COMMUTE_RANGE(96)까지 떨어져 있는데 활동반경은 32 라, 막사를 앵커로 두면
         // 리시가 병사를 도로 끌어 근무지에 영영 못 닿는다.
         mob.setGuardAnchor(spot);
-        mob.setActivity(night ? "경계" : "주둔");
+        mob.setActivity(night ? "막사취침" : "주둔");
         // 압박은 <b>몸이 어디 있는가</b>로 센다 — 목적지 도착 판정에 기대지 않는다.
         // 거처 좌표는 천막 구조물 안쪽이라 도착(2.5블록)이 영영 성립하지 않을 수 있다.
         FarmTicker.reportPressureNear(post, mob.blockPosition());
@@ -195,10 +195,10 @@ public class MimicGarrisonGoal extends Goal {
         if (night) {
             // 경계 — 둘레를 둘러본다. 다 서 있으면 다음 지점으로.
             mob.getLookControl().setLookAt(post.getX() + 0.5, post.getY() + 1.0, post.getZ() + 0.5);
-            if (++stand >= STAND_TICKS) {
-                spot = patrolSpot();
-                stand = 0;
-            }
+            // 군인 개편(사용자 승인): 야간 순찰은 밤 스킵 아래서 한 번도 돌지 않았다(창 100틱).
+            // 군인은 밤에 막사에서 자고, 야간 경계는 경비대가 한다 — 역할을 못 박는다. patrolSpot 은
+            // 전시·관측용 후보로 남겨 두고 평시 근무 선택에서는 쓰지 않는다.
+            stand = 0;
             return;
         }
         // 낮 — 압박 표적 앞이면 잠시 서 있다가 다음 표적으로. 제 자리면 그대로 머문다.

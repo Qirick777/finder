@@ -304,6 +304,23 @@ public final class EvoTest {
                 && com.evosim.core.Reproduction.extraBirths(0.25, prolF, plainM) == 1
                 && com.evosim.core.Reproduction.extraBirths(0.25, plainF, plainM) == 0
                 && close(com.evosim.core.Reproduction.FEMALE_COOLDOWN_DAYS, 2.5);
+        // 풍차(사용자 승인): 밭 150칸당 하나(최소 1) · 제분 증분 20% 중 ¼ 제분세 · 군인 고정급 3.3+이점×2(상한 5) ·
+        // 막사 정원 = min(자리, 추종÷4, 어제 세수÷3.5).
+        double[] ms = com.evosim.mod.entity.Facilities.millSplit(10.0);
+        boolean mw = com.evosim.mod.entity.Facilities.millsAllowed(0) == 1
+                && com.evosim.mod.entity.Facilities.millsAllowed(149) == 1
+                && com.evosim.mod.entity.Facilities.millsAllowed(300) == 2
+                && close(ms[0], 1.5) && close(ms[1], 0.5)
+                && close(com.evosim.mod.entity.Facilities.soldierWage(0.0), 3.3)
+                && close(com.evosim.mod.entity.Facilities.soldierWage(0.5), 4.3)
+                && close(com.evosim.mod.entity.Facilities.soldierWage(2.0), 5.0)
+                && close(com.evosim.mod.entity.Facilities.soldierWage(-1.0), 3.3)
+                && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 48, 53.0) == 12
+                && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 20, 53.0) == 5
+                && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 48, 14.0) == 4
+                && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 48, 0.0) == 0;
+        report.add("facility/풍차군인", mw, "풍차 0·149→1, 300→2 · 산출 10 → 밭 +1.5·제분세 0.5 · 봉급 0→3.3, 0.5→4.3, 2→5 · 정원 12/5/4/0",
+                mw ? "정상" : "어긋남");
         report.add("repro/다태아", tw, "쌍둥이 10%·삼둥이 2%·다산 모 25%·불임 0 · 굴림 0.01→+2, 0.05→+1, 0.5→0 · 쿨다운 2.5일",
                 tw ? "정상" : "어긋남");
         report.add("lending/봉토수여", fg, "봉토 36/24(겹치면 36) · 확장비 12칸×0.5=12, 여유 4→4, 다 찼으면 0 · 상한 max(추종, 봉토) · 산출 20의 2할 4(+이월)",

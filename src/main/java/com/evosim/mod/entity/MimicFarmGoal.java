@@ -584,6 +584,14 @@ public class MimicFarmGoal extends Goal {
             // TILE_YIELD_MULT 를 0.5→0.8 로 올려도 실제 수확은 0.5 그대로였다 — 상수는 마름 선발·
             // 후보 점수 같은 예측 경로에만 쓰여, 계획과 실적이 조용히 어긋났다(w5 무효).
             double base = FarmEconomy.TILE_YIELD_MULT * useMult;
+            // 풍차(사용자 승인): 반경 안 구획의 수확은 장부에 저장될 때 제분 증분이 붙는다 — 가루로
+            // 저장하니 썩는 몫이 준다. 증분의 ¼은 풍차 주인 제분세(밤 정산), ¾은 밭 쪽(아래 분할).
+            long millOwner = p != null ? FarmTicker.millOwnerOf(p.id) : 0L;
+            if (millOwner != 0L) {
+                double[] mill = Facilities.millSplit(base);
+                base += mill[0];
+                FarmTicker.recordMillToll(millOwner, mill[1]);
+            }
             // 가구 밭 판정 — 배우자는 <b>양방향</b>으로 본다(marriedTo). 남편의 spouseId 는 본처만
             // 가리키므로 단방향이면 첩 소유 밭이 "남의 밭"으로 잡혀 자기 가구 수확이 소작 분할로
             // 새어 나간다.

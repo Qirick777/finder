@@ -55,7 +55,8 @@ public final class FacilityTemplate {
         CHURCH("교회"),
         BARRACKS("막사"),
         POORHOUSE("경비대"),
-        WELL("우물");
+        WELL("우물"),
+        MILL("풍차");
 
         public final String label;
 
@@ -84,7 +85,12 @@ public final class FacilityTemplate {
          * 그 둘을 요구할 수 없다. 분수가 같은 처지에서 쓴 방법을 그대로 쓴다: 도면이 홀수 폭
          * (7×7)이라 기하 중심 칸이 유일하게 정해지고, 실제로 그 열이 물기둥이라 눈으로도 중심이다.
          */
-        WELL("well", "우물", Group.WELL, true);
+        WELL("well", "우물", Group.WELL, true),
+        /**
+         * 풍차 — 사용자 도면(home files/windmill.nbt, 11×15×8 · 실자재 333 · 종 1(y9 천장) · 문 1 ·
+         * 통 10 · 건초 2). 밭 무리 한가운데 서서 반경 안 구획의 수확을 빻는다(Facilities.MILL_*).
+         */
+        WINDMILL("windmill", "풍차", Group.MILL);
 
         public final String design;
         public final String label;

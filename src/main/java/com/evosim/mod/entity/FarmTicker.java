@@ -410,6 +410,39 @@ public final class FarmTicker {
                 }
             }
         }
+        // ── 제분세 정산(풍차) — 오늘 쌓인 제분세를 정수 유닛만 풍차 주인 곳간으로, 소수는 이월.
+        //    반경 안 밭 주인은 풍차 주인에게 신세(상시소작과 같은 하루 0.6 — 빻아 주는 은전)를 진다.
+        {
+            AllegianceStore lg = AllegianceStore.get(level);
+            for (var te : MILL_TOLL_TODAY.entrySet()) {
+                long mo = te.getKey();
+                double due = te.getValue() + MILL_TOLL_CARRY.getOrDefault(mo, 0.0);
+                MimicEntity me = null;
+                for (MimicEntity c : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == mo)) {
+                    me = c;
+                }
+                if (me == null || me.getHomePos() == null) {
+                    MILL_TOLL_CARRY.put(mo, due); // 주인 부재 — 이월
+                    continue;
+                }
+                int units = (int) Math.floor(due);
+                MILL_TOLL_CARRY.put(mo, due - units);
+                if (units >= 1) {
+                    larder.set(me.getHomePos(), larder.get(me.getHomePos()) + units);
+                    com.evosim.mod.log.SimAudit.record(com.evosim.mod.log.SimAudit.Src.RENT, units);
+                    com.evosim.mod.log.SimEvents.event(me, "제분세", String.format(
+                            "풍차 오늘 제분세 +%d 저장고(이월 %.2f)", units, due - units));
+                }
+            }
+            MILL_TOLL_TODAY.clear();
+            for (var pe : MILL_OF_PLOT.entrySet()) {
+                FarmStore.Plot p = store.get(pe.getKey());
+                if (p != null && p.ownerId != 0L && p.ownerId != pe.getValue()) {
+                    lg.record(p.ownerId, pe.getValue(), AllegianceStore.W_TENANCY, 0.0, day);
+                }
+            }
+        }
         TENANT_PAY_TODAY.clear(); // 일일 원장 마감(수당 산정 후)
         TENANT_WORKERS_TODAY.clear();
     }
@@ -1701,6 +1734,60 @@ public final class FarmTicker {
     private static final java.util.Map<Long, Integer> REALM_STREAK = new java.util.HashMap<>();
     /** lordId → 어제 세수 합(영지 줄에서 적음) — 경비대 둘째 채의 "세수가 먹여야 한다" 조건 입력. */
     private static final java.util.Map<Long, Double> LAST_TAX = new java.util.HashMap<>();
+
+    /** 어제 세수(영지 줄) — 막사 정원 상한(Facilities.barracksPlannedCap)의 입력. */
+    public static double lastTaxOf(long lordId) {
+        return LAST_TAX.getOrDefault(lordId, 0.0);
+    }
+
+    // ── 풍차(사용자 승인) — 구획 → 빻아 주는 풍차 주인. 새벽에 갱신(가장 가까운 풍차 하나만). ──
+    private static final java.util.Map<Long, Long> MILL_OF_PLOT = new java.util.HashMap<>();
+    /** 오늘 쌓인 제분세(풍차 주인 id → 식량, 휘발) — 밤 정산 때 정수 유닛만 주인 곳간으로. */
+    private static final java.util.Map<Long, Double> MILL_TOLL_TODAY = new java.util.HashMap<>();
+    /** 제분세 소수 이월(풍차 주인 id → 이월). */
+    private static final java.util.Map<Long, Double> MILL_TOLL_CARRY = new java.util.HashMap<>();
+
+    /** 이 구획을 빻아 주는 풍차 주인(0 = 없음) — MimicFarmGoal 수확 배율의 입력. */
+    public static long millOwnerOf(long plotId) {
+        return MILL_OF_PLOT.getOrDefault(plotId, 0L);
+    }
+
+    /** 제분세 적립(수확 시점) — 풍차 주인 곳간으로는 밤에 간다. */
+    public static void recordMillToll(long millOwnerId, double toll) {
+        if (millOwnerId != 0L && toll > 0.0) {
+            MILL_TOLL_TODAY.merge(millOwnerId, toll, Double::sum);
+        }
+    }
+
+    /** 새벽 갱신 — 구획마다 앵커에서 가장 가까운 풍차(반경 32 안) 하나의 주인을 적는다. */
+    private static void refreshMills(ServerLevel level, FarmStore store) {
+        MILL_OF_PLOT.clear();
+        FacilityStore reg = FacilityStore.get(level);
+        java.util.List<FacilityStore.Entry> mills = new java.util.ArrayList<>();
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.MILL && e.ownerId != 0L) {
+                mills.add(e);
+            }
+        }
+        if (mills.isEmpty()) {
+            return;
+        }
+        double r2 = Facilities.MILL_REACH * Facilities.MILL_REACH;
+        for (FarmStore.Plot p : store.all().values()) {
+            FacilityStore.Entry best = null;
+            double bestD = Double.MAX_VALUE;
+            for (FacilityStore.Entry e : mills) {
+                double d = e.pos.distSqr(p.anchor);
+                if (d <= r2 && d < bestD) {
+                    bestD = d;
+                    best = e;
+                }
+            }
+            if (best != null) {
+                MILL_OF_PLOT.put(p.id, best.ownerId);
+            }
+        }
+    }
     /** 개체 → 주인(추종 판정 + 빚의 채권자) — growFarms 의 신세 블록에서 매일 갱신. 봉신 상한·대부에 쓴다. */
     private static final java.util.Map<Long, Long> PATRON_OF = new java.util.HashMap<>();
     /** 오늘 밤 이미 꾸어 준 지주 — 하루 1건. */
@@ -2740,13 +2827,17 @@ public final class FarmTicker {
      * 창을 드는 길이 여럿이라는 {@link #soldierFitness} 의 두 항 설계와 같은 뜻이다.
      */
     private static boolean soldierWorthy(com.evosim.core.Individual ind) {
+        return ind != null && soldierEdge(ind) >= SOLDIER_MIN_EDGE;
+    }
+
+    /** 능력 이점 합(힘·튼튼·경계, 중립 0) — 승격 하한과 고정급(Facilities.soldierWage)의 입력. */
+    private static double soldierEdge(com.evosim.core.Individual ind) {
         if (ind == null) {
-            return false;
+            return 0.0;
         }
-        double edge = (com.evosim.core.Physique.barehandMight(ind) - 1.0)
+        return (com.evosim.core.Physique.barehandMight(ind) - 1.0)
                 + (com.evosim.core.Physique.toughness(ind) - 1.0)
                 + (com.evosim.core.Combat.detectionRange(ind) / 8.0 - 1.0);
-        return edge >= SOLDIER_MIN_EDGE;
     }
 
     /** 승격 하한 — 중립 대비 이점 합. 힘Ⅱ(+0.16) 하나 · 힘Ⅰ+튼튼Ⅰ(+0.13) 이면 넘는다. */
@@ -3809,9 +3900,16 @@ public final class FarmTicker {
                 // 소득을 대체한다. isProviderRole 은 혼인 링크상 가장이라, 부부에서는 남편이
                 // 걸리고 사별·미혼 1인 가구에서는 그 사람 본인이 걸린다(여성도 가능).
                 // 성별 규칙을 한 줄도 쓰지 않고, 벌이 3배라는 기존 비대칭이 결과를 만든다.
-                if (!m.isProviderRole()) {
-                    rejNotHead++;
+                // 군인 개편(사용자 승인): "가장이 아니다"는 더 이상 탈락이 아니다 — 땅 못 받는 동거
+                // 성년 아들이 곧 창을 드는 층이다(런 22·24 탈락 1위 비부양자 17). ownsFarm(본인·배우자
+                // 밭)은 그대로 둔다 — 지주 아내가 병사가 되던 구멍의 마개다. 선호 0(비겁 등)은 제외.
+                if (com.evosim.core.Vocation.soldier(m.getIndividual()) <= 0.0) {
+                    rejNotHead++; // 이름은 그대로 두고 뜻만 "창을 들 뜻이 없음"으로(로그 열 유지)
                     continue;
+                }
+                if (fs.stewardOf(mid) != 0L) {
+                    rejLand++;
+                    continue; // 마름 겸직 금지 — 밭을 맡은 자는 창을 들지 않는다
                 }
                 if (!Long.valueOf(bk.ownerId).equals(patrons.get(mid))
                         && !owner.marriedTo(patrons.getOrDefault(mid, 0L))) {
@@ -3849,7 +3947,8 @@ public final class FarmTicker {
             // 거리는 동률 갈림으로 내린다. 이미 통근 한계(COMMUTE_RANGE)로 잘려 있어 남은
             // 후보는 전부 출근 가능하고, 거기서 더 가까운 것보다 더 쓸모 있는 것이 먼저다.
             pick.sort(java.util.Comparator.comparingDouble(
-                    (MimicEntity m) -> -soldierFitness(m.getIndividual()))
+                    (MimicEntity m) -> -soldierFitness(m.getIndividual())
+                            * com.evosim.core.Vocation.soldier(m.getIndividual())) // 능력 × 선호
                     .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             plans.add(new Garrison(bk, owner, tpl.get(), cap, guarded.size(), taxIn, pick,
@@ -4046,10 +4145,9 @@ public final class FarmTicker {
                                 com.evosim.core.Activity.MOVE, a.getIndividual(), false);
                     }
                 }
-                double capLine = Math.max(1.0E-6, adultNeed * Facilities.SOLDIER_WAGE_CAP_DAYS);
-                double r = Math.min(1.0, Math.max(0.0, larders.get(s.getHomePos())) / capLine);
-                double wage = Facilities.SOLDIER_WAGE_MIN
-                        + (Facilities.SOLDIER_WAGE_MAX - Facilities.SOLDIER_WAGE_MIN) * (1.0 - r);
+                // 군인 개편(사용자 승인): 가난 보조(4 → 1 감쇠) 대신 능력 비례 고정급 — 소작 3.3 <
+                // 군인 3.5~5 < 마름. 가구 곳간과 무관하다.
+                double wage = Facilities.soldierWage(soldierEdge(s.getIndividual()));
                 // 위급한 병사는 <b>고용주가 즉시 책임진다</b> — 전업이라 스스로 벌 수단이 없다.
                 if (s.isCritical()) {
                     wage += com.evosim.core.FoodEconomy.CRITICAL * 4.0;
@@ -6029,6 +6127,7 @@ public final class FarmTicker {
         SELF_TEND_YDAY.clear();
         SELF_TEND_YDAY.addAll(SELF_TEND_TODAY);
         SELF_TEND_TODAY.clear();
+        refreshMills(level, FarmStore.get(level)); // 풍차 서비스 구획 갱신(하루 한 번)
         FarmStore store = FarmStore.get(level);
         java.util.List<MimicEntity> adults = new java.util.ArrayList<>(level.getEntities(
                 com.evosim.mod.reg.ModEntities.MIMIC.get(),

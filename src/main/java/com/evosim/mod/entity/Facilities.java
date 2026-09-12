@@ -872,4 +872,74 @@ public final class Facilities {
      */
     public static final double WELL_BOOST = 1.25;
 
+    // ── 풍차(사용자 승인) — 밭 무리 시설: 제분으로 저장 손실을 줄인다 ──────────────────────
+    //
+    // 우물의 골격(자격·문턱·하루 하나·간격·자리 찾기)을 그대로 쓴다. 다른 것은 자리값(집 대신
+    // <b>밭 칸</b>)과 기능(신세 대신 <b>산출 배율 + 제분세</b>)이다. 난립 방지는 우물보다 죈다:
+    // 지주급만 세우고, 값이 비싸고, 간격은 광장 시설(96)이다.
+
+    /** 풍차 값 — 우물(45)보다 비싸다. 밭 150칸 마을에 하나 설 물건이지 집집마다 설 물건이 아니다. */
+    public static final double MILL_COST = 80.0;
+    /** 세울 자격 — 이 칸 이상 밭을 가진 가구(지주급). 소농은 세우지 않고 반경에 끼어 쓴다. */
+    public static final int MILL_OWNER_MIN_TILES = 24;
+    /** 풍차가 빻아 주는 반경 — 우물과 같은 "동네" 눈금. 구획 앵커가 이 안이면 그 구획 전체. */
+    public static final double MILL_REACH = 32.0;
+    /** 풍차끼리 최소 간격 — 분수·학교·교회와 같은 광장 급. 서비스 원(32)이 겹치지 않고도 남는다. */
+    public static final double MILL_GAP = 96.0;
+    /** 자리값 하한 — 후보 중심 반경 안 밭 칸이 이보다 적으면 들판에 홀로 선 풍차라 세우지 않는다. */
+    public static final int MILL_MIN_TILES = 64;
+    /** 개수 상한 눈금 — 마을 밭 이 칸마다 하나까지(우물의 16채당 하나와 같은 꼴). */
+    public static final int MILL_TILES_PER_MILL = 150;
+    /** 제분 산출 배율 — 반경 안 구획 수확이 장부에 저장될 때 이만큼 는다(가루로 저장 → 손실 감소). */
+    public static final double MILL_BONUS = 0.20;
+    /** 그 증분 중 풍차 주인이 가져가는 몫(제분세 = 방앗세). 나머지는 밭 쪽(지대·소작 몫·자영). */
+    public static final double MILL_TOLL_SHARE = 0.25;
+
+    /** 마을 밭 총칸 수로 허용되는 풍차 수 — 최소 1(첫 풍차는 밭이 64칸만 모여도 선다). */
+    public static int millsAllowed(int villageFarmTiles) {
+        return Math.max(1, villageFarmTiles / MILL_TILES_PER_MILL);
+    }
+
+    /** 제분 증분 = 산출 × MILL_BONUS. [0] 밭 쪽 가산, [1] 풍차 주인 제분세. 합 = 증분. */
+    public static double[] millSplit(double base) {
+        double gain = Math.max(0.0, base) * MILL_BONUS;
+        double toll = gain * MILL_TOLL_SHARE;
+        return new double[] {gain - toll, toll};
+    }
+
+    // ── 군인 개편(사용자 승인) — 굶는 자의 자리가 아니라 능력으로 뽑는 중상위 ───────────────
+    //
+    // 종전: 밭 없는 가구의 가장만, 순위는 능력만, 봉급은 가난할수록 4 → 부유할수록 1 의 보조금.
+    // 실측(런 22·24): 후보 0~3명, 탈락 1위 "비부양자"(동거 성년 아들), 2위 노년, 3위 유전가구.
+    // 정작 역사에서 창을 든 층은 땅 못 받는 차남이다. 자격에서 가장·가구 밭 조건을 빼고, 순위에
+    // 선호(Vocation.soldier)를 곱하고, 봉급은 능력 비례 고정급으로 — 소작 3.3 < 군인 3.5~5 < 마름.
+
+    /** 기본 봉급 — 소작 하루 벌이(≈3.3)와 대등. 여기에 능력 이점이 얹힌다. */
+    public static final double SOLDIER_WAGE_BASE = 3.3;
+    /** 능력 이점(힘·튼튼·경계 합, soldierWorthy 의 edge) 1.0 당 얹는 봉급. */
+    public static final double SOLDIER_WAGE_PER_EDGE = 2.0;
+    /** 고정급 상한 — 마름(20+)에는 한참 못 미친다. */
+    public static final double SOLDIER_WAGE_TOP = 5.0;
+    /** 막사 문턱의 봉급 예비 일수 — 5 → 2(세수로 봉급이 나오는 구조라 5일치 선납은 과했다). */
+    public static final double BARRACKS_RUNWAY_DAYS_TAX = 2.0;
+    /** 막사 정원 산정에 쓰는 평균 봉급 — 문턱·세수 상한 둘 다 이 값으로 센다. */
+    public static final double SOLDIER_WAGE_AVG = 3.5;
+
+    /** 능력 비례 고정급 = min(TOP, BASE + edge × PER_EDGE). 이점이 0 이하면 기본급. */
+    public static double soldierWage(double edge) {
+        return Math.min(SOLDIER_WAGE_TOP, SOLDIER_WAGE_BASE + Math.max(0.0, edge) * SOLDIER_WAGE_PER_EDGE);
+    }
+
+    /**
+     * 막사 계획 정원 = min(도면 자리, 추종자 ÷ 가구당 병사, 어제 세수 ÷ 평균 봉급).
+     * 세수가 먹여 살릴 수 있는 만큼만 선다 — 정원이 추종자 수로 도주해 문턱이 저축을 앞서던
+     * 것(런 24: 정원 12 × 4 × 5일 = 240 vs 곳간 257)을 끊는다.
+     */
+    public static int barracksPlannedCap(int seats, int followers, double lastTax) {
+        int byFollowers = followers / HOUSEHOLDS_PER_SOLDIER;
+        int byTax = (int) Math.floor(Math.max(0.0, lastTax) / SOLDIER_WAGE_AVG);
+        return Math.max(0, Math.min(seats, Math.min(byFollowers, byTax)));
+    }
+
+
 }

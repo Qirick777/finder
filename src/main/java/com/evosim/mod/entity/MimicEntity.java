@@ -3601,8 +3601,9 @@ public class MimicEntity extends PathfinderMob {
         // 어차피 아래에서 착공이 무산되므로, 여기서는 정원 0 으로 보수적으로 잡는다.
         int seats = FacilityTemplate.of(sl, FacilityTemplate.Kind.BARRACKS, (byte) 0, false)
                 .map(t -> t.seats().size()).orElse(0);
-        int plannedCap = Math.min(seats, followers / Facilities.HOUSEHOLDS_PER_SOLDIER);
-        double payroll = plannedCap * Facilities.SOLDIER_WAGE_MAX * Facilities.BARRACKS_RUNWAY_DAYS;
+        // 정원은 세수가 먹여 살릴 만큼(Facilities.barracksPlannedCap), 예비는 2일치(사용자 승인).
+        int plannedCap = Facilities.barracksPlannedCap(seats, followers, FarmTicker.lastTaxOf(id));
+        double payroll = plannedCap * Facilities.SOLDIER_WAGE_AVG * Facilities.BARRACKS_RUNWAY_DAYS_TAX;
         double gate = Facilities.BARRACKS_COST
                 + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR
                 + payroll;
@@ -3613,7 +3614,7 @@ public class MimicEntity extends PathfinderMob {
                     followers, unguarded, plannedCap, larder, gate,
                     Facilities.BARRACKS_COST,
                     HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR,
-                    Facilities.BARRACKS_RUNWAY_DAYS, payroll));
+                    Facilities.BARRACKS_RUNWAY_DAYS_TAX, payroll));
             return larder;
         }
         byte rot = (byte) getRandom().nextInt(4);
@@ -4216,6 +4217,134 @@ public class MimicEntity extends PathfinderMob {
      */
     private void wellNote(String why) {
         SimEvents.event(this, "우물", why);
+    }
+
+    /**
+     * 풍차(사용자 승인) — 우물과 같은 골격, 자리값만 <b>밭 칸</b>이다.
+     * 자격: 밭 {@link Facilities#MILL_OWNER_MIN_TILES}칸 이상 가구 · 문턱 값 + 생활예비×과시 ·
+     * 하루 하나 · 마을 밭 150칸당 하나 · 후보 중심 = 아직 풍차가 안 닿는 구획 앵커 중 반경 32 안
+     * 밭 칸 최대(하한 64) · 간격 96. 기능은 FarmTicker(제분 배율·제분세·신세)에 있다.
+     */
+    private double considerMill(ServerLevel sl, double larder, double adultNeed) {
+        if (individual == null || homePos == null) {
+            return larder;
+        }
+        FarmStore fs = FarmStore.get(sl);
+        if (fs.ownedTiles(individual.id()) < Facilities.MILL_OWNER_MIN_TILES) {
+            return larder; // 지주급만 — 소농은 반경에 끼어 쓴다
+        }
+        double gate = Facilities.MILL_COST
+                + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (larder < gate) {
+            millNote(String.format("보류 — 저장고 %.0f < 문턱 %.0f (값 %.0f + 여유 %.0f)",
+                    larder, gate, Facilities.MILL_COST,
+                    HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR));
+            return larder;
+        }
+        FacilityStore reg = FacilityStore.get(sl);
+        long today = com.evosim.mod.entity.SimTime.tick(sl) / 24000L;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.MILL && e.foundedDay == today) {
+                millNote("보류 — 오늘 이미 마을에 풍차가 하나 섰다(하루 하나)");
+                return larder;
+            }
+        }
+        int villageTiles = 0;
+        for (FarmStore.Plot p : fs.all().values()) {
+            villageTiles += p.tiles.length;
+        }
+        int mills = reg.countOf(FacilityTemplate.Group.MILL);
+        int allowed = Facilities.millsAllowed(villageTiles);
+        if (mills >= allowed) {
+            millNote(String.format("보류 — 풍차 %d개 ≥ 상한 %d개 (밭 %d칸 · %d칸당 하나)",
+                    mills, allowed, villageTiles, Facilities.MILL_TILES_PER_MILL));
+            return larder;
+        }
+        BlockPos centre = null;
+        int bestTiles = 0;
+        for (FarmStore.Plot p : fs.all().values()) {
+            if (millNearby(reg, p.anchor)) {
+                continue; // 이미 풍차가 닿는 밭 — 여기 또 세우지 않는다
+            }
+            int near = 0;
+            for (FarmStore.Plot o : fs.all().values()) {
+                if (o.anchor.distSqr(p.anchor) <= Facilities.MILL_REACH * Facilities.MILL_REACH) {
+                    near += o.tiles.length;
+                }
+            }
+            boolean better = near > bestTiles
+                    || (near == bestTiles && centre != null
+                        && (p.anchor.getX() < centre.getX()
+                            || (p.anchor.getX() == centre.getX() && p.anchor.getZ() < centre.getZ())));
+            if (better) {
+                bestTiles = near;
+                centre = p.anchor;
+            }
+        }
+        if (centre == null || bestTiles < Facilities.MILL_MIN_TILES) {
+            millNote(centre == null
+                    ? "보류 — 풍차가 안 닿는 밭이 없다(밭 무리가 이미 덮였다)"
+                    : String.format("보류 — 가장 모인 곳도 밭 %d칸 < 하한 %d칸",
+                            bestTiles, Facilities.MILL_MIN_TILES));
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.WINDMILL, rot, mir);
+        if (tpl.isEmpty()) {
+            millNote("보류 — 도면을 읽지 못했다(windmill.nbt)");
+            return larder;
+        }
+        java.util.List<BlockPos> homes = HomeStore.get(sl).positions();
+        BlockPos site = facilitySite(sl, centre, tpl.get(), homes,
+                new GapSpec(reg, FacilityTemplate.Group.MILL, Facilities.MILL_GAP, 0L, Facilities.MILL_GAP));
+        if (site == null) {
+            millNote(String.format("자리 없음 — 중심 @%d,%d(밭 %d칸) · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
+                    centre.getX(), centre.getZ(), bestTiles,
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
+                    SITE_REJECT[4]));
+            return larder;
+        }
+        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.MILL, Facilities.MILL_GAP);
+        if (clash != null) {
+            millNote("보류 — " + clash);
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.WINDMILL, rot, mir, individual.id(), today(),
+                Facilities.MILL_COST);
+        RoadPlanner.Obstacles.invalidate();
+        int servePlots = 0;
+        int serveTiles = 0;
+        for (FarmStore.Plot p : fs.all().values()) {
+            if (p.anchor.distSqr(site) <= Facilities.MILL_REACH * Facilities.MILL_REACH) {
+                servePlots++;
+                serveTiles += p.tiles.length;
+            }
+        }
+        SimEvents.event(this, "풍차", String.format(
+                "착공 @%d,%d 회전%d%s — 끼는 밭 %d구획 %d칸(반경 %.0f) · 값 %.0f (저장고 %.0f→%.0f)"
+                        + " · 마을 %d번째(밭 %d칸)",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", servePlots, serveTiles,
+                Facilities.MILL_REACH, Facilities.MILL_COST, larder, larder - Facilities.MILL_COST,
+                reg.countOf(FacilityTemplate.Group.MILL), villageTiles));
+        return larder - Facilities.MILL_COST;
+    }
+
+    private void millNote(String why) {
+        SimEvents.event(this, "풍차", why);
+    }
+
+    /** 이 구획(앵커)에 이미 어느 풍차가 닿는가. */
+    private static boolean millNearby(FacilityStore reg, BlockPos anchor) {
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group == FacilityTemplate.Group.MILL
+                    && e.pos.distSqr(anchor) <= Facilities.MILL_REACH * Facilities.MILL_REACH) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 이 집에 이미 어느 우물의 물이 닿는가. */
@@ -5433,6 +5562,7 @@ public class MimicEntity extends PathfinderMob {
                 // 우물이 꾸밈보다 먼저다 — 값이 같아(45) 순서를 반대로 두면 분수를 세우느라
                 // 곳간이 깎여 우물이 영영 안 선다(분수가 가로수보다 먼저인 것과 같은 이유).
                 larder = considerWell(sl, larder, adultNeed);
+                larder = considerMill(sl, larder, adultNeed); // 풍차 — 밭 무리 시설(우물 다음, 꾸밈 앞)
                 larder = considerStreet(sl, larder, adultNeed); // 꾸밈은 마지막 — 필수가 아니다
             }
             store.set(homePos, larder);

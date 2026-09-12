@@ -3914,10 +3914,16 @@ public final class FarmTicker {
                     rejLand++;
                     continue; // 마름 겸직 금지 — 밭을 맡은 자는 창을 들지 않는다
                 }
-                if (!Long.valueOf(bk.ownerId).equals(patrons.get(mid))
-                        && !owner.marriedTo(patrons.getOrDefault(mid, 0L))) {
+                // 봉건 소집(런 26 d11 실측): 봉신 밭의 소작은 봉신을 따르므로 "타주인"으로 전부 탈락해
+                // 후보 0 · 배속 0 이었다(탈락 타주인 9 · 유전가구 15). 주군의 군대는 봉신의 사람으로도
+                // 선다 — 내 주인의 주인이 이 막사 주인이면 후보다(사슬 두 단).
+                Long pt = patrons.get(mid);
+                boolean direct = Long.valueOf(bk.ownerId).equals(pt)
+                        || owner.marriedTo(patrons.getOrDefault(mid, 0L));
+                boolean levy = pt != null && Long.valueOf(bk.ownerId).equals(patrons.get(pt));
+                if (!direct && !levy) {
                     rejPatron++;
-                    continue; // 이 주인(또는 그 배우자)을 따르는 자만
+                    continue; // 이 주인(또는 그 배우자·그 봉신)을 따르는 자만
                 }
                 // <b>여기서는 파견 반경까지 담는다.</b> 통근 반경(96) 밖의 후보도 명단에는
                 // 남기고, 실제로 앉힐 수 있는 거리는 패스마다 다르게 건다(seatSoldiers 의

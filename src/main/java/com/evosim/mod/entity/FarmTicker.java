@@ -1777,8 +1777,22 @@ public final class FarmTicker {
             FacilityStore.Entry best = null;
             double bestD = Double.MAX_VALUE;
             for (FacilityStore.Entry e : mills) {
+                // 서비스 판정은 <b>칸</b>으로 — 밭 칸의 절반 이상이 반경 안이면 그 밭을 빻아 준다
+                // (앵커 기준은 큰 밭의 먼 칸을 통째로 놓친다 — 착공 자리값과 같은 눈금).
+                int in = 0;
+                for (long t : p.tiles) {
+                    BlockPos tp = BlockPos.of(t);
+                    double dx = tp.getX() - e.pos.getX();
+                    double dz = tp.getZ() - e.pos.getZ();
+                    if (dx * dx + dz * dz <= r2) {
+                        in++;
+                    }
+                }
+                if (p.tiles.length == 0 || in * 2 < p.tiles.length) {
+                    continue;
+                }
                 double d = e.pos.distSqr(p.anchor);
-                if (d <= r2 && d < bestD) {
+                if (d < bestD) {
                     bestD = d;
                     best = e;
                 }

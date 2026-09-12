@@ -4291,34 +4291,30 @@ public class MimicEntity extends PathfinderMob {
                     mills, allowed, villageTiles, Facilities.MILL_TILES_PER_MILL));
             return larder;
         }
-        BlockPos centre = null;
-        int bestTiles = 0;
+        // 후보 중심 = 풍차가 안 닿는 구획 앵커. 자리값은 <b>칸</b>으로 잰다(앵커 반경이 아니라 그 앵커
+        // 반경 안에 드는 실제 밭 칸 수). 상위 셋을 차례로 시도한다 — 밭 무리 한복판은 빈 자리가 없어
+        // 자리가 밖으로 밀리는데(런 28: 중심 215칸 → 자리에서 0칸), 다른 중심이면 가장자리에 설 수 있다.
+        java.util.List<FarmStore.Plot> cands = new java.util.ArrayList<>();
+        java.util.Map<Long, Integer> score = new java.util.HashMap<>();
         for (FarmStore.Plot p : fs.all().values()) {
             if (millNearby(reg, p.anchor)) {
                 continue; // 이미 풍차가 닿는 밭 — 여기 또 세우지 않는다
             }
             int near = 0;
             for (FarmStore.Plot o : fs.all().values()) {
-                if (o.anchor.distSqr(p.anchor) <= Facilities.MILL_REACH * Facilities.MILL_REACH) {
-                    near += o.tiles.length;
-                }
+                near += millTilesInReach(o, p.anchor);
             }
-            boolean better = near > bestTiles
-                    || (near == bestTiles && centre != null
-                        && (p.anchor.getX() < centre.getX()
-                            || (p.anchor.getX() == centre.getX() && p.anchor.getZ() < centre.getZ())));
-            if (better) {
-                bestTiles = near;
-                centre = p.anchor;
+            if (near >= Facilities.MILL_MIN_TILES) {
+                cands.add(p);
+                score.put(p.id, near);
             }
         }
-        if (centre == null || bestTiles < Facilities.MILL_MIN_TILES) {
-            millNote(centre == null
-                    ? "보류 — 풍차가 안 닿는 밭이 없다(밭 무리가 이미 덮였다)"
-                    : String.format("보류 — 가장 모인 곳도 밭 %d칸 < 하한 %d칸",
-                            bestTiles, Facilities.MILL_MIN_TILES));
+        if (cands.isEmpty()) {
+            millNote("보류 — 풍차가 안 닿는 밭 무리 중 반경 안 밭이 하한(64칸)을 넘는 곳이 없다");
             return larder;
         }
+        cands.sort(java.util.Comparator.comparingInt((FarmStore.Plot p) -> -score.get(p.id))
+                .thenComparingInt(p -> p.anchor.getX()).thenComparingInt(p -> p.anchor.getZ()));
         byte rot = (byte) getRandom().nextInt(4);
         boolean mir = getRandom().nextBoolean();
         java.util.Optional<FacilityTemplate> tpl =
@@ -4328,35 +4324,52 @@ public class MimicEntity extends PathfinderMob {
             return larder;
         }
         java.util.List<BlockPos> homes = HomeStore.get(sl).positions();
-        BlockPos site = facilitySite(sl, centre, tpl.get(), homes,
-                new GapSpec(reg, FacilityTemplate.Group.MILL, Facilities.MILL_GAP, 0L, Facilities.MILL_GAP));
-        if (site == null) {
-            millNote(String.format("자리 없음 — 중심 @%d,%d(밭 %d칸) · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
-                    centre.getX(), centre.getZ(), bestTiles,
-                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
-                    SITE_REJECT[4]));
-            return larder;
-        }
-        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.MILL, Facilities.MILL_GAP);
-        if (clash != null) {
-            millNote("보류 — " + clash);
-            return larder;
-        }
-        // 자리 확정 뒤 <b>그 자리 기준</b>으로 반경 안 밭을 다시 센다(사용자 지시, 런 26 실측). 하한은
-        // 후보 중심(구획 앵커)에서 검사했는데 실제 자리는 밭을 피해 옮겨지므로 반경에서 밭이 빠진다
-        // — 둘째 풍차가 중심 64칸+ 인데 자리에서는 2구획 48칸이었다. 못 미치면 그날은 세우지 않는다.
+        BlockPos site = null;
+        BlockPos centre = null;
+        int bestTiles = 0;
         int servePlots = 0;
         int serveTiles = 0;
-        for (FarmStore.Plot p : fs.all().values()) {
-            if (p.anchor.distSqr(site) <= Facilities.MILL_REACH * Facilities.MILL_REACH) {
-                servePlots++;
-                serveTiles += p.tiles.length;
+        String lastWhy = null;
+        for (int ci = 0; ci < Math.min(3, cands.size()); ci++) {
+            FarmStore.Plot c = cands.get(ci);
+            BlockPos cand = facilitySite(sl, c.anchor, tpl.get(), homes,
+                    new GapSpec(reg, FacilityTemplate.Group.MILL, Facilities.MILL_GAP, 0L, Facilities.MILL_GAP));
+            if (cand == null) {
+                lastWhy = String.format("자리 없음 — 중심 @%d,%d(밭 %d칸) · 거부 집%d 밭%d 물%d 낙차%d 간격%d",
+                        c.anchor.getX(), c.anchor.getZ(), score.get(c.id),
+                        SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4]);
+                continue;
             }
+            String clash = facilityGapFault(reg, cand, FacilityTemplate.Group.MILL, Facilities.MILL_GAP);
+            if (clash != null) {
+                lastWhy = "보류 — " + clash;
+                continue;
+            }
+            // 자리 확정 뒤 <b>그 자리 기준</b>으로 반경 안 밭을 다시 센다(사용자 지시, 런 26·28 실측).
+            int sp = 0;
+            int st = 0;
+            for (FarmStore.Plot p : fs.all().values()) {
+                int n = millTilesInReach(p, cand);
+                if (n > 0) {
+                    sp++;
+                    st += n;
+                }
+            }
+            if (st < Facilities.MILL_MIN_TILES) {
+                lastWhy = String.format("보류 — 자리 @%d,%d 에서 재면 끼는 밭 %d구획 %d칸 < 하한 %d칸(중심 @%d,%d 는 %d칸)",
+                        cand.getX(), cand.getZ(), sp, st, Facilities.MILL_MIN_TILES,
+                        c.anchor.getX(), c.anchor.getZ(), score.get(c.id));
+                continue;
+            }
+            site = cand;
+            centre = c.anchor;
+            bestTiles = score.get(c.id);
+            servePlots = sp;
+            serveTiles = st;
+            break;
         }
-        if (serveTiles < Facilities.MILL_MIN_TILES) {
-            millNote(String.format("보류 — 자리 @%d,%d 에서 재면 끼는 밭 %d구획 %d칸 < 하한 %d칸(중심 @%d,%d 는 %d칸)",
-                    site.getX(), site.getZ(), servePlots, serveTiles, Facilities.MILL_MIN_TILES,
-                    centre.getX(), centre.getZ(), bestTiles));
+        if (site == null) {
+            millNote(lastWhy != null ? lastWhy : "보류 — 후보 중심 셋 모두 자리 없음");
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
@@ -4374,6 +4387,22 @@ public class MimicEntity extends PathfinderMob {
 
     private void millNote(String why) {
         SimEvents.event(this, "풍차", why);
+    }
+
+    /** 이 구획의 칸 중 pos 반경 MILL_REACH 안에 드는 칸 수 — 앵커 거리가 아니라 <b>칸</b>으로 잰다.
+     *  (72칸 밭은 앵커에서 먼 칸이 12블록 넘게 떨어져, 앵커 기준이면 반경 안 밭이 통째로 빠진다.) */
+    private static int millTilesInReach(FarmStore.Plot p, BlockPos pos) {
+        double r2 = Facilities.MILL_REACH * Facilities.MILL_REACH;
+        int n = 0;
+        for (long t : p.tiles) {
+            BlockPos tp = BlockPos.of(t);
+            double dx = tp.getX() - pos.getX();
+            double dz = tp.getZ() - pos.getZ();
+            if (dx * dx + dz * dz <= r2) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /** 이 구획(앵커)에 이미 어느 풍차가 닿는가. */

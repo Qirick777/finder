@@ -4342,10 +4342,9 @@ public class MimicEntity extends PathfinderMob {
             millNote("보류 — " + clash);
             return larder;
         }
-        raiseFacility(sl, site, tpl.get());
-        reg.register(site, FacilityTemplate.Kind.WINDMILL, rot, mir, head, today(),
-                Facilities.MILL_COST);
-        RoadPlanner.Obstacles.invalidate();
+        // 자리 확정 뒤 <b>그 자리 기준</b>으로 반경 안 밭을 다시 센다(사용자 지시, 런 26 실측). 하한은
+        // 후보 중심(구획 앵커)에서 검사했는데 실제 자리는 밭을 피해 옮겨지므로 반경에서 밭이 빠진다
+        // — 둘째 풍차가 중심 64칸+ 인데 자리에서는 2구획 48칸이었다. 못 미치면 그날은 세우지 않는다.
         int servePlots = 0;
         int serveTiles = 0;
         for (FarmStore.Plot p : fs.all().values()) {
@@ -4354,6 +4353,16 @@ public class MimicEntity extends PathfinderMob {
                 serveTiles += p.tiles.length;
             }
         }
+        if (serveTiles < Facilities.MILL_MIN_TILES) {
+            millNote(String.format("보류 — 자리 @%d,%d 에서 재면 끼는 밭 %d구획 %d칸 < 하한 %d칸(중심 @%d,%d 는 %d칸)",
+                    site.getX(), site.getZ(), servePlots, serveTiles, Facilities.MILL_MIN_TILES,
+                    centre.getX(), centre.getZ(), bestTiles));
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.WINDMILL, rot, mir, head, today(),
+                Facilities.MILL_COST);
+        RoadPlanner.Obstacles.invalidate();
         SimEvents.event(this, "풍차", String.format(
                 "착공 @%d,%d 회전%d%s — 끼는 밭 %d구획 %d칸(반경 %.0f) · 값 %.0f (저장고 %.0f→%.0f)"
                         + " · 마을 %d번째(밭 %d칸)",

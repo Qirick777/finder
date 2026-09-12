@@ -3903,7 +3903,10 @@ public final class FarmTicker {
                 // 군인 개편(사용자 승인): "가장이 아니다"는 더 이상 탈락이 아니다 — 땅 못 받는 동거
                 // 성년 아들이 곧 창을 드는 층이다(런 22·24 탈락 1위 비부양자 17). ownsFarm(본인·배우자
                 // 밭)은 그대로 둔다 — 지주 아내가 병사가 되던 구멍의 마개다. 선호 0(비겁 등)은 제외.
-                if (com.evosim.core.Vocation.soldier(m.getIndividual()) <= 0.0) {
+                // 선호는 <b>가중치</b>지 관문이 아니다 — "선호 0 제외"로 두자 런 25 d7 후보 27명 전원이
+                // 탈락했다(무특성이 다수). 비겁만 뺀다(창을 들 뜻이 없는 자).
+                if (com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(),
+                        com.evosim.core.Trait.COWARD)) {
                     rejNotHead++; // 이름은 그대로 두고 뜻만 "창을 들 뜻이 없음"으로(로그 열 유지)
                     continue;
                 }
@@ -3948,7 +3951,7 @@ public final class FarmTicker {
             // 후보는 전부 출근 가능하고, 거기서 더 가까운 것보다 더 쓸모 있는 것이 먼저다.
             pick.sort(java.util.Comparator.comparingDouble(
                     (MimicEntity m) -> -soldierFitness(m.getIndividual())
-                            * com.evosim.core.Vocation.soldier(m.getIndividual())) // 능력 × 선호
+                            * (1.0 + com.evosim.core.Vocation.soldier(m.getIndividual()))) // 능력 × (1+선호)
                     .thenComparingDouble(m -> m.getHomePos().distSqr(bk.pos))
                     .thenComparingLong(m -> m.getIndividual().id()));
             plans.add(new Garrison(bk, owner, tpl.get(), cap, guarded.size(), taxIn, pick,

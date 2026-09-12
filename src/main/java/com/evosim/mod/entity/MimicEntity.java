@@ -4051,7 +4051,7 @@ public class MimicEntity extends PathfinderMob {
      * 순서를 반대로 두면 나무를 세우느라 곳간이 깎여 분수가 영영 안 선다.
      */
     private double considerStreet(ServerLevel sl, double larder, double adultNeed) {
-        if (individual == null || FarmStore.get(sl).ownedTiles(individual.id()) <= 0) {
+        if (individual == null || farmHeadOfHome(sl) == 0L) { // 밭 가진 가구(대표 기준)
             return larder; // 밭을 가진 가구만 — 가로등과 같은 자격
         }
         double reserve = HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
@@ -4095,10 +4095,40 @@ public class MimicEntity extends PathfinderMob {
      * 마을이 자라면 영원히 다시 충족되므로 아무것도 막지 못한다 — 개수가 가구 수에 선형으로
      * 묶인다. 분수에는 그런 게이트가 아예 없고, 그래서 적당하다.
      */
+    /**
+     * 가구의 밭 대표(최대 소유 타일 성년, 본인 포함) — 시설 자격·명의의 기준.
+     *
+     * <p>정산은 가구원 각자가 돌리고, 그날 <b>먼저</b> 정산한 사람에게만 newHomeDay 가 서서
+     * 우물·풍차·꾸밈 판정이 한 번 돈다. 종전에는 그 사람 <b>본인</b>의 타일로 자격을 봤기 때문에
+     * 아내가 먼저 정산한 날은 지주 가구인데도 자격 미달로 조용히 건너뛰었다(런 25 실측: 군주 밭
+     * 72칸인데 d8 까지 우물·풍차 판정 로그 0건 · 런 24 는 군주가 먼저 정산해 d3 착공). 가구의
+     * 대표로 보고, 세우면 그 대표 명의로 등기한다.
+     */
+    private long farmHeadOfHome(ServerLevel sl) {
+        if (homePos == null) {
+            return 0L;
+        }
+        FarmStore fs = FarmStore.get(sl);
+        long best = 0L;
+        int bestTiles = 0;
+        for (MimicEntity a : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(96.0))) {
+            if (a.getIndividual() == null || a.getStage() != LifeStage.ADULT
+                    || a.getHomePos() == null || !a.getHomePos().equals(homePos)) {
+                continue;
+            }
+            int t = fs.ownedTiles(a.getIndividual().id());
+            if (t > bestTiles) {
+                bestTiles = t;
+                best = a.getIndividual().id();
+            }
+        }
+        return best;
+    }
+
     private double considerWell(ServerLevel sl, double larder, double adultNeed) {
-        if (individual == null || homePos == null
-                || FarmStore.get(sl).ownedTiles(individual.id()) <= 0) {
-            return larder; // 밭을 가진 가구만 — 분수·가로등과 같은 자격
+        long head = farmHeadOfHome(sl);
+        if (individual == null || homePos == null || head == 0L) {
+            return larder; // 밭을 가진 가구만 — 분수·가로등과 같은 자격(가구 대표 기준)
         }
         double gate = Facilities.WELL_COST
                 + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
@@ -4186,7 +4216,7 @@ public class MimicEntity extends PathfinderMob {
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
-        reg.register(site, FacilityTemplate.Kind.WELL, rot, mir, individual.id(), today(),
+        reg.register(site, FacilityTemplate.Kind.WELL, rot, mir, head, today(),
                 Facilities.WELL_COST);
         RoadPlanner.Obstacles.invalidate(); // 몸통이 길의 장애물로 즉시 잡히게
         // <b>길을 따로 뻗지 않는다.</b> 진입로는 문에서 뻗는데({@code assignFacilityRoad} 가
@@ -4230,8 +4260,9 @@ public class MimicEntity extends PathfinderMob {
             return larder;
         }
         FarmStore fs = FarmStore.get(sl);
-        if (fs.ownedTiles(individual.id()) < Facilities.MILL_OWNER_MIN_TILES) {
-            return larder; // 지주급만 — 소농은 반경에 끼어 쓴다
+        long head = farmHeadOfHome(sl);
+        if (head == 0L || fs.ownedTiles(head) < Facilities.MILL_OWNER_MIN_TILES) {
+            return larder; // 지주급만(가구 대표 기준) — 소농은 반경에 끼어 쓴다
         }
         double gate = Facilities.MILL_COST
                 + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
@@ -4312,7 +4343,7 @@ public class MimicEntity extends PathfinderMob {
             return larder;
         }
         raiseFacility(sl, site, tpl.get());
-        reg.register(site, FacilityTemplate.Kind.WINDMILL, rot, mir, individual.id(), today(),
+        reg.register(site, FacilityTemplate.Kind.WINDMILL, rot, mir, head, today(),
                 Facilities.MILL_COST);
         RoadPlanner.Obstacles.invalidate();
         int servePlots = 0;

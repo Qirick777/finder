@@ -2951,6 +2951,30 @@ public final class FarmTicker {
         return POST_OF.containsKey(m.getId());
     }
 
+    /** 이 병사가 지휘관인가 — 배속 막사의 commanderId 와 같다. */
+    public static boolean isCommander(MimicEntity m) {
+        BlockPos post = POST_OF.get(m.getId());
+        if (post == null || m.getIndividual() == null
+                || !(m.level() instanceof ServerLevel sl)) {
+            return false;
+        }
+        for (FacilityStore.Entry e : FacilityStore.get(sl).all()) {
+            if (e.pos.equals(post)) {
+                return e.commanderId == m.getIndividual().id();
+            }
+        }
+        return false;
+    }
+
+    /** 이 막사의 지휘관 학위(없거나 부재면 0) — 보너스·이탈 유예의 입력. */
+    private static int commanderDegree(FacilityStore.Entry bk, java.util.Map<Long, MimicEntity> byId) {
+        if (bk.commanderId == 0L) {
+            return 0;
+        }
+        MimicEntity c = byId.get(bk.commanderId);
+        return c == null ? 0 : c.getDegree();
+    }
+
     public static double[] guardSums() {
         return GUARD_SUM.clone();
     }
@@ -4193,6 +4217,7 @@ public final class FarmTicker {
         }
         SUPPLIED_TODAY.clear();
         formSorties(level, plans);
+        appointCommanders(level, plans, day);
         for (Garrison g : plans) {
             com.evosim.mod.log.SimEvents.note(level, "주둔", String.format(
                     "막사 @%d,%d%s — 지킬가구 %d → 정원 %d(전시 %d) · 배속 %d명(남%d 여%d%s) · 세수 %.1f"
@@ -4205,6 +4230,81 @@ public final class FarmTicker {
                     GUARD_SUM[1], larders.get(g.owner.getHomePos()),
                     g.pick.size(), g.rejLand, g.rejNotHead, g.rejPatron, g.rejFar, g.rejElder,
                     g.rejCare, g.rejWeak));
+        }
+    }
+
+    /** 성년 목록 → id 색인(지휘관 학위 조회용, 같은 목록이면 재사용). */
+    private static java.util.Map<Long, MimicEntity> BY_ID_CACHE = java.util.Map.of();
+    private static java.util.List<MimicEntity> BY_ID_SRC = null;
+
+    private static java.util.Map<Long, MimicEntity> byIdFor(java.util.List<MimicEntity> adults) {
+        if (BY_ID_SRC != adults) {
+            java.util.Map<Long, MimicEntity> m = new java.util.HashMap<>();
+            for (MimicEntity a : adults) {
+                if (a.getIndividual() != null) {
+                    m.putIfAbsent(a.getIndividual().id(), a);
+                }
+            }
+            BY_ID_CACHE = m;
+            BY_ID_SRC = adults;
+        }
+        return BY_ID_CACHE;
+    }
+
+    /**
+     * 지휘관 임명·유지(P3) — 막사 정원이 찬 날, 앉은 병사 중 학위 1 이상을 학위×능력(힘·경계·지능)
+     * 순으로 한 명. 현직은 자격(학위·이 막사 배속·생존)을 유지하면 그대로. 학위자가 없으면 임명하지
+     * 않는다 — 대학이 있어야 지휘관이 선다. 보너스는 임명 다음 배속부터 붙는다(같은 밤엔 앉은 뒤라).
+     */
+    private static void appointCommanders(ServerLevel level, java.util.List<Garrison> plans, long day) {
+        FacilityStore reg = FacilityStore.get(level);
+        for (Garrison g : plans) {
+            FacilityStore.Entry bk = g.bk;
+            MimicEntity cur = null;
+            for (MimicEntity s : g.seatedList) {
+                if (s.getIndividual().id() == bk.commanderId) {
+                    cur = s;
+                    break;
+                }
+            }
+            if (bk.commanderId != 0L && (cur == null || !com.evosim.core.Commander.eligible(cur.getDegree()))) {
+                reg.note(bk, day, "지휘관 해임 — " + (cur == null ? "부재(미배속·사망)" : "학위 상실"));
+                com.evosim.mod.log.SimEvents.note(level, "지휘관해임", String.format(
+                        "막사 @%d,%d — #%d %s", bk.pos.getX(), bk.pos.getZ(), bk.commanderId,
+                        cur == null ? "부재" : "학위 상실"));
+                bk.commanderId = 0L;
+                reg.setDirty();
+                cur = null;
+            }
+            if (cur != null || !com.evosim.core.Commander.fullHouse(g.seated, g.cap)) {
+                continue;
+            }
+            MimicEntity best = null;
+            double bv = 0.0;
+            for (MimicEntity s : g.seatedList) {
+                var ind = s.getIndividual();
+                double v = com.evosim.core.Commander.score(s.getDegree(),
+                        com.evosim.core.Physique.strength(ind), com.evosim.core.Physique.vision(ind),
+                        com.evosim.core.Multipliers.brightGrade(ind));
+                if (v > bv + 1.0E-9 || (best != null && Math.abs(v - bv) <= 1.0E-9
+                        && ind.id() < best.getIndividual().id())) {
+                    best = s;
+                    bv = v;
+                }
+            }
+            if (best == null) {
+                continue; // 학위자 없음 — 정원은 찼지만 지휘관은 못 세운다(대학 전)
+            }
+            bk.commanderId = best.getIndividual().id();
+            reg.setDirty();
+            reg.note(bk, day, String.format("지휘관 임명 — %s(학위 %s · 급여 %.0f)",
+                    best.getIndividual().shortName(), com.evosim.core.Degree.name(best.getDegree()),
+                    com.evosim.core.Commander.WAGE));
+            com.evosim.mod.log.SimEvents.event(best, "지휘관임명", String.format(
+                    "막사 @%d,%d 정원 %d/%d — 학위 %s · 점수 %.2f · 급여 %.0f · 병사 공격·감지 ×%.2f · 이탈 유예 +%d일",
+                    bk.pos.getX(), bk.pos.getZ(), g.seated, g.cap, com.evosim.core.Degree.name(best.getDegree()),
+                    bv, com.evosim.core.Commander.WAGE, com.evosim.core.Commander.bonusMult(best.getDegree()),
+                    com.evosim.core.Commander.graceDays(best.getDegree())));
         }
     }
 
@@ -4246,6 +4346,9 @@ public final class FarmTicker {
                 // 군인 개편(사용자 승인): 가난 보조(4 → 1 감쇠) 대신 능력 비례 고정급 — 소작 3.3 <
                 // 군인 3.5~5 < 마름. 가구 곳간과 무관하다.
                 double wage = Facilities.soldierWage(soldierEdge(s.getIndividual()));
+                if (bk.commanderId == sid) {
+                    wage = Math.max(wage, com.evosim.core.Commander.WAGE); // 지휘관 급여 5
+                }
                 // 위급한 병사는 <b>고용주가 즉시 책임진다</b> — 전업이라 스스로 벌 수단이 없다.
                 if (s.isCritical()) {
                     wage += com.evosim.core.FoodEconomy.CRITICAL * 4.0;
@@ -4262,7 +4365,8 @@ public final class FarmTicker {
                 }
                 if (paid < wage - 1.0E-9) {
                     int miss = UNPAID_DAYS.merge(sid, 1, Integer::sum);
-                    if (miss >= desertDays(s)) {
+                    if (miss >= desertDays(s) + com.evosim.core.Commander.graceDays(
+                            commanderDegree(bk, byIdFor(adults)))) { // 지휘관 아래선 +1/+2일 참는다
                         UNPAID_DAYS.remove(sid);
                         GUARD_SUM[3]++;
                         reg.note(bk, day, String.format("이탈 — %s(봉급 %.1f 중 %.1f · %d일 연속 미납)",
@@ -4330,6 +4434,7 @@ public final class FarmTicker {
                             Math.sqrt(s.getHomePos().distSqr(bk.pos)),
                             (int) Facilities.COMMUTE_RANGE, bk.ownerId));
                 }
+                s.setCommandBonus(com.evosim.core.Commander.bonusMult(commanderDegree(bk, byIdFor(adults))));
                 g.seatedList.add(s);
                 g.seated++;
                 GUARD_SUM[0]++;

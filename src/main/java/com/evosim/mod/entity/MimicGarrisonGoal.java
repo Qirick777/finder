@@ -109,7 +109,7 @@ public class MimicGarrisonGoal extends Goal {
             spot = mob.isUnderTreatment()
                     ? FarmTicker.nearestFriendlyBarracks(sl0(), mob)
                     : (down != null ? down.blockPosition()
-                            : (night ? post : dayPost())); // 밤은 막사 취침 — 야간은 경비대 몫(사용자 승인)
+                            : (night || FarmTicker.isCommander(mob) ? post : dayPost())); // 지휘관은 낮에 막사 훈련(P3) // 밤은 막사 취침 — 야간은 경비대 몫(사용자 승인)
             if (spot == null) {
                 spot = post;
             }
@@ -126,7 +126,7 @@ public class MimicGarrisonGoal extends Goal {
     public void start() {
         // 막사를 출근 앵커로 — 리시가 거처로 되끌지 않고 오히려 여기까지 데려다 준다.
         mob.setWorkAnchor(post);
-        mob.setActivity(night ? "막사취침" : "주둔");
+        mob.setActivity(night ? "막사취침" : (FarmTicker.isCommander(mob) ? "훈련" : "주둔"));
     }
 
     @Override
@@ -156,7 +156,7 @@ public class MimicGarrisonGoal extends Goal {
         // COMMUTE_RANGE(96)까지 떨어져 있는데 활동반경은 32 라, 막사를 앵커로 두면
         // 리시가 병사를 도로 끌어 근무지에 영영 못 닿는다.
         mob.setGuardAnchor(spot);
-        mob.setActivity(night ? "막사취침" : "주둔");
+        mob.setActivity(night ? "막사취침" : (FarmTicker.isCommander(mob) ? "훈련" : "주둔"));
         // 압박은 <b>몸이 어디 있는가</b>로 센다 — 목적지 도착 판정에 기대지 않는다.
         // 거처 좌표는 천막 구조물 안쪽이라 도착(2.5블록)이 영영 성립하지 않을 수 있다.
         FarmTicker.reportPressureNear(post, mob.blockPosition());

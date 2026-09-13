@@ -227,6 +227,11 @@ public final class EvoSimCommand {
                                 .executes(ctx -> stats(ctx, IntegerArgumentType.getInteger(ctx, "tab")))))
                 // 땅 문서를 좌표로 연다(UI P4) — 우클릭과 같은 길(밭 → 시설 → 집). 촬영·원격 관측용.
                 // 열린 화면 닫기(원격 촬영용 — 클라이언트에 입력 장치가 없을 때 문서·통계 화면을 내린다).
+                // 학위 주입(검증 전용 — 대학이 없는 동안 지휘관·전업 교사·마름 우대를 무대 검사한다).
+                .then(Commands.literal("degree")
+                        .then(Commands.argument("who", com.mojang.brigadier.arguments.StringArgumentType.word())
+                                .then(Commands.argument("n", IntegerArgumentType.integer(0, 2))
+                                        .executes(EvoSimCommand::setDegree))))
                 .then(Commands.literal("closescreen").executes(ctx -> {
                     if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
                         ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
@@ -3484,6 +3489,27 @@ public final class EvoSimCommand {
         StatsSnapshot snap = StatsSnapshot.build(ctx.getSource().getLevel());
         ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new StatsPacket(snap, tab));
         return 1;
+    }
+
+    /** {@code evosim degree <개체id|all|soldiers> <0-2>} — 학위 주입(검증 전용). */
+    private static int setDegree(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        String who = com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "who");
+        int n = IntegerArgumentType.getInteger(ctx, "n");
+        int done = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null)) {
+            boolean hit = "all".equals(who) ? m.getStage() == com.evosim.core.LifeStage.ADULT
+                    : "soldiers".equals(who) ? FarmTicker.isSoldier(m)
+                    : who.equals(Integer.toString(m.getId()));
+            if (hit) {
+                m.setDegree(n);
+                done++;
+            }
+        }
+        tell(ctx.getSource(), String.format("§e[학위]§r %s → %s: %d명 (검증 전용 주입)", who,
+                com.evosim.core.Degree.name(n), done));
+        return done;
     }
 
     /** {@code evosim deed x y z} — 그 좌표의 밭·시설·집 문서를 실행자 화면에 연다(콘솔이면 채팅). */

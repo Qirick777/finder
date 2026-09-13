@@ -45,6 +45,8 @@ public class FacilityStore extends SavedData {
         public double account;
         /** 등기자 — 세운 자. 승계로 주인이 바뀌어도 남는다(땅 문서의 "창설"에 해당). */
         public long founderId;
+        /** 지휘관(P3) — 막사 정원이 찬 밤에 임명. 0 이면 없다. */
+        public long commanderId;
         /** 누계 — 주인이 사비로 메운 적자(교회 보전), 주인이 가져간 흑자(교회 분배). */
         public double covered;
         public double paidOut;
@@ -233,6 +235,7 @@ public class FacilityStore extends SavedData {
             e.staff2Id = t.getLong("Staff2");
             e.account = t.getDouble("Account");
             e.founderId = t.contains("Founder") ? t.getLong("Founder") : e.ownerId;
+            e.commanderId = t.getLong("Commander");
             e.covered = t.getDouble("Covered");
             e.paidOut = t.getDouble("PaidOut");
             ListTag hist = t.getList("Hist", Tag.TAG_STRING);
@@ -261,6 +264,7 @@ public class FacilityStore extends SavedData {
             t.putLong("Staff2", e.staff2Id);
             t.putDouble("Account", e.account);
             t.putLong("Founder", e.founderId);
+            t.putLong("Commander", e.commanderId);
             t.putDouble("Covered", e.covered);
             t.putDouble("PaidOut", e.paidOut);
             ListTag hist = new ListTag();

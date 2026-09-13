@@ -3296,6 +3296,19 @@ public final class EvoTest {
                 && close(com.evosim.core.Overseer.floor(0.8, 0), 0.8)
                 && close(com.evosim.core.Overseer.floor(0.8, 2), 0.92)
                 && close(com.evosim.core.Overseer.floor(0.95, 2), 1.0);
+        boolean cm = !com.evosim.core.Commander.eligible(0) && com.evosim.core.Commander.eligible(1)
+                && com.evosim.core.Commander.fullHouse(12, 12) && !com.evosim.core.Commander.fullHouse(11, 12)
+                && !com.evosim.core.Commander.fullHouse(0, 0)
+                && close(com.evosim.core.Commander.score(0, 1.5, 1.5, 3), 0.0)
+                && close(com.evosim.core.Commander.score(1, 1.0, 1.0, 0), 2.0)
+                && close(com.evosim.core.Commander.score(2, 1.0, 1.0, 0), 4.0)
+                && close(com.evosim.core.Commander.bonusMult(1), 1.05)
+                && close(com.evosim.core.Commander.bonusMult(2), 1.15)
+                && com.evosim.core.Commander.graceDays(1) == 1
+                && com.evosim.core.Commander.graceDays(2) == 2
+                && close(com.evosim.core.Commander.WAGE, 5.0);
+        report.add("barracks/지휘관", cm, "자격 학위 1+ · 만석 판정 · 점수 학위×(힘+경계+지능) · 보너스 ×1.05/1.15 · 유예 +1/+2 · 급여 5",
+                cm ? "정상" : "어긋남");
         report.add("farm/감독관문턱", ov, "72칸+ · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
                 ov ? "정상" : "어긋남");
         boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)

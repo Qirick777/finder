@@ -93,7 +93,9 @@ public final class DeedText {
             roles.add("감독관(구획 " + overseerPlot + ")");
         }
         if (FarmTicker.isSoldier(m)) {
-            roles.add(String.format("병사(봉급 %.1f)", FarmTicker.soldierWageOf(m)));
+            roles.add(FarmTicker.isCommander(m)
+                    ? String.format("지휘관(급여 %.0f)", com.evosim.core.Commander.WAGE)
+                    : String.format("병사(봉급 %.1f)", FarmTicker.soldierWageOf(m)));
         }
         if (m.getPoorhouse() != null) {
             roles.add(String.format("경비대(봉급 %.1f)", m.getGuardWage()));
@@ -278,6 +280,8 @@ public final class DeedText {
             case BARRACKS -> {
                 ls.add("정원 " + seats + " · 배속 " + FarmTicker.soldiersAt(e.pos)
                         + String.format(" · 주인 어제 세수 %.1f", FarmTicker.lastTaxOf(e.ownerId)));
+                ls.add("지휘관 " + (e.commanderId == 0L ? "— (학위자 없음 또는 정원 미달)"
+                        : staff(sl, living, e.commanderId, com.evosim.core.Commander.WAGE)));
                 ls.add(soldiersLine(sl, e.pos, living));
             }
             case POORHOUSE -> ls.add("정원 " + seats + " · " + guardsLine(sl, e.pos, living));

@@ -42,7 +42,7 @@ public class MimicCombatGoal extends Goal {
         if (ind == null || !SurvivalRules.canFight(mob.getStage())) {
             return false; // 유아·소년은 전투 goal 미사용(권한 점유로 얼어붙지 않도록)
         }
-        LivingEntity m = nearestFoe(Combat.detectionRange(ind));
+        LivingEntity m = nearestFoe(Combat.detectionRange(ind) * mob.getCommandBonus()); // 지휘관 감지 보너스
         if (m == null) {
             return false;
         }

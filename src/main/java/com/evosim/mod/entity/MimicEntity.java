@@ -4685,7 +4685,37 @@ public class MimicEntity extends PathfinderMob {
      * <p>바뀔 때만 슬롯을 건드린다(동기화 절약). 떨굼 확률은 0 — 죽어도 장비가 바닥에
      * 남지 않는다(주울 주체도 없고, 아이템 엔티티만 쌓인다).
      */
+    private static final java.util.UUID COMMAND_ATK_ID =
+            java.util.UUID.fromString("7c1f3a52-9b7e-4d2c-8a61-2f0e5b9c4d13");
+    /** 지휘관 보너스 배수(1 = 없음) — 감지 반경에 곱한다(MimicCombatGoal). 공격은 속성 수정자. */
+    private double commandBonus = 1.0;
+
+    public double getCommandBonus() {
+        return commandBonus;
+    }
+
+    /**
+     * 지휘관 보너스(P3) — 이 병사가 배속된 막사의 지휘관 학위에 따른 배수(1.05/1.15). 공격력은
+     * 곱 수정자로, 감지는 필드로 둔다. 1.0 이면 벗긴다. 배속·해제(setSoldierGear)와 함께 움직인다.
+     */
+    public void setCommandBonus(double mult) {
+        commandBonus = Math.max(1.0, mult);
+        var atk = getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
+        if (atk != null) {
+            atk.removeModifier(COMMAND_ATK_ID);
+            if (commandBonus > 1.0 + 1.0E-9) {
+                atk.addPermanentModifier(new net.minecraft.world.entity.ai.attributes
+                        .AttributeModifier(COMMAND_ATK_ID, "evosim_command", commandBonus - 1.0,
+                        net.minecraft.world.entity.ai.attributes.AttributeModifier
+                                .Operation.MULTIPLY_TOTAL));
+            }
+        }
+    }
+
     public void setSoldierGear(boolean on) {
+        if (!on) {
+            setCommandBonus(1.0); // 배속이 풀리면 지휘관 보너스도 벗는다
+        }
         ItemStack sword = on ? new ItemStack(net.minecraft.world.item.Items.IRON_SWORD)
                 : ItemStack.EMPTY;
         ItemStack shield = on ? new ItemStack(net.minecraft.world.item.Items.SHIELD)

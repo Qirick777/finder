@@ -3317,6 +3317,17 @@ public final class EvoTest {
                 && close(com.evosim.core.Degree.teacherWage(1), 2.0);
         report.add("school/전업교사", ft, "적립 1.0/1.5 · 수준 내림(2.9→2, 3.0→3, 상한 3) · 급여 임시 1.0/학사 2.0",
                 ft ? "정상" : "어긋남");
+        boolean tu = com.evosim.core.ChildSupport.tuitionGrant(40.0, 30.0, 1.5, false) == 2
+                && com.evosim.core.ChildSupport.tuitionGrant(31.0, 30.0, 1.5, false) == 1
+                && com.evosim.core.ChildSupport.tuitionGrant(30.5, 30.0, 1.5, false) == 0
+                && com.evosim.core.ChildSupport.tuitionGrant(40.0, 30.0, 1.5, true) == 0
+                && com.evosim.core.ChildSupport.tuitionGrant(40.0, 30.0, 0.0, false) == 0
+                && com.evosim.core.ChildSupport.worksForTuition(true, 1.5, 31.0, 30.0)
+                && !com.evosim.core.ChildSupport.worksForTuition(true, 1.5, 32.0, 30.0)
+                && !com.evosim.core.ChildSupport.worksForTuition(false, 1.5, 31.0, 30.0)
+                && com.evosim.core.Degree.marriageCharm(1) == 1;
+        report.add("support/학자금", tu, "여유 안에서 등록금 ceil 우선(10→2, 1→1, 0.5→0) · 무책임 0 · 과한책임은 여유<하루치면 노동 지속 · 학위 매력 +1",
+                tu ? "정상" : "어긋남");
         report.add("farm/감독관문턱", ov, "72칸+ · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
                 ov ? "정상" : "어긋남");
         boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)

@@ -95,7 +95,7 @@ public class MimicFarmGoal extends Goal {
             // 잔여 익은 타일은 부족분 게시 → 소작(2세대 일자리)으로 자연 이관.
             harvestBlocked = true;
         }
-        if (mob.isSatisfiedToday() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
+        if (mob.isSatisfiedToday() && !mob.worksForTuition() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
             // 만족(M7)은 <b>출근 자체를 안 하는</b> 것이라 관리로도 넘기지 않는다 — 자기 밭
             // 노동 정지가 사다리 분화의 장치이고, 여기를 열면 만족한 지주가 계속 일하게 된다.
             idleWhy("만족 상태이고 배정 없음");

@@ -57,7 +57,7 @@ public class MimicRestGoal extends Goal {
                 instanceof net.minecraft.world.level.block.DoorBlock) {
             return false;
         }
-        BlockPos home = mob.getHomePos();
+        BlockPos home = mob.sleepPos(); // 기숙 자리가 있으면 그쪽(P2 배선)
         return home == null || mob.blockPosition().distSqr(home) <= NEAR_HOME_SQR;
     }
 

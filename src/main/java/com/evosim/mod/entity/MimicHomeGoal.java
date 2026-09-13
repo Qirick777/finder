@@ -46,6 +46,9 @@ public class MimicHomeGoal extends Goal {
 
     /** 내 자리 — 가구원마다 다른 실내 칸. 서버가 아니면 앵커로 폴백. */
     private BlockPos spot() {
+        if (mob.getLodging() != null) {
+            return mob.getLodging(); // 기숙생 — 침대 카펫 칸
+        }
         return mob.level() instanceof ServerLevel sl ? mob.homeSpot(sl) : mob.getHomePos();
     }
 
@@ -54,7 +57,7 @@ public class MimicHomeGoal extends Goal {
         if (mob.isCourtTravel()) {
             return false; // 구혼 여행 중 — 밤에도 타향에 머묾(리시 앵커가 그쪽)
         }
-        BlockPos home = mob.getHomePos();
+        BlockPos home = mob.sleepPos(); // 기숙 자리가 있으면 그쪽(P2 배선)
         if (home == null) {
             return false;
         }
@@ -113,7 +116,7 @@ public class MimicHomeGoal extends Goal {
         if (mob.isCourtTravel()) {
             return false;
         }
-        BlockPos home = mob.getHomePos();
+        BlockPos home = mob.sleepPos(); // 기숙 자리가 있으면 그쪽(P2 배선)
         if (home == null) {
             return false;
         }
@@ -134,7 +137,7 @@ public class MimicHomeGoal extends Goal {
 
     @Override
     public void tick() {
-        BlockPos home = mob.getHomePos();
+        BlockPos home = mob.sleepPos(); // 기숙 자리가 있으면 그쪽(P2 배선)
         if (home == null) {
             return;
         }

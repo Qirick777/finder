@@ -31,7 +31,8 @@ public class MimicReturnGoal extends Goal {
 
     private boolean wantsTrip() {
         if (mob.getHomePos() == null || mob.getIndividual() == null
-                || mob.isBuilding() || mob.isFastSettle() || mob.isCourtTravel()) {
+                || mob.isBuilding() || mob.isFastSettle() || mob.isCourtTravel()
+                || mob.getLodging() != null) { // 기숙생은 거처 곳간에 못 간다(P2) — 대학 급양이 먹인다
             return false; // 구혼 여행 중엔 귀가로 끌지 않음(노상 자급 — H 상한 컷)
         }
         // <b>전투불가 병사는 귀가로 끌지 않는다 — 후송이 먼저다.</b>

@@ -6566,10 +6566,6 @@ public final class FarmTicker {
             double reserve = FarmEconomy.expandReserve(owned == 0 || eligible, owned,
                     familyDailyNeed(level, head, adults));
             double larder = larders.get(home);
-            int budget = com.evosim.core.ChildSupport.budget(larder, reserve);
-            if (budget <= 0) {
-                continue;
-            }
             // 분가한 성년 자식 가구 — 집 단위로 한 번(형제가 한 집이면 한 번), 가난한 순.
             java.util.Map<Long, MimicEntity> childHomes = new java.util.HashMap<>();
             for (MimicEntity c : everyone) {
@@ -6583,6 +6579,45 @@ public final class FarmTicker {
                 childHomes.putIfAbsent(c.getHomePos().asLong(), c);
             }
             if (childHomes.isEmpty()) {
+                head.setTuitionPressure(false);
+                continue;
+            }
+            // ── 학자금(P2, 계획서 1.3) — 재학 중인 분가 자식의 등록금·기숙비 하루치를 여유 안에서 먼저.
+            //    무책임 부모는 안 준다. 과한책임 부모는 여유가 모자라면 만족이어도 일한다(worksForTuition).
+            boolean irresponsible = com.evosim.core.ExpressionResolver.isExpressed(
+                    head.getIndividual(), com.evosim.core.Trait.IRRESPONSIBLE);
+            double dueAll = 0.0;
+            for (MimicEntity c : childHomes.values()) {
+                double due = 0.0;
+                for (MimicEntity a : adults) {
+                    if (a.getHomePos() != null && a.getHomePos().equals(c.getHomePos())) {
+                        due += a.getTuitionDue();
+                    }
+                }
+                if (due <= 0.0) {
+                    continue;
+                }
+                dueAll += due;
+                int give = com.evosim.core.ChildSupport.tuitionGrant(larder, reserve, due, irresponsible);
+                if (give <= 0) {
+                    continue;
+                }
+                double cl = larders.get(c.getHomePos());
+                larders.set(c.getHomePos(), cl + give);
+                larder -= give;
+                larders.set(home, larder);
+                realmOut(headId)[3] += give;
+                AllegianceStore.get(level).record(c.getIndividual().id(), headId,
+                        AllegianceStore.W_RELIEF * give, 0.0, day);
+                com.evosim.mod.log.SimEvents.event(head, "학자금", String.format(
+                        "%d → %s(등록금 하루치 %.1f · 저장고 %.1f→%.1f) · 부모 여유 %.1f(예비 %.0f)",
+                        give, c.getIndividual().shortName(), due, cl, cl + give, larder - reserve, reserve));
+            }
+            head.setTuitionPressure(com.evosim.core.ChildSupport.worksForTuition(
+                    com.evosim.core.ExpressionResolver.isExpressed(head.getIndividual(),
+                            com.evosim.core.Trait.OVER_RESPONSIBLE), dueAll, larder, reserve));
+            int budget = com.evosim.core.ChildSupport.budget(larder, reserve);
+            if (budget <= 0) {
                 continue;
             }
             java.util.List<MimicEntity> kids = new java.util.ArrayList<>(childHomes.values());
@@ -6716,7 +6751,7 @@ public final class FarmTicker {
                 }
                 int budget = 0;
                 // 가구 몫 = 어제 실제로 딴 칸(런 19 실측 수정 — FarmEconomy.careBudget 주석).
-                if (ownerEnt != null && !ownerEnt.isSatisfiedToday()) { // 만족 구성원 제외 유지(R6)
+                if (ownerEnt != null && (!ownerEnt.isSatisfiedToday() || ownerEnt.worksForTuition())) { // 만족 구성원 제외 유지(R6)
                     budget += com.evosim.core.FarmEconomy.careBudget(
                             com.evosim.core.FarmEconomy.capacity(
                                     ownerEnt.getIndividual(), ownerEnt.getStage()),
@@ -6849,7 +6884,7 @@ public final class FarmTicker {
                 if (m.getIndividual().id() == plot.ownerId || ASSIGNED.containsKey(m.getId())
                         || (oh != null && oh.equals(m.getHomePos()))
                         || store.ownedCount(m.getIndividual().id()) > 0
-                        || m.isSatisfiedToday()
+                        || (m.isSatisfiedToday() && !m.worksForTuition()) // 과한책임 학자금 예외(P2)
                         || m.inPoorhouse()
                         || isPastor(m) || isFullTimeTeacher(m) // 목사·전업 교사 — 노동시장에 없다(교회 고도화)
                         || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 출근 없음

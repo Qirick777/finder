@@ -475,6 +475,10 @@ public class MimicEntity extends PathfinderMob {
             // 도로 끌어당겨 표적에 영영 못 닿았다(실측: 표적 1명 · 도달 0). 구걸에서 겪은
             // 것과 같은 병 — 앵커가 출발지를 가리키면 리시가 호위자가 아니라 방해자가 된다.
         }
+        if (lodging != null && individual != null
+                && Schedule.phaseAt(individual, level().getDayTime()) != Schedule.Phase.WORK) {
+            return lodging; // 기숙생(P2) — 근무 밖 시간은 기숙사가 거처를 대신한다(주둔 다음, 마실 앞)
+        }
         if (visitAnchor != null) {
             return visitAnchor; // 노인 마실 — 활동반경 밖 자식 집도 리시가 끌고 간다(구혼 여행과 동일 패턴)
         }
@@ -1798,6 +1802,7 @@ public class MimicEntity extends PathfinderMob {
                 continue; // 근친 회피 §13-E
             }
             int charm = Multipliers.charmScore(individual, m.getIndividual())
+                    + com.evosim.core.Degree.marriageCharm(m.getDegree()) // 학위 매력 +1/+3(계획서 1.5)
                     - (marriedMale ? Polygyny.MARRIED_CHARM_PENALTY : 0); // 기혼 감점 — 독신 우선
             if (accountByOwner != null && level() instanceof ServerLevel sl) {
                 // 부유선호 — 상대의 잉여(저장고+밭 계정)를 매력으로. 부유한 기혼 지주는 감점 −2를
@@ -1878,7 +1883,8 @@ public class MimicEntity extends PathfinderMob {
             return true;
         }
         pruneCandidates(); // 판정 직전 유령 경쟁자(사망·기혼 전이) 제거 — n·better 부풀림에 의한 부당 거절 방지
-        int charm = Multipliers.charmScore(individual, si);
+        int charm = Multipliers.charmScore(individual, si)
+                + com.evosim.core.Degree.marriageCharm(suitor.getDegree()); // 학위 매력 +1/+3
         int n = candidates.size();
         int better = 0;
         for (int c : candidateCharm.values()) {
@@ -6980,6 +6986,47 @@ public class MimicEntity extends PathfinderMob {
         return tenantStreak;
     }
 
+    // ── 대학(P2) 배선 — 등록금 하루치·기숙 자리. 대학이 생기기 전엔 0 / null 이라 아무 효과가 없다. ──
+    /** 이 사람이 오늘 내야 할 등록금·기숙비 하루치(재학 중이면 >0) — 부모의 학자금 지원 입력. */
+    private double tuitionDue = 0.0;
+    /** 기숙 자리(대학 기숙사 침대) — 있으면 귀가·취침·리시가 거처 대신 여기를 쓴다. 곳간엔 못 간다. */
+    private BlockPos lodging;
+    /** 과한책임 부모의 만족 노동 정지 예외 — 밤 정산(supportChildren)이 매긴다(휘발). */
+    private boolean tuitionPressure;
+
+    public double getTuitionDue() {
+        return tuitionDue;
+    }
+
+    public void setTuitionDue(double due) {
+        this.tuitionDue = Math.max(0.0, due);
+    }
+
+    @Nullable
+    public BlockPos getLodging() {
+        return lodging;
+    }
+
+    public void setLodging(@Nullable BlockPos pos) {
+        this.lodging = pos;
+    }
+
+    /** 잠자리 — 기숙 자리가 있으면 그것, 없으면 거처. */
+    @Nullable
+    public BlockPos sleepPos() {
+        return lodging != null ? lodging : homePos;
+    }
+
+    public void setTuitionPressure(boolean on) {
+        this.tuitionPressure = on;
+    }
+
+    /** 만족 상태여도 일하는가 — 과한책임 부모가 재학 자식의 학자금 여유를 못 만든 날. */
+    public boolean worksForTuition() {
+        return tuitionPressure && individual != null
+                && com.evosim.core.ExpressionResolver.isExpressed(individual, com.evosim.core.Trait.OVER_RESPONSIBLE);
+    }
+
     /** 학위(0 무학위 · 1 학사 · 2 석사) — 지식인 체계. 대학이 올리고, 목사·마름·지휘관 우대의 입력. */
     public int getDegree() {
         return degree;
@@ -7978,6 +8025,10 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("TenantStreak", tenantStreak);
         tag.putInt("TenantNoShow", tenantNoShow);
         tag.putInt("Degree", degree);
+        tag.putDouble("TuitionDue", tuitionDue);
+        if (lodging != null) {
+            tag.putLong("Lodging", lodging.asLong());
+        }
         tag.putLong("PlayDay", lastPlayDay);      // 배회 생활(놀이·마실) 쿨다운·대화 기록
         tag.putLong("VisitDay", lastVisitDay);
         tag.putLong("ChatId", lastChatId);
@@ -8066,6 +8117,8 @@ public class MimicEntity extends PathfinderMob {
         tenantStreak = tag.getInt("TenantStreak");
         tenantNoShow = tag.getInt("TenantNoShow");
         degree = tag.getInt("Degree");
+        tuitionDue = tag.getDouble("TuitionDue");
+        lodging = tag.contains("Lodging") ? BlockPos.of(tag.getLong("Lodging")) : null;
         lastPlayDay = tag.contains("PlayDay") ? tag.getLong("PlayDay") : -1L;
         lastVisitDay = tag.contains("VisitDay") ? tag.getLong("VisitDay") : -100L;
         lastChatId = tag.getLong("ChatId");

@@ -34,6 +34,28 @@ public final class ChildSupport {
     }
 
     /** 한 자식에게 주는 정수 = min(예산, ceil(문턱 − 자식 저장고)); 문턱 이상이면 0. */
+    /**
+     * 등록금 지원(지식인 P2, 계획서 1.3) — 분가한 자식이 재학 중이면 기존 자식지원(여유의 25%)에 앞서
+     * 그 자식 가구의 등록금·기숙비 하루치({@code due})를 <b>여유(곳간 − 예비)</b> 안에서 정수 유닛으로
+     * 먼저 보낸다. 무책임(IRRESPONSIBLE) 부모는 0. 여유가 없으면 0.
+     */
+    public static int tuitionGrant(double larder, double reserve, double due, boolean irresponsible) {
+        if (irresponsible || due <= 0.0) {
+            return 0;
+        }
+        int slack = (int) Math.floor(Math.max(0.0, larder - reserve));
+        int need = (int) Math.ceil(due);
+        return Math.max(0, Math.min(slack, need));
+    }
+
+    /**
+     * 과한책임(OVER_RESPONSIBLE) 부모의 만족 노동 정지 예외 — 지원할 재학 자식이 있고 여유가 하루치
+     * 등록금에 못 미치면 만족 상태여도 일한다.
+     */
+    public static boolean worksForTuition(boolean overResponsible, double due, double larder, double reserve) {
+        return overResponsible && due > 0.0 && (larder - reserve) < due;
+    }
+
     public static int grant(int budget, double childLarder, double childThreshold) {
         if (budget <= 0 || childLarder >= childThreshold) {
             return 0;

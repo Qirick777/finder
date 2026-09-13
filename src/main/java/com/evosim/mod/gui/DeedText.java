@@ -313,7 +313,7 @@ public final class DeedText {
         if (m != null) {
             s += " · 학력 " + Schooling.name(m.schoolLevel());
             if (m.getDegree() > 0) {
-                s += " " + degreeName(m.getDegree());
+                s += " · 학위 " + degreeName(m.getDegree());
             }
         } else {
             s += " (사망)";

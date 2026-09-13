@@ -4269,9 +4269,11 @@ public final class FarmTicker {
             }
             if (bk.commanderId != 0L && (cur == null || !com.evosim.core.Commander.eligible(cur.getDegree()))) {
                 reg.note(bk, day, "지휘관 해임 — " + (cur == null ? "부재(미배속·사망)" : "학위 상실"));
+                FamilyLedger.Rec cr = FamilyLedger.get(level).get(bk.commanderId);
                 com.evosim.mod.log.SimEvents.note(level, "지휘관해임", String.format(
-                        "막사 @%d,%d — #%d %s", bk.pos.getX(), bk.pos.getZ(), bk.commanderId,
-                        cur == null ? "부재" : "학위 상실"));
+                        "막사 @%d,%d — %s %s", bk.pos.getX(), bk.pos.getZ(),
+                        cr != null && cr.name != null ? cr.name : "#" + bk.commanderId,
+                        cur == null ? "부재(오늘 미배속·사망)" : "학위 상실"));
                 bk.commanderId = 0L;
                 reg.setDirty();
                 cur = null;
@@ -4450,6 +4452,7 @@ public final class FarmTicker {
         SEAT_OF.clear();
         FULLTIME_TEACHERS.clear();
         SCHOOL_ENTRY.clear();
+        java.util.Set<Long> teachersToday = new java.util.HashSet<>(); // 한 사람은 한 학교만(무대 검사 2: 같은 학위자가 두 학교 교사)
         java.util.Arrays.fill(SCHOOL_SUM, 0.0);
         java.util.Arrays.fill(SCHOOL_MISS, 0);
         FacilityStore reg = FacilityStore.get(level);
@@ -4495,11 +4498,16 @@ public final class FarmTicker {
             // 전업 교사(계획서 1.7): 학위자가 있으면 임시교사를 대체한다 — 후보 중 학위 최고(같으면 현직 유지,
             // 다음 id). 현직이 자격을 잃었거나 더 높은 학위자가 나타났을 때만 갈린다.
             MimicEntity bestT = curOk ? teacher : null;
+            if (curOk && teachersToday.contains(sc.staffId)) {
+                curOk = false; // 현직이 오늘 다른 학교에 먼저 잡혔다 — 여기선 새로 뽑는다
+                teacher = null;
+            }
             for (MimicEntity m : adults) {
                 long id = m.getIndividual().id();
                 if (id == sc.ownerId || !Long.valueOf(sc.ownerId).equals(patrons.get(id))
                         || FarmStore.get(level).ownedTiles(id) != 0 || m.getHomePos() == null
                         || m.getHomePos().equals(owner.getHomePos()) || PASTORS.contains(id)
+                        || teachersToday.contains(id)
                         || FarmStore.get(level).stewardOf(id) != 0L || FarmStore.get(level).overseerOf(id) != 0L
                         || POST_OF.containsKey(m.getId()) || m.inPoorhouse()) {
                     continue;
@@ -4529,8 +4537,11 @@ public final class FarmTicker {
                             full ? " · 전업(낮 강단 상주, 밭·채집 안 함)" : ""));
                 }
             }
-            if (teacher != null && com.evosim.core.Degree.clamp(teacher.getDegree()) >= com.evosim.core.Degree.BACHELOR) {
-                FULLTIME_TEACHERS.add(teacher.getIndividual().id());
+            if (teacher != null) {
+                teachersToday.add(teacher.getIndividual().id());
+                if (com.evosim.core.Degree.clamp(teacher.getDegree()) >= com.evosim.core.Degree.BACHELOR) {
+                    FULLTIME_TEACHERS.add(teacher.getIndividual().id());
+                }
             }
             // ── 등록 — 이 주인을 따르는 가구의 소년, 통학 한계 안, 자리 수만큼. 가까운 순.
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();

@@ -137,6 +137,11 @@ public class FarmStore extends SavedData {
          */
         public double wageCarry;
 
+        // ── 감독관(지식인 체계 P3) — 72칸 이상 구획에 마름 위로 1명. ──
+        public long overseerId;          // 감독관 개체 id(0=없음)
+        public long overseerSince = -1L; // 임명 게임일
+        public double overseerCarry;     // 급여 소수 이월(지대 5%)
+
         /**
          * <b>관리로 벌어들인 시간</b>(틱) — 작물 관리가 익음을 앞당긴 누적분. 익음 판정은
          * 실제 시각이 아니라 <b>가상 시각</b> {@code 지금 + careBonus} 로 한다.
@@ -508,6 +513,90 @@ public class FarmStore extends SavedData {
         return n;
     }
 
+    /** 이 개체가 감독관으로 있는 구획 id — 없으면 0. */
+    public long overseerOf(long id) {
+        if (id == 0L) {
+            return 0L;
+        }
+        for (Plot p : plots.values()) {
+            if (p.overseerId == id) {
+                return p.id;
+            }
+        }
+        return 0L;
+    }
+
+    /** 감독관 임명 — 소작석에서 해방(마름과 같다). */
+    public void appointOverseer(ServerLevel level, Plot p, MimicEntity cand) {
+        p.overseerId = cand.getIndividual().id();
+        p.overseerSince = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        if (cand.getTenantFarm() != 0L) {
+            cand.setTenant(0L, 0);
+        }
+        setDirty();
+        com.evosim.mod.log.SimEvents.event(cand, "감독관임명", String.format(
+                "구획 %d(%d칸) 감독관 — 학위 %s · 관리 g%d · 급여 지대 %.0f%% · 효율 바닥 %.2f",
+                p.id, p.tiles.length, com.evosim.core.Degree.name(cand.getDegree()),
+                com.evosim.core.Multipliers.manageAbilityGrade(cand.getIndividual()),
+                com.evosim.core.Overseer.WAGE_SHARE * 100.0,
+                com.evosim.core.Overseer.floor(com.evosim.core.FarmEconomy.manageEfficiency(
+                        cand.getIndividual(), p.tiles.length), cand.getDegree())));
+    }
+
+    /** 감독관직 소거(사망·은퇴·자격 상실·구획 축소) — 공석은 다음 밤 다시 뽑는다. */
+    public void overseerGone(ServerLevel level, long id, String reason) {
+        if (id == 0L) {
+            return;
+        }
+        for (Plot p : plots.values()) {
+            if (p.overseerId != id) {
+                continue;
+            }
+            p.overseerId = 0L;
+            p.overseerSince = -1L;
+            setDirty();
+            com.evosim.mod.log.SimEvents.note(level, "감독관해임", String.format(
+                    "구획 %d — %s", p.id, reason));
+        }
+    }
+
+    /**
+     * 감독관 후보(이 구획의 상시 소작 중, 마름 제외) — 학위 우선, 다음 관리등급(Overseer.score),
+     * 같으면 수율×관리효율 → 근속 → id. 무토지·비노년·병사 아님.
+     */
+    public MimicEntity overseerCandidate(ServerLevel level, Plot p) {
+        MimicEntity best = null;
+        int bscore = -1;
+        double bv = -1.0;
+        int bs = -1;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() == p.id)) {
+            long id = m.getIndividual().id();
+            if (id == p.stewardId || ownedCount(id) > 0
+                    || m.getStage() == com.evosim.core.LifeStage.ELDER
+                    || com.evosim.mod.entity.FarmTicker.isSoldier(m)
+                    || com.evosim.mod.entity.FarmTicker.isPastor(m)) {
+                continue;
+            }
+            int score = com.evosim.core.Overseer.score(m.getDegree(),
+                    com.evosim.core.Multipliers.manageAbilityGrade(m.getIndividual()));
+            double v = com.evosim.core.FarmEconomy.tileYield(m.getIndividual())
+                    * com.evosim.core.FarmEconomy.manageEfficiency(m.getIndividual(), p.tiles.length);
+            int st = m.getTenantStreak();
+            boolean better = best == null || score > bscore
+                    || (score == bscore && (v > bv + 1e-9
+                            || (Math.abs(v - bv) <= 1e-9 && (st > bs
+                                    || (st == bs && id < best.getIndividual().id())))));
+            if (better) {
+                best = m;
+                bscore = score;
+                bv = v;
+                bs = st;
+            }
+        }
+        return best;
+    }
+
     /** 이 개체가 마름으로 있는 구획 id(첫 건) — 1구획 1마름·1인 1직 원칙. 없으면 0. */
     public long stewardOf(long id) {
         if (id == 0L) {
@@ -705,17 +794,30 @@ public class FarmStore extends SavedData {
     private double plotEfficiency(Census c, Plot p) {
         MimicEntity ownerEnt = c.find(p.ownerId);
         int worked = workedTiles(c, p);
+        // 감독관 바닥(지식인 P3) — 72칸+ 구획의 관리 효율은 감독관 등급(학위 가산) 아래로 안 내려간다.
+        double overseerFloor = 0.0;
+        if (p.overseerId != 0L) {
+            MimicEntity ov = c.find(p.overseerId);
+            if (ov != null && ov.getIndividual() != null) {
+                overseerFloor = com.evosim.core.Overseer.floor(
+                        com.evosim.core.FarmEconomy.manageEfficiency(ov.getIndividual(), worked),
+                        ov.getDegree());
+            }
+        }
         if (p.stewardId != 0L) {
             MimicEntity stw = c.find(p.stewardId);
-            double stewardE = stw != null ? com.evosim.core.FarmEconomy.manageEfficiency(
-                    stw.getIndividual(), worked) : 0.0;
+            // 마름 학위 가산(계획서 1.5: 학사 +5% · 석사 +15%, 상한 1)
+            double stewardE = stw != null ? Math.min(1.0, com.evosim.core.FarmEconomy.manageEfficiency(
+                    stw.getIndividual(), worked)
+                    * (1.0 + com.evosim.core.Degree.efficiencyBonus(stw.getDegree()))) : 0.0;
             double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
                     ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId) + worked) : 0.0;
-            double e = Math.max(stewardE, ownerFloor);
+            double e = Math.max(Math.max(stewardE, ownerFloor), overseerFloor);
             return e > 0.0 ? e : 1.0; // 양쪽 미로드 — 무penalty 폴백
         }
-        return ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
+        double base = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
                 ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId)) : 1.0;
+        return Math.max(base, overseerFloor);
     }
 
 
@@ -774,7 +876,8 @@ public class FarmStore extends SavedData {
                 continue; // 소유자 제외(겸직 금지) · 노년 제외(은퇴 — 밭에 안 나온다)
             }
             double v = com.evosim.core.FarmEconomy.tileYield(m.getIndividual())
-                    * com.evosim.core.FarmEconomy.manageEfficiency(m.getIndividual(), load);
+                    * com.evosim.core.FarmEconomy.manageEfficiency(m.getIndividual(), load)
+                    * com.evosim.core.Degree.stewardWeight(m.getDegree()); // 학위 우대(1.5 표)
             // 의탁(충성)·품팔이(일 잘하는 일꾼)는 마름 후보에서 ×1.1 — 중소지주 축의 짝이 감독 층의 재료.
             if (com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(), com.evosim.core.Trait.DEPENDENT)
                     || com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(), com.evosim.core.Trait.HIRELING)) {
@@ -1031,6 +1134,9 @@ public class FarmStore extends SavedData {
             p.stewarded = c.getBoolean("StwEver");
             p.stewardDebt = c.getDouble("StwDebt");
             p.wageCarry = c.getDouble("WageCarry");
+            p.overseerId = c.getLong("Ovs"); // 감독관(P3) — 구세계 로드는 0
+            p.overseerSince = c.contains("OvsSince") ? c.getLong("OvsSince") : -1L;
+            p.overseerCarry = c.getDouble("OvsCarry");
             p.careBonus = c.getLong("CareBonus");
             p.excessHoard = c.getDouble("ExHrd"); // fee 분할(E11) — 구세계 로드는 0
             p.taxedOwnerTake = c.getDouble("TaxTake"); // 봉토 수여 — 구세계 로드는 0
@@ -1091,6 +1197,9 @@ public class FarmStore extends SavedData {
             c.putBoolean("StwEver", p.stewarded);
             c.putDouble("StwDebt", p.stewardDebt);
             c.putDouble("WageCarry", p.wageCarry);
+            c.putLong("Ovs", p.overseerId);
+            c.putLong("OvsSince", p.overseerSince);
+            c.putDouble("OvsCarry", p.overseerCarry);
             c.putLong("CareBonus", p.careBonus);
             c.putDouble("ExHrd", p.excessHoard);
             c.putDouble("TaxTake", p.taxedOwnerTake);

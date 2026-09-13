@@ -3262,6 +3262,40 @@ public final class EvoTest {
 
         // 8) 마름(클래스 v1.3) — 수당 계수(겸업+수당·상한 결박)·문턱·착공 마찰·정원 유보.
         //    수당 = min(1.0, 0.5+0.05g+0.02×근속): g0/0 → 0.5 · g5/0 → 0.75 · g5/10 → 0.95 · g5/30 → 1.0(캡).
+        // 학위 효과표(계획서 1.5, 볼록) · 감독관(1.6) — 순수 함수.
+        boolean dg = close(com.evosim.core.Degree.stewardWeight(0), 1.0)
+                && close(com.evosim.core.Degree.stewardWeight(1), 1.15)
+                && close(com.evosim.core.Degree.stewardWeight(2), 1.6)
+                && close(com.evosim.core.Degree.efficiencyBonus(1), 0.05)
+                && close(com.evosim.core.Degree.efficiencyBonus(2), 0.15)
+                && close(com.evosim.core.Degree.teacherWage(0), 1.0)
+                && close(com.evosim.core.Degree.teacherWage(1), 2.0)
+                && close(com.evosim.core.Degree.teacherWage(2), 3.0)
+                && close(com.evosim.core.Degree.professorWage(1), 0.0)
+                && close(com.evosim.core.Degree.professorWage(2), 3.5)
+                && close(com.evosim.core.Degree.doctorWage(1), 2.5)
+                && close(com.evosim.core.Degree.doctorRecovery(2), 0.8)
+                && com.evosim.core.Degree.marriageCharm(2) == 3
+                && com.evosim.core.Degree.desertGraceDays(2) == 2
+                && com.evosim.core.Degree.clamp(7) == 2
+                && close(FarmEconomy.stewardWageMult(5, 0, 1), 0.80)
+                && close(FarmEconomy.stewardWageMult(5, 10, 2), 1.0); // 0.95+0.15 → 상한 1.0
+        report.add("degree/효과표", dg, "마름 가중 1/1.15/1.6 · 효율 +5%/+15% · 교사 1/2/3 · 교수 석사 3.5 · 의사 2.5/회복 80% · 매력 +3 · 수당 0.75+0.05=0.80, 캡 1.0",
+                dg ? "정상" : "어긋남");
+        double[] ow1 = com.evosim.core.Overseer.wage(40, 0.0);   // 2.0 → 2, 이월 0
+        double[] ow2 = com.evosim.core.Overseer.wage(30, 0.0);   // 1.5 → 1, 이월 0.5
+        double[] ow3 = com.evosim.core.Overseer.wage(30, 0.5);   // 2.0 → 2, 이월 0
+        boolean ov = !com.evosim.core.Overseer.needed(71) && com.evosim.core.Overseer.needed(72)
+                && com.evosim.core.Overseer.score(1, 3) > com.evosim.core.Overseer.score(0, 9)
+                && com.evosim.core.Overseer.score(0, 5) > com.evosim.core.Overseer.score(0, 4)
+                && close(ow1[0], 2.0) && close(ow1[1], 0.0)
+                && close(ow2[0], 1.0) && close(ow2[1], 0.5)
+                && close(ow3[0], 2.0) && close(ow3[1], 0.0)
+                && close(com.evosim.core.Overseer.floor(0.8, 0), 0.8)
+                && close(com.evosim.core.Overseer.floor(0.8, 2), 0.92)
+                && close(com.evosim.core.Overseer.floor(0.95, 2), 1.0);
+        report.add("farm/감독관문턱", ov, "72칸+ · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
+                ov ? "정상" : "어긋남");
         boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)
                 && close(FarmEconomy.stewardWageMult(5, 0), 0.75)
                 && close(FarmEconomy.stewardWageMult(5, 10), 0.95)

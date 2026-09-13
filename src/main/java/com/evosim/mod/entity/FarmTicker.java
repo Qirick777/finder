@@ -300,7 +300,7 @@ public final class FarmTicker {
                     // 매일 버리면 최대 1 미만이 사라진다 — 실측: 계수 1.00 에 소작 평균 1.54
                     // 인데 수당은 늘 +1 이었다(0.54 소실 = 35%). 계수나 상한을 올려도 버림이
                     // 그대로 먹으므로 그쪽으로는 안 풀린다. 축장·상환과 같은 방식이다.
-                    double mult = com.evosim.core.FarmEconomy.stewardWageMult(g, tenure);
+                    double mult = com.evosim.core.FarmEconomy.stewardWageMult(g, tenure, stwEnt.getDegree());
                     double due = paid / workers * mult + plot.wageCarry;
                     double wage = Math.min(plot.account, due);
                     int wUnits = (int) Math.floor(wage);
@@ -344,6 +344,32 @@ public final class FarmTicker {
                 store.setDirty();
                 com.evosim.mod.log.SimEvents.event(ownerEnt, "축장", String.format(
                         "구획 %d: +%d 저장고(잠금 축장 — 이월 %.2f)", plot.id, hoardUnits, plot.excessHoard));
+            }
+            // ── 감독관 급여(P3) — 오늘 지대 정수 유닛의 5%(+이월)를 구획 계정에서 먼저 뗀다.
+            if (plot.overseerId != 0L) {
+                MimicEntity ovEnt = null;
+                for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null
+                                && e.getIndividual().id() == plot.overseerId)) {
+                    ovEnt = m;
+                }
+                int rentUnits = (int) Math.floor(plot.account);
+                if (ovEnt != null && ovEnt.getHomePos() != null && rentUnits > 0) {
+                    double[] w = com.evosim.core.Overseer.wage(rentUnits, plot.overseerCarry);
+                    int oUnits = (int) w[0];
+                    plot.overseerCarry = w[1];
+                    if (oUnits >= 1) {
+                        larder.set(ovEnt.getHomePos(), larder.get(ovEnt.getHomePos()) + oUnits);
+                        plot.account -= oUnits;
+                        com.evosim.mod.log.SimAudit.record(
+                                com.evosim.mod.log.SimAudit.Src.WAGE, oUnits);
+                        com.evosim.mod.log.SimEvents.event(ovEnt, "감독수당", String.format(
+                                "구획 %d 감독관 급여 +%d (지대 %d × %.0f%% · 이월 %.2f)",
+                                plot.id, oUnits, rentUnits, com.evosim.core.Overseer.WAGE_SHARE * 100.0,
+                                plot.overseerCarry));
+                    }
+                    store.setDirty();
+                }
             }
             int units = (int) Math.floor(plot.account);
             if (units > 0) {
@@ -1019,8 +1045,9 @@ public final class FarmTicker {
             if (headTiles > 0 && headId != m.getIndividual().id()) {
                 reserve += com.evosim.core.FarmEconomy.newFarmCost(store.ownedCount(headId));
             }
-            if (store.stewardOf(m.getIndividual().id()) != 0L) {
-                // 재직 마름의 착공 마찰(이탈 방지 ④, v1.3) — 금지가 아닌 예비 ×3(수치 문턱).
+            if (store.stewardOf(m.getIndividual().id()) != 0L
+                    || store.overseerOf(m.getIndividual().id()) != 0L) {
+                // 재직 마름·감독관의 착공 마찰(이탈 방지 ④, v1.3) — 금지가 아닌 예비 ×3(수치 문턱).
                 // 비야망가 선발(①)+만족의 덫(②)+근속 수당(③)을 뚫는 예외(유산 유입 등)를 봉쇄.
                 reserve *= com.evosim.core.FarmEconomy.STEWARD_FOUND_RESERVE_MULT;
             }
@@ -3972,9 +3999,9 @@ public final class FarmTicker {
                     rejNotHead++; // 이름은 그대로 두고 뜻만 "창을 들 뜻이 없음"으로(로그 열 유지)
                     continue;
                 }
-                if (fs.stewardOf(mid) != 0L) {
+                if (fs.stewardOf(mid) != 0L || fs.overseerOf(mid) != 0L) {
                     rejLand++;
-                    continue; // 마름 겸직 금지 — 밭을 맡은 자는 창을 들지 않는다
+                    continue; // 마름·감독관 겸직 금지 — 밭을 맡은 자는 창을 들지 않는다
                 }
                 // 봉건 소집(런 26 d11 실측): 봉신 밭의 소작은 봉신을 따르므로 "타주인"으로 전부 탈락해
                 // 후보 0 · 배속 0 이었다(탈락 타주인 9 · 유전가구 15). 주군의 군대는 봉신의 사람으로도
@@ -4673,7 +4700,7 @@ public final class FarmTicker {
                 if (aid == ch.ownerId || a.getStage() != com.evosim.core.LifeStage.ADULT
                         || a.getHomePos() == null || a.getHomePos().equals(owner.getHomePos())
                         || !ownerSide(owner, ch.ownerId, patrons.get(aid))
-                        || fs.ownedTiles(aid) > 0 || fs.stewardOf(aid) != 0L
+                        || fs.ownedTiles(aid) > 0 || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L
                         || POST_OF.containsKey(a.getId()) || a.inPoorhouse()) {
                     continue;
                 }
@@ -6692,6 +6719,41 @@ public final class FarmTicker {
                 if (cand != null) {
                     store.appointSteward(level, plot, cand, "마름임명");
                     ASSIGNED.remove(cand.getId()); // 소작 배정 해방 — 노동/관리 모드 판정 정합
+                }
+            }
+        }
+        // ── 감독관 유지·임명(지식인 P3) — 72칸 이상 구획에 마름 위로 1명. 자격 상실·구획 축소는 해임.
+        for (FarmStore.Plot plot : market) {
+            if (plot.ownerId == 0L) {
+                continue;
+            }
+            if (plot.overseerId != 0L) {
+                MimicEntity ov = null;
+                for (MimicEntity a : adults) {
+                    if (a.getIndividual().id() == plot.overseerId) {
+                        ov = a;
+                        break;
+                    }
+                }
+                String why = null;
+                if (!com.evosim.core.Overseer.needed(plot.tiles.length)) {
+                    why = "구획 " + plot.tiles.length + "칸 < " + com.evosim.core.Overseer.MIN_TILES + " (마름 하나로 충분)";
+                } else if (ov == null) {
+                    why = "부재(사망·노년)";
+                } else if (store.ownedCount(plot.overseerId) > 0) {
+                    why = "지주 전환";
+                } else if (plot.stewardId == plot.overseerId) {
+                    why = "마름 겸직";
+                }
+                if (why != null) {
+                    store.overseerGone(level, plot.overseerId, why);
+                }
+            }
+            if (plot.overseerId == 0L && com.evosim.core.Overseer.needed(plot.tiles.length)) {
+                MimicEntity cand = store.overseerCandidate(level, plot);
+                if (cand != null) {
+                    store.appointOverseer(level, plot, cand);
+                    ASSIGNED.remove(cand.getId());
                 }
             }
         }

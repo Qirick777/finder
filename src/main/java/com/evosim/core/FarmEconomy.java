@@ -522,6 +522,11 @@ public final class FarmEconomy {
     /** 재직 마름의 착공 예비 배율(이탈 방지 ④ — 마찰이지 금지 아님). */
     public static final double STEWARD_FOUND_RESERVE_MULT = 3.0;
 
+    /** 학위 가산 판(계획서 1.5): 학사 +0.05 · 석사 +0.15 — 상한은 그대로 1.0. */
+    public static double stewardWageMult(int grade, long tenureDays, int degree) {
+        return Math.min(STEWARD_WAGE_CAP, stewardWageMult(grade, tenureDays) + Degree.wageBonus(degree));
+    }
+
     /** 수당 계수 = min(상한, 0.5 + 0.05×관리등급 + 0.02×근속일). 임금 = 소작 1인 평균 일수취 × 계수. */
     public static double stewardWageMult(int grade, long tenureDays) {
         return Math.min(STEWARD_WAGE_CAP, STEWARD_WAGE_BASE

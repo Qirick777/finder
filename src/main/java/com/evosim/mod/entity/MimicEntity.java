@@ -4950,6 +4950,7 @@ public class MimicEntity extends PathfinderMob {
                             ? 0L : preHeir.getIndividual().id());
             // 마름 사망(v1.1) — 맡던 구획은 같은 틱 승계(후계 없으면 공석 — 차기 채용자 즉시 임명).
             FarmStore.get(sld).stewardGone(sld, individual.id(), "마름 사망");
+            FarmStore.get(sld).overseerGone(sld, individual.id(), "감독관 사망");
         }
         if (destroy && home != null && level() instanceof ServerLevel sl && !anyResidentAt(sl, home)) {
             // 식량 상속(P4) — 가구 해체(거주자 0): 저장고를 사전 포착 분가 자식에게 분배.
@@ -7104,6 +7105,10 @@ public class MimicEntity extends PathfinderMob {
         if (fs.stewardOf(individual.id()) != 0L) {
             left.add("마름");
             fs.stewardGone(sl, individual.id(), "노년 은퇴");
+        }
+        if (fs.overseerOf(individual.id()) != 0L) {
+            left.add("감독관");
+            fs.overseerGone(sl, individual.id(), "노년 은퇴");
         }
         if (!left.isEmpty()) {
             SimEvents.event(this, "은퇴", String.join(" · ", left) + " 내려놓음");

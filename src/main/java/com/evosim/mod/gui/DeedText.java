@@ -54,11 +54,7 @@ public final class DeedText {
     }
 
     public static String degreeName(int degree) {
-        return switch (degree) {
-            case 1 -> "학사";
-            case 2 -> "석사";
-            default -> "없음";
-        };
+        return com.evosim.core.Degree.name(degree);
     }
 
     /** "학력 초급 · 학위 학사" */
@@ -91,6 +87,10 @@ public final class DeedText {
         long stewardPlot = FarmStore.get(sl).stewardOf(id);
         if (stewardPlot != 0L) {
             roles.add("마름(구획 " + stewardPlot + ")");
+        }
+        long overseerPlot = FarmStore.get(sl).overseerOf(id);
+        if (overseerPlot != 0L) {
+            roles.add("감독관(구획 " + overseerPlot + ")");
         }
         if (FarmTicker.isSoldier(m)) {
             roles.add(String.format("병사(봉급 %.1f)", FarmTicker.soldierWageOf(m)));

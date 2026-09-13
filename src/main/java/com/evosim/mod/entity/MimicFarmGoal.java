@@ -337,6 +337,10 @@ public class MimicFarmGoal extends Goal {
         if (steward != 0L) {
             return steward;
         }
+        long overseer = fs.overseerOf(id);
+        if (overseer != 0L) {
+            return overseer; // 감독관도 제 구획으로 출근한다(마름과 같은 관리 모드)
+        }
         for (FarmStore.Plot p : fs.all().values()) {
             if (p.ownerId != 0L && mob.marriedTo(p.ownerId)) {
                 return p.id; // 배우자 명의 밭 — 가구 노동은 수확과 같은 기준(양방향 혼인)
@@ -745,6 +749,9 @@ public class MimicFarmGoal extends Goal {
         FarmStore fs = FarmStore.get(sl);
         long newestMine = fs.newestOwnedPlot(id);
         long stewardPlot = fs.stewardOf(id);
+        if (stewardPlot == 0L) {
+            stewardPlot = fs.overseerOf(id); // 감독관 — 마름 노동/관리 모드와 같은 규칙
+        }
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         for (FarmStore.Plot p : fs.all().values()) {

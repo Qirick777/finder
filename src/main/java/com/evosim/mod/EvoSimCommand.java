@@ -226,6 +226,15 @@ public final class EvoSimCommand {
                         .then(Commands.argument("tab", IntegerArgumentType.integer(0, 4))
                                 .executes(ctx -> stats(ctx, IntegerArgumentType.getInteger(ctx, "tab")))))
                 // 땅 문서를 좌표로 연다(UI P4) — 우클릭과 같은 길(밭 → 시설 → 집). 촬영·원격 관측용.
+                // 열린 화면 닫기(원격 촬영용 — 클라이언트에 입력 장치가 없을 때 문서·통계 화면을 내린다).
+                .then(Commands.literal("closescreen").executes(ctx -> {
+                    if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
+                        ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+                                new com.evosim.mod.net.OpenDeedPacket("", java.util.List.of(), java.util.List.of()));
+                        return 1;
+                    }
+                    return 0;
+                }))
                 .then(Commands.literal("deed")
                         .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
                                 .executes(EvoSimCommand::deed)))

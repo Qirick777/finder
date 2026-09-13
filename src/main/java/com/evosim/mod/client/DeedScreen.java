@@ -35,6 +35,10 @@ public final class DeedScreen extends Screen {
 
     public static void open(OpenDeedPacket d) {
         Minecraft mc = Minecraft.getInstance();
+        if (d.title.isEmpty()) { // 빈 제목 = 열린 화면 닫기(evosim closescreen — 원격 촬영용)
+            mc.setScreen(null);
+            return;
+        }
         if (mc.screen instanceof DeedScreen s && s.d.title.equals(d.title)) {
             s.d = d;
             s.init();

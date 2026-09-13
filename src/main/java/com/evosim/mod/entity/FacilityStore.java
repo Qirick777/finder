@@ -37,8 +37,12 @@ public class FacilityStore extends SavedData {
         /** 누계 — 건축비·급여 합, 사용료 수입 합. */
         public double spent;
         public double earned;
-        /** 지금 이 시설에서 일하는 자(P5b). 0 이면 비어 있다. */
+        /** 지금 이 시설에서 일하는 자(P5b). 0 이면 비어 있다. 교회에서는 목사(큰교회)·성직자. */
         public long staffId;
+        /** 둘째 직원 — 큰교회의 선교사, (추후) 대학의 둘째 교수. 0 이면 비어 있다. */
+        public long staff2Id;
+        /** 시설 계정(교회 고도화) — 하루 헌금이 쌓이고 밤 정산 때 급여를 내고 비운다. */
+        public double account;
 
         Entry(BlockPos pos, FacilityTemplate.Kind kind, byte rotation, boolean mirrored,
               long ownerId, long foundedDay) {
@@ -174,6 +178,8 @@ public class FacilityStore extends SavedData {
             e.spent = t.getDouble("Spent");
             e.earned = t.getDouble("Earned");
             e.staffId = t.getLong("Staff");
+            e.staff2Id = t.getLong("Staff2");
+            e.account = t.getDouble("Account");
             s.all.add(e);
         }
         return s;
@@ -193,6 +199,8 @@ public class FacilityStore extends SavedData {
             t.putDouble("Spent", e.spent);
             t.putDouble("Earned", e.earned);
             t.putLong("Staff", e.staffId);
+            t.putLong("Staff2", e.staff2Id);
+            t.putDouble("Account", e.account);
             arr.add(t);
         }
         tag.put("Facilities", arr);

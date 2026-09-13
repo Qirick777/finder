@@ -363,8 +363,8 @@ public class MimicVisitGoal extends Goal {
                     > Facilities.CHURCH_REACH * Facilities.CHURCH_REACH) {
                 continue;
             }
-            int cap = e.kind == FacilityTemplate.Kind.CHURCH
-                    ? Facilities.CHURCH_CAP : Facilities.SMALL_CHURCH_CAP;
+            int cap = com.evosim.core.Church.visitCap(e.kind == FacilityTemplate.Kind.CHURCH,
+                    FarmTicker.hasPastor(e), Facilities.CHURCH_CAP, Facilities.SMALL_CHURCH_CAP); // 목사 있으면 16
             if (SEATS.getOrDefault(e.pos.asLong(), 0) < cap) {
                 open.add(e);
             }

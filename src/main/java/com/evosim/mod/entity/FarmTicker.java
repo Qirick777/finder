@@ -3,6 +3,7 @@ package com.evosim.mod.entity;
 import com.evosim.core.FarmEconomy;
 import com.evosim.mod.EvoSimMod;
 import net.minecraft.core.BlockPos;
+import org.jetbrains.annotations.Nullable;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SweetBerryBushBlock;
@@ -1829,7 +1830,7 @@ public final class FarmTicker {
     }
 
     private static double[] realmOut(long lordId) {
-        return REALM_OUT.computeIfAbsent(lordId, k -> new double[4]);
+        return REALM_OUT.computeIfAbsent(lordId, k -> new double[5]);
     }
 
     /**
@@ -4422,11 +4423,90 @@ public final class FarmTicker {
      * 전부 가난한 쪽이 받는 것이라 지주가 지주에게 신세 질 길이 없었고, 그래서 사슬이 이번
      * 세션 내내 깊이 1 에 머물렀다. 교회는 추종에 매이지 않아 <b>지주도 방문한다</b>.
      */
+    /** 목사(큰교회 staffId) — 전업. 노동시장·밭·채집에서 빠진다. 밤 정산마다 갱신. */
+    private static final java.util.Set<Long> PASTORS = new java.util.HashSet<>();
+    /** 선교사(큰교회 staff2Id) → 교회 자리. 평소 제 일을 하다 배회 시간에 선교한다. */
+    private static final java.util.Map<Long, BlockPos> MISSIONARIES = new java.util.HashMap<>();
+    /** 오늘 선교사가 찾아간 가구 수(개체 id → 수, 휘발) — 하루 MISSION_PER_DAY. */
+    private static final java.util.Map<Integer, Integer> MISSION_TODAY = new java.util.HashMap<>();
+    /** 오늘 이미 선교사가 다녀간 가구(거처 좌표) — 두 선교사가 같은 집을 두 번 가지 않게. */
+    private static final java.util.Set<Long> MISSION_VISITED_TODAY = new java.util.HashSet<>();
+
+    public static boolean isPastor(MimicEntity m) {
+        return m.getIndividual() != null && PASTORS.contains(m.getIndividual().id());
+    }
+
+    /** 이 교회에 목사가 있는가(큰교회 + staffId) — 예배 정원·헌금·신세 배수의 입력. */
+    public static boolean hasPastor(FacilityStore.Entry e) {
+        return e.kind == FacilityTemplate.Kind.CHURCH && e.staffId != 0L
+                && PASTORS.contains(e.staffId);
+    }
+
+    /** 이 개체가 선교사면 그 교회 자리, 아니면 null. */
+    @Nullable
+    public static BlockPos missionChurchOf(MimicEntity m) {
+        return m.getIndividual() == null ? null : MISSIONARIES.get(m.getIndividual().id());
+    }
+
+    /** 이 개체의 현재 주인(추종, 0 = 없음) — 선교 표적 판정(사슬 밖인가)의 입력. */
+    public static long patronNow(long id) {
+        return PATRON_OF.getOrDefault(id, 0L);
+    }
+
+    /** 오늘 더 선교할 수 있는가 — 하루 MISSION_PER_DAY. */
+    public static boolean missionQuotaLeft(MimicEntity m) {
+        return MISSION_TODAY.getOrDefault(m.getId(), 0) < com.evosim.core.Church.MISSION_PER_DAY;
+    }
+
+    public static boolean missionVisitedToday(BlockPos home) {
+        return MISSION_VISITED_TODAY.contains(home.asLong());
+    }
+
+    /**
+     * 선교 방문 성립(MimicMissionGoal 도착 시) — 가구 대표에게 교회 주인 앞 신세를 심는다.
+     * 대표의 주인이 교회 주인으로 바뀌었으면 "개종"을 남긴다.
+     */
+    public static void recordMission(ServerLevel level, MimicEntity missionary, BlockPos home,
+                                     long churchOwner, long headId) {
+        AllegianceStore lg = AllegianceStore.get(level);
+        FarmStore fs = FarmStore.get(level);
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        long before = lg.patronOf(headId, fs.ownedTiles(headId));
+        lg.recordChurch(headId, churchOwner, com.evosim.core.Church.MISSION_BOND, 0.0, day);
+        long after = lg.patronOf(headId, fs.ownedTiles(headId));
+        MISSION_TODAY.merge(missionary.getId(), 1, Integer::sum);
+        MISSION_VISITED_TODAY.add(home.asLong());
+        FamilyLedger.Rec hr = FamilyLedger.get(level).get(headId);
+        String head = hr != null && hr.name != null ? hr.name : "#" + headId;
+        com.evosim.mod.log.SimEvents.event(missionary, "선교", String.format(
+                "가구 @%d,%d 대표 %s 에게 신세 %.1f (교회 주인 앞 · 오늘 %d/%d)",
+                home.getX(), home.getZ(), head, com.evosim.core.Church.MISSION_BOND,
+                MISSION_TODAY.get(missionary.getId()), com.evosim.core.Church.MISSION_PER_DAY));
+        if (after == churchOwner && before != churchOwner) {
+            com.evosim.mod.log.SimEvents.event(missionary, "개종", String.format(
+                    "가구 @%d,%d 대표 %s — 선교로 신세가 문턱을 넘어 교회 주인을 따른다",
+                    home.getX(), home.getZ(), head));
+        }
+    }
+
+    /**
+     * <b>교회 운영</b>(P6 + 교회 고도화) — 헌금 · 신세 · 목사·선교사 · 계정 정산.
+     *
+     * <p>어제(또는 그 뒤) 다녀온 방문을 여기서 한 번에 정산한다. 방문 goal 은 "왔다" 는 사실만
+     * 적는다 — 저장고를 goal 과 정산 두 곳에서 만지면 같은 곳간을 동시에 고치게 된다.
+     *
+     * <p>고도화(사용자 승인): 큰교회에는 목사(전업, 학위·학력 우대)와 선교사(부업, 학력 초급+)가
+     * 붙는다. 헌금은 교회 <b>계정</b>에 쌓이고 밤에 급여를 그 계정에서 낸다. 모자라면 주인이 보전
+     * (통치지출 "교회"), 남으면 주인이 갖는다. 목사가 있으면 예배 정원 16·헌금 0.4·신세 ×1.5.
+     * 작은교회는 종전대로 성직자(0.5) 하나.
+     */
     private static void runChurches(ServerLevel level, AllegianceStore ledger,
                                     LarderStore larders,
                                     java.util.List<MimicEntity> everyone,
                                     java.util.Map<Long, Long> patrons, long day) {
         java.util.Arrays.fill(CHURCH_SUM, 0.0);
+        MISSION_TODAY.clear();
+        MISSION_VISITED_TODAY.clear();
         FacilityStore reg = FacilityStore.get(level);
         java.util.Map<Long, FacilityStore.Entry> byPos = new java.util.HashMap<>();
         for (FacilityStore.Entry e : reg.all()) {
@@ -4435,13 +4515,95 @@ public final class FarmTicker {
             }
         }
         if (byPos.isEmpty()) {
+            PASTORS.clear();
+            MISSIONARIES.clear();
             return;
         }
         java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
         for (MimicEntity m : everyone) {
             byId.putIfAbsent(m.getIndividual().id(), m);
         }
-        java.util.Set<Long> paidClergy = new java.util.HashSet<>();
+        FarmStore fs = FarmStore.get(level);
+        // ── ① 직원 — 큰교회는 목사(전업)·선교사(부업), 작은교회는 성직자. 죽었거나 자격을 잃으면 다시 뽑는다.
+        PASTORS.clear();
+        MISSIONARIES.clear();
+        for (FacilityStore.Entry ch : byPos.values()) {
+            MimicEntity owner = byId.get(ch.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                continue;
+            }
+            boolean big = ch.kind == FacilityTemplate.Kind.CHURCH;
+            // 후보: 이 주인(또는 배우자)을 따르는 성년, 무토지, 주인 집 아님, 마름·병사·경비대 아님.
+            java.util.List<MimicEntity> cands = new java.util.ArrayList<>();
+            for (MimicEntity a : everyone) {
+                long aid = a.getIndividual().id();
+                if (aid == ch.ownerId || a.getStage() != com.evosim.core.LifeStage.ADULT
+                        || a.getHomePos() == null || a.getHomePos().equals(owner.getHomePos())
+                        || !ownerSide(owner, ch.ownerId, patrons.get(aid))
+                        || fs.ownedTiles(aid) > 0 || fs.stewardOf(aid) != 0L
+                        || POST_OF.containsKey(a.getId()) || a.inPoorhouse()) {
+                    continue;
+                }
+                cands.add(a);
+            }
+            cands.sort(java.util.Comparator
+                    .comparingInt((MimicEntity a) -> -com.evosim.core.Church.clergyScore(
+                            a.getDegree(), a.schoolLevel()))
+                    .thenComparingLong(a -> a.getIndividual().id()));
+            // 목사/성직자(staffId) — 현직이 자격을 유지하면 그대로(매일 갈아치우지 않는다).
+            MimicEntity cur = byId.get(ch.staffId);
+            boolean keep = cur != null && cands.contains(cur);
+            if (!keep) {
+                MimicEntity pick = cands.isEmpty() ? null : cands.get(0);
+                long before = ch.staffId;
+                ch.staffId = pick == null ? 0L : pick.getIndividual().id();
+                reg.setDirty();
+                if (pick != null && ch.staffId != before) {
+                    com.evosim.mod.log.SimEvents.event(pick, big ? "목사임명" : "성직임명", String.format(
+                            "교회 @%d,%d — 학위 %d · 학력 %s · 급여 %.1f%s", ch.pos.getX(), ch.pos.getZ(),
+                            pick.getDegree(), com.evosim.core.Schooling.name(pick.schoolLevel()),
+                            big ? com.evosim.core.Church.PASTOR_WAGE : Facilities.CLERGY_WAGE_PER_DAY,
+                            big ? " · 전업(예배 정원 16 · 헌금 0.4 · 신세 ×1.5)" : ""));
+                }
+            }
+            if (big && ch.staffId != 0L) {
+                PASTORS.add(ch.staffId);
+            }
+            // 선교사(staff2Id) — 큰교회만. 목사가 아닌 후보 중 학력 초급+(학위 우대) 첫째.
+            if (big) {
+                MimicEntity cur2 = byId.get(ch.staff2Id);
+                boolean keep2 = cur2 != null && cands.contains(cur2) && ch.staff2Id != ch.staffId
+                        && com.evosim.core.Church.missionaryEligible(cur2.schoolLevel(), cur2.getDegree());
+                if (!keep2) {
+                    MimicEntity pick2 = null;
+                    for (MimicEntity a : cands) {
+                        if (a.getIndividual().id() != ch.staffId
+                                && com.evosim.core.Church.missionaryEligible(a.schoolLevel(), a.getDegree())) {
+                            pick2 = a;
+                            break;
+                        }
+                    }
+                    long before = ch.staff2Id;
+                    ch.staff2Id = pick2 == null ? 0L : pick2.getIndividual().id();
+                    reg.setDirty();
+                    if (pick2 != null && ch.staff2Id != before) {
+                        com.evosim.mod.log.SimEvents.event(pick2, "선교사임명", String.format(
+                                "교회 @%d,%d — 학위 %d · 학력 %s · 급여 %.1f · 배회 시간 반경 %.0f 사슬 밖 가구 하루 %d곳",
+                                ch.pos.getX(), ch.pos.getZ(), pick2.getDegree(),
+                                com.evosim.core.Schooling.name(pick2.schoolLevel()),
+                                com.evosim.core.Church.MISSIONARY_WAGE, com.evosim.core.Church.MISSION_RANGE,
+                                com.evosim.core.Church.MISSION_PER_DAY));
+                    }
+                }
+                if (ch.staff2Id != 0L) {
+                    MISSIONARIES.put(ch.staff2Id, ch.pos);
+                }
+            } else if (ch.staff2Id != 0L) {
+                ch.staff2Id = 0L;
+                reg.setDirty();
+            }
+        }
+        // ── ② 방문 정산 — 헌금은 교회 계정으로, 신세는 주인 앞으로(목사 있으면 배수).
         for (MimicEntity m : everyone) {
             BlockPos cp = m.pendingChurch();
             if (cp == null || m.getHomePos() == null) {
@@ -4456,80 +4618,74 @@ public final class FarmTicker {
             if (owner == null || owner.getHomePos() == null) {
                 continue;
             }
+            boolean pastor = hasPastor(ch);
             CHURCH_SUM[0]++;
+            double tithe = com.evosim.core.Church.tithe(pastor, Facilities.TITHE_PER_VISIT);
             double have = larders.get(m.getHomePos());
-            double pay = Math.min(Facilities.TITHE_PER_VISIT, Math.max(0.0, have));
-            double unpaid = Facilities.TITHE_PER_VISIT - pay;
+            double pay = Math.min(tithe, Math.max(0.0, have));
+            double unpaid = tithe - pay;
             if (pay > 0.0) {
                 larders.set(m.getHomePos(), have - pay);
-                larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + pay);
+                ch.account += pay; // 계정으로 — 급여를 여기서 낸다(주인 곳간 직행이 아니다)
                 reg.earn(ch, pay);
                 CHURCH_SUM[1] += pay;
             }
             if (unpaid > 0.0) {
                 CHURCH_SUM[2] += unpaid;
             }
-            // 헌금과 신세를 <b>둘 다</b> 매기는 것은 이중 부과가 아니다 — 소액 헌금이 위안의
-            // 값을 다 치르지 못하고 그 차액이 은혜로 남는 것이 후원의 실체다(학교와 같은 구조).
-            ledger.recordChurch(m.getIndividual().id(), ch.ownerId, Facilities.W_CHURCH, unpaid, day);
-            // ── 성직자 급여 — 방문이 있어야 예배가 있고, 예배가 있어야 급여다(학교와 같다).
-            if (paidClergy.add(ch.pos.asLong())) {
-                MimicEntity clergy = byId.get(ch.staffId);
-                if (clergy == null
-                        || !Long.valueOf(ch.ownerId).equals(patrons.get(ch.staffId))
-                        || FarmStore.get(level).ownedTiles(ch.staffId) > 0) {
-                    clergy = null;
-                    for (MimicEntity a : everyone) {
-                        long aid = a.getIndividual().id();
-                        if (aid != ch.ownerId && a.getStage() == com.evosim.core.LifeStage.ADULT
-                                && Long.valueOf(ch.ownerId).equals(patrons.get(aid))
-                                && FarmStore.get(level).ownedTiles(aid) == 0
-                                && a.getHomePos() != null
-                                && !a.getHomePos().equals(owner.getHomePos())) {
-                            clergy = a;
-                            break;
-                        }
-                    }
-                    ch.staffId = clergy == null ? 0L : clergy.getIndividual().id();
-                    reg.setDirty();
-                }
-                if (clergy != null && clergy.getHomePos() != null) {
-                    double purse = larders.get(owner.getHomePos());
-                    double wage = Math.min(Facilities.CLERGY_WAGE_PER_DAY, purse);
-                    if (wage > 0.0) {
-                        larders.set(owner.getHomePos(), purse - wage);
-                        larders.set(clergy.getHomePos(),
-                                larders.get(clergy.getHomePos()) + wage);
-                        reg.spend(ch, wage);
-                        CHURCH_SUM[3] += wage;
-                    }
+            ledger.recordChurch(m.getIndividual().id(), ch.ownerId,
+                    Facilities.W_CHURCH * com.evosim.core.Church.bondMult(pastor), unpaid, day);
+        }
+        // ── ③ 급여·계정 정산 — 목사·선교사는 매일(전업/부업 급여), 성직자는 방문이 있던 날만(종전).
+        for (FacilityStore.Entry ch : byPos.values()) {
+            MimicEntity owner = byId.get(ch.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                continue;
+            }
+            boolean big = ch.kind == FacilityTemplate.Kind.CHURCH;
+            double wages = 0.0;
+            double pastorPay = 0.0;
+            double missionPay = 0.0;
+            MimicEntity staff = byId.get(ch.staffId);
+            if (staff != null && staff.getHomePos() != null) {
+                double w = big ? com.evosim.core.Church.PASTOR_WAGE : Facilities.CLERGY_WAGE_PER_DAY;
+                if (big || ch.account > 0.0) { // 성직자(작은교회)는 헌금이 있던 날만
+                    larders.set(staff.getHomePos(), larders.get(staff.getHomePos()) + w);
+                    pastorPay = w;
+                    wages += w;
                 }
             }
+            MimicEntity miss = byId.get(ch.staff2Id);
+            if (big && miss != null && miss.getHomePos() != null) {
+                larders.set(miss.getHomePos(), larders.get(miss.getHomePos()) + com.evosim.core.Church.MISSIONARY_WAGE);
+                missionPay = com.evosim.core.Church.MISSIONARY_WAGE;
+                wages += missionPay;
+            }
+            if (wages <= 0.0 && ch.account <= 0.0) {
+                continue;
+            }
+            double[] st = com.evosim.core.Church.settle(ch.account, wages);
+            double cover = st[0];
+            double gain = st[1];
+            if (cover > 0.0) {
+                double have = larders.get(owner.getHomePos());
+                larders.set(owner.getHomePos(), Math.max(0.0, have - cover)); // 적자 보전 — 군주 사비
+                realmOut(ch.ownerId)[4] += cover;
+            }
+            if (gain > 0.0) {
+                larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + gain); // 흑자 — 주인
+            }
+            reg.spend(ch, wages);
+            CHURCH_SUM[3] += wages;
+            com.evosim.mod.log.SimEvents.event(owner, "교회정산", String.format(
+                    "교회 @%d,%d — 헌금 %.1f · 급여 %.1f(%s %.1f · 선교사 %.1f) · 보전 %.1f · 주인 수입 %.1f",
+                    ch.pos.getX(), ch.pos.getZ(), ch.account, wages, big ? "목사" : "성직자",
+                    pastorPay, missionPay, cover, gain));
+            ch.account = 0.0;
+            reg.setDirty();
         }
     }
 
-    /**
-     * 이 아이의 <b>가구를 대표해 신세를 지는 자</b> — 같은 집 성년 중 소유 밭이 가장 많은 자.
-     *
-     * <p>지주의 아들이 다니면 <b>지주</b>가 신세를 져야 지주 간 사슬이 생긴다. 아이 본인에게
-     * 달면 아이는 이미 태생적 추종자라 아무것도 바뀌지 않는다. 성년이 없으면 아이 자신이다.
-     */
-    /**
-     * 이 추종 대상이 <b>시설 주인 쪽</b>인가 — 주인 본인이거나 그 배우자면 참.
-     *
-     * <p>육안 관측: "야망가 수컷이 벌어온 걸 마누라가 받아서 학교를 지으니, 다들 추종은 수컷인데
-     * 지은 사람이 마누라여서 학교 사용을 안 함."
-     *
-     * <p>학생 자격은 이미 <b>가구 단위</b>로 넓혀 두었다 — 어머니가 따르고 아버지가 안 따르는
-     * 집이 통째로 빠지던 실측 결함을 고치면서, 그 주석이 이유까지 적어 두었다("저장고가 가구
-     * 공동이니 자격도 가구 것으로 봐야 앞뒤가 맞는다"). 그런데 그 논리를 <b>학생 쪽에만</b>
-     * 적용했다. 주인 쪽은 여전히 한 사람이라, 건축비를 낸 저장고가 부부 공동인데도 배우자
-     * 명의로 등기되면 온 마을이 남남이 된다.
-     *
-     * <p>같은 이유이므로 같은 처방을 한다. {@code MimicFarmGoal} 이 배우자 소유 밭을 양방향
-     * ({@code marriedTo})으로 보는 것과 같은 장치다 — 그쪽도 단방향일 때 "첩 소유 밭이 남의
-     * 밭으로 잡혀 자기 가구 수확이 새어 나가는" 같은 병을 앓았다.
-     */
     private static boolean ownerSide(MimicEntity owner, long ownerId, Long patron) {
         if (patron == null) {
             return false;
@@ -5875,11 +6031,11 @@ public final class FarmTicker {
                 }
             }
             double[] in = REALM_IN.getOrDefault(lid, new double[4]);
-            double[] out = REALM_OUT.getOrDefault(lid, new double[4]);
+            double[] out = REALM_OUT.getOrDefault(lid, new double[5]);
             int follow = REALM_FOLLOW_HOMES.getOrDefault(lid, java.util.Set.of()).size();
             int reached = REALM_REACHED_HOMES.getOrDefault(lid, java.util.Set.of()).size();
             double taxIn = in[0] + in[1] + in[2] + in[3];
-            double ruleOut = out[0] + out[1] + out[2] + out[3];
+            double ruleOut = out[0] + out[1] + out[2] + out[3] + out[4];
             if (lord == null || (follow == 0 && taxIn <= 0.0 && ruleOut <= 0.0)) {
                 continue;
             }
@@ -5897,10 +6053,10 @@ public final class FarmTicker {
             }
             com.evosim.mod.log.SimEvents.event(lord, "영지", String.format(
                     "%s신민 %d/%d가구(도달/추종) · 세수 %.1f(인두 %.1f · 재산 %.1f · 보호 %.1f · 상납 %.1f)"
-                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f)"
+                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f · 교회 %.1f)"
                             + " · 수지 %+.1f · 사비 %.1f · 흑자 %d일",
                     king ? "[군주] " : "", reached, follow, taxIn, in[0], in[1], in[2], in[3],
-                    ruleOut, out[0], out[1], out[2], out[3],
+                    ruleOut, out[0], out[1], out[2], out[3], out[4],
                     com.evosim.core.Realm.balance(taxIn, ruleOut),
                     com.evosim.core.Realm.outOfPocket(taxIn, ruleOut), streak));
         }
@@ -6317,6 +6473,7 @@ public final class FarmTicker {
                         || store.ownedCount(m.getIndividual().id()) > 0
                         || m.isSatisfiedToday()
                         || m.inPoorhouse()
+                        || isPastor(m) // 목사 전업 — 노동시장에 없다(교회 고도화)
                         || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 출근 없음
                         || failedReach) {
                     continue;

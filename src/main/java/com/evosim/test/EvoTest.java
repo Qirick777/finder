@@ -319,6 +319,26 @@ public final class EvoTest {
                 && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 20, 53.0) == 5
                 && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 48, 14.0) == 4
                 && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 48, 0.0) == 0;
+        // 교회 고도화(사용자 승인): 목사 있으면 예배 정원 16·헌금 0.4·신세 ×1.5, 작은교회 4 · 정산(수입−급여)
+        // 적자는 주인 보전·흑자는 주인 · 선교사 자격 초급+ 또는 학위 · 성직 순위 학위>학력.
+        double[] c1 = com.evosim.core.Church.settle(6.4, 3.5);
+        double[] c2 = com.evosim.core.Church.settle(2.0, 3.5);
+        boolean ch = com.evosim.core.Church.visitCap(true, true, 12, 4) == 16
+                && com.evosim.core.Church.visitCap(true, false, 12, 4) == 12
+                && com.evosim.core.Church.visitCap(false, true, 12, 4) == 4
+                && close(com.evosim.core.Church.tithe(true, 0.25), 0.4)
+                && close(com.evosim.core.Church.tithe(false, 0.25), 0.25)
+                && close(com.evosim.core.Church.bondMult(true), 1.5)
+                && close(c1[0], 0.0) && close(c1[1], 2.9)
+                && close(c2[0], 1.5) && close(c2[1], 0.0)
+                && com.evosim.core.Church.missionaryEligible(1, 0)
+                && !com.evosim.core.Church.missionaryEligible(0, 0)
+                && com.evosim.core.Church.missionaryEligible(0, 1)
+                && com.evosim.core.Church.clergyScore(1, 0) > com.evosim.core.Church.clergyScore(0, 3)
+                && com.evosim.core.Church.MISSION_PER_DAY == 2
+                && close(com.evosim.core.Church.MISSION_BOND, 1.0);
+        report.add("church/목사선교", ch, "정원 16/12/4 · 헌금 0.4/0.25 · 신세 ×1.5 · 정산 6.4−3.5 → 주인 +2.9, 2.0−3.5 → 보전 1.5 · 선교 자격 초급+/학위 · 학위>학력",
+                ch ? "정상" : "어긋남");
         report.add("facility/풍차군인", mw, "풍차 0·149→1, 300→2 · 산출 10 → 밭 +1.5·제분세 0.5 · 봉급 0→3.3, 0.5→4.3, 2→5 · 정원 12/5/4/0",
                 mw ? "정상" : "어긋남");
         report.add("repro/다태아", tw, "쌍둥이 10%·삼둥이 2%·다산 모 25%·불임 0 · 굴림 0.01→+2, 0.05→+1, 0.5→0 · 쿨다운 2.5일",

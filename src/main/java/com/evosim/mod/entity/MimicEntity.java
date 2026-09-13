@@ -241,6 +241,7 @@ public class MimicEntity extends PathfinderMob {
     private boolean competitiveDriven = false;  // 경쟁 발동 캐시(이웃 우위 — 배회 노동 트리거)
     private int tenantStreak = 0;               // 같은 밭 연속 출근 일수(NBT — 승격 카운터)
     private int tenantNoShow = 0;               // 상시 밭 연속 출근포기 일수(NBT — 예약석 반납 카운터)
+    private int degree = 0;                     // 학위(획득값, NBT — 학사 1 · 석사 2. 대학이 올린다. 유전 안 됨)
     private long tenantNoShowDay = -1L;         // 마지막으로 센 날(휘발 — 같은 날 중복 집계 방지)
     private boolean ledgerChecked = false;      // 원장 등록 1회 시도 가드(휘발 — register 자체는 멱등)
     private double lastSurplus = 0.0;           // 마지막 정산 후 저장고 잔량(스캐너 표시)
@@ -383,6 +384,8 @@ public class MimicEntity extends PathfinderMob {
         // 언제나 밀려 goal 자체가 돌지 않았다 — 실측: 교회 반경 안 29명·쿨다운 0명인데 방문
         // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
         // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
+        this.goalSelector.addGoal(4, new MimicPastorGoal(this));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
+        this.goalSelector.addGoal(6, new MimicMissionGoal(this));   // 선교 — 배회 시간 사슬 밖 가구 방문(교회 고도화)
         this.goalSelector.addGoal(6, new MimicVisitGoal(this));     // 이웃 마실·교회 예배(조우 관문 경유)
         this.goalSelector.addGoal(10, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
         this.goalSelector.addGoal(11, new LookAtPlayerGoal(this, Player.class, 8.0F));
@@ -6920,6 +6923,20 @@ public class MimicEntity extends PathfinderMob {
         return tenantStreak;
     }
 
+    /** 학위(0 무학위 · 1 학사 · 2 석사) — 지식인 체계. 대학이 올리고, 목사·마름·지휘관 우대의 입력. */
+    public int getDegree() {
+        return degree;
+    }
+
+    public void setDegree(int degree) {
+        this.degree = Math.max(0, Math.min(2, degree));
+    }
+
+    /** 교육수준(0~3) — 등교 일수에서. 성직·선교 자격의 입력. */
+    public int schoolLevel() {
+        return com.evosim.core.Schooling.level(schoolDays);
+    }
+
     /** 상시 밭 연속 출근포기 일수 — FarmEconomy.noShowRelease 의 입력. */
     public int getTenantNoShow() {
         return tenantNoShow;
@@ -7889,6 +7906,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putLong("TenantFarm", tenantFarm);    // 봉건 소작 관계(상시) — 리로드에도 유지
         tag.putInt("TenantStreak", tenantStreak);
         tag.putInt("TenantNoShow", tenantNoShow);
+        tag.putInt("Degree", degree);
         tag.putLong("PlayDay", lastPlayDay);      // 배회 생활(놀이·마실) 쿨다운·대화 기록
         tag.putLong("VisitDay", lastVisitDay);
         tag.putLong("ChatId", lastChatId);
@@ -7975,6 +7993,7 @@ public class MimicEntity extends PathfinderMob {
         tenantFarm = tag.getLong("TenantFarm");
         tenantStreak = tag.getInt("TenantStreak");
         tenantNoShow = tag.getInt("TenantNoShow");
+        degree = tag.getInt("Degree");
         lastPlayDay = tag.contains("PlayDay") ? tag.getLong("PlayDay") : -1L;
         lastVisitDay = tag.contains("VisitDay") ? tag.getLong("VisitDay") : -100L;
         lastChatId = tag.getLong("ChatId");

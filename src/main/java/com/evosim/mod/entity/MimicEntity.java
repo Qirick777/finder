@@ -6364,6 +6364,18 @@ public class MimicEntity extends PathfinderMob {
         // 착공한다. 이 줄이 없으면 "개간 충족 · 동기✓"인데 착공하지 않는 상태가 설명되지 않는다.
         s.farmGate = individual == null || owned == 0 ? ""
                 : FarmTicker.nextFarmBlock(sl, individual.id());
+        // ── 신분 탭(UI P4) — 문장은 전부 DeedText 한 벌(시설·가구 문서와 같은 판정). ──
+        if (individual != null) {
+            java.util.Map<Long, MimicEntity> living = com.evosim.mod.gui.DeedText.living(sl);
+            s.school = com.evosim.mod.gui.DeedText.schoolLine(this);
+            s.spouseName = spouseId == 0L ? "" : com.evosim.mod.gui.DeedText.nameOf(sl, spouseId);
+            s.parents = com.evosim.mod.gui.DeedText.parentsLine(sl, this);
+            s.children = com.evosim.mod.gui.DeedText.childrenLines(sl, myId, living);
+            s.role = com.evosim.mod.gui.DeedText.roleOf(sl, this);
+            s.facility = com.evosim.mod.gui.DeedText.facilityOf(sl, this);
+            s.patron = com.evosim.mod.gui.DeedText.patronLine(sl, this);
+            s.today = com.evosim.mod.gui.DeedText.todayLine(this);
+        }
         return s;
     }
 

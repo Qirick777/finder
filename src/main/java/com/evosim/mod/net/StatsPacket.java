@@ -13,23 +13,32 @@ import java.util.function.Supplier;
 public class StatsPacket {
 
     private final StatsSnapshot snapshot;
+    /** 처음 열 탭(UI P4) — 0 인구 · 1 학력 · 2 시설 · 3 군 · 4 영지. {@code evosim stats <tab>}. */
+    private final int tab;
 
     public StatsPacket(StatsSnapshot snapshot) {
+        this(snapshot, 0);
+    }
+
+    public StatsPacket(StatsSnapshot snapshot, int tab) {
         this.snapshot = snapshot;
+        this.tab = tab;
     }
 
     public static void encode(StatsPacket msg, FriendlyByteBuf buf) {
         msg.snapshot.encode(buf);
+        buf.writeVarInt(msg.tab); // 신규 필드는 맨 끝
     }
 
     public static StatsPacket decode(FriendlyByteBuf buf) {
-        return new StatsPacket(StatsSnapshot.decode(buf));
+        StatsSnapshot snap = StatsSnapshot.decode(buf);
+        return new StatsPacket(snap, buf.readVarInt());
     }
 
     public static void handle(StatsPacket msg, Supplier<NetworkEvent.Context> ctxSupplier) {
         NetworkEvent.Context ctx = ctxSupplier.get();
         ctx.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
-                () -> () -> ClientStats.open(msg.snapshot)));
+                () -> () -> ClientStats.open(msg.snapshot, msg.tab)));
         ctx.setPacketHandled(true);
     }
 }

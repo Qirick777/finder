@@ -339,6 +339,35 @@ public final class EvoTest {
                 && close(com.evosim.core.Church.MISSION_BOND, 1.0);
         report.add("church/목사선교", ch, "정원 16/12/4 · 헌금 0.4/0.25 · 신세 ×1.5 · 정산 6.4−3.5 → 주인 +2.9, 2.0−3.5 → 보전 1.5 · 선교 자격 초급+/학위 · 학위>학력",
                 ch ? "정상" : "어긋남");
+        // 시설 이력 고리(UI P4) — 착공 줄 자동, 16건 상한(가장 오래된 것부터 버림), 등기자 기본값 =
+        // 주인, NBT 왕복에 등기자·이력·보전·분배 보존.
+        boolean fh;
+        {
+            com.evosim.mod.entity.FacilityStore fs = new com.evosim.mod.entity.FacilityStore();
+            com.evosim.mod.entity.FacilityStore.Entry e = fs.register(
+                    new net.minecraft.core.BlockPos(1, 64, 2),
+                    com.evosim.mod.entity.FacilityTemplate.Kind.CHURCH, (byte) 0, false, 77L, 3L, 64.0);
+            boolean founded = e.history.size() == 1 && e.history.get(0).startsWith("d3 착공")
+                    && e.founderId == 77L;
+            for (int i = 0; i < 20; i++) {
+                fs.note(e, 4L + i, "사건 " + i);
+            }
+            boolean capped = e.history.size() == com.evosim.mod.entity.FacilityStore.HISTORY_CAP
+                    && e.history.get(0).equals("d8 사건 4")
+                    && e.history.get(e.history.size() - 1).equals("d23 사건 19");
+            e.ownerId = 78L;
+            e.covered = 1.5;
+            e.paidOut = 2.5;
+            com.evosim.mod.entity.FacilityStore back = com.evosim.mod.entity.FacilityStore.load(
+                    fs.save(new net.minecraft.nbt.CompoundTag()));
+            com.evosim.mod.entity.FacilityStore.Entry b = back.all().get(0);
+            boolean round = back.all().size() == 1 && b.founderId == 77L && b.ownerId == 78L
+                    && b.history.equals(e.history) && Math.abs(b.covered - 1.5) < 1.0E-9
+                    && Math.abs(b.paidOut - 2.5) < 1.0E-9;
+            fh = founded && capped && round;
+        }
+        report.add("ui/시설이력", fh, "착공 줄 자동 · 고리 16건(오래된 것부터 버림) · 등기자=첫 주인 · NBT 왕복(등기자·이력·보전·분배)",
+                fh ? "정상" : "어긋남");
         report.add("facility/풍차군인", mw, "풍차 0·149→1, 300→2 · 산출 10 → 밭 +1.5·제분세 0.5 · 봉급 0→3.3, 0.5→4.3, 2→5 · 정원 12/5/4/0",
                 mw ? "정상" : "어긋남");
         report.add("repro/다태아", tw, "쌍둥이 10%·삼둥이 2%·다산 모 25%·불임 0 · 굴림 0.01→+2, 0.05→+1, 0.5→0 · 쿨다운 2.5일",

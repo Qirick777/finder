@@ -73,6 +73,24 @@ public final class ScanSnapshot {
     /** 자금은 됐으나 성숙 트리거(최신 밭 24타일 + 상시 소작 ≥1)가 남았을 때의 사유. 빈 문자열 = 없음. */
     public String farmGate = "";
 
+    // ── 신분 탭(UI P4) — 전부 서버 사전 포맷 문자열. 빈 문자열 = 해당 없음. ──
+    /** "학력 초급 · 학위 학사" */
+    public String school = "";
+    /** 배우자 성명(사후 포함) — 짝 탭의 "혼인 (배우자 N123)" 을 실명으로. */
+    public String spouseName = "";
+    /** "부 성명 · 모 성명" */
+    public String parents = "";
+    /** 자식 목록 — "자식 3(생존 2 · 사망 1)" + "\n" 구분 이름 줄. */
+    public String children = "";
+    /** 직위 — 마름/병사/교사/목사/선교사/경비대/학생. 여럿이면 " · " 연결. */
+    public String role = "";
+    /** 소속 시설 — "막사 @x,z" 처럼 직위가 딸린 시설. */
+    public String facility = "";
+    /** 추종 — "추종 성명(신뢰) · 신세 4.2 · 빚 0" */
+    public String patron = "";
+    /** 오늘 — "자영 수확 5칸 · 상시소작 근속 3일" */
+    public String today = "";
+
     public void encode(FriendlyByteBuf buf) {
         buf.writeVarInt(entityId);
         buf.writeLong(serial);
@@ -117,6 +135,14 @@ public final class ScanSnapshot {
         buf.writeUtf(tenantInfo);
         buf.writeUtf(landSummary);
         buf.writeUtf(farmGate);
+        buf.writeUtf(school);
+        buf.writeUtf(spouseName);
+        buf.writeUtf(parents);
+        buf.writeUtf(children);
+        buf.writeUtf(role);
+        buf.writeUtf(facility);
+        buf.writeUtf(patron);
+        buf.writeUtf(today);
     }
 
     public static ScanSnapshot decode(FriendlyByteBuf buf) {
@@ -164,6 +190,14 @@ public final class ScanSnapshot {
         s.tenantInfo = buf.readUtf();
         s.landSummary = buf.readUtf();
         s.farmGate = buf.readUtf();
+        s.school = buf.readUtf();
+        s.spouseName = buf.readUtf();
+        s.parents = buf.readUtf();
+        s.children = buf.readUtf();
+        s.role = buf.readUtf();
+        s.facility = buf.readUtf();
+        s.patron = buf.readUtf();
+        s.today = buf.readUtf();
         return s;
     }
 }

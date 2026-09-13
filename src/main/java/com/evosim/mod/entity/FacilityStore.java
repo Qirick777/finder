@@ -43,6 +43,17 @@ public class FacilityStore extends SavedData {
         public long staff2Id;
         /** 시설 계정(교회 고도화) — 하루 헌금이 쌓이고 밤 정산 때 급여를 내고 비운다. */
         public double account;
+        /** 등기자 — 세운 자. 승계로 주인이 바뀌어도 남는다(땅 문서의 "창설"에 해당). */
+        public long founderId;
+        /** 누계 — 주인이 사비로 메운 적자(교회 보전), 주인이 가져간 흑자(교회 분배). */
+        public double covered;
+        public double paidOut;
+        /**
+         * 이력 고리(UI P4) — 착공·직원 임명·정산·이탈 같은 굵직한 사건만 한 줄씩. 최근
+         * {@link #HISTORY_CAP}건만 남긴다 — 매일 급여 같은 잔잔한 일은 넣지 않는다(고리가 하루 만에
+         * 씻겨 나가면 이력이 아니다).
+         */
+        public final List<String> history = new ArrayList<>();
 
         Entry(BlockPos pos, FacilityTemplate.Kind kind, byte rotation, boolean mirrored,
               long ownerId, long foundedDay) {
@@ -52,6 +63,7 @@ public class FacilityStore extends SavedData {
             this.mirrored = mirrored;
             this.ownerId = ownerId;
             this.foundedDay = foundedDay;
+            this.founderId = ownerId;
         }
 
         /** 순수지 — 이 시설이 주인에게 남긴 것. 양수면 자선이 아니다. */
@@ -60,7 +72,47 @@ public class FacilityStore extends SavedData {
         }
     }
 
+    /** 이력 고리 길이 — 땅 문서 화면 6줄 스크롤 두 장 남짓. */
+    public static final int HISTORY_CAP = 16;
+
     private final List<Entry> all = new ArrayList<>();
+
+    /** 이력 한 줄 추가("d12 목사 임명 — …"). 고리가 차면 가장 오래된 줄을 버린다. */
+    public void note(Entry e, long day, String text) {
+        e.history.add("d" + day + " " + text);
+        while (e.history.size() > HISTORY_CAP) {
+            e.history.remove(0);
+        }
+        setDirty();
+    }
+
+    /** 이 좌표를 덮는 시설 — 도면의 축별 반폭(+1 여유) 안이고 높이 차 12 이내. 없으면 null. */
+    public Entry covering(ServerLevel level, BlockPos pos) {
+        Entry best = null;
+        double bd = Double.MAX_VALUE;
+        for (Entry e : all) {
+            if (Math.abs(e.pos.getY() - pos.getY()) > 24) {
+                continue;
+            }
+            double hx = 4.0;
+            double hz = 4.0;
+            var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
+            if (tpl.isPresent()) {
+                hx = tpl.get().halfX();
+                hz = tpl.get().halfZ();
+            }
+            if (Math.abs(pos.getX() - e.pos.getX()) > hx + 1.0
+                    || Math.abs(pos.getZ() - e.pos.getZ()) > hz + 1.0) {
+                continue;
+            }
+            double d = e.pos.distSqr(pos);
+            if (d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        return best;
+    }
 
     public static FacilityStore get(ServerLevel level) {
         return level.getDataStorage()
@@ -141,7 +193,7 @@ public class FacilityStore extends SavedData {
         Entry e = new Entry(pos, kind, rotation, mirrored, ownerId, day);
         e.spent = buildCost;
         all.add(e);
-        setDirty();
+        note(e, day, String.format("착공 — 건축비 %.0f", buildCost));
         return e;
     }
 
@@ -180,6 +232,13 @@ public class FacilityStore extends SavedData {
             e.staffId = t.getLong("Staff");
             e.staff2Id = t.getLong("Staff2");
             e.account = t.getDouble("Account");
+            e.founderId = t.contains("Founder") ? t.getLong("Founder") : e.ownerId;
+            e.covered = t.getDouble("Covered");
+            e.paidOut = t.getDouble("PaidOut");
+            ListTag hist = t.getList("Hist", Tag.TAG_STRING);
+            for (int j = 0; j < hist.size(); j++) {
+                e.history.add(hist.getString(j));
+            }
             s.all.add(e);
         }
         return s;
@@ -201,6 +260,14 @@ public class FacilityStore extends SavedData {
             t.putLong("Staff", e.staffId);
             t.putLong("Staff2", e.staff2Id);
             t.putDouble("Account", e.account);
+            t.putLong("Founder", e.founderId);
+            t.putDouble("Covered", e.covered);
+            t.putDouble("PaidOut", e.paidOut);
+            ListTag hist = new ListTag();
+            for (String h : e.history) {
+                hist.add(net.minecraft.nbt.StringTag.valueOf(h));
+            }
+            t.put("Hist", hist);
             arr.add(t);
         }
         tag.put("Facilities", arr);

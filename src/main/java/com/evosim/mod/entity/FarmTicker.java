@@ -2778,6 +2778,49 @@ public final class FarmTicker {
         return POST_OF.get(m.getId());
     }
 
+    // ── UI(P4) 관측 접근자 — 시뮬 결정에는 쓰지 않는다. ─────────────────────────────
+    /** 오늘 자기 가구 밭에서 딴 칸 수(휘발) — 검사봉 "오늘" 줄. */
+    public static int selfHarvestToday(int entityId) {
+        return SELF_HARVEST_TODAY.getOrDefault(entityId, 0);
+    }
+
+    /** 이 사람이 병사로 받는 하루 봉급(능력 고정급) — 배속 여부와 무관한 값. */
+    public static double soldierWageOf(MimicEntity m) {
+        return Facilities.soldierWage(soldierEdge(m.getIndividual()));
+    }
+
+    /** 이 막사에 오늘 배속된 병사 수. */
+    public static int soldiersAt(BlockPos barracks) {
+        int n = 0;
+        for (BlockPos p : POST_OF.values()) {
+            if (p.equals(barracks)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 이 학교에 오늘 등록된 학생 수. */
+    public static int studentsAt(BlockPos school) {
+        int n = 0;
+        for (BlockPos p : SCHOOL_OF.values()) {
+            if (p.equals(school)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 지배자별 마지막 영지 줄(밤 보고와 같은 문장) — 통계 화면 영지 탭. */
+    public static java.util.List<String> realmLines() {
+        return new java.util.ArrayList<>(REALM_LAST_LINE.values());
+    }
+
+    /** 개체 → 마지막으로 배속됐던 막사 — 바뀔 때만 이력에 "입대"를 적기 위한 기억. */
+    private static final java.util.Map<Integer, Long> POSTED_AT = new java.util.HashMap<>();
+    /** lordId → 마지막 영지 줄(성명 포함). */
+    private static final java.util.Map<Long, String> REALM_LAST_LINE = new java.util.TreeMap<>();
+
     public static BlockPos guardSeatOf(MimicEntity m) {
         return GUARD_SEAT.get(m.getId());
     }
@@ -4191,6 +4234,9 @@ public final class FarmTicker {
                     if (miss >= desertDays(s)) {
                         UNPAID_DAYS.remove(sid);
                         GUARD_SUM[3]++;
+                        reg.note(bk, day, String.format("이탈 — %s(봉급 %.1f 중 %.1f · %d일 연속 미납)",
+                                s.getIndividual().shortName(), wage, paid, miss));
+                        POSTED_AT.remove(s.getId());
                         com.evosim.mod.log.SimEvents.event(s, "이탈", String.format(
                                 "봉급 %.1f 중 %.1f 만 받음이 %d일 연속 — 막사 @%d,%d 를 떠난다"
                                         + "(주인 저장고 %.1f)",
@@ -4231,6 +4277,11 @@ public final class FarmTicker {
                         AllegianceStore.W_TENANCY * AllegianceStore.rapport(s.getIndividual()),
                         0.0, day);
                 POST_OF.put(s.getId(), bk.pos);
+                Long prevPost = POSTED_AT.put(s.getId(), bk.pos.asLong());
+                if (prevPost == null || prevPost != bk.pos.asLong()) {
+                    reg.note(bk, day, String.format("입대 — %s(봉급 %.1f)", s.getIndividual().shortName(),
+                            Facilities.soldierWage(soldierEdge(s.getIndividual()))));
+                }
                 GUARD_SEAT.put(s.getId(),
                         bk.pos.offset(tpl.get().seats().get(g.seated % tpl.get().seats().size())));
                 s.setSoldierGear(true); // 무장은 배속의 표시 — 값도 내구도도 없다
@@ -4312,8 +4363,15 @@ public final class FarmTicker {
                         break;
                     }
                 }
+                long beforeT = sc.staffId;
                 sc.staffId = teacher == null ? 0L : teacher.getIndividual().id();
                 reg.setDirty();
+                if (teacher != null && sc.staffId != beforeT) {
+                    reg.note(sc, day, String.format("교사 임명 — %s(학력 %s · 급여 %.1f)",
+                            teacher.getIndividual().shortName(),
+                            com.evosim.core.Schooling.name(teacher.schoolLevel()),
+                            Facilities.TEACHER_WAGE_PER_DAY));
+                }
             }
             // ── 등록 — 이 주인을 따르는 가구의 소년, 통학 한계 안, 자리 수만큼. 가까운 순.
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
@@ -4559,6 +4617,10 @@ public final class FarmTicker {
                 ch.staffId = pick == null ? 0L : pick.getIndividual().id();
                 reg.setDirty();
                 if (pick != null && ch.staffId != before) {
+                    reg.note(ch, day, String.format("%s 임명 — %s(학위 %d · 학력 %s · 급여 %.1f)",
+                            big ? "목사" : "성직자", pick.getIndividual().shortName(), pick.getDegree(),
+                            com.evosim.core.Schooling.name(pick.schoolLevel()),
+                            big ? com.evosim.core.Church.PASTOR_WAGE : Facilities.CLERGY_WAGE_PER_DAY));
                     com.evosim.mod.log.SimEvents.event(pick, big ? "목사임명" : "성직임명", String.format(
                             "교회 @%d,%d — 학위 %d · 학력 %s · 급여 %.1f%s", ch.pos.getX(), ch.pos.getZ(),
                             pick.getDegree(), com.evosim.core.Schooling.name(pick.schoolLevel()),
@@ -4587,6 +4649,10 @@ public final class FarmTicker {
                     ch.staff2Id = pick2 == null ? 0L : pick2.getIndividual().id();
                     reg.setDirty();
                     if (pick2 != null && ch.staff2Id != before) {
+                        reg.note(ch, day, String.format("선교사 임명 — %s(학위 %d · 학력 %s · 급여 %.1f)",
+                                pick2.getIndividual().shortName(), pick2.getDegree(),
+                                com.evosim.core.Schooling.name(pick2.schoolLevel()),
+                                com.evosim.core.Church.MISSIONARY_WAGE));
                         com.evosim.mod.log.SimEvents.event(pick2, "선교사임명", String.format(
                                 "교회 @%d,%d — 학위 %d · 학력 %s · 급여 %.1f · 배회 시간 반경 %.0f 사슬 밖 가구 하루 %d곳",
                                 ch.pos.getX(), ch.pos.getZ(), pick2.getDegree(),
@@ -4671,9 +4737,11 @@ public final class FarmTicker {
                 double have = larders.get(owner.getHomePos());
                 larders.set(owner.getHomePos(), Math.max(0.0, have - cover)); // 적자 보전 — 군주 사비
                 realmOut(ch.ownerId)[4] += cover;
+                ch.covered += cover;
             }
             if (gain > 0.0) {
                 larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + gain); // 흑자 — 주인
+                ch.paidOut += gain;
             }
             reg.spend(ch, wages);
             CHURCH_SUM[3] += wages;
@@ -6051,14 +6119,16 @@ public final class FarmTicker {
                         "세수 %.1f ≥ 통치지출 %.1f 가 %d일 연속 · 신민 %d가구(무력 도달) — 지배자가 제 곳간이 아니라 영지의 세로 다스린다",
                         taxIn, ruleOut, streak, reached));
             }
-            com.evosim.mod.log.SimEvents.event(lord, "영지", String.format(
+            String realmLine = String.format(
                     "%s신민 %d/%d가구(도달/추종) · 세수 %.1f(인두 %.1f · 재산 %.1f · 보호 %.1f · 상납 %.1f)"
                             + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f · 교회 %.1f)"
                             + " · 수지 %+.1f · 사비 %.1f · 흑자 %d일",
                     king ? "[군주] " : "", reached, follow, taxIn, in[0], in[1], in[2], in[3],
                     ruleOut, out[0], out[1], out[2], out[3], out[4],
                     com.evosim.core.Realm.balance(taxIn, ruleOut),
-                    com.evosim.core.Realm.outOfPocket(taxIn, ruleOut), streak));
+                    com.evosim.core.Realm.outOfPocket(taxIn, ruleOut), streak);
+            com.evosim.mod.log.SimEvents.event(lord, "영지", realmLine);
+            REALM_LAST_LINE.put(lid, "d" + day + " " + lord.getIndividual().shortName() + " — " + realmLine);
         }
         REALM_OUT.clear();
     }

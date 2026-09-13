@@ -63,5 +63,9 @@ public final class ModNetwork {
                 OpenLandDeedPacket::encode, OpenLandDeedPacket::decode,
                 OpenLandDeedPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(id++, OpenDeedPacket.class,
+                OpenDeedPacket::encode, OpenDeedPacket::decode,
+                OpenDeedPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 }

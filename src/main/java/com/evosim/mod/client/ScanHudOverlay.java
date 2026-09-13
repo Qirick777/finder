@@ -176,7 +176,7 @@ public final class ScanHudOverlay implements IGuiOverlay {
         ty += bodyH[0] + 4;
 
         // ── 탭 인디케이터 ──
-        String[] tabs = {"특성", "짝", "거처", "가족", "토지"};
+        String[] tabs = {"특성", "짝", "거처", "가족", "토지", "신분"};
         int tw = innerW / tabs.length;
         for (int i = 0; i < tabs.length; i++) {
             boolean on = i == mode;
@@ -231,12 +231,49 @@ public final class ScanHudOverlay implements IGuiOverlay {
                     tx, bodyYBase + chipsH + 1, color(bodyAlpha, 0xB9C9D2), true));
             h[0] = chipsH + LINE + 2;
         } else if (mode == ScannerMode.MATE.ordinal()) {
-            String l1 = s.spouseId != 0 ? "혼인 (배우자 N" + s.spouseId + ")" : "미혼";
+            // 배우자는 실명(사후 포함) — 종전 "N<id>" 는 누구인지 다시 찾아야 했다.
+            String l1 = s.spouseId != 0
+                    ? "혼인 · 배우자 " + (s.spouseName.isEmpty() ? "N" + s.spouseId : s.spouseName)
+                    : "미혼";
             String l2 = "짝고름 " + s.mateChoice + (s.courtTravel ? " · 구혼여행 중" : "");
-            String l3 = "자녀: 소년 " + s.boys + " · 유아 " + s.infants;
-            addLines(out, g, font, tx, new String[] {l1, l2, l3},
-                    new int[] {0xEFF5F8, 0xB9C9D2, 0xB9C9D2});
-            h[0] = LINE * 3;
+            List<String> ls = new ArrayList<>();
+            List<Integer> cs = new ArrayList<>();
+            ls.add(l1);
+            cs.add(0xEFF5F8);
+            ls.add(l2);
+            cs.add(0xB9C9D2);
+            if (!s.parents.isEmpty()) {
+                ls.add("부모 " + s.parents);
+                cs.add(0xB9C9D2);
+            }
+            if (s.children.isEmpty()) {
+                ls.add("자식 없음 (가구 소년 " + s.boys + " · 유아 " + s.infants + ")");
+                cs.add(0x8FA0AB);
+            } else {
+                String[] cl = s.children.split("\n");
+                for (int i = 0; i < cl.length && i < 5; i++) {
+                    ls.add(cl[i]);
+                    cs.add(i == 0 ? 0xB9C9D2 : 0xA8C79F);
+                }
+            }
+            int[] cols = new int[cs.size()];
+            for (int i = 0; i < cols.length; i++) {
+                cols[i] = cs.get(i);
+            }
+            addLines(out, g, font, tx, ls.toArray(new String[0]), cols);
+            h[0] = LINE * ls.size();
+        } else if (mode == ScannerMode.STATUS.ordinal()) {
+            // 신분 — 학력·학위 / 직위·소속 / 추종·신세·빚 / 오늘. 빈 항목은 "—" 로 자리를 지킨다
+            // (줄이 사라지면 "없는 것"과 "안 실린 것"을 못 가른다).
+            String[] ls = {
+                s.school.isEmpty() ? "학력 —" : s.school,
+                "직위 " + (s.role.isEmpty() ? "평민" : s.role)
+                        + (s.facility.isEmpty() ? "" : " · " + s.facility),
+                s.patron.isEmpty() ? "추종 없음" : s.patron,
+                "오늘 " + (s.today.isEmpty() ? "—" : s.today),
+            };
+            addLines(out, g, font, tx, ls, new int[] {0xEFF5F8, 0xFFE9B0, 0xA8C79F, 0xB9C9D2});
+            h[0] = LINE * ls.length;
         } else if (mode == ScannerMode.HOME.ordinal()) {
             if (s.larder < 0) {
                 addLines(out, g, font, tx, new String[] {"거처 없음 (방랑)"}, new int[] {0x8FA0AB});

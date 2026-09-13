@@ -110,6 +110,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
                 .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
                 .then(Commands.literal("facilities").executes(EvoSimCommand::facilities))
+                .then(Commands.literal("facility").executes(EvoSimCommand::facilityDeeds))
                 .then(Commands.literal("goals").executes(EvoSimCommand::goalsReport))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
                 .then(Commands.literal("topdown")
@@ -221,7 +222,13 @@ public final class EvoSimCommand {
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
-                .then(Commands.literal("stats").executes(EvoSimCommand::stats))
+                .then(Commands.literal("stats").executes(EvoSimCommand::stats)
+                        .then(Commands.argument("tab", IntegerArgumentType.integer(0, 4))
+                                .executes(ctx -> stats(ctx, IntegerArgumentType.getInteger(ctx, "tab")))))
+                // 땅 문서를 좌표로 연다(UI P4) — 우클릭과 같은 길(밭 → 시설 → 집). 촬영·원격 관측용.
+                .then(Commands.literal("deed")
+                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                .executes(EvoSimCommand::deed)))
                 .then(Commands.literal("farm")
                         .executes(ctx -> farmDemo(ctx, 1))
                         .then(Commands.argument("stage", IntegerArgumentType.integer(1, 12))
@@ -232,7 +239,7 @@ public final class EvoSimCommand {
                         .then(Commands.argument("steps", IntegerArgumentType.integer(1, 12))
                                 .executes(ctx -> farmStep(ctx,
                                         IntegerArgumentType.getInteger(ctx, "steps")))))
-                .then(Commands.literal("legacy").executes(EvoSimCommand::legacy))
+                .then(Commands.literal("legacy").executes(ctx -> legacy(ctx, 0)))
                 .then(Commands.literal("lords").executes(EvoSimCommand::lords))
                 .then(Commands.literal("estates").executes(EvoSimCommand::estates))
                 .then(Commands.literal("farmown").executes(EvoSimCommand::farmOwnDemo))
@@ -3458,17 +3465,72 @@ public final class EvoSimCommand {
 
     /** 인구 통계 GUI — 발현 특성 분포 그래프 + 최다 후손 랭킹(플레이어 전용, 무대 개체 제외). */
     private static int stats(CommandContext<CommandSourceStack> ctx) {
+        return stats(ctx, 0);
+    }
+
+    private static int stats(CommandContext<CommandSourceStack> ctx, int tab) {
         if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
-            return legacy(ctx); // 콘솔 → 채팅 폴백(화면 없음)
+            return legacy(ctx, tab); // 콘솔 → 채팅 폴백(화면 없음)
         }
         StatsSnapshot snap = StatsSnapshot.build(ctx.getSource().getLevel());
-        ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new StatsPacket(snap));
+        ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new StatsPacket(snap, tab));
         return 1;
     }
 
+    /** {@code evosim deed x y z} — 그 좌표의 밭·시설·집 문서를 실행자 화면에 연다(콘솔이면 채팅). */
+    private static int deed(CommandContext<CommandSourceStack> ctx) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos pos = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+        if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
+            return com.evosim.mod.item.LandDeedItem.inspect(player, level, pos) ? 1 : 0;
+        }
+        FacilityStore.Entry fe = FacilityStore.get(level).covering(level, pos);
+        if (fe != null) {
+            tell(ctx.getSource(), "§e" + com.evosim.mod.gui.DeedText.facilityTitle(fe));
+            for (String l : com.evosim.mod.gui.DeedText.facilityLines(level, fe)) {
+                tell(ctx.getSource(), "  " + l);
+            }
+            for (String h : fe.history) {
+                tell(ctx.getSource(), "  §7" + h);
+            }
+            return 1;
+        }
+        BlockPos home = null;
+        double bd = Double.MAX_VALUE;
+        for (BlockPos h : com.evosim.mod.entity.HomeStore.get(level).positions()) {
+            if (Math.abs(h.getY() - pos.getY()) <= 16 && Math.abs(h.getX() - pos.getX()) <= 7
+                    && Math.abs(h.getZ() - pos.getZ()) <= 7 && h.distSqr(pos) < bd) {
+                bd = h.distSqr(pos);
+                home = h;
+            }
+        }
+        if (home != null) {
+            tell(ctx.getSource(), "§e" + com.evosim.mod.gui.DeedText.householdTitle(home));
+            for (String l : com.evosim.mod.gui.DeedText.householdLines(level, home)) {
+                tell(ctx.getSource(), "  " + l);
+            }
+            return 1;
+        }
+        tell(ctx.getSource(), "§7[땅 문서] 그 좌표엔 등록된 시설·집이 없다(밭은 플레이어만 연다).");
+        return 0;
+    }
+
     /** 최다 후손 랭킹 채팅 출력 — GUI 폴백(콘솔·로그 대조용). 원장 전수라 죽은 조상도 나온다. */
-    private static int legacy(CommandContext<CommandSourceStack> ctx) {
+    private static int legacy(CommandContext<CommandSourceStack> ctx, int tab) {
         StatsSnapshot snap = StatsSnapshot.build(ctx.getSource().getLevel());
+        if (tab != 0) {
+            java.util.List<String> ls = switch (tab) {
+                case 1 -> snap.edu;
+                case 2 -> snap.fac;
+                case 3 -> snap.army;
+                default -> snap.realm;
+            };
+            tell(ctx.getSource(), "[통계 탭 " + tab + "]");
+            for (String l : ls) {
+                tell(ctx.getSource(), "  " + l);
+            }
+            return ls.size();
+        }
         tell(ctx.getSource(), "최다 후손 랭킹 (생존 " + snap.living + "명 · 죽은 조상 포함)");
         if (snap.tops.isEmpty()) {
             tell(ctx.getSource(), "  아직 후손을 남긴 개체가 없습니다.");
@@ -5442,6 +5504,27 @@ public final class EvoSimCommand {
      * 1채로 잡힌다 — 거처에서 승격 이사 직후를 붕괴로 오독했던 것과 같은 종류의 실수를
      * 반대 방향으로 저지르는 셈이다.
      */
+    /** {@code evosim facility} — 시설 한 채씩 문서 전문(땅 문서 화면과 같은 문장)을 채팅에 찍는다(UI P4). */
+    private static int facilityDeeds(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FacilityStore reg = FacilityStore.get(level);
+        if (reg.all().isEmpty()) {
+            tell(ctx.getSource(), "§e[시설 문서]§r 시설 없음");
+            return 0;
+        }
+        for (FacilityStore.Entry e : reg.all()) {
+            tell(ctx.getSource(), "§e[시설 문서]§r " + com.evosim.mod.gui.DeedText.facilityTitle(e));
+            for (String l : com.evosim.mod.gui.DeedText.facilityLines(level, e)) {
+                tell(ctx.getSource(), "  " + l);
+            }
+            int n = e.history.size();
+            for (int i = Math.max(0, n - 4); i < n; i++) {
+                tell(ctx.getSource(), "  §7" + e.history.get(i));
+            }
+        }
+        return reg.all().size();
+    }
+
     private static int facilities(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         FacilityStore reg = FacilityStore.get(level);
@@ -8107,7 +8190,29 @@ public final class EvoSimCommand {
                         && Math.abs(d.farmLack - s.farmLack) < 1.0E-6
                         && d.farmMotive == s.farmMotive && d.spouseId == s.spouseId
                         && d.adults == s.adults && d.garden == s.garden
-                        && d.tenantInfo.equals(s.tenantInfo);
+                        && d.tenantInfo.equals(s.tenantInfo)
+                        && d.school.equals(s.school) && d.spouseName.equals(s.spouseName)
+                        && d.parents.equals(s.parents) && d.children.equals(s.children)
+                        && d.role.equals(s.role) && d.facility.equals(s.facility)
+                        && d.patron.equals(s.patron) && d.today.equals(s.today);
+            }, () -> discardFamily(level, home, c)));
+            // 신분 탭(UI P4) — 배우자는 실명, 학력 줄은 "학력 무학(0일) · 학위 없음", 부부는 직위·추종
+            // 없음(평민). 판정 코드(DeedText)와 표시 필드가 같은 값을 내는지.
+            steps.add(new VerifySuite.Step("scanx_status",
+                    "spouseName = partner's name, school line, no role/patron for a fresh couple", 100, false, () -> {
+                discardFamily(level, home);
+                MimicEntity[] cc = coupleAt(level, home);
+                c[0] = cc[0];
+                c[1] = cc[1];
+            }, () -> {
+                var s = c[0].buildScanSnapshot(level);
+                return String.format("spouse '%s'(exp '%s') school '%s' role '%s' patron '%s'",
+                        s.spouseName, c[1].getIndividual().shortName(), s.school, s.role, s.patron);
+            }, () -> {
+                var s = c[0].buildScanSnapshot(level);
+                return s.spouseName.equals(c[1].getIndividual().shortName())
+                        && s.school.startsWith("학력 무학(0일) · 학위 없음")
+                        && s.role.isEmpty() && s.patron.isEmpty();
             }, () -> discardFamily(level, home, c)));
         }
         VerifySuite.start(ctx.getSource(), steps);

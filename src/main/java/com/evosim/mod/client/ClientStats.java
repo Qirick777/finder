@@ -10,6 +10,10 @@ public final class ClientStats {
     }
 
     public static void open(StatsSnapshot snapshot) {
-        Minecraft.getInstance().setScreen(new StatsScreen(snapshot));
+        open(snapshot, 0);
+    }
+
+    public static void open(StatsSnapshot snapshot, int tab) {
+        Minecraft.getInstance().setScreen(new StatsScreen(snapshot, tab));
     }
 }

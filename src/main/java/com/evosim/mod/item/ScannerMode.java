@@ -8,7 +8,9 @@ public enum ScannerMode {
     MATE("짝"),
     HOME("거처"),
     INVENTORY("가족 인벤토리"),
-    LAND("토지");
+    LAND("토지"),
+    /** 신분(UI P4) — 학력·학위, 직위·소속 시설, 추종·신세·빚, 오늘 활동. 맨 끝(ordinal 불변식). */
+    STATUS("신분");
 
     private final String label;
 

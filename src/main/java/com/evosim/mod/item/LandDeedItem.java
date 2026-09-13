@@ -34,7 +34,15 @@ public class LandDeedItem extends Item {
         if (!(ctx.getLevel() instanceof ServerLevel sl) || !(ctx.getPlayer() instanceof ServerPlayer sp)) {
             return InteractionResult.PASS;
         }
-        BlockPos pos = ctx.getClickedPos();
+        inspect(sp, sl, ctx.getClickedPos());
+        return InteractionResult.CONSUME;
+    }
+
+    /**
+     * 좌표 하나를 문서로 연다 — 밭 타일 → 시설(도면 반폭 안) → 집(거처 원장 근처) 순. 우클릭과
+     * {@code evosim deed x y z} 가 같은 길을 탄다(관측 전용). 아무것도 없으면 false.
+     */
+    public static boolean inspect(ServerPlayer sp, ServerLevel sl, BlockPos pos) {
         FarmStore store = FarmStore.get(sl);
         FarmStore.Plot p = store.plotAt(pos);
         if (p == null) {
@@ -44,12 +52,45 @@ public class LandDeedItem extends Item {
                 p = store.plotAt(pos.below());
             }
         }
-        if (p == null) {
-            sp.displayClientMessage(Component.literal("§7[땅 문서] 여기엔 등록된 밭 타일이 없다."), true);
-            return InteractionResult.CONSUME;
+        if (p != null) {
+            sendDeed(sp, sl, p);
+            return true;
         }
-        sendDeed(sp, sl, p);
-        return InteractionResult.CONSUME;
+        // 밭이 아니면 시설(도면 반폭 안) → 집(거처 원장 좌표 근처) 순으로 찾는다(UI P4).
+        com.evosim.mod.entity.FacilityStore.Entry fe = com.evosim.mod.entity.FacilityStore.get(sl).covering(sl, pos);
+        if (fe != null) {
+            ModNetwork.CHANNEL.send(net.minecraftforge.network.PacketDistributor.PLAYER.with(() -> sp),
+                    new com.evosim.mod.net.OpenDeedPacket(com.evosim.mod.gui.DeedText.facilityTitle(fe),
+                            com.evosim.mod.gui.DeedText.facilityLines(sl, fe), new ArrayList<>(fe.history)));
+            return true;
+        }
+        BlockPos home = homeNear(sl, pos);
+        if (home != null) {
+            ModNetwork.CHANNEL.send(net.minecraftforge.network.PacketDistributor.PLAYER.with(() -> sp),
+                    new com.evosim.mod.net.OpenDeedPacket(com.evosim.mod.gui.DeedText.householdTitle(home),
+                            com.evosim.mod.gui.DeedText.householdLines(sl, home), List.of()));
+            return true;
+        }
+        sp.displayClientMessage(Component.literal("§7[땅 문서] 여기엔 등록된 밭·시설·집이 없다."), true);
+        return false;
+    }
+
+    /** 클릭 지점 근처의 거처 — 거처 도면(10×7)의 반폭 + 마당 여유 7, 높이 차 6 안에서 가장 가까운 것. */
+    private static BlockPos homeNear(ServerLevel sl, BlockPos pos) {
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (BlockPos h : com.evosim.mod.entity.HomeStore.get(sl).positions()) {
+            if (Math.abs(h.getY() - pos.getY()) > 16 || Math.abs(h.getX() - pos.getX()) > 7
+                    || Math.abs(h.getZ() - pos.getZ()) > 7) {
+                continue;
+            }
+            double d = h.distSqr(pos);
+            if (d < bd) {
+                bd = d;
+                best = h;
+            }
+        }
+        return best;
     }
 
     /** 구획 원장을 조립해 땅 문서 화면 패킷 전송(성명은 원장/생존 개체에서 해석). */

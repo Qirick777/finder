@@ -21,16 +21,27 @@ public class StatsScreen extends Screen {
     private static final int BAR_LEFT = 96;   // 특성 이름 칸 너비
     private static final int COUNT_W = 64;    // 수치 칸 너비(막대 오른쪽)
 
+    private static final String[] TABS = {"인구", "학력·학위", "시설", "군", "영지"};
+
     private final StatsSnapshot snapshot;
     private int scrollRow;
+    /** 현재 탭(UI P4) — 0 인구(특성 분포·후손 랭킹), 1 학력·학위, 2 시설, 3 군, 4 영지. */
+    private int tab;
+    /** 탭 라벨 클릭 판정 — 마지막 렌더 프레임의 x 구간. */
+    private final List<int[]> tabHits = new ArrayList<>();
     /** 랭킹 행 클릭 판정 — 마지막 렌더 프레임의 (y0,y1,개체 id). */
     private final List<TopHit> topHits = new ArrayList<>();
 
     private record TopHit(int y0, int y1, long id) { }
 
     public StatsScreen(StatsSnapshot snapshot) {
+        this(snapshot, 0);
+    }
+
+    public StatsScreen(StatsSnapshot snapshot, int tab) {
         super(Component.literal("인구 통계"));
         this.snapshot = snapshot;
+        this.tab = Math.max(0, Math.min(TABS.length - 1, tab));
     }
 
     @Override
@@ -39,9 +50,49 @@ public class StatsScreen extends Screen {
     }
 
     private int totalRows() {
+        if (tab != 0) {
+            return Math.max(1, wrappedTabLines(this.width - 24).size());
+        }
         // 제목행(분포) + 특성 바 + 빈 행 + 제목행(랭킹) + 랭킹(없으면 안내 1행)
         return 1 + snapshot.bars.size() + 1 + 1
                 + Math.max(1, snapshot.tops.size());
+    }
+
+    private List<String> tabLines() {
+        return switch (tab) {
+            case 1 -> snapshot.edu;
+            case 2 -> snapshot.fac;
+            case 3 -> snapshot.army;
+            case 4 -> snapshot.realm;
+            default -> List.of();
+        };
+    }
+
+    /** 탭 줄을 화면 폭에 맞춰 나눈다 — 구분자(" · ") 뒤에서 끊고 이어지는 줄은 들여쓴다. */
+    private List<String> wrappedTabLines(int maxW) {
+        List<String> out = new ArrayList<>();
+        for (String l : tabLines()) {
+            String s = l;
+            while (this.font.width(s) > maxW) {
+                int cut = -1;
+                for (int i = 0; i < s.length(); i++) {
+                    if ((s.charAt(i) == '·' || s.charAt(i) == ',')
+                            && this.font.width(s.substring(0, i + 1)) <= maxW - 8) {
+                        cut = i + 1;
+                    }
+                }
+                if (cut <= 0) {
+                    cut = s.length();
+                    while (cut > 1 && this.font.width(s.substring(0, cut)) > maxW) {
+                        cut--;
+                    }
+                }
+                out.add(s.substring(0, cut).trim());
+                s = "    " + s.substring(cut).trim();
+            }
+            out.add(s);
+        }
+        return out;
     }
 
     private int visibleRows() {
@@ -57,8 +108,38 @@ public class StatsScreen extends Screen {
         topHits.clear();
         int left = 12;
         int right = this.width - 12;
-        int top = 24;
+        int top = 36;
         int bottom = this.height - 16;
+        // ── 탭 줄 ──
+        tabHits.clear();
+        int tx = left;
+        for (int i = 0; i < TABS.length; i++) {
+            boolean on = i == tab;
+            String label = TABS[i];
+            int w = this.font.width(label) + 10;
+            if (on) {
+                g.fill(tx, 20, tx + w, 32, 0xFF2C3A44);
+            }
+            g.drawString(this.font, label, tx + 5, 22, on ? 0xFFE9B0 : 0x8FA0AB, false);
+            tabHits.add(new int[] {tx, tx + w, i});
+            tx += w + 4;
+        }
+        if (tab != 0) {
+            g.enableScissor(left, top, right, bottom);
+            List<String> ls = wrappedTabLines(right - left);
+            for (int i = 0; i < ls.size(); i++) {
+                int y = rowScreenY(i, top);
+                if (y > bottom || y + LINE_H < top) {
+                    continue;
+                }
+                String l = ls.get(i);
+                int col = l.startsWith("    ") ? 0xA0A0A0 : (i == 0 ? 0xFFFFFF : 0xE0E0E0);
+                g.drawString(this.font, l, left, y, col, false);
+            }
+            g.disableScissor();
+            super.render(g, mouseX, mouseY, partialTick);
+            return;
+        }
         int maxCount = 1;
         for (StatsSnapshot.Bar b : snapshot.bars) {
             maxCount = Math.max(maxCount, b.count());
@@ -129,7 +210,16 @@ public class StatsScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+        if (button == 0 && mouseY >= 20 && mouseY < 32) {
+            for (int[] h : tabHits) {
+                if (mouseX >= h[0] && mouseX < h[1]) {
+                    tab = h[2];
+                    scrollRow = 0;
+                    return true;
+                }
+            }
+        }
+        if (button == 0 && tab == 0) {
             for (TopHit h : topHits) {
                 if (mouseY >= h.y0() && mouseY < h.y1()) {
                     ModNetwork.CHANNEL.sendToServer(new PedigreeRequestPacket(h.id()));

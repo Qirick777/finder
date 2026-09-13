@@ -332,12 +332,12 @@ public final class EvoTest {
                 && close(cs1[0], 0.0) && close(cs1[1], 2.9)
                 && close(cs2[0], 1.5) && close(cs2[1], 0.0)
                 && com.evosim.core.Church.missionaryEligible(1, 0)
-                && !com.evosim.core.Church.missionaryEligible(0, 0)
+                && com.evosim.core.Church.missionaryEligible(0, 0) // 문맹도 선교(학력은 순위 우대)
                 && com.evosim.core.Church.missionaryEligible(0, 1)
                 && com.evosim.core.Church.clergyScore(1, 0) > com.evosim.core.Church.clergyScore(0, 3)
                 && com.evosim.core.Church.MISSION_PER_DAY == 2
                 && close(com.evosim.core.Church.MISSION_BOND, 1.0);
-        report.add("church/목사선교", ch, "정원 16/12/4 · 헌금 0.4/0.25 · 신세 ×1.5 · 정산 6.4−3.5 → 주인 +2.9, 2.0−3.5 → 보전 1.5 · 선교 자격 초급+/학위 · 학위>학력",
+        report.add("church/목사선교", ch, "정원 16/12/4 · 헌금 0.4/0.25 · 신세 ×1.5 · 정산 6.4−3.5 → 주인 +2.9, 2.0−3.5 → 보전 1.5 · 선교 자격 문턱 0(학력은 순위) · 학위>학력",
                 ch ? "정상" : "어긋남");
         // 시설 이력 고리(UI P4) — 착공 줄 자동, 16건 상한(가장 오래된 것부터 버림), 등기자 기본값 =
         // 주인, NBT 왕복에 등기자·이력·보전·분배 보존.

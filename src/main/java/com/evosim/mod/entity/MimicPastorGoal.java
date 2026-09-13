@@ -73,6 +73,10 @@ public class MimicPastorGoal extends Goal {
         }
         mob.getNavigation().stop();
         mob.getLookControl().setLookAt(seat.getX() + 0.5, seat.getY() + 1.0, seat.getZ() + 0.5);
+        // 자리에서 끼니 — 헌금(없으면 주인 보전). 전업이라 이것 말고는 낮에 먹을 길이 없다.
+        if (mob.level() instanceof ServerLevel sl && mob.tickCount % 40 == 0) {
+            FarmTicker.feedPastor(sl, mob);
+        }
     }
 
     /** 제 교회(staffId == 나)의 첫 자리 — 없으면 앵커. */

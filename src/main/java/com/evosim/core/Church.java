@@ -34,8 +34,12 @@ public final class Church {
     /** 선교 방문 1회의 신세 — 추종 문턱(4)까지 네 번. 소작(0.6/일)·봉토 신세보다 작아 이미 매인
      *  가구는 안 넘어오고, 아무도 안 따르는 가구만 넘어온다. */
     public static final double MISSION_BOND = 1.0;
-    /** 선교사 최소 학력 — 초급. 글을 읽어야 전한다. 학위자는 우대. */
-    public static final int MISSIONARY_MIN_SCHOOL = 1;
+    /**
+     * 선교사 최소 학력 — 0(없음). 처음엔 초급을 요구했으나 첫 학교가 d10 에나 서고 그 학생이
+     * 성년이 되기 전엔 자격자가 아무도 없어 선교사가 d16 까지 0명이었다(런 30 실측). 글은 못
+     * 읽어도 말로 전한다 — 학력·학위는 자격이 아니라 <b>순위</b>(clergyScore)로만 우대한다.
+     */
+    public static final int MISSIONARY_MIN_SCHOOL = 0;
 
     /** 하루 예배 정원 — 큰교회에 목사가 있으면 16, 큰교회 12, 작은교회 4. */
     public static int visitCap(boolean bigChurch, boolean hasPastor, int bigCap, int smallCap) {
@@ -64,7 +68,7 @@ public final class Church {
         return net >= 0.0 ? new double[] {0.0, net} : new double[] {-net, 0.0};
     }
 
-    /** 선교사 자격 — 학력 초급 이상이거나 학위자. */
+    /** 선교사 자격 — 학력 문턱(현재 0)을 넘거나 학위자. */
     public static boolean missionaryEligible(int schoolLevel, int degree) {
         return degree > 0 || schoolLevel >= MISSIONARY_MIN_SCHOOL;
     }

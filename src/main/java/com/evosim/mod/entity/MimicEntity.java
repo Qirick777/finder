@@ -7051,6 +7051,16 @@ public class MimicEntity extends PathfinderMob {
                 goals.length() == 0 ? "없음" : goals.toString()));
     }
 
+    /**
+     * 끼니를 받아 먹는다(교회 급식 — 목사는 전업이라 낮에 채집·수확이 없다). 소지분 H 에 더하고
+     * 채집 시계도 되돌린다: 먹었으니 "주변에 먹을 게 없다"(forageDry)의 증거가 아니다. 노동량
+     * (dayGathered)에는 더하지 않는다 — 번 것이 아니라 받은 것이다.
+     */
+    public void receiveMeal(double food) {
+        holding += Math.max(0.0, food);
+        lastForageSuccessTick = com.evosim.mod.entity.SimTime.tick(level());
+    }
+
     /** 채집/사냥으로 확보한 식량을 소지분 H에 더한다(R2). 방랑자(집 없음)는 밴드 상한에서 컷. */
     public void addHarvest(double food) {
         // 섭취 효율(날로먹기 1.2) — 갓 딴 것을 바로 먹는 지점. 기근·쿼터 판정(dayGathered)은

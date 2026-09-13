@@ -972,6 +972,9 @@ public final class FarmTicker {
             if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
                 continue; // 만족·무욕 — 신규 개간 안 함
             }
+            if (isPastor(m)) {
+                continue; // 전업 목사는 개간하지 않는다 — 밭을 가지면 성직 자격을 잃어 교회가 빈다(런 30 d8)
+            }
             // 독립 잠금(계층 분화 v2) — 하드게이트 없음. 잠금은 "만족의 덫": 위의 만족 게이트 +
             // 아래 자금 임계(30 = 18+12)가 서로를 배제한다. 궁핍한 평민은 자금이 없고, 자금이 모인
             // 평민은 이미 만족선(≤27.6)을 지나 만족 → 개간 동기 소멸. 동기특성×능력 소득만이 돌파.
@@ -3355,7 +3358,8 @@ public final class FarmTicker {
             });
             for (MimicEntity m : queue) {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null
-                        || m.getStage() == com.evosim.core.LifeStage.ELDER) { // 은퇴 — 경계 못 섬
+                        || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 경계 못 섬
+                        || isPastor(m)) { // 전업 성직 — 경비대 겸직 불가(런 30: 목사가 d5 경비대로 빠짐)
                     continue;
                 }
                 // <b>자격은 협상이 정한다</b>(아래 요구 vs 캡). 여기서는 절대 상한만 미리
@@ -4492,6 +4496,77 @@ public final class FarmTicker {
 
     public static boolean isPastor(MimicEntity m) {
         return m.getIndividual() != null && PASTORS.contains(m.getIndividual().id());
+    }
+
+    /** 목사별 오늘 급식 횟수(휘발) — 로그 한 줄·하루 상한의 입력. */
+    private static final java.util.Map<Integer, int[]> PASTOR_MEALS = new java.util.HashMap<>();
+    /** 목사 급식 한 끼. */
+    public static final double PASTOR_MEAL = 1.0;
+    /** 하루 급식 상한 — 성인 하루 소모(≈3)를 넘지 않는다. */
+    public static final int PASTOR_MEALS_PER_DAY = 3;
+
+    /**
+     * 교회 급식(교회 고도화 보완, 런 30 실측) — 목사는 전업이라 낮에 채집·수확이 없어 소지 식량이
+     * 말라 위급→긴급고용으로 교회를 떠났다. 자리에 앉은 목사의 H 가 1.0 아래로 내려가면 교회
+     * 계정(헌금)에서 한 끼를 내고, 계정이 비면 주인 곳간이 댄다(보전 — 영지 줄 "교회" 지출·
+     * Entry.covered 에 누적). 하루 3끼 상한. 먹인 양을 돌려주고, 못 먹이면 0.
+     */
+    public static double feedPastor(ServerLevel level, MimicEntity m) {
+        if (!isPastor(m) || m.getHolding() >= 1.0) {
+            return 0.0;
+        }
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        int[] cnt = PASTOR_MEALS.computeIfAbsent(m.getId(), k -> new int[] {(int) day, 0});
+        if (cnt[0] != (int) day) {
+            cnt[0] = (int) day;
+            cnt[1] = 0;
+        }
+        if (cnt[1] >= PASTOR_MEALS_PER_DAY) {
+            return 0.0;
+        }
+        FacilityStore reg = FacilityStore.get(level);
+        long id = m.getIndividual().id();
+        for (FacilityStore.Entry ch : reg.all()) {
+            if (ch.kind != FacilityTemplate.Kind.CHURCH || ch.staffId != id) {
+                continue;
+            }
+            double meal = PASTOR_MEAL;
+            String from;
+            if (ch.account >= meal) {
+                ch.account -= meal;
+                from = "헌금";
+            } else {
+                MimicEntity owner = null;
+                for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null
+                                && e.getIndividual().id() == ch.ownerId)) {
+                    owner = o;
+                    break;
+                }
+                if (owner == null || owner.getHomePos() == null) {
+                    return 0.0;
+                }
+                LarderStore larders = LarderStore.get(level);
+                double have = larders.get(owner.getHomePos());
+                if (have < meal) {
+                    return 0.0; // 주인도 빈손 — 위급이면 긴급고용이 받는다(생존 우선)
+                }
+                larders.set(owner.getHomePos(), have - meal);
+                ch.covered += meal;
+                realmOut(ch.ownerId)[4] += meal;
+                from = "주인 보전";
+            }
+            reg.spend(ch, meal);
+            m.receiveMeal(meal);
+            cnt[1]++;
+            if (cnt[1] == 1) {
+                com.evosim.mod.log.SimEvents.event(m, "목사급식", String.format(
+                        "교회 @%d,%d — 한 끼 %.1f(%s) · H %.2f · 계정 %.1f", ch.pos.getX(), ch.pos.getZ(),
+                        meal, from, m.getHolding(), ch.account));
+            }
+            return meal;
+        }
+        return 0.0;
     }
 
     /** 이 교회에 목사가 있는가(큰교회 + staffId) — 예배 정원·헌금·신세 배수의 입력. */
@@ -6796,6 +6871,12 @@ public final class FarmTicker {
                     || store.ownedCount(m.getIndividual().id()) > 0
                     || m.inPoorhouse()) {
                 continue; // 이미 오늘 일감이 있거나, 제 밭을 가진 지주, 또는 낮에 쉬는 경비대원
+            }
+            // 목사(전업)는 채집을 안 하니 채집 시계는 늘 말라 있다 — 그것만으로 밭에 끌어내면
+            // 교회가 비고 다음 밤 재임명이 난다(런 30 실측: 목사가 d5·d9 두 번 갈림). 끼니는
+            // 교회 급식(feedPastor)이 대고, 그래도 위급이면 생존이 먼저다 — 그때만 통과시킨다.
+            if (isPastor(m) && !m.isCritical()) {
+                continue;
             }
             // <b>가는 중인 사람의 목적지를 다시 고르지 않는다.</b> 이 정산은 200틱마다 도는데,
             // 여기서 매번 다시 고르면 후보 저장고가 출렁일 때마다 목표가 갈려 길 위에서 방향만

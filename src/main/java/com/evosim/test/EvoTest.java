@@ -321,16 +321,16 @@ public final class EvoTest {
                 && com.evosim.mod.entity.Facilities.barracksPlannedCap(12, 48, 0.0) == 0;
         // 교회 고도화(사용자 승인): 목사 있으면 예배 정원 16·헌금 0.4·신세 ×1.5, 작은교회 4 · 정산(수입−급여)
         // 적자는 주인 보전·흑자는 주인 · 선교사 자격 초급+ 또는 학위 · 성직 순위 학위>학력.
-        double[] c1 = com.evosim.core.Church.settle(6.4, 3.5);
-        double[] c2 = com.evosim.core.Church.settle(2.0, 3.5);
+        double[] cs1 = com.evosim.core.Church.settle(6.4, 3.5);
+        double[] cs2 = com.evosim.core.Church.settle(2.0, 3.5);
         boolean ch = com.evosim.core.Church.visitCap(true, true, 12, 4) == 16
                 && com.evosim.core.Church.visitCap(true, false, 12, 4) == 12
                 && com.evosim.core.Church.visitCap(false, true, 12, 4) == 4
                 && close(com.evosim.core.Church.tithe(true, 0.25), 0.4)
                 && close(com.evosim.core.Church.tithe(false, 0.25), 0.25)
                 && close(com.evosim.core.Church.bondMult(true), 1.5)
-                && close(c1[0], 0.0) && close(c1[1], 2.9)
-                && close(c2[0], 1.5) && close(c2[1], 0.0)
+                && close(cs1[0], 0.0) && close(cs1[1], 2.9)
+                && close(cs2[0], 1.5) && close(cs2[1], 0.0)
                 && com.evosim.core.Church.missionaryEligible(1, 0)
                 && !com.evosim.core.Church.missionaryEligible(0, 0)
                 && com.evosim.core.Church.missionaryEligible(0, 1)

@@ -3278,9 +3278,11 @@ public final class EvoTest {
                 && com.evosim.core.Degree.marriageCharm(2) == 3
                 && com.evosim.core.Degree.desertGraceDays(2) == 2
                 && com.evosim.core.Degree.clamp(7) == 2
-                && close(FarmEconomy.stewardWageMult(5, 0, 1), 0.80)
-                && close(FarmEconomy.stewardWageMult(5, 10, 2), 1.0); // 0.95+0.15 → 상한 1.0
-        report.add("degree/효과표", dg, "마름 가중 1/1.15/1.6 · 효율 +5%/+15% · 교사 1/2/3 · 교수 석사 3.5 · 의사 2.5/회복 80% · 매력 +3 · 수당 0.75+0.05=0.80, 캡 1.0",
+                // 수당 계수 가산은 현행 기본 계수에 상대적으로 본다(기본 계수 상수는 farm/마름수당 이 따로 검사).
+                && close(FarmEconomy.stewardWageMult(0, 0, 1),
+                        Math.min(FarmEconomy.STEWARD_WAGE_CAP, FarmEconomy.stewardWageMult(0, 0) + 0.05))
+                && close(FarmEconomy.stewardWageMult(5, 10, 2), 1.0); // 캡 1.0 유지
+        report.add("degree/효과표", dg, "마름 가중 1/1.15/1.6 · 효율 +5%/+15% · 교사 1/2/3 · 교수 석사 3.5 · 의사 2.5/회복 80% · 매력 +3 · 수당 +0.05(캡 1.0)",
                 dg ? "정상" : "어긋남");
         double[] ow1 = com.evosim.core.Overseer.wage(40, 0.0);   // 2.0 → 2, 이월 0
         double[] ow2 = com.evosim.core.Overseer.wage(30, 0.0);   // 1.5 → 1, 이월 0.5

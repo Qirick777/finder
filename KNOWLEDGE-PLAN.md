@@ -43,13 +43,13 @@
 | 자리 | 표지 | 수 | 뜻 |
 |---|---|---|---|
 | 앵커 | 종 1 · 문 1+ | | 다른 시설과 같은 규약 |
-| 강의실 학생 좌석 | **책장에 붙은 참나무 계단** | 40 | 수업 시간 학생 착석 |
-| 교수 강단 | **책장에 안 붙은 참나무 계단** | 2 | 수업 시간 교수 자리 |
-| 연구실 교수 자리 | **양조기** | 2 | 수업 없는 시간(배회·저녁) 교수 상주 |
+| 강의실 학생 좌석 | **독서대(lectern)에 붙은 참나무 계단** | 40 | 수업 시간 학생 착석 |
+| 교수 강단 | **독서대에 안 붙은 참나무 계단** | 2 | 수업 시간 교수 자리 |
+| 연구실 교수 자리 | **양조기** | 2 | 수업 없는 시간(배회·저녁) 교수 상주. 책장은 장식 |
 | 기숙사 숙소 | **카펫(눕는 칸)** | 12 | 기숙생 취침 좌표 |
 | 호실 구분 | **금 블록** | 자유 | 로더가 읽고 **공기로 지운다**(설치 후 남지 않음) |
 
-- "붙은"의 판정: 계단 칸의 상하좌우 6방향 중 하나가 책장이면 학생 좌석, 아니면 교수 강단.
+- "붙은"의 판정: 계단 칸의 6방향 인접 중 하나가 독서대(lectern)면 학생 좌석, 아니면 교수 강단. 독서대 자체는 자리로 세지 않는다(학교의 강단 규칙과 별개 — 대학 Kind 에서만 이 해석).
 - 계단 방향(facing)은 착석 방향으로 쓴다.
 - 카펫은 색을 가리지 않는다. 호실 구분 금 블록은 카펫 무리를 나누는 벽 역할이며 설치 시 제거한다.
 
@@ -139,7 +139,7 @@
 
 ### P1 — 로더 확장 + 대학 등기 (도면 도착 직후)
 
-- `FacilityTemplate`: 참나무 계단(책장 인접 여부로 학생 좌석/교수 강단 분류), 양조기(연구 자리), 카펫(숙소/병상), 금 블록(읽고 공기로 치환) 수집. Kind `UNIVERSITY("university", "대학", Group.UNIVERSITY)`, `HOSPITAL("hospital", "병원", Group.HOSPITAL)`.
+- `FacilityTemplate`: 참나무 계단(독서대 인접 여부로 학생 좌석/교수 강단 분류), 양조기(연구 자리), 카펫(숙소/병상), 금 블록(읽고 공기로 치환) 수집. 대학 Kind 에서는 독서대를 자리로 세지 않는다. Kind `UNIVERSITY("university", "대학", Group.UNIVERSITY)`, `HOSPITAL("hospital", "병원", Group.HOSPITAL)`.
 - `Facilities`: UNIVERSITY_COST 300, HOSPITAL_COST 120, TUITION_PER_DAY 1.5, DORM_FEE_PER_DAY 1.5, PROFESSOR_WAGE 3.5, DEGREE_BACHELOR_DAYS 2, DEGREE_MASTER_DAYS 2, UNIV_COMMUTE 64, UNIV_DORM_RANGE 192, UNIV_MIN_FOLLOWERS 20, UNIV_MIN_GRADUATES 3.
 - `MimicEntity.considerUniversity`(우물·풍차와 같은 골격, 자격은 가구 대표 기준). 자리 탐색은 school.nbt 규칙(대형 도면).
 - `FacilityStore.Entry`: `account`(계정), `history`(이력 링 16건), `staff2Id`(둘째 교수·선교사).

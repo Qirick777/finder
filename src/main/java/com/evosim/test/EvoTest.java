@@ -3309,6 +3309,14 @@ public final class EvoTest {
                 && close(com.evosim.core.Commander.WAGE, 5.0);
         report.add("barracks/지휘관", cm, "자격 학위 1+ · 만석 판정 · 점수 학위×(힘+경계+지능) · 보너스 ×1.05/1.15 · 유예 +1/+2 · 급여 5",
                 cm ? "정상" : "어긋남");
+        boolean ft = close(com.evosim.core.Schooling.creditPerDay(false), 1.0)
+                && close(com.evosim.core.Schooling.creditPerDay(true), 1.5)
+                && com.evosim.core.Schooling.level(2.9) == 2 && com.evosim.core.Schooling.level(3.0) == 3
+                && com.evosim.core.Schooling.level(9.0) == 3 && com.evosim.core.Schooling.level(-1.0) == 0
+                && close(com.evosim.core.Degree.teacherWage(0), 1.0)
+                && close(com.evosim.core.Degree.teacherWage(1), 2.0);
+        report.add("school/전업교사", ft, "적립 1.0/1.5 · 수준 내림(2.9→2, 3.0→3, 상한 3) · 급여 임시 1.0/학사 2.0",
+                ft ? "정상" : "어긋남");
         report.add("farm/감독관문턱", ov, "72칸+ · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
                 ov ? "정상" : "어긋남");
         boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)

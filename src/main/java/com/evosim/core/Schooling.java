@@ -44,6 +44,19 @@ public final class Schooling {
      */
     public static final double PER_LEVEL = 0.02;
 
+    /** 전업 교사(학위자) 아래의 하루 학력 적립 — 1.5(임시교사 1.0). 계획서 1.7. */
+    public static final double CREDIT_FULLTIME = 1.5;
+
+    /** 하루 적립량 — 전업 교사면 1.5, 아니면 1.0. */
+    public static double creditPerDay(boolean fullTimeTeacher) {
+        return fullTimeTeacher ? CREDIT_FULLTIME : 1.0;
+    }
+
+    /** 누적 적립(소수) → 교육수준 — 내림 뒤 잘라낸다. */
+    public static int level(double credit) {
+        return level((int) Math.floor(Math.max(0.0, credit)));
+    }
+
     /** 등교 일수 → 교육수준(0~{@link #MAX_LEVEL}). 음수·초과는 잘라낸다. */
     public static int level(int schoolDays) {
         return Math.max(0, Math.min(MAX_LEVEL, schoolDays));

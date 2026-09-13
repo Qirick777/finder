@@ -575,7 +575,8 @@ public class FarmStore extends SavedData {
             if (id == p.stewardId || ownedCount(id) > 0
                     || m.getStage() == com.evosim.core.LifeStage.ELDER
                     || com.evosim.mod.entity.FarmTicker.isSoldier(m)
-                    || com.evosim.mod.entity.FarmTicker.isPastor(m)) {
+                    || com.evosim.mod.entity.FarmTicker.isPastor(m)
+                    || com.evosim.mod.entity.FarmTicker.isFullTimeTeacher(m)) {
                 continue;
             }
             int score = com.evosim.core.Overseer.score(m.getDegree(),

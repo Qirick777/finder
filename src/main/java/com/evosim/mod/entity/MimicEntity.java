@@ -384,6 +384,7 @@ public class MimicEntity extends PathfinderMob {
         // 언제나 밀려 goal 자체가 돌지 않았다 — 실측: 교회 반경 안 29명·쿨다운 0명인데 방문
         // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
         // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
+        this.goalSelector.addGoal(4, new MimicTeacherGoal(this));   // 전업 교사 — 낮 강단 상주(지식인 P3)
         this.goalSelector.addGoal(4, new MimicPastorGoal(this));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
         // 5: 배회 일과(마실·예배 6, 채집 7)보다 앞 — 같은 6이면 먼저 잡은 예배가 선교를 영영 막는다(런 30).
         this.goalSelector.addGoal(5, new MimicMissionGoal(this));   // 선교 — 배회 시간 사슬 밖 가구 방문(교회 고도화)
@@ -1285,11 +1286,23 @@ public class MimicEntity extends PathfinderMob {
         return schoolDays;
     }
 
-    /** 오늘 학교에 앉았다 — 하루 한 번만 셈한다. */
+    /** 오늘 학교에 앉았다 — 하루 한 번만 셈한다(임시교사 1.0). */
     public void creditSchoolDay(long day) {
+        creditSchoolDay(day, 1.0);
+    }
+
+    /** 누적 적립(소수) — 전업 교사 아래서는 하루 1.5. schoolDays 는 이 값의 내림. */
+    private double schoolCredit = -1.0;
+
+    /** 오늘 학교에 앉았다 — 하루 한 번만, {@code amount}(1.0 또는 1.5)만큼 적립한다. */
+    public void creditSchoolDay(long day, double amount) {
         if (day != schoolCreditedDay) {
             schoolCreditedDay = day;
-            schoolDays++;
+            if (schoolCredit < 0.0) {
+                schoolCredit = schoolDays; // 구세계: 정수 일수에서 이어 간다
+            }
+            schoolCredit += Math.max(0.0, amount);
+            schoolDays = (int) Math.floor(schoolCredit);
         }
     }
 
@@ -7047,7 +7060,7 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         if (getStage() != LifeStage.ADULT || homePos == null || isCaregiverBound()
-                || inPoorhouse() || FarmTicker.isPastor(this)) {
+                || inPoorhouse() || FarmTicker.isPastor(this) || FarmTicker.isFullTimeTeacher(this)) {
             // 자급 대상이 아니거나 부엌일 전담 — 무노동이 정상인 쪽(방랑자는 거처가 없다).
             // 경비대원도 뺀다: 낮에 아무것도 안 버는 것이 <b>설계</b>이므로(밤 경계가 노동이고
             // 수입은 봉급뿐) 매일 전원이 이 진단을 울려 진짜 신호를 덮는다. 목사(전업)도 같다.
@@ -7979,6 +7992,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("HomeMirror", homeMirror);
         tag.putBoolean("Building", building);
         tag.putInt("SchoolDays", schoolDays);
+        tag.putDouble("SchoolCredit", schoolCredit);
         tag.putInt("RealmDay", realmDay);
         tag.putBoolean("HouseHeir", houseHeir);
         if (poorhousePos != null) {
@@ -8067,6 +8081,7 @@ public class MimicEntity extends PathfinderMob {
                 homeFacing, tag.getBoolean("HomeMirror"));
         building = tag.getBoolean("Building");
         schoolDays = tag.getInt("SchoolDays");
+        schoolCredit = tag.contains("SchoolCredit") ? tag.getDouble("SchoolCredit") : -1.0;
         realmDay = tag.contains("RealmDay") ? tag.getInt("RealmDay") : -1;
         houseHeir = tag.getBoolean("HouseHeir");
         poorhousePos = tag.contains("Poorhouse")

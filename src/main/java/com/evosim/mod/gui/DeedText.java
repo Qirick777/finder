@@ -103,7 +103,9 @@ public final class DeedText {
         for (FacilityStore.Entry e : FacilityStore.get(sl).all()) {
             if (e.staffId == id) {
                 if (e.kind == FacilityTemplate.Kind.SCHOOL) {
-                    roles.add("교사");
+                    roles.add(FarmTicker.isFullTimeTeacher(m)
+                            ? String.format("전업교사(급여 %.1f)", com.evosim.core.Degree.teacherWage(m.getDegree()))
+                            : "임시교사(급여 1.0)");
                 } else if (e.kind.group == FacilityTemplate.Group.CHURCH) {
                     roles.add(FarmTicker.isPastor(m) ? "목사(전업)" : "성직자");
                 } else {
@@ -259,7 +261,11 @@ public final class DeedText {
                 .map(t -> t.seats().size()).orElse(0);
         switch (e.kind) {
             case SCHOOL -> {
-                ls.add("교사 " + staff(sl, living, e.staffId, Facilities.TEACHER_WAGE_PER_DAY));
+                MimicEntity t = living.get(e.staffId);
+                boolean full = t != null && com.evosim.core.Degree.clamp(t.getDegree()) >= com.evosim.core.Degree.BACHELOR;
+                ls.add((full ? "전업교사 " : "임시교사 ") + staff(sl, living, e.staffId,
+                        t == null ? Facilities.TEACHER_WAGE_PER_DAY : com.evosim.core.Degree.teacherWage(t.getDegree()))
+                        + String.format(" · 적립 ×%.1f", com.evosim.core.Schooling.creditPerDay(full)));
                 ls.add("정원 " + seats + " · 재적 " + FarmTicker.studentsAt(e.pos));
             }
             case CHURCH, SMALL_CHURCH -> {

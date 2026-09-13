@@ -998,8 +998,8 @@ public final class FarmTicker {
             if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
                 continue; // 만족·무욕 — 신규 개간 안 함
             }
-            if (isPastor(m)) {
-                continue; // 전업 목사는 개간하지 않는다 — 밭을 가지면 성직 자격을 잃어 교회가 빈다(런 30 d8)
+            if (isPastor(m) || isFullTimeTeacher(m)) {
+                continue; // 전업 목사·교사는 개간하지 않는다 — 밭을 가지면 자격을 잃어 자리가 빈다(런 30 d8)
             }
             // 독립 잠금(계층 분화 v2) — 하드게이트 없음. 잠금은 "만족의 덫": 위의 만족 게이트 +
             // 아래 자금 임계(30 = 18+12)가 서로를 배제한다. 궁핍한 평민은 자금이 없고, 자금이 모인
@@ -3410,7 +3410,7 @@ public final class FarmTicker {
             for (MimicEntity m : queue) {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null
                         || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 경계 못 섬
-                        || isPastor(m)) { // 전업 성직 — 경비대 겸직 불가(런 30: 목사가 d5 경비대로 빠짐)
+                        || isPastor(m) || isFullTimeTeacher(m)) { // 전업 성직·교사 — 경비대 겸직 불가
                     continue;
                 }
                 // <b>자격은 협상이 정한다</b>(아래 요구 vs 캡). 여기서는 절대 상한만 미리
@@ -4023,9 +4023,9 @@ public final class FarmTicker {
                     rejNotHead++; // 이름은 그대로 두고 뜻만 "창을 들 뜻이 없음"으로(로그 열 유지)
                     continue;
                 }
-                if (fs.stewardOf(mid) != 0L || fs.overseerOf(mid) != 0L) {
+                if (fs.stewardOf(mid) != 0L || fs.overseerOf(mid) != 0L || FULLTIME_TEACHERS.contains(mid)) {
                     rejLand++;
-                    continue; // 마름·감독관 겸직 금지 — 밭을 맡은 자는 창을 들지 않는다
+                    continue; // 마름·감독관·전업 교사 겸직 금지 — 밭·강단을 맡은 자는 창을 들지 않는다
                 }
                 // 봉건 소집(런 26 d11 실측): 봉신 밭의 소작은 봉신을 따르므로 "타주인"으로 전부 탈락해
                 // 후보 0 · 배속 0 이었다(탈락 타주인 9 · 유전가구 15). 주군의 군대는 봉신의 사람으로도
@@ -4448,6 +4448,8 @@ public final class FarmTicker {
         ENROLLED.clear();
         SCHOOL_OF.clear();
         SEAT_OF.clear();
+        FULLTIME_TEACHERS.clear();
+        SCHOOL_ENTRY.clear();
         java.util.Arrays.fill(SCHOOL_SUM, 0.0);
         java.util.Arrays.fill(SCHOOL_MISS, 0);
         FacilityStore reg = FacilityStore.get(level);
@@ -4487,27 +4489,48 @@ public final class FarmTicker {
             // ── 교사 — 이 주인을 따르는 <b>무토지 성년</b>(계획서 1.7: 종사자는 일반 계층).
             //    급여를 받고 세금도 낸다. 죽었거나 자격을 잃으면 다시 뽑는다.
             MimicEntity teacher = byId.get(sc.staffId);
-            if (teacher == null || !Long.valueOf(sc.ownerId).equals(patrons.get(sc.staffId))
-                    || FarmStore.get(level).ownedTiles(sc.staffId) > 0) {
-                teacher = null;
-                for (MimicEntity m : adults) {
-                    long id = m.getIndividual().id();
-                    if (id != sc.ownerId && Long.valueOf(sc.ownerId).equals(patrons.get(id))
-                            && FarmStore.get(level).ownedTiles(id) == 0
-                            && m.getHomePos() != null && !m.getHomePos().equals(owner.getHomePos())) {
-                        teacher = m;
-                        break;
-                    }
+            SCHOOL_ENTRY.put(sc.pos.asLong(), sc);
+            boolean curOk = teacher != null && Long.valueOf(sc.ownerId).equals(patrons.get(sc.staffId))
+                    && FarmStore.get(level).ownedTiles(sc.staffId) == 0 && !PASTORS.contains(sc.staffId);
+            // 전업 교사(계획서 1.7): 학위자가 있으면 임시교사를 대체한다 — 후보 중 학위 최고(같으면 현직 유지,
+            // 다음 id). 현직이 자격을 잃었거나 더 높은 학위자가 나타났을 때만 갈린다.
+            MimicEntity bestT = curOk ? teacher : null;
+            for (MimicEntity m : adults) {
+                long id = m.getIndividual().id();
+                if (id == sc.ownerId || !Long.valueOf(sc.ownerId).equals(patrons.get(id))
+                        || FarmStore.get(level).ownedTiles(id) != 0 || m.getHomePos() == null
+                        || m.getHomePos().equals(owner.getHomePos()) || PASTORS.contains(id)
+                        || FarmStore.get(level).stewardOf(id) != 0L || FarmStore.get(level).overseerOf(id) != 0L
+                        || POST_OF.containsKey(m.getId()) || m.inPoorhouse()) {
+                    continue;
                 }
+                if (bestT == null || m.getDegree() > bestT.getDegree()
+                        || (m.getDegree() == bestT.getDegree() && !curOk && id < bestT.getIndividual().id())) {
+                    bestT = m;
+                }
+            }
+            if (bestT != teacher || !curOk) {
+                teacher = bestT;
                 long beforeT = sc.staffId;
                 sc.staffId = teacher == null ? 0L : teacher.getIndividual().id();
                 reg.setDirty();
                 if (teacher != null && sc.staffId != beforeT) {
-                    reg.note(sc, day, String.format("교사 임명 — %s(학력 %s · 급여 %.1f)",
-                            teacher.getIndividual().shortName(),
-                            com.evosim.core.Schooling.name(teacher.schoolLevel()),
-                            Facilities.TEACHER_WAGE_PER_DAY));
+                    boolean full = com.evosim.core.Degree.clamp(teacher.getDegree()) >= com.evosim.core.Degree.BACHELOR;
+                    double tw = com.evosim.core.Degree.teacherWage(teacher.getDegree());
+                    reg.note(sc, day, String.format("%s 임명 — %s(학위 %s · 학력 %s · 급여 %.1f)",
+                            full ? "전업교사" : "임시교사", teacher.getIndividual().shortName(),
+                            com.evosim.core.Degree.name(teacher.getDegree()),
+                            com.evosim.core.Schooling.name(teacher.schoolLevel()), tw));
+                    com.evosim.mod.log.SimEvents.event(teacher, full ? "전업교사" : "임시교사", String.format(
+                            "학교 @%d,%d — 학위 %s · 학력 %s · 급여 %.1f · 적립 ×%.1f%s",
+                            sc.pos.getX(), sc.pos.getZ(), com.evosim.core.Degree.name(teacher.getDegree()),
+                            com.evosim.core.Schooling.name(teacher.schoolLevel()), tw,
+                            com.evosim.core.Schooling.creditPerDay(full),
+                            full ? " · 전업(낮 강단 상주, 밭·채집 안 함)" : ""));
                 }
+            }
+            if (teacher != null && com.evosim.core.Degree.clamp(teacher.getDegree()) >= com.evosim.core.Degree.BACHELOR) {
+                FULLTIME_TEACHERS.add(teacher.getIndividual().id());
             }
             // ── 등록 — 이 주인을 따르는 가구의 소년, 통학 한계 안, 자리 수만큼. 가까운 순.
             java.util.List<MimicEntity> pick = new java.util.ArrayList<>();
@@ -4589,7 +4612,7 @@ public final class FarmTicker {
             // ── 급여 — 학생이 하나라도 있어야 수업이 있고, 수업이 있어야 급여다.
             if (teacher != null && !roll.isEmpty() && teacher.getHomePos() != null) {
                 double have = larders.get(owner.getHomePos());
-                double wage = Math.min(Facilities.TEACHER_WAGE_PER_DAY, have);
+                double wage = Math.min(com.evosim.core.Degree.teacherWage(teacher.getDegree()), have);
                 if (wage > 0.0) {
                     larders.set(owner.getHomePos(), have - wage);
                     larders.set(teacher.getHomePos(), larders.get(teacher.getHomePos()) + wage);
@@ -4628,6 +4651,83 @@ public final class FarmTicker {
 
     public static boolean isPastor(MimicEntity m) {
         return m.getIndividual() != null && PASTORS.contains(m.getIndividual().id());
+    }
+
+    /** 전업 교사(학위자 교사) 집합 — 새벽 runSchools 가 채운다. 밭·채집·시장에서 뺀다. */
+    private static final java.util.Set<Long> FULLTIME_TEACHERS = new java.util.HashSet<>();
+
+    public static boolean isFullTimeTeacher(MimicEntity m) {
+        return m.getIndividual() != null && FULLTIME_TEACHERS.contains(m.getIndividual().id());
+    }
+
+    /** 이 학교의 하루 학력 적립 — 교사가 전업(학위자)이면 1.5, 아니면 1.0. */
+    public static double schoolCreditRate(BlockPos school) {
+        if (school == null) {
+            return 1.0;
+        }
+        FacilityStore.Entry e = SCHOOL_ENTRY.get(school.asLong());
+        return com.evosim.core.Schooling.creditPerDay(e != null && FULLTIME_TEACHERS.contains(e.staffId));
+    }
+
+    /** 학교 좌표 → 등기(새벽 갱신) — 적립률·교사 자리 조회. */
+    private static final java.util.Map<Long, FacilityStore.Entry> SCHOOL_ENTRY = new java.util.HashMap<>();
+
+    /** 이 전업 교사의 학교 등기 — 없으면 null. */
+    @Nullable
+    public static FacilityStore.Entry teacherSchoolOf(MimicEntity m) {
+        if (!isFullTimeTeacher(m)) {
+            return null;
+        }
+        for (FacilityStore.Entry e : SCHOOL_ENTRY.values()) {
+            if (e.staffId == m.getIndividual().id()) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 교사 급식(전업 교사는 낮에 채집이 없다) — 강단의 교사 H<1.0 이면 학교 주인 곳간이 한 끼를 댄다
+     * (학교 지출에 누적). 하루 3끼 상한. 목사 급식과 같은 규칙.
+     */
+    public static double feedTeacher(ServerLevel level, MimicEntity m) {
+        FacilityStore.Entry sc = teacherSchoolOf(m);
+        if (sc == null || m.getHolding() >= 1.0) {
+            return 0.0;
+        }
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        int[] cnt = PASTOR_MEALS.computeIfAbsent(m.getId(), k -> new int[] {(int) day, 0});
+        if (cnt[0] != (int) day) {
+            cnt[0] = (int) day;
+            cnt[1] = 0;
+        }
+        if (cnt[1] >= PASTOR_MEALS_PER_DAY) {
+            return 0.0;
+        }
+        MimicEntity owner = null;
+        for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == sc.ownerId)) {
+            owner = o;
+            break;
+        }
+        if (owner == null || owner.getHomePos() == null) {
+            return 0.0;
+        }
+        LarderStore larders = LarderStore.get(level);
+        double have = larders.get(owner.getHomePos());
+        if (have < PASTOR_MEAL) {
+            return 0.0;
+        }
+        larders.set(owner.getHomePos(), have - PASTOR_MEAL);
+        FacilityStore.get(level).spend(sc, PASTOR_MEAL);
+        m.receiveMeal(PASTOR_MEAL);
+        cnt[1]++;
+        if (cnt[1] == 1) {
+            com.evosim.mod.log.SimEvents.event(m, "교사급식", String.format(
+                    "학교 @%d,%d — 한 끼 %.1f(주인 곳간) · H %.2f", sc.pos.getX(), sc.pos.getZ(),
+                    PASTOR_MEAL, m.getHolding()));
+        }
+        return PASTOR_MEAL;
     }
 
     /** 목사별 오늘 급식 횟수(휘발) — 로그 한 줄·하루 상한의 입력. */
@@ -4806,6 +4906,7 @@ public final class FarmTicker {
                         || a.getHomePos() == null || a.getHomePos().equals(owner.getHomePos())
                         || !ownerSide(owner, ch.ownerId, patrons.get(aid))
                         || fs.ownedTiles(aid) > 0 || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L
+                        || FULLTIME_TEACHERS.contains(aid)
                         || POST_OF.containsKey(a.getId()) || a.inPoorhouse()) {
                     continue;
                 }
@@ -6750,7 +6851,7 @@ public final class FarmTicker {
                         || store.ownedCount(m.getIndividual().id()) > 0
                         || m.isSatisfiedToday()
                         || m.inPoorhouse()
-                        || isPastor(m) // 목사 전업 — 노동시장에 없다(교회 고도화)
+                        || isPastor(m) || isFullTimeTeacher(m) // 목사·전업 교사 — 노동시장에 없다(교회 고도화)
                         || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 출근 없음
                         || failedReach) {
                     continue;
@@ -7042,7 +7143,7 @@ public final class FarmTicker {
             // 목사(전업)는 채집을 안 하니 채집 시계는 늘 말라 있다 — 그것만으로 밭에 끌어내면
             // 교회가 비고 다음 밤 재임명이 난다(런 30 실측: 목사가 d5·d9 두 번 갈림). 끼니는
             // 교회 급식(feedPastor)이 대고, 그래도 위급이면 생존이 먼저다 — 그때만 통과시킨다.
-            if (isPastor(m) && !m.isCritical()) {
+            if ((isPastor(m) || isFullTimeTeacher(m)) && !m.isCritical()) {
                 continue;
             }
             // <b>가는 중인 사람의 목적지를 다시 고르지 않는다.</b> 이 정산은 200틱마다 도는데,

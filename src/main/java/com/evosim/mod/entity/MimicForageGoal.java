@@ -104,7 +104,7 @@ public class MimicForageGoal extends Goal {
         if (!SurvivalRules.canGather(mob.getStage(), ind)) {
             return false; // 유아·일반소년은 자급 불가
         }
-        if (FarmTicker.isPastor(mob)) {
+        if (FarmTicker.isPastor(mob) || FarmTicker.isFullTimeTeacher(mob)) {
             return false; // 목사는 전업 — 낮·배회 시간 교회 상주, 수입은 급여(교회 고도화)
         }
         // <b>경비대는 낮에 쉰다.</b> 밤에 도끼 들고 경계하는 것이 이들의 노동이므로, 낮의

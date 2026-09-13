@@ -148,7 +148,8 @@ public class MimicSchoolGoal extends Goal {
             mob.getNavigation().stop();
             mob.getLookControl().setLookAt(seat.getX() + 0.5, seat.getY() + 1.0,
                     seat.getZ() + 0.5);
-            mob.creditSchoolDay(SimTime.tick(mob.level()) / 24000L); // 하루 한 번만
+            mob.creditSchoolDay(SimTime.tick(mob.level()) / 24000L,
+                    FarmTicker.schoolCreditRate(FarmTicker.schoolOf(mob))); // 전업 교사면 1.5 // 하루 한 번만
             if (!announced) {
                 announced = true;
                 com.evosim.mod.log.SimEvents.event(mob, "등교", String.format(

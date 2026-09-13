@@ -29,6 +29,12 @@ public class MimicMissionGoal extends Goal {
     private long churchOwner;
     private int stuck;
     private BlockPos lastPos;
+    /** 표적 없음을 하루 한 번만 적기 위한 기억(휘발). */
+    private long holdLoggedDay = -1L;
+    private int seenInRange;
+    private int seenInChain;
+    private int seenVisited;
+    private int seenNoHead;
 
     public MimicMissionGoal(MimicEntity mob) {
         this.mob = mob;
@@ -53,7 +59,18 @@ public class MimicMissionGoal extends Goal {
         if (church == null || !FarmTicker.missionQuotaLeft(mob)) {
             return false;
         }
-        return pickTarget();
+        if (pickTarget()) {
+            return true;
+        }
+        // 조용히 실패하지 않는다 — 하루 한 줄, 왜 표적이 없는지(반경 안 가구 · 사슬 안 · 오늘 방문).
+        long day = mob.level().getDayTime() / 24000L;
+        if (holdLoggedDay != day) {
+            holdLoggedDay = day;
+            com.evosim.mod.log.SimEvents.event(mob, "선교보류", String.format(
+                    "표적 없음 — 반경 %.0f 안 가구 %d · 사슬 안 %d · 오늘 방문 %d · 대표 없음 %d",
+                    Church.MISSION_RANGE, seenInRange, seenInChain, seenVisited, seenNoHead));
+        }
+        return false;
     }
 
     @Override
@@ -127,9 +144,17 @@ public class MimicMissionGoal extends Goal {
         long bestHead = 0L;
         double bestD = Double.MAX_VALUE;
         double r2 = Church.MISSION_RANGE * Church.MISSION_RANGE;
+        seenInRange = 0;
+        seenInChain = 0;
+        seenVisited = 0;
+        seenNoHead = 0;
         for (BlockPos home : HomeStore.get(sl).positions()) {
-            if (home.distSqr(church) > r2 || FarmTicker.missionVisitedToday(home)
-                    || home.equals(mob.getHomePos())) {
+            if (home.distSqr(church) > r2 || home.equals(mob.getHomePos())) {
+                continue;
+            }
+            seenInRange++;
+            if (FarmTicker.missionVisitedToday(home)) {
+                seenVisited++;
                 continue;
             }
             // 가구 대표 = 그 집 성년 중 밭 최다(없으면 첫 성년)
@@ -145,12 +170,14 @@ public class MimicMissionGoal extends Goal {
                 }
             }
             if (head == 0L || head == churchOwner) {
+                seenNoHead++;
                 continue;
             }
             long p = FarmTicker.patronNow(head);
             boolean inChain = p == churchOwner
                     || (p != 0L && FarmTicker.patronNow(p) == churchOwner);
             if (inChain) {
+                seenInChain++;
                 continue;
             }
             double d = home.distSqr(mob.blockPosition());

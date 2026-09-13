@@ -385,7 +385,8 @@ public class MimicEntity extends PathfinderMob {
         // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
         // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
         this.goalSelector.addGoal(4, new MimicPastorGoal(this));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
-        this.goalSelector.addGoal(6, new MimicMissionGoal(this));   // 선교 — 배회 시간 사슬 밖 가구 방문(교회 고도화)
+        // 5: 배회 일과(마실·예배 6, 채집 7)보다 앞 — 같은 6이면 먼저 잡은 예배가 선교를 영영 막는다(런 30).
+        this.goalSelector.addGoal(5, new MimicMissionGoal(this));   // 선교 — 배회 시간 사슬 밖 가구 방문(교회 고도화)
         this.goalSelector.addGoal(6, new MimicVisitGoal(this));     // 이웃 마실·교회 예배(조우 관문 경유)
         this.goalSelector.addGoal(10, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
         this.goalSelector.addGoal(11, new LookAtPlayerGoal(this, Player.class, 8.0F));

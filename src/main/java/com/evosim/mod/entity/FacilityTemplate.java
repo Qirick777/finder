@@ -151,18 +151,26 @@ public final class FacilityTemplate {
     private final double reach;
     private final double halfX;
     private final double halfZ;
+    /** 앵커 기준 점유 열의 실제 범위(비대칭). 종이 건물 중앙에 없는 도면(대학: 종이 z −8, 건물은 z +34 까지)은
+     *  반폭만으로 재면 건물이 실제보다 배 가까이 크게 잡혀 자리가 영영 안 나온다 — 실측(런 32 사본 d16):
+     *  대학이 "도면 41×69" 로 후보 828개 전부 집에 막혔다. 실제 크기는 41×43 이다. */
+    private final int minX;
+    private final int maxX;
+    private final int minZ;
+    private final int maxZ;
 
     private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
-                             List<BlockPos> seats, double reach, double halfX, double halfZ) {
-        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ,
+                             List<BlockPos> seats, double reach, double halfX, double halfZ,
+                             int[] box) {
+        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ, box,
                 List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
                              List<BlockPos> seats, double reach, double halfX, double halfZ,
-                             List<BlockPos> studentSeats, List<BlockPos> professorSeats,
+                             int[] box, List<BlockPos> studentSeats, List<BlockPos> professorSeats,
                              List<BlockPos> researchSeats, List<BlockPos> dormBeds,
                              List<BlockPos> wardBeds) {
         this.kind = kind;
@@ -174,6 +182,10 @@ public final class FacilityTemplate {
         this.reach = reach;
         this.halfX = halfX;
         this.halfZ = halfZ;
+        this.minX = box[0];
+        this.maxX = box[1];
+        this.minZ = box[2];
+        this.maxZ = box[3];
         this.studentSeats = studentSeats;
         this.professorSeats = professorSeats;
         this.researchSeats = researchSeats;
@@ -265,6 +277,38 @@ public final class FacilityTemplate {
 
     public double halfZ() {
         return halfZ;
+    }
+
+    /** 앵커 기준 점유 x 최소(음수) — 부지 충돌은 이 상자로 잰다. */
+    public int minX() {
+        return minX;
+    }
+
+    public int maxX() {
+        return maxX;
+    }
+
+    public int minZ() {
+        return minZ;
+    }
+
+    public int maxZ() {
+        return maxZ;
+    }
+
+    /** 실제 점유 폭(x). 로그의 "도면 a×b" 는 이것이다. */
+    public int sizeX() {
+        return maxX - minX + 1;
+    }
+
+    public int sizeZ() {
+        return maxZ - minZ + 1;
+    }
+
+    /** 앵커 {@code at} 에 세웠을 때 (x,z) 열이 점유 상자 안(여유 {@code margin} 포함)인가. */
+    public boolean boxCovers(BlockPos at, double x, double z, double margin) {
+        return x > at.getX() + minX - margin && x < at.getX() + maxX + margin
+                && z > at.getZ() + minZ - margin && z < at.getZ() + maxZ + margin;
     }
 
     private static final Map<String, FacilityTemplate> CACHE = new HashMap<>();
@@ -366,6 +410,7 @@ public final class FacilityTemplate {
         double far = 0.0;
         double hx = 0.0;
         double hz = 0.0;
+        int[] box = {Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE};
         for (var e : byPos.entrySet()) {
             BlockPos rel = e.getKey().subtract(anchor);
             // 금블록은 호실 구분 표지일 뿐이다(사용자 지시) — 설치 때 없앤다(빈 칸으로).
@@ -380,6 +425,10 @@ public final class FacilityTemplate {
             far = Math.max(far, Math.sqrt(rel.getX() * rel.getX() + rel.getZ() * rel.getZ()));
             hx = Math.max(hx, Math.abs(rel.getX()));
             hz = Math.max(hz, Math.abs(rel.getZ()));
+            box[0] = Math.min(box[0], rel.getX());
+            box[1] = Math.max(box[1], rel.getX());
+            box[2] = Math.min(box[2], rel.getZ());
+            box[3] = Math.max(box[3], rel.getZ());
             pl.add(new Placement(rel, e.getValue()));
         }
         pl.sort(java.util.Comparator.comparingInt(q -> q.rel().getY()));
@@ -641,7 +690,7 @@ public final class FacilityTemplate {
         }
 
         return Optional.of(new FacilityTemplate(kind, List.copyOf(pl), List.copyOf(carve),
-                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz,
+                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz, box,
                 List.copyOf(studentSeats), List.copyOf(professorSeats), List.copyOf(researchSeats),
                 List.copyOf(dormBeds), List.copyOf(wardBeds)));
     }

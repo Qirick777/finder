@@ -33,6 +33,13 @@ public final class University {
     public static final int DROPOUT_UNPAID_DAYS = 2;
     /** 같은 갈래 간격(마을에 하나). */
     public static final double MIN_GAP = 96.0;
+    /**
+     * 부지 탐색 고리의 바깥 한계(블록). 학교 등은 64 다.
+     * 대학 도면(41×43)은 집 간격(15~30)보다 훨씬 넓어 마을 안에는 못 들어가고 가장자리 밖에 선다 —
+     * 실측(런 32 사본, 집 26채·밭 569칸): 회전에 따라 첫 자리가 중심에서 64~80 에서 나왔다.
+     * 통학 64 를 넘는 학생은 기숙(192 안)으로 받으므로 멀어도 운영에는 지장이 없다.
+     */
+    public static final int SITE_RADIUS = 128;
 
     /** 학생 정원 — 교수 1명당 11석(사용자 지시), 강의실 좌석이 상한. */
     public static int studentCap(int professors, int seats, int perProfessor) {

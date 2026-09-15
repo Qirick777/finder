@@ -98,15 +98,14 @@ public class FacilityStore extends SavedData {
             if (Math.abs(e.pos.getY() - pos.getY()) > 24) {
                 continue;
             }
-            double hx = 4.0;
-            double hz = 4.0;
             var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
             if (tpl.isPresent()) {
-                hx = tpl.get().halfX();
-                hz = tpl.get().halfZ();
-            }
-            if (Math.abs(pos.getX() - e.pos.getX()) > hx + 1.0
-                    || Math.abs(pos.getZ() - e.pos.getZ()) > hz + 1.0) {
+                // 비대칭 점유 상자로 본다 — 종이 한쪽에 치우친 도면(대학)을 반폭으로 재면 건물 밖 넓은 띠까지 제 것으로 잡는다.
+                if (!tpl.get().boxCovers(e.pos, pos.getX(), pos.getZ(), 1.0)) {
+                    continue;
+                }
+            } else if (Math.abs(pos.getX() - e.pos.getX()) > 5.0
+                    || Math.abs(pos.getZ() - e.pos.getZ()) > 5.0) {
                 continue;
             }
             double d = e.pos.distSqr(pos);

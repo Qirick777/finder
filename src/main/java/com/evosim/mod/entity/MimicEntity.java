@@ -385,6 +385,7 @@ public class MimicEntity extends PathfinderMob {
         // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
         // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
         this.goalSelector.addGoal(4, new MimicProfessorGoal(this)); // 교수 — 낮 강단·배회 연구실(대학 P2)
+        this.goalSelector.addGoal(4, new MimicDoctorGoal(this));    // 의사 — 낮·배회 진료 자리(병원 P6)
         this.goalSelector.addGoal(5, new MimicStudyGoal(this));     // 대학생 — 낮 강의실 좌석(대학 P2)
         this.goalSelector.addGoal(4, new MimicTeacherGoal(this));   // 전업 교사 — 낮 강단 상주(지식인 P3)
         this.goalSelector.addGoal(4, new MimicPastorGoal(this));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
@@ -3336,6 +3337,9 @@ public class MimicEntity extends PathfinderMob {
         if (followers >= com.evosim.core.University.MIN_FOLLOWERS) {
             larder = considerUniversity(sl, founder, followers, larder, adultNeed);
         }
+        if (followers >= com.evosim.core.Hospital.MIN_FOLLOWERS) {
+            larder = considerHospital(sl, founder, followers, larder, adultNeed);
+        }
         if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;
         }
@@ -3637,12 +3641,12 @@ public class MimicEntity extends PathfinderMob {
         BlockPos centre = studentCentre(sl, id, homePos);
         BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id),
                 new GapSpec(reg, FacilityTemplate.Group.UNIVERSITY, com.evosim.core.University.MIN_GAP,
-                        0L, com.evosim.core.University.MIN_GAP));
+                        0L, com.evosim.core.University.MIN_GAP), com.evosim.core.University.SITE_RADIUS);
         if (site == null) {
             SimEvents.event(founder, "대학", String.format(
-                    "자리 없음 — 추종자%d · 거부 집%d 밭%d 물%d 낙차%d 간격%d (도면 %d×%d)",
+                    "자리 없음 — 추종자%d · 거부 집%d 밭%d 물%d 낙차%d 간격%d (도면 %d×%d · 탐색 %d)",
                     followers, SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
-                    SITE_REJECT[4], (int) (tpl.get().halfX() * 2 + 1), (int) (tpl.get().halfZ() * 2 + 1)));
+                    SITE_REJECT[4], tpl.get().sizeX(), tpl.get().sizeZ(), com.evosim.core.University.SITE_RADIUS));
             return larder;
         }
         String clash = facilityGapFault(reg, site, FacilityTemplate.Group.UNIVERSITY,
@@ -3665,6 +3669,59 @@ public class MimicEntity extends PathfinderMob {
                 tpl.get().researchSeats().size(), tpl.get().dormBeds().size(), centre.getX(), centre.getZ(),
                 Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
         return larder - Facilities.UNIVERSITY_COST;
+    }
+
+    /** 병원 착공(P6) — 추종 10+ 주인이 하나. 착공비 120 + 예비×2, 같은 갈래 간격 96. 의사는 학위자가 생기면 붙는다. */
+    private double considerHospital(ServerLevel sl, MimicEntity founder, int followers,
+                                    double larder, double adultNeed) {
+        long id = founder.getIndividual().id();
+        FacilityStore reg = FacilityStore.get(sl);
+        if (reg.countOf(id, FacilityTemplate.Group.HOSPITAL) >= 1) {
+            return larder;
+        }
+        double reserve = HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        double gate = Facilities.HOSPITAL_COST + reserve;
+        if (larder < gate) {
+            if (com.evosim.mod.entity.SimTime.tick(sl) / 24000L % 3 == 0) {
+                SimEvents.event(founder, "병원", String.format(
+                        "보류 — 추종자%d · 저장고 %.0f < 문턱 %.0f(건축 %.0f + 예비 %.0f)", followers, larder, gate,
+                        Facilities.HOSPITAL_COST, reserve));
+            }
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.HOSPITAL, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos centre = studentCentre(sl, id, homePos);
+        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id),
+                new GapSpec(reg, FacilityTemplate.Group.HOSPITAL, com.evosim.core.Hospital.MIN_GAP,
+                        0L, com.evosim.core.Hospital.MIN_GAP));
+        if (site == null) {
+            SimEvents.event(founder, "병원", String.format(
+                    "자리 없음 — 추종자%d · 거부 집%d 밭%d 물%d 낙차%d 간격%d", followers,
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4]));
+            return larder;
+        }
+        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.HOSPITAL, com.evosim.core.Hospital.MIN_GAP);
+        if (clash != null) {
+            SimEvents.event(founder, "병원", "보류 — " + clash);
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.HOSPITAL, rot, mir, id,
+                com.evosim.mod.entity.SimTime.tick(sl) / 24000L, Facilities.HOSPITAL_COST);
+        RoadPlanner.Obstacles.invalidate();
+        assignFacilityRoad(sl, site, tpl.get());
+        SimEvents.event(founder, "병원", String.format(
+                "착공 @%d,%d 회전%d%s — 추종자%d · 건축비 %.0f (저장고 %.0f→%.0f) · 병상 %d · 진료 자리 %d · 반경 %.0f",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers, Facilities.HOSPITAL_COST,
+                larder, larder - Facilities.HOSPITAL_COST, tpl.get().wardBeds().size(),
+                tpl.get().researchSeats().size(), com.evosim.core.Hospital.REACH));
+        return larder - Facilities.HOSPITAL_COST;
     }
 
     private double considerBarracks(ServerLevel sl, MimicEntity founder, int followers,
@@ -3831,19 +3888,26 @@ public class MimicEntity extends PathfinderMob {
      * 판정을 돌려, 고치고 재는 주기를 초 단위로 줄인다. 시험 전용이며 아무것도 바꾸지 않는다.
      */
     public static String probeFacilitySite(ServerLevel sl, BlockPos from) {
-        var tpl = FacilityTemplate.of(sl, FacilityTemplate.Kind.SCHOOL, (byte) 0, false);
+        return probeFacilitySite(sl, from, FacilityTemplate.Kind.SCHOOL, (byte) 0);
+    }
+
+    /** 갈래·회전을 지정한 부지 시험 — 대학은 제 탐색 한계({@link com.evosim.core.University#SITE_RADIUS})로 본다. */
+    public static String probeFacilitySite(ServerLevel sl, BlockPos from, FacilityTemplate.Kind kind, byte rot) {
+        var tpl = FacilityTemplate.of(sl, kind, rot, false);
         if (tpl.isEmpty()) {
             return "도면을 읽을 수 없다";
         }
-        BlockPos site = facilitySite(sl, from, tpl.get());
+        int radius = kind == FacilityTemplate.Kind.UNIVERSITY
+                ? com.evosim.core.University.SITE_RADIUS : Facilities.SEARCH_RADIUS;
+        BlockPos site = facilitySite(sl, from, tpl.get(), List.of(), null, radius);
         String where = site == null ? "자리 없음"
                 : String.format("@%d,%d (%.0f블록)", site.getX(), site.getZ(),
                         Math.sqrt(from.distSqr(new BlockPos(site.getX(), from.getY(),
                                 site.getZ()))));
-        return String.format("중심 @%d,%d → %s · 거부 집%d 밭%d 물%d 낙차%d 간격%d · 반폭 x%.1f z%.1f",
+        return String.format("중심 @%d,%d → %s · 거부 집%d 밭%d 물%d 낙차%d 간격%d · 상자 x%d..%d z%d..%d",
                 from.getX(), from.getZ(), where, SITE_REJECT[0], SITE_REJECT[1],
                 SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4],
-                tpl.get().halfX(), tpl.get().halfZ());
+                tpl.get().minX(), tpl.get().maxX(), tpl.get().minZ(), tpl.get().maxZ());
     }
 
     @Nullable
@@ -3873,6 +3937,17 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl,
                                          List<BlockPos> students, @Nullable GapSpec gap) {
+        return facilitySite(sl, from, tpl, students, gap, Facilities.SEARCH_RADIUS);
+    }
+
+    /**
+     * @param maxRadius 탐색 고리의 바깥 한계. 마을 안에 들어갈 수 없는 큰 도면(대학 41×43)은 마을 가장자리
+     *                  밖에서만 자리가 나므로 갈래마다 제 한계를 준다 — 실측(런 32 사본, 집 26채 · 밭 569칸):
+     *                  대학은 회전에 따라 64~80 고리에서 첫 자리가 나왔고 64 안에서는 대개 없다.
+     */
+    @Nullable
+    private static BlockPos facilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl,
+                                         List<BlockPos> students, @Nullable GapSpec gap, int maxRadius) {
         java.util.Arrays.fill(SITE_REJECT, 0);
         BlockPos best = null;
         int bestCover = -1;
@@ -3896,9 +3971,11 @@ public class MimicEntity extends PathfinderMob {
         }
         // <b>축별 반폭</b>으로 본다 — 21×18 을 원으로 근사하면 반경 13.8 이라 집마다 3~5블록의
         // 헛여유가 붙고, 그 탓에 마을 한복판에는 학교가 들어갈 구멍이 없어진다.
-        double halfX = tpl.halfX() + Facilities.HOME_MARGIN;
-        double halfZ = tpl.halfZ() + Facilities.HOME_MARGIN;
-        for (int r = Facilities.MIN_RADIUS; r <= Facilities.SEARCH_RADIUS; r += 4) {
+        // 점유 상자는 <b>비대칭</b>으로 잰다 — 종(앵커)이 건물 중앙에 있다는 가정은 학교·교회에서만 참이었다.
+        // 대학은 종이 z −8 에 있고 건물이 z +34 까지 뻗어, 반폭(34)으로 재면 43칸 건물이 69칸이 된다.
+        // 실측(런 32 사본 d16): 후보 828개 전부 "집" 거부 → 대학이 영영 안 섰다.
+        double margin = Facilities.HOME_MARGIN;
+        for (int r = Facilities.MIN_RADIUS; r <= maxRadius; r += 4) {
             // 각도 수를 반지름에 맞춘다 — 고정 16각이면 r=64 에서 표본 간격이 25블록이라
             // 좁은 빈터를 통째로 건너뛴다. 호 길이 약 4블록마다 한 번 보게 한다.
             int steps = Math.max(16, (int) (2.0 * Math.PI * r / 4.0));
@@ -3908,8 +3985,10 @@ public class MimicEntity extends PathfinderMob {
                 int cz = from.getZ() + (int) Math.round(Math.sin(ang) * r);
                 boolean bad = false;
                 for (int k = 0; k < hn; k++) {
-                    if (Math.abs(near[k][0] - cx) < halfX + near[k][2]
-                            && Math.abs(near[k][1] - cz) < halfZ + near[k][2]) {
+                    if (near[k][0] > cx + tpl.minX() - margin - near[k][2]
+                            && near[k][0] < cx + tpl.maxX() + margin + near[k][2]
+                            && near[k][1] > cz + tpl.minZ() - margin - near[k][2]
+                            && near[k][1] < cz + tpl.maxZ() + margin + near[k][2]) {
                         bad = true; // 두 축 모두 겹쳐야 진짜 충돌이다
                         break;
                     }
@@ -7067,6 +7146,37 @@ public class MimicEntity extends PathfinderMob {
     /** 과한책임 부모의 만족 노동 정지 예외 — 밤 정산(supportChildren)이 매긴다(휘발). */
     private boolean tuitionPressure;
 
+    // ── 입원(병원 P6) — 유아 병듦은 앓는 상태(sickDays ≥ 1), 저체력 성년은 하루 입원. 병상은 lodging 을 빌려 쓴다. ──
+    private int sickDays;
+
+    public int getSickDays() {
+        return sickDays;
+    }
+
+    public void setSickDays(int d) {
+        this.sickDays = Math.max(0, d);
+    }
+
+    public boolean isSick() {
+        return sickDays > 0;
+    }
+
+    /** 입원 중인가 — 병상(lodging)이 있고 앓거나 저체력 입원 표시가 있다. */
+    public boolean isHospitalized() {
+        return lodging != null && (sickDays > 0 || lowHealthStay);
+    }
+
+    /** 저체력 성년의 하루 입원 표시(휘발 아님 — NBT). */
+    private boolean lowHealthStay;
+
+    public boolean isLowHealthStay() {
+        return lowHealthStay;
+    }
+
+    public void setLowHealthStay(boolean on) {
+        this.lowHealthStay = on;
+    }
+
     // ── 재학(대학 P2) ──
     /** 재학 중인 대학 등기 좌표 — null 이면 비재학. */
     private BlockPos university;
@@ -8182,6 +8292,8 @@ public class MimicEntity extends PathfinderMob {
         tag.putDouble("StudyCredit", studyCredit);
         tag.putInt("StudyTarget", studyTarget);
         tag.putInt("Unpaid", unpaidDays);
+        tag.putInt("Sick", sickDays);
+        tag.putBoolean("LowStay", lowHealthStay);
         if (lodging != null) {
             tag.putLong("Lodging", lodging.asLong());
         }
@@ -8278,6 +8390,8 @@ public class MimicEntity extends PathfinderMob {
         studyCredit = tag.getDouble("StudyCredit");
         studyTarget = tag.getInt("StudyTarget");
         unpaidDays = tag.getInt("Unpaid");
+        sickDays = tag.getInt("Sick");
+        lowHealthStay = tag.getBoolean("LowStay");
         lodging = tag.contains("Lodging") ? BlockPos.of(tag.getLong("Lodging")) : null;
         lastPlayDay = tag.contains("PlayDay") ? tag.getLong("PlayDay") : -1L;
         lastVisitDay = tag.contains("VisitDay") ? tag.getLong("VisitDay") : -100L;

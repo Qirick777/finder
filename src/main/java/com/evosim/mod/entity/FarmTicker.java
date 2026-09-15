@@ -1756,7 +1756,7 @@ public final class FarmTicker {
     // ── 영지 수지(왕국 세수안, 사용자 승인) — 지배자별 오늘의 세수·지출·신민 ─────────────
     /** lordId → [인두세, 재산세, 보호세(막사+경비), 상납받음] — 밤 징세에서 채우고 에필로그가 읽는다. */
     private static final java.util.Map<Long, double[]> REALM_IN = new java.util.HashMap<>();
-    /** lordId → [군인 봉급, 경비 봉급, 구휼, 자식 지원, 교회 보전, 대학 보전] — 지급 지점마다 더하고 에필로그가 비운다. */
+    /** lordId → [군인 봉급, 경비 봉급, 구휼, 자식 지원, 교회 보전, 대학 보전, 의료 보전] — 지급 지점마다 더하고 에필로그가 비운다. */
     private static final java.util.Map<Long, double[]> REALM_OUT = new java.util.HashMap<>();
     /** lordId → 추종 가구(집 좌표) — 오늘 징세 순회에서. */
     private static final java.util.Map<Long, java.util.Set<Long>> REALM_FOLLOW_HOMES = new java.util.HashMap<>();
@@ -1861,7 +1861,7 @@ public final class FarmTicker {
     }
 
     private static double[] realmOut(long lordId) {
-        return REALM_OUT.computeIfAbsent(lordId, k -> new double[6]);
+        return REALM_OUT.computeIfAbsent(lordId, k -> new double[7]);
     }
 
     /**
@@ -4815,6 +4815,330 @@ public final class FarmTicker {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // 병원(지식인 P6) — 입원 · 의사 · 회복 판정 · 진료비 · 계정 정산
+    // ═══════════════════════════════════════════════════════════════════════════════
+    private static final java.util.Set<Long> DOCTORS = new java.util.HashSet<>();
+    private static final java.util.Map<Integer, BlockPos> CLINIC_OF = new java.util.HashMap<>();
+    /** [입원(유아), 회복, 사망(사흘 초과), 저체력 입원, 진료비 수입] 누계. */
+    private static final double[] HOSP_SUM = new double[5];
+
+    public static boolean isDoctor(MimicEntity m) {
+        return m.getIndividual() != null && DOCTORS.contains(m.getIndividual().id());
+    }
+
+    @Nullable
+    public static BlockPos clinicOf(MimicEntity m) {
+        return CLINIC_OF.get(m.getId());
+    }
+
+    public static double[] hospitalSums() {
+        return HOSP_SUM.clone();
+    }
+
+    /** 병원의 빈 병상 하나 — 집에서 반경 64 안, 병상 수 − 입원 중(병상을 lodging 으로 쥔 개체). 없으면 null. */
+    @Nullable
+    private static BlockPos freeBed(ServerLevel level, BlockPos home, java.util.List<MimicEntity> everyone) {
+        FacilityStore reg = FacilityStore.get(level);
+        java.util.Set<Long> used = new java.util.HashSet<>();
+        for (MimicEntity m : everyone) {
+            if (m.isHospitalized()) {
+                used.add(m.getLodging().asLong());
+            }
+        }
+        FacilityStore.Entry best = null;
+        double bd = Double.MAX_VALUE;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind != FacilityTemplate.Kind.HOSPITAL) {
+                continue;
+            }
+            double d = Math.sqrt(e.pos.distSqr(home));
+            if (com.evosim.core.Hospital.inReach(d) && d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        if (best == null) {
+            return null;
+        }
+        var tpl = FacilityTemplate.of(level, best.kind, best.rotation, best.mirrored);
+        if (tpl.isEmpty()) {
+            return null;
+        }
+        for (BlockPos rel : tpl.get().wardBeds()) {
+            BlockPos bed = best.pos.offset(rel);
+            if (!used.contains(bed.asLong())) {
+                return bed;
+            }
+        }
+        return null;
+    }
+
+    /** 발병한 유아를 입원시킨다 — 빈 병상이 있으면 그 자리를 잠자리(lodging)로 삼고 앓기 시작. */
+    @Nullable
+    private static BlockPos admitInfant(ServerLevel level, MimicEntity inf, long day) {
+        if (inf.getHomePos() == null) {
+            return null;
+        }
+        java.util.List<MimicEntity> everyone = new java.util.ArrayList<>(level.getEntities(
+                com.evosim.mod.reg.ModEntities.MIMIC.get(), e -> e.isAlive() && e.getIndividual() != null));
+        BlockPos bed = freeBed(level, inf.getHomePos(), everyone);
+        if (bed == null) {
+            return null;
+        }
+        inf.setSickDays(1);
+        inf.setLodging(bed);
+        HOSP_SUM[0]++;
+        return bed;
+    }
+
+    /**
+     * 병원 밤 정산(P6) — 등기마다: ① 의사(주인 추종 학위자, 학위·명석 순) ② 유아 환자 회복 판정
+     * (의사 학사 60%·석사 80%·없음 30%; 사흘 초과면 사망) · 진료비 1.5 ③ 저체력 성년 입원(하루 뒤 60%,
+     * 진료비 1.0) ④ 급여·정산(적자 군주 보전, 흑자 의사·군주 반분).
+     */
+    private static void runHospitals(ServerLevel level, java.util.List<MimicEntity> everyone, long day) {
+        DOCTORS.clear();
+        CLINIC_OF.clear();
+        FacilityStore reg = FacilityStore.get(level);
+        LarderStore larders = LarderStore.get(level);
+        FarmStore fs = FarmStore.get(level);
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : everyone) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        java.util.Map<Long, Long> patrons = new java.util.HashMap<>(PATRON_OF);
+        for (FacilityStore.Entry hs : reg.all()) {
+            if (hs.kind != FacilityTemplate.Kind.HOSPITAL) {
+                continue;
+            }
+            MimicEntity owner = byId.get(hs.ownerId);
+            var tplOpt = FacilityTemplate.of(level, hs.kind, hs.rotation, hs.mirrored);
+            if (owner == null || owner.getHomePos() == null || tplOpt.isEmpty()) {
+                continue;
+            }
+            FacilityTemplate tpl = tplOpt.get();
+            // ── ① 의사 — 주인 추종 성년 학위자, 무토지·겸직 없음. 학위 > 명석. 현직 동점 우선.
+            MimicEntity doc = null;
+            double best = 0.0;
+            for (MimicEntity a : everyone) {
+                long aid = a.getIndividual().id();
+                if (aid == hs.ownerId || a.getStage() != com.evosim.core.LifeStage.ADULT || a.getHomePos() == null
+                        || !Long.valueOf(hs.ownerId).equals(patrons.get(aid)) || fs.ownedTiles(aid) > 0
+                        || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L || POST_OF.containsKey(a.getId())
+                        || a.inPoorhouse() || PASTORS.contains(aid) || FULLTIME_TEACHERS.contains(aid)
+                        || ACADEMICS.contains(aid) || a.isStudent()) {
+                    continue;
+                }
+                double v = com.evosim.core.Hospital.doctorScore(a.getDegree(),
+                        com.evosim.core.Multipliers.brightGrade(a.getIndividual()));
+                if (v <= 0.0) {
+                    continue;
+                }
+                if (aid == hs.staffId) {
+                    v += 0.5;
+                }
+                if (v > best) {
+                    best = v;
+                    doc = a;
+                }
+            }
+            long beforeDoc = hs.staffId;
+            hs.staffId = doc == null ? 0L : doc.getIndividual().id();
+            if (doc != null) {
+                DOCTORS.add(hs.staffId);
+                if (!tpl.researchSeats().isEmpty()) {
+                    CLINIC_OF.put(doc.getId(), hs.pos.offset(tpl.researchSeats().get(0)));
+                }
+                if (hs.staffId != beforeDoc) {
+                    reg.note(hs, day, String.format("의사 임명 — %s(학위 %s · 급여 %.1f · 회복률 %.0f%%)",
+                            doc.getIndividual().shortName(), com.evosim.core.Degree.name(doc.getDegree()),
+                            com.evosim.core.Degree.doctorWage(doc.getDegree()),
+                            com.evosim.core.Hospital.recoveryChance(doc.getDegree()) * 100.0));
+                    com.evosim.mod.log.SimEvents.event(doc, "의사임명", String.format(
+                            "병원 @%d,%d — 학위 %s · 급여 %.1f · 유아 회복률 %.0f%%", hs.pos.getX(), hs.pos.getZ(),
+                            com.evosim.core.Degree.name(doc.getDegree()), com.evosim.core.Degree.doctorWage(doc.getDegree()),
+                            com.evosim.core.Hospital.recoveryChance(doc.getDegree()) * 100.0));
+                }
+                if (doc.getTenantFarm() != 0L) {
+                    doc.setTenant(0L, 0);
+                }
+            } else if (beforeDoc != 0L) {
+                reg.note(hs, day, "의사 공석 — 학위자 없음");
+            }
+            int docDegree = doc == null ? -1 : doc.getDegree();
+            double chance = com.evosim.core.Hospital.recoveryChance(docDegree);
+            // ── ② 유아 환자 — 이 병원 병상을 쥔 유아. 회복 판정, 진료비 1.5(가구), 사흘 초과 사망.
+            java.util.Set<Long> myBeds = new java.util.HashSet<>();
+            for (BlockPos rel : tpl.wardBeds()) {
+                myBeds.add(hs.pos.offset(rel).asLong());
+            }
+            double income = 0.0;
+            int patients = 0;
+            for (MimicEntity m : everyone) {
+                if (!m.isHospitalized() || !myBeds.contains(m.getLodging().asLong())) {
+                    continue;
+                }
+                patients++;
+                if (m.isSick()) {
+                    double fee = com.evosim.core.Hospital.INFANT_FEE;
+                    if (m.getHomePos() != null) {
+                        double have = larders.get(m.getHomePos());
+                        double paid = Math.min(fee, have);
+                        larders.set(m.getHomePos(), have - paid);
+                        hs.account += paid;
+                        income += paid;
+                    }
+                    if (level.random.nextDouble() < chance) {
+                        com.evosim.mod.log.SimEvents.event(m, "회복", String.format(
+                                "%d일 앓고 나음 — %s 회복률 %.0f%% · 병원 @%d,%d", m.getSickDays(),
+                                doc == null ? "의사 없음" : "의사 " + com.evosim.core.Degree.name(docDegree),
+                                chance * 100.0, hs.pos.getX(), hs.pos.getZ()));
+                        m.setSickDays(0);
+                        m.setLodging(null);
+                        HOSP_SUM[1]++;
+                        continue;
+                    }
+                    m.setSickDays(m.getSickDays() + 1);
+                    if (com.evosim.core.Hospital.fatal(m.getSickDays())) {
+                        com.evosim.mod.log.SimEvents.event(m, "병사", String.format(
+                                "입원 %d일 — 못 나음(회복률 %.0f%%) · 병원 @%d,%d", m.getSickDays() - 1, chance * 100.0,
+                                hs.pos.getX(), hs.pos.getZ()));
+                        HOSP_SUM[2]++;
+                        m.setLodging(null);
+                        m.setSickDays(0);
+                        if (!m.hurt(level.damageSources().magic(), Float.MAX_VALUE)) {
+                            m.kill();
+                        }
+                    }
+                } else if (m.isLowHealthStay()) {
+                    // 저체력 성년 — 하루 입원 뒤 60% 로 퇴원. 진료비 1.0.
+                    double fee = com.evosim.core.Hospital.VISIT_FEE;
+                    if (m.getHomePos() != null) {
+                        double have = larders.get(m.getHomePos());
+                        double paid = Math.min(fee, have);
+                        larders.set(m.getHomePos(), have - paid);
+                        hs.account += paid;
+                        income += paid;
+                    }
+                    float target = (float) (m.getMaxHealth() * com.evosim.core.Hospital.DISCHARGE_HEALTH);
+                    if (m.getHealth() < target) {
+                        m.setHealth(target);
+                    }
+                    com.evosim.mod.log.SimEvents.event(m, "퇴원", String.format(
+                            "체력 %.0f%% 로 회복 — 병원 @%d,%d · 진료비 %.1f", m.getHealth() / m.getMaxHealth() * 100.0,
+                            hs.pos.getX(), hs.pos.getZ(), fee));
+                    m.setLowHealthStay(false);
+                    m.setLodging(null);
+                }
+            }
+            // ── ③ 저체력 성년 입원 — 반경 64, 병사·치료 중·학생·기숙 제외, 빈 병상만큼.
+            for (MimicEntity a : everyone) {
+                if (a.getStage() != com.evosim.core.LifeStage.ADULT || a.getHomePos() == null
+                        || a.getLodging() != null || a.isStudent() || POST_OF.containsKey(a.getId())
+                        || a.isUnderTreatment()
+                        || !com.evosim.core.Hospital.lowHealth(a.getHealth(), a.getMaxHealth())
+                        || !com.evosim.core.Hospital.inReach(Math.sqrt(a.getHomePos().distSqr(hs.pos)))) {
+                    continue;
+                }
+                BlockPos bed = freeBed(level, a.getHomePos(), everyone);
+                if (bed == null || !myBeds.contains(bed.asLong())) {
+                    break;
+                }
+                a.setLodging(bed);
+                a.setLowHealthStay(true);
+                HOSP_SUM[3]++;
+                com.evosim.mod.log.SimEvents.event(a, "입원", String.format(
+                        "저체력 %.0f%% — 병상 @%d,%d (하루 뒤 %.0f%% 로 퇴원)", a.getHealth() / a.getMaxHealth() * 100.0,
+                        bed.getX(), bed.getZ(), com.evosim.core.Hospital.DISCHARGE_HEALTH * 100.0));
+            }
+            // ── ④ 급여·정산
+            double wages = 0.0;
+            if (doc != null && doc.getHomePos() != null) {
+                wages = com.evosim.core.Degree.doctorWage(doc.getDegree());
+                larders.set(doc.getHomePos(), larders.get(doc.getHomePos()) + wages);
+            }
+            if (wages <= 0.0 && hs.account <= 0.0 && patients == 0) {
+                continue;
+            }
+            double[] sr = com.evosim.core.Hospital.settle(hs.account, wages);
+            if (sr[0] > 0.0) {
+                double have = larders.get(owner.getHomePos());
+                larders.set(owner.getHomePos(), Math.max(0.0, have - sr[0]));
+                realmOut(hs.ownerId)[6] += sr[0];
+                hs.covered += sr[0];
+            }
+            if (sr[1] > 0.0 && doc != null && doc.getHomePos() != null) {
+                larders.set(doc.getHomePos(), larders.get(doc.getHomePos()) + sr[1]);
+            }
+            if (sr[2] > 0.0) {
+                larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + sr[2]);
+                hs.paidOut += sr[2];
+            }
+            HOSP_SUM[4] += income;
+            reg.earn(hs, income);
+            reg.spend(hs, wages);
+            com.evosim.mod.log.SimEvents.event(owner, "병원정산", String.format(
+                    "병원 @%d,%d — 의사 %s · 환자 %d/%d · 진료비 %.1f · 급여 %.1f · 보전 %.1f · 의사 분배 %.1f · 주인 수입 %.1f",
+                    hs.pos.getX(), hs.pos.getZ(), doc == null ? "없음" : doc.getIndividual().shortName(), patients,
+                    tpl.wardBeds().size(), hs.account, wages, sr[0], sr[1], sr[2]));
+            hs.account = 0.0;
+            reg.setDirty();
+        }
+    }
+
+    /** 의사 급식 — 진료 자리의 의사 H<1.0 이면 병원 계정(없으면 주인 곳간)이 한 끼. */
+    public static double feedDoctor(ServerLevel level, MimicEntity m) {
+        if (!isDoctor(m) || m.getHolding() >= 1.0) {
+            return 0.0;
+        }
+        FacilityStore.Entry found = null;
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            if (e.kind == FacilityTemplate.Kind.HOSPITAL && e.staffId == m.getIndividual().id()) {
+                found = e;
+                break;
+            }
+        }
+        if (found == null) {
+            return 0.0;
+        }
+        final FacilityStore.Entry hs = found;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        int[] cnt = PASTOR_MEALS.computeIfAbsent(m.getId(), k -> new int[] {(int) day, 0});
+        if (cnt[0] != (int) day) {
+            cnt[0] = (int) day;
+            cnt[1] = 0;
+        }
+        if (cnt[1] >= PASTOR_MEALS_PER_DAY) {
+            return 0.0;
+        }
+        if (hs.account >= PASTOR_MEAL) {
+            hs.account -= PASTOR_MEAL;
+        } else {
+            MimicEntity owner = null;
+            for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == hs.ownerId)) {
+                owner = o;
+                break;
+            }
+            if (owner == null || owner.getHomePos() == null) {
+                return 0.0;
+            }
+            LarderStore larders = LarderStore.get(level);
+            double have = larders.get(owner.getHomePos());
+            if (have < PASTOR_MEAL) {
+                return 0.0;
+            }
+            larders.set(owner.getHomePos(), have - PASTOR_MEAL);
+            hs.covered += PASTOR_MEAL;
+            realmOut(hs.ownerId)[6] += PASTOR_MEAL;
+        }
+        FacilityStore.get(level).spend(hs, PASTOR_MEAL);
+        m.receiveMeal(PASTOR_MEAL);
+        cnt[1]++;
+        return PASTOR_MEAL;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // 대학(지식인 P2) — 교수 선발 · 등록 · 수업료 · 기숙 · 졸업 · 계정 정산
     // ═══════════════════════════════════════════════════════════════════════════════
     /** 교수·학생(개체 id) — 새벽 runUniversities 가 채운다. 밭·채집·시장·병사·성직·교사에서 뺀다. */
@@ -4829,8 +5153,10 @@ public final class FarmTicker {
     /** [입학, 중퇴, 졸업 학사, 졸업 석사, 등록금 수입] 누계 — 보고용. */
     private static final double[] UNIV_SUM = new double[5];
 
+    /** 교수·대학생·의사 — 밭·채집·시장·병사·성직·교사 후보에서 뺀다. */
     public static boolean isAcademic(MimicEntity m) {
-        return m.getIndividual() != null && ACADEMICS.contains(m.getIndividual().id());
+        return m.getIndividual() != null
+                && (ACADEMICS.contains(m.getIndividual().id()) || DOCTORS.contains(m.getIndividual().id()));
     }
 
     public static boolean isProfessor(MimicEntity m) {
@@ -6854,6 +7180,7 @@ public final class FarmTicker {
                         e -> e.isAlive() && e.getIndividual() != null));
         everyone.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id())); // 결정론
         infantIllness(level, everyone, day);
+        runHospitals(level, everyone, day);
         supportChildren(level, everyone, day);
         realmReport(level, everyone, day);
     }
@@ -6877,11 +7204,11 @@ public final class FarmTicker {
                 }
             }
             double[] in = REALM_IN.getOrDefault(lid, new double[4]);
-            double[] out = REALM_OUT.getOrDefault(lid, new double[6]);
+            double[] out = REALM_OUT.getOrDefault(lid, new double[7]);
             int follow = REALM_FOLLOW_HOMES.getOrDefault(lid, java.util.Set.of()).size();
             int reached = REALM_REACHED_HOMES.getOrDefault(lid, java.util.Set.of()).size();
             double taxIn = in[0] + in[1] + in[2] + in[3];
-            double ruleOut = out[0] + out[1] + out[2] + out[3] + out[4] + out[5];
+            double ruleOut = out[0] + out[1] + out[2] + out[3] + out[4] + out[5] + out[6];
             if (lord == null || (follow == 0 && taxIn <= 0.0 && ruleOut <= 0.0)) {
                 continue;
             }
@@ -6899,10 +7226,10 @@ public final class FarmTicker {
             }
             String realmLine = String.format(
                     "%s신민 %d/%d가구(도달/추종) · 세수 %.1f(인두 %.1f · 재산 %.1f · 보호 %.1f · 상납 %.1f)"
-                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f · 교회 %.1f · 대학 %.1f)"
+                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f · 교회 %.1f · 대학 %.1f · 의료 %.1f)"
                             + " · 수지 %+.1f · 사비 %.1f · 흑자 %d일",
                     king ? "[군주] " : "", reached, follow, taxIn, in[0], in[1], in[2], in[3],
-                    ruleOut, out[0], out[1], out[2], out[3], out[4], out[5],
+                    ruleOut, out[0], out[1], out[2], out[3], out[4], out[5], out[6],
                     com.evosim.core.Realm.balance(taxIn, ruleOut),
                     com.evosim.core.Realm.outOfPocket(taxIn, ruleOut), streak);
             com.evosim.mod.log.SimEvents.event(lord, "영지", realmLine);
@@ -6965,11 +7292,22 @@ public final class FarmTicker {
             if (p <= 0.0 || level.random.nextDouble() >= p) {
                 continue;
             }
+            if (m.isSick()) {
+                continue; // 이미 입원 중 — 회복 판정은 runHospitals 가 한다
+            }
+            // 병원(P6) — 반경 64 안에 병상이 빈 병원이 있으면 즉사 대신 입원(앓는 상태).
+            BlockPos bed = admitInfant(level, m, day);
+            if (bed != null) {
+                com.evosim.mod.log.SimEvents.event(m, "입원", String.format(
+                        "유아 병듦 — 병상 @%d,%d · 이웃 %d채 · 부모 학력 %s · p %.3f · 사흘 안에 나아야 산다",
+                        bed.getX(), bed.getZ(), n, com.evosim.core.Schooling.name(lv), p));
+                continue;
+            }
             died++;
             com.evosim.mod.log.SimEvents.event(m, "병사", String.format(
-                    "유아 병듦 — 이웃 %d채(반경 %.0f) · 부모 학력 %s · p %.3f", n,
+                    "유아 병듦 — 이웃 %d채(반경 %.0f) · 부모 학력 %s · p %.3f · 병원 없음(반경 %.0f)", n,
                     com.evosim.core.InfantIllness.NEIGHBOR_RADIUS,
-                    com.evosim.core.Schooling.name(lv), p));
+                    com.evosim.core.Schooling.name(lv), p, com.evosim.core.Hospital.REACH));
             if (!m.hurt(level.damageSources().magic(), Float.MAX_VALUE)) {
                 m.kill();
             }

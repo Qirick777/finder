@@ -5530,6 +5530,13 @@ public final class EvoSimCommand {
                 (int) (sz / n));
         tell(ctx.getSource(), "§e[부지시험]§r 집" + n + "채 · "
                 + MimicEntity.probeFacilitySite(level, centre));
+        // 대학은 네 회전을 다 본다 — 도면이 비대칭(41×43)이라 회전마다 첫 자리 고리가 다르다.
+        for (byte rot = 0; rot < 4; rot++) {
+            tell(ctx.getSource(), "§e[부지시험 대학 회전" + rot + "]§r "
+                    + MimicEntity.probeFacilitySite(level, centre, FacilityTemplate.Kind.UNIVERSITY, rot));
+        }
+        tell(ctx.getSource(), "§e[부지시험 병원]§r "
+                + MimicEntity.probeFacilitySite(level, centre, FacilityTemplate.Kind.HOSPITAL, (byte) 0));
         return 1;
     }
 
@@ -5563,10 +5570,11 @@ public final class EvoSimCommand {
                         } else {
                             ok = t.wardBeds().size() == 3 && t.researchSeats().size() == 1 && !t.doorSteps().isEmpty();
                         }
-                        line = String.format("%s rot%d%s — 학생 %d 강단 %d 연구 %d 기숙 %d 병상 %d 금블록잔존 %b 문 %d 자재 %d 반폭 %.1f×%.1f",
+                        line = String.format("%s rot%d%s — 학생 %d 강단 %d 연구 %d 기숙 %d 병상 %d 금블록잔존 %b 문 %d 자재 %d 상자 x%d..%d z%d..%d(%d×%d)",
                                 k.label, rot, mir ? "m" : "", t.studentSeats().size(), t.professorSeats().size(),
                                 t.researchSeats().size(), t.dormBeds().size(), t.wardBeds().size(), goldLeft,
-                                t.doorSteps().size(), t.plan().size(), t.halfX(), t.halfZ());
+                                t.doorSteps().size(), t.plan().size(), t.minX(), t.maxX(), t.minZ(), t.maxZ(),
+                                t.sizeX(), t.sizeZ());
                     } catch (Exception ex) {
                         ok = false;
                         line = k.label + " rot" + rot + (mir ? "m" : "") + " — 예외 " + ex.getMessage();

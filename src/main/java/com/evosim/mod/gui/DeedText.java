@@ -119,6 +119,13 @@ public final class DeedText {
         if (m.getStage() == LifeStage.BOY && FarmTicker.schoolOf(m) != null) {
             roles.add("학생");
         }
+        if (FarmTicker.isDoctor(m)) {
+            roles.add(String.format("의사(급여 %.1f · 회복률 %.0f%%)", com.evosim.core.Degree.doctorWage(m.getDegree()),
+                    com.evosim.core.Hospital.recoveryChance(m.getDegree()) * 100.0));
+        }
+        if (m.isHospitalized()) {
+            roles.add(m.isSick() ? "입원(앓은 지 " + m.getSickDays() + "일)" : "입원(저체력)");
+        }
         if (FarmTicker.isProfessor(m)) {
             roles.add(String.format("%s(급여 %.1f)", m.getDegree() >= com.evosim.core.Degree.MASTER ? "교수" : "임시교수",
                     com.evosim.core.University.professorWage(m.getDegree())));
@@ -340,8 +347,29 @@ public final class DeedText {
             }
             case HOSPITAL -> {
                 var t = FacilityTemplate.of(sl, e.kind, e.rotation, e.mirrored);
-                ls.add(String.format("병상 %d · 진료 자리 %d", t.map(x -> x.wardBeds().size()).orElse(0),
-                        t.map(x -> x.researchSeats().size()).orElse(0)));
+                MimicEntity dc = living.get(e.staffId);
+                ls.add("의사 " + (e.staffId == 0L ? "— (학위자 없음: 회복률 30%)"
+                        : staff(sl, living, e.staffId, dc == null ? 0.0 : com.evosim.core.Degree.doctorWage(dc.getDegree()))
+                                + String.format(" · 회복률 %.0f%%", com.evosim.core.Hospital.recoveryChance(dc == null ? -1 : dc.getDegree()) * 100.0)));
+                int patients = 0;
+                java.util.List<String> names = new java.util.ArrayList<>();
+                java.util.Set<Long> beds = new java.util.HashSet<>();
+                t.ifPresent(x -> x.wardBeds().forEach(b -> beds.add(e.pos.offset(b).asLong())));
+                for (MimicEntity m : living.values()) {
+                    if (m.isHospitalized() && beds.contains(m.getLodging().asLong())) {
+                        patients++;
+                        names.add(m.getIndividual().shortName() + (m.isSick() ? "(유아 " + m.getSickDays() + "일)" : "(저체력)"));
+                    }
+                }
+                ls.add(String.format("병상 %d · 입원 %d · 반경 %.0f · 진료비 유아 %.1f/일 · 성년 %.1f",
+                        t.map(x -> x.wardBeds().size()).orElse(0), patients, com.evosim.core.Hospital.REACH,
+                        com.evosim.core.Hospital.INFANT_FEE, com.evosim.core.Hospital.VISIT_FEE));
+                if (!names.isEmpty()) {
+                    ls.add("환자: " + String.join(", ", names));
+                }
+                double[] hsum = FarmTicker.hospitalSums();
+                ls.add(String.format("누계 입원 %.0f · 회복 %.0f · 사망 %.0f · 저체력 %.0f · 보전 %.1f · 분배 %.1f",
+                        hsum[0], hsum[1], hsum[2], hsum[3], e.covered, e.paidOut));
             }
             default -> {
                 if (seats > 0) {

@@ -609,6 +609,7 @@ public final class FarmTicker {
             // (MimicEntity.noteBegDay 주석에 실측과 함께 적어 두었다).
             runPoorhouses(level, ledger, larders, adults, day);
             runSchools(level, ledger, larders, adults, everyone, patrons, day);
+            runUniversities(level, ledger, larders, adults, everyone, patrons, day);
             runBarracks(level, ledger, larders, adults, patrons, day);
             settleOccupation(level, adults); // 배속이 끝난 뒤에 — 순회 순서로 승패가 갈리지 않게
             runChurches(level, ledger, larders, everyone, patrons, day);
@@ -998,7 +999,7 @@ public final class FarmTicker {
             if (m.isSatisfiedToday() || com.evosim.core.Satisfaction.neverExpands(m.getIndividual())) {
                 continue; // 만족·무욕 — 신규 개간 안 함
             }
-            if (isPastor(m) || isFullTimeTeacher(m)) {
+            if (isPastor(m) || isFullTimeTeacher(m) || isAcademic(m)) {
                 continue; // 전업 목사·교사는 개간하지 않는다 — 밭을 가지면 자격을 잃어 자리가 빈다(런 30 d8)
             }
             // 독립 잠금(계층 분화 v2) — 하드게이트 없음. 잠금은 "만족의 덫": 위의 만족 게이트 +
@@ -1755,7 +1756,7 @@ public final class FarmTicker {
     // ── 영지 수지(왕국 세수안, 사용자 승인) — 지배자별 오늘의 세수·지출·신민 ─────────────
     /** lordId → [인두세, 재산세, 보호세(막사+경비), 상납받음] — 밤 징세에서 채우고 에필로그가 읽는다. */
     private static final java.util.Map<Long, double[]> REALM_IN = new java.util.HashMap<>();
-    /** lordId → [군인 봉급, 경비 봉급, 구휼, 자식 지원] — 지급 지점마다 더하고 에필로그가 비운다. */
+    /** lordId → [군인 봉급, 경비 봉급, 구휼, 자식 지원, 교회 보전, 대학 보전] — 지급 지점마다 더하고 에필로그가 비운다. */
     private static final java.util.Map<Long, double[]> REALM_OUT = new java.util.HashMap<>();
     /** lordId → 추종 가구(집 좌표) — 오늘 징세 순회에서. */
     private static final java.util.Map<Long, java.util.Set<Long>> REALM_FOLLOW_HOMES = new java.util.HashMap<>();
@@ -1860,7 +1861,7 @@ public final class FarmTicker {
     }
 
     private static double[] realmOut(long lordId) {
-        return REALM_OUT.computeIfAbsent(lordId, k -> new double[5]);
+        return REALM_OUT.computeIfAbsent(lordId, k -> new double[6]);
     }
 
     /**
@@ -3410,7 +3411,7 @@ public final class FarmTicker {
             for (MimicEntity m : queue) {
                 if (m.inPoorhouse() || m.getIndividual() == null || m.getHomePos() == null
                         || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 경계 못 섬
-                        || isPastor(m) || isFullTimeTeacher(m)) { // 전업 성직·교사 — 경비대 겸직 불가
+                        || isPastor(m) || isFullTimeTeacher(m) || isAcademic(m)) { // 전업 성직·교사 — 경비대 겸직 불가
                     continue;
                 }
                 // <b>자격은 협상이 정한다</b>(아래 요구 vs 캡). 여기서는 절대 상한만 미리
@@ -4023,7 +4024,8 @@ public final class FarmTicker {
                     rejNotHead++; // 이름은 그대로 두고 뜻만 "창을 들 뜻이 없음"으로(로그 열 유지)
                     continue;
                 }
-                if (fs.stewardOf(mid) != 0L || fs.overseerOf(mid) != 0L || FULLTIME_TEACHERS.contains(mid)) {
+                if (fs.stewardOf(mid) != 0L || fs.overseerOf(mid) != 0L || FULLTIME_TEACHERS.contains(mid)
+                        || ACADEMICS.contains(mid)) {
                     rejLand++;
                     continue; // 마름·감독관·전업 교사 겸직 금지 — 밭·강단을 맡은 자는 창을 들지 않는다
                 }
@@ -4507,7 +4509,7 @@ public final class FarmTicker {
                 if (id == sc.ownerId || !Long.valueOf(sc.ownerId).equals(patrons.get(id))
                         || FarmStore.get(level).ownedTiles(id) != 0 || m.getHomePos() == null
                         || m.getHomePos().equals(owner.getHomePos()) || PASTORS.contains(id)
-                        || teachersToday.contains(id)
+                        || teachersToday.contains(id) || ACADEMICS.contains(id)
                         || FarmStore.get(level).stewardOf(id) != 0L || FarmStore.get(level).overseerOf(id) != 0L
                         || POST_OF.containsKey(m.getId()) || m.inPoorhouse()) {
                     continue;
@@ -4812,6 +4814,463 @@ public final class FarmTicker {
         return 0.0;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 대학(지식인 P2) — 교수 선발 · 등록 · 수업료 · 기숙 · 졸업 · 계정 정산
+    // ═══════════════════════════════════════════════════════════════════════════════
+    /** 교수·학생(개체 id) — 새벽 runUniversities 가 채운다. 밭·채집·시장·병사·성직·교사에서 뺀다. */
+    private static final java.util.Set<Long> ACADEMICS = new java.util.HashSet<>();
+    private static final java.util.Set<Long> PROFESSORS = new java.util.HashSet<>();
+    /** 개체(entity id) → 오늘 강의실 좌석 / 강단 / 연구 자리. */
+    private static final java.util.Map<Integer, BlockPos> STUDY_SEAT_OF = new java.util.HashMap<>();
+    private static final java.util.Map<Integer, BlockPos> PODIUM_OF = new java.util.HashMap<>();
+    private static final java.util.Map<Integer, BlockPos> LAB_OF = new java.util.HashMap<>();
+    /** 대학 좌표 → 등기(새벽 갱신). */
+    private static final java.util.Map<Long, FacilityStore.Entry> UNIV_ENTRY = new java.util.HashMap<>();
+    /** [입학, 중퇴, 졸업 학사, 졸업 석사, 등록금 수입] 누계 — 보고용. */
+    private static final double[] UNIV_SUM = new double[5];
+
+    public static boolean isAcademic(MimicEntity m) {
+        return m.getIndividual() != null && ACADEMICS.contains(m.getIndividual().id());
+    }
+
+    public static boolean isProfessor(MimicEntity m) {
+        return m.getIndividual() != null && PROFESSORS.contains(m.getIndividual().id());
+    }
+
+    @Nullable
+    public static BlockPos studySeatOf(MimicEntity m) {
+        return STUDY_SEAT_OF.get(m.getId());
+    }
+
+    @Nullable
+    public static BlockPos podiumOf(MimicEntity m) {
+        return PODIUM_OF.get(m.getId());
+    }
+
+    @Nullable
+    public static BlockPos labOf(MimicEntity m) {
+        return LAB_OF.get(m.getId());
+    }
+
+    public static double[] univSums() {
+        return UNIV_SUM.clone();
+    }
+
+    /** 이 주인을 따르는 상급 학력 성년 수 — 대학 설립 자격. */
+    public static int scholarFollowers(ServerLevel level, long ownerId) {
+        int n = 0;
+        for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && e.getStage() == com.evosim.core.LifeStage.ADULT)) {
+            long id = m.getIndividual().id();
+            if (id != ownerId && PATRON_OF.getOrDefault(id, 0L) == ownerId
+                    && m.schoolLevel() >= com.evosim.core.Schooling.MAX_LEVEL) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 교수 급식(연구실·강단) — 낮에 채집이 없으니 대학 계정이 한 끼를 댄다(계정이 비면 주인 곳간). */
+    public static double feedProfessor(ServerLevel level, MimicEntity m) {
+        if (!isProfessor(m) || m.getHolding() >= 1.0) {
+            return 0.0;
+        }
+        FacilityStore.Entry found = null;
+        long id = m.getIndividual().id();
+        for (FacilityStore.Entry e : UNIV_ENTRY.values()) {
+            if (e.staffId == id || e.staff2Id == id || e.staff3Id == id) {
+                found = e;
+                break;
+            }
+        }
+        if (found == null) {
+            return 0.0;
+        }
+        final FacilityStore.Entry uv = found;
+        long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
+        int[] cnt = PASTOR_MEALS.computeIfAbsent(m.getId(), k -> new int[] {(int) day, 0});
+        if (cnt[0] != (int) day) {
+            cnt[0] = (int) day;
+            cnt[1] = 0;
+        }
+        if (cnt[1] >= PASTOR_MEALS_PER_DAY) {
+            return 0.0;
+        }
+        if (uv.account >= PASTOR_MEAL) {
+            uv.account -= PASTOR_MEAL;
+        } else {
+            MimicEntity owner = null;
+            for (MimicEntity o : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                    e -> e.isAlive() && e.getIndividual() != null && e.getIndividual().id() == uv.ownerId)) {
+                owner = o;
+                break;
+            }
+            if (owner == null || owner.getHomePos() == null) {
+                return 0.0;
+            }
+            LarderStore larders = LarderStore.get(level);
+            double have = larders.get(owner.getHomePos());
+            if (have < PASTOR_MEAL) {
+                return 0.0;
+            }
+            larders.set(owner.getHomePos(), have - PASTOR_MEAL);
+            uv.covered += PASTOR_MEAL;
+            realmOut(uv.ownerId)[5] += PASTOR_MEAL;
+        }
+        FacilityStore.get(level).spend(uv, PASTOR_MEAL);
+        m.receiveMeal(PASTOR_MEAL);
+        cnt[1]++;
+        return PASTOR_MEAL;
+    }
+
+    /**
+     * 대학 밤 정산(P2) — 등기마다: ① 교수 선발(석사 우선, 없으면 상급 학력 임시 교수, 최대 3)
+     * ② 재학생 수업료·졸업·중퇴 ③ 신입 등록(정원 = 교수 × 11, 좌석 상한; 64 초과는 기숙 침대)
+     * ④ 자리 배정 ⑤ 급식(기숙생·교수)과 급여, 계정 정산(적자 군주 보전 · 흑자 교수·군주 반분).
+     */
+    private static void runUniversities(ServerLevel level, AllegianceStore ledger, LarderStore larders,
+                                        java.util.List<MimicEntity> adults,
+                                        java.util.List<MimicEntity> everyone,
+                                        java.util.Map<Long, Long> patrons, long day) {
+        ACADEMICS.clear();
+        PROFESSORS.clear();
+        STUDY_SEAT_OF.clear();
+        PODIUM_OF.clear();
+        LAB_OF.clear();
+        UNIV_ENTRY.clear();
+        FacilityStore reg = FacilityStore.get(level);
+        FarmStore fs = FarmStore.get(level);
+        java.util.Map<Long, MimicEntity> byId = new java.util.HashMap<>();
+        for (MimicEntity m : everyone) {
+            byId.putIfAbsent(m.getIndividual().id(), m);
+        }
+        // 재학생이 대학이 사라진 채 남아 있으면(등기 소실) 풀어 준다.
+        java.util.Set<Long> univPos = new java.util.HashSet<>();
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind == FacilityTemplate.Kind.UNIVERSITY) {
+                univPos.add(e.pos.asLong());
+                UNIV_ENTRY.put(e.pos.asLong(), e);
+            }
+        }
+        for (MimicEntity m : everyone) {
+            if (m.isStudent() && !univPos.contains(m.getUniversity().asLong())) {
+                m.leaveUniversity();
+            }
+        }
+        for (FacilityStore.Entry uv : UNIV_ENTRY.values()) {
+            MimicEntity owner = byId.get(uv.ownerId);
+            if (owner == null || owner.getHomePos() == null) {
+                continue;
+            }
+            var tplOpt = FacilityTemplate.of(level, uv.kind, uv.rotation, uv.mirrored);
+            if (tplOpt.isEmpty()) {
+                continue;
+            }
+            FacilityTemplate tpl = tplOpt.get();
+            // ── ① 교수 — 주인 추종 성년 중 무토지·겸직 없음. 석사 > 임시(상급 학력). 현직은 동점 우선.
+            java.util.Set<Long> incumbents = new java.util.HashSet<>(java.util.List.of(uv.staffId, uv.staff2Id, uv.staff3Id));
+            java.util.List<MimicEntity> cands = new java.util.ArrayList<>();
+            for (MimicEntity a : adults) {
+                long aid = a.getIndividual().id();
+                if (aid == uv.ownerId || !Long.valueOf(uv.ownerId).equals(patrons.get(aid))
+                        || fs.ownedTiles(aid) > 0 || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L
+                        || POST_OF.containsKey(a.getId()) || a.inPoorhouse() || PASTORS.contains(aid)
+                        || FULLTIME_TEACHERS.contains(aid) || a.isStudent() || a.getHomePos() == null
+                        || a.getStage() != com.evosim.core.LifeStage.ADULT) {
+                    continue;
+                }
+                if (com.evosim.core.University.professorScore(a.getDegree(), a.schoolLevel(),
+                        com.evosim.core.Multipliers.manageAbilityGrade(a.getIndividual()),
+                        com.evosim.core.Multipliers.brightGrade(a.getIndividual())) <= 0.0) {
+                    continue;
+                }
+                cands.add(a);
+            }
+            cands.sort(java.util.Comparator
+                    .comparingDouble((MimicEntity a) -> -com.evosim.core.University.professorScore(a.getDegree(),
+                            a.schoolLevel(), com.evosim.core.Multipliers.manageAbilityGrade(a.getIndividual()),
+                            com.evosim.core.Multipliers.brightGrade(a.getIndividual())))
+                    .thenComparingInt(a -> incumbents.contains(a.getIndividual().id()) ? 0 : 1)
+                    .thenComparingLong(a -> a.getIndividual().id()));
+            long[] before = {uv.staffId, uv.staff2Id, uv.staff3Id};
+            long[] slots = new long[3];
+            java.util.List<MimicEntity> profs = new java.util.ArrayList<>();
+            for (int i = 0; i < Math.min(Facilities.PROFESSOR_CAP, cands.size()); i++) {
+                slots[i] = cands.get(i).getIndividual().id();
+                profs.add(cands.get(i));
+            }
+            uv.staffId = slots[0];
+            uv.staff2Id = slots[1];
+            uv.staff3Id = slots[2];
+            for (MimicEntity pf : profs) {
+                long pid = pf.getIndividual().id();
+                PROFESSORS.add(pid);
+                ACADEMICS.add(pid);
+                boolean fresh = pid != before[0] && pid != before[1] && pid != before[2];
+                if (fresh) {
+                    boolean master = com.evosim.core.Degree.clamp(pf.getDegree()) >= com.evosim.core.Degree.MASTER;
+                    reg.note(uv, day, String.format("%s 임명 — %s(학위 %s · 급여 %.1f)", master ? "교수" : "임시교수",
+                            pf.getIndividual().shortName(), com.evosim.core.Degree.name(pf.getDegree()),
+                            com.evosim.core.University.professorWage(pf.getDegree())));
+                    com.evosim.mod.log.SimEvents.event(pf, master ? "교수임명" : "임시교수", String.format(
+                            "대학 @%d,%d — 학위 %s · 학력 %s · 관리 g%d · 급여 %.1f%s", uv.pos.getX(), uv.pos.getZ(),
+                            com.evosim.core.Degree.name(pf.getDegree()), com.evosim.core.Schooling.name(pf.schoolLevel()),
+                            com.evosim.core.Multipliers.manageAbilityGrade(pf.getIndividual()),
+                            com.evosim.core.University.professorWage(pf.getDegree()),
+                            master ? "" : " · 석사가 생기면 대체"));
+                }
+                if (pf.getTenantFarm() != 0L) {
+                    pf.setTenant(0L, 0);
+                }
+            }
+            for (long b : before) {
+                if (b != 0L && b != slots[0] && b != slots[1] && b != slots[2]) {
+                    reg.note(uv, day, "교수 해임 — " + (byId.containsKey(b) ? byId.get(b).getIndividual().shortName() : "#" + b));
+                }
+            }
+            reg.setDirty();
+            int cap = com.evosim.core.University.studentCap(profs.size(), tpl.studentSeats().size(),
+                    Facilities.STUDENTS_PER_PROFESSOR);
+            // ── ② 재학생 — 수업료·졸업·중퇴. 교수가 없으면 수업이 없다(수업료도 없다).
+            java.util.List<MimicEntity> students = new java.util.ArrayList<>();
+            for (MimicEntity m : everyone) {
+                if (m.isStudent() && uv.pos.equals(m.getUniversity())) {
+                    students.add(m);
+                }
+            }
+            students.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id()));
+            double income = 0.0;
+            int masters = 0;
+            java.util.List<MimicEntity> keep = new java.util.ArrayList<>();
+            for (MimicEntity st : students) {
+                if (st.getStage() != com.evosim.core.LifeStage.ADULT || st.getHomePos() == null) {
+                    com.evosim.mod.log.SimEvents.event(st, "중퇴", "성년이 아니거나 거처 없음");
+                    st.leaveUniversity();
+                    UNIV_SUM[1]++;
+                    continue;
+                }
+                if (profs.isEmpty()) {
+                    keep.add(st); // 휴강 — 교수가 올 때까지 적립·수업료 없음
+                    continue;
+                }
+                boolean lodger = st.getLodging() != null;
+                double fee = com.evosim.core.University.dailyFee(lodger);
+                double have = larders.get(st.getHomePos());
+                if (have >= fee) {
+                    larders.set(st.getHomePos(), have - fee);
+                    uv.account += fee;
+                    income += fee;
+                    UNIV_SUM[4] += fee;
+                    st.setUnpaidDays(0);
+                } else {
+                    st.setUnpaidDays(st.getUnpaidDays() + 1);
+                    com.evosim.mod.log.SimEvents.event(st, "미납", String.format(
+                            "등록금 %.1f > 거처 저장고 %.1f — 미납 %d일째%s", fee, have, st.getUnpaidDays(),
+                            com.evosim.core.University.dropout(st.getUnpaidDays()) ? " · 중퇴" : " (내일까지 유예)"));
+                    if (com.evosim.core.University.dropout(st.getUnpaidDays())) {
+                        st.leaveUniversity();
+                        UNIV_SUM[1]++;
+                        continue;
+                    }
+                }
+                st.setTuitionDue(fee); // 부모의 학자금 지원 입력(다음 밤)
+                // 졸업
+                if (com.evosim.core.University.graduated(st.getStudyCredit(), st.getStudyTarget())) {
+                    int got = st.getStudyTarget();
+                    st.setDegree(got);
+                    if (got == com.evosim.core.Degree.BACHELOR) {
+                        UNIV_SUM[2]++;
+                        int labs = tpl.researchSeats().size();
+                        if (masters < labs) {
+                            masters++;
+                            st.advanceCourse(com.evosim.core.Degree.MASTER);
+                            com.evosim.mod.log.SimEvents.event(st, "졸업", String.format(
+                                    "학사 취득 — 석사 과정 계속(연구실 %d/%d · 출석 %d일)", masters, labs,
+                                    com.evosim.core.University.MASTER_DAYS));
+                            keep.add(st);
+                            continue;
+                        }
+                        com.evosim.mod.log.SimEvents.event(st, "졸업", "학사 취득 — 연구실 없어 수료(석사는 자리가 나면)");
+                        reg.note(uv, day, "졸업(학사) — " + st.getIndividual().shortName());
+                        st.leaveUniversity();
+                        continue;
+                    }
+                    UNIV_SUM[3]++;
+                    com.evosim.mod.log.SimEvents.event(st, "졸업", "석사 취득 — 교수·마름·지휘관·의사 자격");
+                    reg.note(uv, day, "졸업(석사) — " + st.getIndividual().shortName());
+                    st.leaveUniversity();
+                    continue;
+                }
+                if (st.getStudyTarget() == com.evosim.core.Degree.MASTER) {
+                    masters++;
+                }
+                keep.add(st);
+            }
+            students = keep;
+            // ── ③ 신입 — 정원 안에서. 상급 학력 성년, 학위 미완, 곳간 조건, 겸직 없음, 192 이내.
+            //    명석·눈썰미·미래지향 우선, 다음 곳간. 64 초과는 기숙 침대(먼 순).
+            int lodgers = 0;
+            for (MimicEntity st : students) {
+                if (st.getLodging() != null) {
+                    lodgers++;
+                }
+            }
+            if (!profs.isEmpty() && students.size() < cap) {
+                java.util.List<MimicEntity> pool = new java.util.ArrayList<>();
+                for (MimicEntity a : adults) {
+                    long aid = a.getIndividual().id();
+                    if (a.isStudent() || aid == uv.ownerId || a.getHomePos() == null
+                            || a.getStage() != com.evosim.core.LifeStage.ADULT || a.isCaregiverBound()
+                            || a.isCritical() || POST_OF.containsKey(a.getId()) || a.inPoorhouse()
+                            || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L || PASTORS.contains(aid)
+                            || FULLTIME_TEACHERS.contains(aid) || PROFESSORS.contains(aid)) {
+                        continue;
+                    }
+                    double dist = Math.sqrt(a.getHomePos().distSqr(uv.pos));
+                    if (dist > com.evosim.core.University.LODGE_RANGE) {
+                        continue;
+                    }
+                    if (a.getDegree() == com.evosim.core.Degree.BACHELOR && masters >= tpl.researchSeats().size()) {
+                        continue; // 석사 과정은 연구실 자리만큼
+                    }
+                    double need = com.evosim.core.FoodEconomy.consumptionPerDay(a.getStage(),
+                            com.evosim.core.Activity.MOVE, a.getIndividual(), false);
+                    if (!com.evosim.core.University.canEnroll(a.schoolLevel(), a.getDegree(),
+                            larders.get(a.getHomePos()), need)) {
+                        continue;
+                    }
+                    pool.add(a);
+                }
+                pool.sort(java.util.Comparator
+                        .comparingInt((MimicEntity a) -> (com.evosim.core.Multipliers.brightGrade(a.getIndividual()) > 0
+                                || com.evosim.core.ExpressionResolver.isExpressed(a.getIndividual(), com.evosim.core.Trait.HERBALIST)
+                                || com.evosim.core.ExpressionResolver.isExpressed(a.getIndividual(), com.evosim.core.Trait.FUTURE_ORIENTED)) ? 0 : 1)
+                        .thenComparingDouble(a -> -larders.get(a.getHomePos()))
+                        .thenComparingLong(a -> a.getIndividual().id()));
+                // 기숙 대상은 먼 순으로 침대를 받는다(계획서) — 통학자는 침대가 필요 없다.
+                java.util.List<MimicEntity> far = new java.util.ArrayList<>();
+                for (MimicEntity a : pool) {
+                    if (students.size() >= cap) {
+                        break;
+                    }
+                    double dist = Math.sqrt(a.getHomePos().distSqr(uv.pos));
+                    if (com.evosim.core.University.commutes(dist)) {
+                        admit(level, uv, tpl, a, null, dist, day);
+                        students.add(a);
+                        if (a.getStudyTarget() == com.evosim.core.Degree.MASTER) {
+                            masters++;
+                        }
+                    } else {
+                        far.add(a);
+                    }
+                }
+                far.sort(java.util.Comparator.comparingDouble((MimicEntity a) -> -a.getHomePos().distSqr(uv.pos)));
+                for (MimicEntity a : far) {
+                    if (students.size() >= cap || lodgers >= tpl.dormBeds().size()) {
+                        break;
+                    }
+                    BlockPos bed = uv.pos.offset(tpl.dormBeds().get(lodgers));
+                    admit(level, uv, tpl, a, bed, Math.sqrt(a.getHomePos().distSqr(uv.pos)), day);
+                    students.add(a);
+                    lodgers++;
+                    if (a.getStudyTarget() == com.evosim.core.Degree.MASTER) {
+                        masters++;
+                    }
+                }
+            }
+            // ── ④ 자리 — 학생 좌석·강단·연구실(전부 앵커 상대 → 절대).
+            students.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id()));
+            int si = 0;
+            java.util.Set<Long> usedBeds = new java.util.HashSet<>();
+            for (MimicEntity st : students) {
+                ACADEMICS.add(st.getIndividual().id());
+                if (si < tpl.studentSeats().size()) {
+                    STUDY_SEAT_OF.put(st.getId(), uv.pos.offset(tpl.studentSeats().get(si++)));
+                }
+                if (st.getLodging() != null) {
+                    usedBeds.add(st.getLodging().asLong());
+                }
+            }
+            for (int i = 0; i < profs.size(); i++) {
+                MimicEntity pf = profs.get(i);
+                if (i < tpl.professorSeats().size()) {
+                    PODIUM_OF.put(pf.getId(), uv.pos.offset(tpl.professorSeats().get(i)));
+                }
+                if (i < tpl.researchSeats().size()) {
+                    LAB_OF.put(pf.getId(), uv.pos.offset(tpl.researchSeats().get(i)));
+                }
+            }
+            // ── ⑤ 급여·급식·정산 — 급여는 계정에서, 모자라면 주인 보전. 기숙생 급식은 하루 소모만큼.
+            double wages = 0.0;
+            double meals = 0.0;
+            for (MimicEntity pf : profs) {
+                double w = com.evosim.core.University.professorWage(pf.getDegree());
+                larders.set(pf.getHomePos(), larders.get(pf.getHomePos()) + w);
+                wages += w;
+            }
+            for (MimicEntity st : students) {
+                if (st.getLodging() == null) {
+                    continue;
+                }
+                double need = com.evosim.core.FoodEconomy.consumptionPerDay(st.getStage(),
+                        com.evosim.core.Activity.MOVE, st.getIndividual(), false);
+                double give = Math.max(0.0, Math.min(need, st.carryCap() - st.getHolding()));
+                if (give > 0.0) {
+                    st.receiveMeal(give);
+                    meals += give;
+                }
+            }
+            double[] sr = com.evosim.core.University.settle(uv.account, wages, meals);
+            double cover = sr[0];
+            if (cover > 0.0) {
+                double have = larders.get(owner.getHomePos());
+                larders.set(owner.getHomePos(), Math.max(0.0, have - cover));
+                realmOut(uv.ownerId)[5] += cover;
+                uv.covered += cover;
+            }
+            if (sr[1] > 0.0 && !profs.isEmpty()) {
+                double each = sr[1] / profs.size();
+                for (MimicEntity pf : profs) {
+                    larders.set(pf.getHomePos(), larders.get(pf.getHomePos()) + each);
+                }
+            }
+            if (sr[2] > 0.0) {
+                larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + sr[2]);
+                uv.paidOut += sr[2];
+            }
+            reg.earn(uv, income);
+            reg.spend(uv, wages + meals);
+            com.evosim.mod.log.SimEvents.event(owner, "대학정산", String.format(
+                    "대학 @%d,%d — 교수 %d · 학생 %d/%d(기숙 %d · 석사과정 %d) · 수입 %.1f · 급여 %.1f · 급식 %.1f"
+                            + " · 보전 %.1f · 교수 분배 %.1f · 주인 수입 %.1f",
+                    uv.pos.getX(), uv.pos.getZ(), profs.size(), students.size(), cap, lodgers, masters,
+                    uv.account, wages, meals, cover, sr[1], sr[2]));
+            uv.account = 0.0;
+            reg.setDirty();
+        }
+    }
+
+    /** 입학 처리 — 과정(학사/석사), 기숙 침대, 로그·이력. */
+    private static void admit(ServerLevel level, FacilityStore.Entry uv, FacilityTemplate tpl,
+                              MimicEntity a, @Nullable BlockPos bed, double dist, long day) {
+        int target = a.getDegree() >= com.evosim.core.Degree.BACHELOR ? com.evosim.core.Degree.MASTER
+                : com.evosim.core.Degree.BACHELOR;
+        a.enroll(uv.pos, target);
+        a.setLodging(bed);
+        ASSIGNED.remove(a.getId());
+        UNIV_SUM[0]++;
+        com.evosim.mod.log.SimEvents.event(a, "입학", String.format(
+                "대학 @%d,%d — %s 과정 %d일 · 등록금 %.1f/일 · 집에서 %.0f블록 · %s · 학력 %s · 거처 저장고 %.1f",
+                uv.pos.getX(), uv.pos.getZ(), com.evosim.core.Degree.name(target),
+                com.evosim.core.University.courseDays(target), com.evosim.core.University.TUITION, dist,
+                bed == null ? "통학" : String.format("기숙(침대 @%d,%d · 기숙비 %.1f/일)", bed.getX(), bed.getZ(),
+                        com.evosim.core.University.LODGING_FEE),
+                com.evosim.core.Schooling.name(a.schoolLevel()), LarderStore.get(level).get(a.getHomePos())));
+        FacilityStore.get(level).note(uv, day, String.format("입학 — %s(%s 과정%s)", a.getIndividual().shortName(),
+                com.evosim.core.Degree.name(target), bed == null ? "" : " · 기숙"));
+    }
+
     /** 이 교회에 목사가 있는가(큰교회 + staffId) — 예배 정원·헌금·신세 배수의 입력. */
     public static boolean hasPastor(FacilityStore.Entry e) {
         return e.kind == FacilityTemplate.Kind.CHURCH && e.staffId != 0L
@@ -4917,7 +5376,7 @@ public final class FarmTicker {
                         || a.getHomePos() == null || a.getHomePos().equals(owner.getHomePos())
                         || !ownerSide(owner, ch.ownerId, patrons.get(aid))
                         || fs.ownedTiles(aid) > 0 || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L
-                        || FULLTIME_TEACHERS.contains(aid)
+                        || FULLTIME_TEACHERS.contains(aid) || ACADEMICS.contains(aid)
                         || POST_OF.containsKey(a.getId()) || a.inPoorhouse()) {
                     continue;
                 }
@@ -6418,11 +6877,11 @@ public final class FarmTicker {
                 }
             }
             double[] in = REALM_IN.getOrDefault(lid, new double[4]);
-            double[] out = REALM_OUT.getOrDefault(lid, new double[5]);
+            double[] out = REALM_OUT.getOrDefault(lid, new double[6]);
             int follow = REALM_FOLLOW_HOMES.getOrDefault(lid, java.util.Set.of()).size();
             int reached = REALM_REACHED_HOMES.getOrDefault(lid, java.util.Set.of()).size();
             double taxIn = in[0] + in[1] + in[2] + in[3];
-            double ruleOut = out[0] + out[1] + out[2] + out[3] + out[4];
+            double ruleOut = out[0] + out[1] + out[2] + out[3] + out[4] + out[5];
             if (lord == null || (follow == 0 && taxIn <= 0.0 && ruleOut <= 0.0)) {
                 continue;
             }
@@ -6440,10 +6899,10 @@ public final class FarmTicker {
             }
             String realmLine = String.format(
                     "%s신민 %d/%d가구(도달/추종) · 세수 %.1f(인두 %.1f · 재산 %.1f · 보호 %.1f · 상납 %.1f)"
-                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f · 교회 %.1f)"
+                            + " · 통치지출 %.1f(군 %.1f · 경비 %.1f · 구휼 %.1f · 지원 %.1f · 교회 %.1f · 대학 %.1f)"
                             + " · 수지 %+.1f · 사비 %.1f · 흑자 %d일",
                     king ? "[군주] " : "", reached, follow, taxIn, in[0], in[1], in[2], in[3],
-                    ruleOut, out[0], out[1], out[2], out[3], out[4],
+                    ruleOut, out[0], out[1], out[2], out[3], out[4], out[5],
                     com.evosim.core.Realm.balance(taxIn, ruleOut),
                     com.evosim.core.Realm.outOfPocket(taxIn, ruleOut), streak);
             com.evosim.mod.log.SimEvents.event(lord, "영지", realmLine);
@@ -6897,7 +7356,7 @@ public final class FarmTicker {
                         || store.ownedCount(m.getIndividual().id()) > 0
                         || (m.isSatisfiedToday() && !m.worksForTuition()) // 과한책임 학자금 예외(P2)
                         || m.inPoorhouse()
-                        || isPastor(m) || isFullTimeTeacher(m) // 목사·전업 교사 — 노동시장에 없다(교회 고도화)
+                        || isPastor(m) || isFullTimeTeacher(m) || isAcademic(m) // 목사·전업 교사 — 노동시장에 없다(교회 고도화)
                         || m.getStage() == com.evosim.core.LifeStage.ELDER // 은퇴 — 출근 없음
                         || failedReach) {
                     continue;
@@ -7189,7 +7648,7 @@ public final class FarmTicker {
             // 목사(전업)는 채집을 안 하니 채집 시계는 늘 말라 있다 — 그것만으로 밭에 끌어내면
             // 교회가 비고 다음 밤 재임명이 난다(런 30 실측: 목사가 d5·d9 두 번 갈림). 끼니는
             // 교회 급식(feedPastor)이 대고, 그래도 위급이면 생존이 먼저다 — 그때만 통과시킨다.
-            if ((isPastor(m) || isFullTimeTeacher(m)) && !m.isCritical()) {
+            if ((isPastor(m) || isFullTimeTeacher(m) || isAcademic(m)) && !m.isCritical()) {
                 continue;
             }
             // <b>가는 중인 사람의 목적지를 다시 고르지 않는다.</b> 이 정산은 200틱마다 도는데,

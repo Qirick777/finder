@@ -78,8 +78,22 @@ public class StatsSnapshot {
         double[] ss = FarmTicker.schoolSums();
         out.edu.add(String.format("학교 %d채 · 새벽 소년 %.0f · 등록 %.0f",
                 FacilityStore.get(level).countOf(FacilityTemplate.Kind.SCHOOL), ss[1], ss[0]));
+        int univs = FacilityStore.get(level).countOf(FacilityTemplate.Kind.UNIVERSITY);
+        int students = 0;
+        int profs = 0;
+        for (MimicEntity m : living.values()) {
+            if (m.isStudent()) {
+                students++;
+            }
+            if (FarmTicker.isProfessor(m)) {
+                profs++;
+            }
+        }
+        double[] us = FarmTicker.univSums();
+        out.edu.add(String.format("대학 %d채 · 교수 %d · 재학 %d · 누계 입학 %.0f 중퇴 %.0f 학사 %.0f 석사 %.0f · 등록금 누계 %.1f",
+                univs, profs, students, us[0], us[1], us[2], us[3], us[4]));
         if (holders.isEmpty()) {
-            out.edu.add("학위자 없음 (대학은 아직 없다)");
+            out.edu.add(univs == 0 ? "학위자 없음 (대학은 아직 없다)" : "학위자 없음 (첫 졸업 전)");
         } else {
             out.edu.add("학위자:");
             out.edu.addAll(holders);

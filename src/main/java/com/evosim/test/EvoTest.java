@@ -3328,6 +3328,35 @@ public final class EvoTest {
                 && com.evosim.core.Degree.marriageCharm(1) == 1;
         report.add("support/학자금", tu, "여유 안에서 등록금 ceil 우선(10→2, 1→1, 0.5→0) · 무책임 0 · 과한책임은 여유<하루치면 노동 지속 · 학위 매력 +1",
                 tu ? "정상" : "어긋남");
+        double[] us1 = com.evosim.core.University.settle(49.5, 10.5, 15.0); // 흑자 24 → 12/12
+        double[] us2 = com.evosim.core.University.settle(9.0, 7.5, 5.0);    // 적자 3.5 → 보전
+        boolean uv = com.evosim.core.University.studentCap(3, 33, 11) == 33
+                && com.evosim.core.University.studentCap(1, 33, 11) == 11
+                && com.evosim.core.University.studentCap(4, 33, 11) == 33
+                && com.evosim.core.University.studentCap(0, 33, 11) == 0
+                && close(com.evosim.core.University.professorWage(2), 3.5)
+                && close(com.evosim.core.University.professorWage(1), 2.5)
+                && com.evosim.core.University.professorScore(2, 0, 0, 0) > com.evosim.core.University.professorScore(0, 3, 9, 2)
+                && com.evosim.core.University.professorScore(0, 2, 9, 2) == 0.0
+                && com.evosim.core.University.professorScore(0, 3, 4, 1) > com.evosim.core.University.professorScore(0, 3, 4, 0)
+                && com.evosim.core.University.canEnroll(3, 0, 20.0, 3.0)
+                && !com.evosim.core.University.canEnroll(2, 0, 20.0, 3.0)
+                && !com.evosim.core.University.canEnroll(3, 2, 20.0, 3.0)
+                && !com.evosim.core.University.canEnroll(3, 0, 8.9, 3.0)
+                && com.evosim.core.University.commutes(64.0) && !com.evosim.core.University.commutes(64.1)
+                && com.evosim.core.University.needsLodging(100.0) && !com.evosim.core.University.needsLodging(193.0)
+                && close(com.evosim.core.University.dailyFee(true), 3.0) && close(com.evosim.core.University.dailyFee(false), 1.5)
+                && !com.evosim.core.University.dropout(1) && com.evosim.core.University.dropout(2)
+                && !com.evosim.core.University.graduated(1.0, 1) && com.evosim.core.University.graduated(2.0, 1)
+                && close(us1[0], 0.0) && close(us1[1], 12.0) && close(us1[2], 12.0)
+                && close(us2[0], 3.5) && close(us2[1], 0.0)
+                && com.evosim.core.University.canFound(20, 3, 1, 340.0, 300.0, 40.0)
+                && !com.evosim.core.University.canFound(19, 3, 1, 340.0, 300.0, 40.0)
+                && !com.evosim.core.University.canFound(20, 2, 1, 340.0, 300.0, 40.0)
+                && !com.evosim.core.University.canFound(20, 3, 0, 340.0, 300.0, 40.0)
+                && !com.evosim.core.University.canFound(20, 3, 1, 339.0, 300.0, 40.0);
+        report.add("univ/대학", uv, "정원 교수×11(좌석 33 상한) · 급여 석사 3.5/임시 2.5 · 순위 석사>상급학력×관리×명석 · 입학 상급+곳간 9 · 통학 64/기숙 192 · 납부 1.5/3.0 · 중퇴 2일 · 졸업 2일 · 정산 흑자 반분/적자 보전 · 설립 20가구·3명·학교 1·300+예비",
+                uv ? "정상" : "어긋남");
         report.add("farm/감독관문턱", ov, "72칸+ · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
                 ov ? "정상" : "어긋남");
         boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)

@@ -104,7 +104,7 @@ public class MimicForageGoal extends Goal {
         if (!SurvivalRules.canGather(mob.getStage(), ind)) {
             return false; // 유아·일반소년은 자급 불가
         }
-        if (FarmTicker.isPastor(mob) || FarmTicker.isFullTimeTeacher(mob)) {
+        if (FarmTicker.isPastor(mob) || FarmTicker.isFullTimeTeacher(mob) || FarmTicker.isProfessor(mob)) {
             return false; // 목사는 전업 — 낮·배회 시간 교회 상주, 수입은 급여(교회 고도화)
         }
         // <b>경비대는 낮에 쉰다.</b> 밤에 도끼 들고 경계하는 것이 이들의 노동이므로, 낮의
@@ -146,6 +146,10 @@ public class MimicForageGoal extends Goal {
         }
         if (phase != Schedule.Phase.WORK && phase != Schedule.Phase.WANDER) {
             return gardenWhy("근무·배회 시간이 아님(" + phase + ")");
+        }
+        if (mob.isStudent()) {
+            // 대학생(P2) — 낮은 수업. 배회 시간엔 채집으로 등록금을 댄다(독립 학생의 벌이 — 계획서 1.3).
+            return phase == Schedule.Phase.WANDER;
         }
         if (phase == Schedule.Phase.WORK) {
             // 농사 집중(수렵채집→농사 전환) — 자기(배우자) 밭을 가진 provider 는 저장고가 넉넉하면

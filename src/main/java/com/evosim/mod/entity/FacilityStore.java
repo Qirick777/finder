@@ -39,8 +39,10 @@ public class FacilityStore extends SavedData {
         public double earned;
         /** 지금 이 시설에서 일하는 자(P5b). 0 이면 비어 있다. 교회에서는 목사(큰교회)·성직자. */
         public long staffId;
-        /** 둘째 직원 — 큰교회의 선교사, (추후) 대학의 둘째 교수. 0 이면 비어 있다. */
+        /** 둘째 직원 — 큰교회의 선교사, 대학의 둘째 교수. 0 이면 비어 있다. */
         public long staff2Id;
+        /** 셋째 직원 — 대학의 셋째 교수(강단 3). */
+        public long staff3Id;
         /** 시설 계정(교회 고도화) — 하루 헌금이 쌓이고 밤 정산 때 급여를 내고 비운다. */
         public double account;
         /** 등기자 — 세운 자. 승계로 주인이 바뀌어도 남는다(땅 문서의 "창설"에 해당). */
@@ -233,6 +235,7 @@ public class FacilityStore extends SavedData {
             e.earned = t.getDouble("Earned");
             e.staffId = t.getLong("Staff");
             e.staff2Id = t.getLong("Staff2");
+            e.staff3Id = t.getLong("Staff3");
             e.account = t.getDouble("Account");
             e.founderId = t.contains("Founder") ? t.getLong("Founder") : e.ownerId;
             e.commanderId = t.getLong("Commander");
@@ -262,6 +265,7 @@ public class FacilityStore extends SavedData {
             t.putDouble("Earned", e.earned);
             t.putLong("Staff", e.staffId);
             t.putLong("Staff2", e.staff2Id);
+            t.putLong("Staff3", e.staff3Id);
             t.putDouble("Account", e.account);
             t.putLong("Founder", e.founderId);
             t.putLong("Commander", e.commanderId);

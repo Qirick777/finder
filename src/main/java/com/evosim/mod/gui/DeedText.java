@@ -119,6 +119,15 @@ public final class DeedText {
         if (m.getStage() == LifeStage.BOY && FarmTicker.schoolOf(m) != null) {
             roles.add("학생");
         }
+        if (FarmTicker.isProfessor(m)) {
+            roles.add(String.format("%s(급여 %.1f)", m.getDegree() >= com.evosim.core.Degree.MASTER ? "교수" : "임시교수",
+                    com.evosim.core.University.professorWage(m.getDegree())));
+        }
+        if (m.isStudent()) {
+            roles.add(String.format("대학생(%s 과정 %.0f/%d일%s%s)", com.evosim.core.Degree.name(m.getStudyTarget()),
+                    m.getStudyCredit(), com.evosim.core.University.courseDays(m.getStudyTarget()),
+                    m.getLodging() != null ? " · 기숙" : "", m.getUnpaidDays() > 0 ? " · 미납 " + m.getUnpaidDays() + "일" : ""));
+        }
         int tiles = FarmStore.get(sl).ownedTiles(id);
         if (tiles > 0) {
             roles.add("지주(" + tiles + "타일)");
@@ -141,9 +150,12 @@ public final class DeedText {
             out.add("경비대 @" + m.getPoorhouse().getX() + "," + m.getPoorhouse().getZ());
         }
         for (FacilityStore.Entry e : FacilityStore.get(sl).all()) {
-            if (e.staffId == id || e.staff2Id == id) {
+            if (e.staffId == id || e.staff2Id == id || e.staff3Id == id) {
                 out.add(e.kind.label + " @" + e.pos.getX() + "," + e.pos.getZ());
             }
+        }
+        if (m.getUniversity() != null) {
+            out.add("대학 @" + m.getUniversity().getX() + "," + m.getUniversity().getZ());
         }
         BlockPos school = m.getStage() == LifeStage.BOY ? FarmTicker.schoolOf(m) : null;
         if (school != null) {
@@ -295,10 +307,36 @@ public final class DeedText {
                     Facilities.MILL_BONUS * 100.0, Facilities.MILL_TOLL_SHARE * 100.0));
             case UNIVERSITY -> {
                 var t = FacilityTemplate.of(sl, e.kind, e.rotation, e.mirrored);
-                ls.add(String.format("학생 좌석 %d · 강단 %d · 연구 %d · 기숙 %d (교수 1명당 %d석)",
-                        t.map(x -> x.studentSeats().size()).orElse(0), t.map(x -> x.professorSeats().size()).orElse(0),
-                        t.map(x -> x.researchSeats().size()).orElse(0), t.map(x -> x.dormBeds().size()).orElse(0),
-                        Facilities.STUDENTS_PER_PROFESSOR));
+                int seatsN = t.map(x -> x.studentSeats().size()).orElse(0);
+                int profs = 0;
+                for (long pid : new long[] {e.staffId, e.staff2Id, e.staff3Id}) {
+                    if (pid != 0L) {
+                        profs++;
+                        MimicEntity pf = living.get(pid);
+                        ls.add((pf != null && pf.getDegree() >= com.evosim.core.Degree.MASTER ? "교수 " : "임시교수 ")
+                                + staff(sl, living, pid, pf == null ? 0.0 : com.evosim.core.University.professorWage(pf.getDegree())));
+                    }
+                }
+                int students = 0;
+                int lodgers = 0;
+                int masters = 0;
+                for (MimicEntity m : living.values()) {
+                    if (m.isStudent() && e.pos.equals(m.getUniversity())) {
+                        students++;
+                        if (m.getLodging() != null) {
+                            lodgers++;
+                        }
+                        if (m.getStudyTarget() >= com.evosim.core.Degree.MASTER) {
+                            masters++;
+                        }
+                    }
+                }
+                ls.add(String.format("학생 %d/%d(교수 %d × %d석, 좌석 %d) · 기숙 %d/%d · 석사과정 %d/%d",
+                        students, com.evosim.core.University.studentCap(profs, seatsN, Facilities.STUDENTS_PER_PROFESSOR),
+                        profs, Facilities.STUDENTS_PER_PROFESSOR, seatsN, lodgers, t.map(x -> x.dormBeds().size()).orElse(0),
+                        masters, t.map(x -> x.researchSeats().size()).orElse(0)));
+                ls.add(String.format("등록금 %.1f/일 · 기숙비 %.1f/일 · 오늘 계정 %.1f · 보전(주인 사비) 누계 %.1f · 분배(주인 수입) 누계 %.1f",
+                        com.evosim.core.University.TUITION, com.evosim.core.University.LODGING_FEE, e.account, e.covered, e.paidOut));
             }
             case HOSPITAL -> {
                 var t = FacilityTemplate.of(sl, e.kind, e.rotation, e.mirrored);

@@ -384,6 +384,8 @@ public class MimicEntity extends PathfinderMob {
         // 언제나 밀려 goal 자체가 돌지 않았다 — 실측: 교회 반경 안 29명·쿨다운 0명인데 방문
         // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
         // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
+        this.goalSelector.addGoal(4, new MimicProfessorGoal(this)); // 교수 — 낮 강단·배회 연구실(대학 P2)
+        this.goalSelector.addGoal(5, new MimicStudyGoal(this));     // 대학생 — 낮 강의실 좌석(대학 P2)
         this.goalSelector.addGoal(4, new MimicTeacherGoal(this));   // 전업 교사 — 낮 강단 상주(지식인 P3)
         this.goalSelector.addGoal(4, new MimicPastorGoal(this));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
         // 5: 배회 일과(마실·예배 6, 채집 7)보다 앞 — 같은 6이면 먼저 잡은 예배가 선교를 영영 막는다(런 30).
@@ -3331,6 +3333,9 @@ public class MimicEntity extends PathfinderMob {
         if (followers >= Facilities.BARRACKS_MIN_FOLLOWERS) {
             larder = considerBarracks(sl, founder, followers, larder, adultNeed);
         }
+        if (followers >= com.evosim.core.University.MIN_FOLLOWERS) {
+            larder = considerUniversity(sl, founder, followers, larder, adultNeed);
+        }
         if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;
         }
@@ -3594,6 +3599,74 @@ public class MimicEntity extends PathfinderMob {
      *       추종 가구 집들의 평균을 내므로 그대로 쓴다.</li>
      * </ul>
      */
+    /**
+     * 대학 착공(지식인 P2) — 군주급(추종 20+)이 상급 학력 성년 3명 이상·초등학교 1채 이상일 때 하나.
+     * 착공비 300 + 예비×2. 자리는 추종 가구 중심 근처, 같은 갈래 간격 96.
+     */
+    private double considerUniversity(ServerLevel sl, MimicEntity founder, int followers,
+                                      double larder, double adultNeed) {
+        long id = founder.getIndividual().id();
+        FacilityStore reg = FacilityStore.get(sl);
+        if (reg.countOf(id, FacilityTemplate.Group.UNIVERSITY) >= 1) {
+            return larder;
+        }
+        int scholars = FarmTicker.scholarFollowers(sl, id);
+        int schools = reg.countOf(id, FacilityTemplate.Kind.SCHOOL);
+        double reserve = HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (!com.evosim.core.University.canFound(followers, scholars, schools, larder,
+                Facilities.UNIVERSITY_COST, reserve)) {
+            if (scholars >= com.evosim.core.University.MIN_SCHOLARS && schools >= 1) {
+                SimEvents.event(founder, "대학", String.format(
+                        "보류 — 추종자%d · 상급학력 성년 %d · 학교 %d · 저장고 %.0f < 문턱 %.0f(건축 %.0f + 예비 %.0f)",
+                        followers, scholars, schools, larder, Facilities.UNIVERSITY_COST + reserve,
+                        Facilities.UNIVERSITY_COST, reserve));
+            } else if (com.evosim.mod.entity.SimTime.tick(sl) / 24000L % 3 == 0) {
+                SimEvents.event(founder, "대학", String.format(
+                        "보류 — 추종자%d · 상급학력 성년 %d < %d 또는 학교 %d < 1", followers, scholars,
+                        com.evosim.core.University.MIN_SCHOLARS, schools));
+            }
+            return larder;
+        }
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        java.util.Optional<FacilityTemplate> tpl =
+                FacilityTemplate.of(sl, FacilityTemplate.Kind.UNIVERSITY, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos centre = studentCentre(sl, id, homePos);
+        BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id),
+                new GapSpec(reg, FacilityTemplate.Group.UNIVERSITY, com.evosim.core.University.MIN_GAP,
+                        0L, com.evosim.core.University.MIN_GAP));
+        if (site == null) {
+            SimEvents.event(founder, "대학", String.format(
+                    "자리 없음 — 추종자%d · 거부 집%d 밭%d 물%d 낙차%d 간격%d (도면 %d×%d)",
+                    followers, SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3],
+                    SITE_REJECT[4], (int) (tpl.get().halfX() * 2 + 1), (int) (tpl.get().halfZ() * 2 + 1)));
+            return larder;
+        }
+        String clash = facilityGapFault(reg, site, FacilityTemplate.Group.UNIVERSITY,
+                com.evosim.core.University.MIN_GAP);
+        if (clash != null) {
+            SimEvents.event(founder, "대학", "보류 — " + clash);
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, FacilityTemplate.Kind.UNIVERSITY, rot, mir, id,
+                com.evosim.mod.entity.SimTime.tick(sl) / 24000L, Facilities.UNIVERSITY_COST);
+        RoadPlanner.Obstacles.invalidate();
+        assignFacilityRoad(sl, site, tpl.get());
+        SimEvents.event(founder, "대학", String.format(
+                "착공 @%d,%d 회전%d%s — 추종자%d · 상급학력 성년 %d · 학교 %d · 건축비 %.0f (저장고 %.0f→%.0f)"
+                        + " · 학생 좌석 %d · 강단 %d · 연구 %d · 기숙 %d · 중심 @%d,%d 에서 %.0f블록",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", followers, scholars, schools,
+                Facilities.UNIVERSITY_COST, larder, larder - Facilities.UNIVERSITY_COST,
+                tpl.get().studentSeats().size(), tpl.get().professorSeats().size(),
+                tpl.get().researchSeats().size(), tpl.get().dormBeds().size(), centre.getX(), centre.getZ(),
+                Math.sqrt(centre.distSqr(new BlockPos(site.getX(), centre.getY(), site.getZ())))));
+        return larder - Facilities.UNIVERSITY_COST;
+    }
+
     private double considerBarracks(ServerLevel sl, MimicEntity founder, int followers,
                                     double larder, double adultNeed) {
         long id = founder.getIndividual().id();
@@ -6994,6 +7067,82 @@ public class MimicEntity extends PathfinderMob {
     /** 과한책임 부모의 만족 노동 정지 예외 — 밤 정산(supportChildren)이 매긴다(휘발). */
     private boolean tuitionPressure;
 
+    // ── 재학(대학 P2) ──
+    /** 재학 중인 대학 등기 좌표 — null 이면 비재학. */
+    private BlockPos university;
+    /** 출석 적립(출석한 날만 +1) — 과정 일수(2)에 닿으면 졸업. */
+    private double studyCredit;
+    /** 과정 목표 학위 — 1 학사 · 2 석사. */
+    private int studyTarget;
+    /** 등록금 미납 연속 일수 — 2 이면 중퇴. */
+    private int unpaidDays;
+    private long studyCreditedDay = Long.MIN_VALUE;
+
+    @Nullable
+    public BlockPos getUniversity() {
+        return university;
+    }
+
+    public boolean isStudent() {
+        return university != null;
+    }
+
+    public double getStudyCredit() {
+        return studyCredit;
+    }
+
+    public int getStudyTarget() {
+        return studyTarget;
+    }
+
+    public int getUnpaidDays() {
+        return unpaidDays;
+    }
+
+    public void setUnpaidDays(int d) {
+        this.unpaidDays = Math.max(0, d);
+    }
+
+    /** 입학 — 과정 목표(1 학사 / 2 석사), 적립·미납 0. 상시 소작은 내려놓는다(수업이 출근이다). */
+    public void enroll(BlockPos univ, int target) {
+        this.university = univ;
+        this.studyTarget = Math.max(1, Math.min(2, target));
+        this.studyCredit = 0.0;
+        this.unpaidDays = 0;
+        if (tenantFarm != 0L) {
+            setTenant(0L, 0);
+        }
+    }
+
+    /** 다음 과정(석사)으로 — 적립 0 부터. */
+    public void advanceCourse(int target) {
+        this.studyTarget = Math.max(1, Math.min(2, target));
+        this.studyCredit = 0.0;
+        this.unpaidDays = 0;
+    }
+
+    /** 졸업·중퇴 — 재학·기숙·등록금 표시를 모두 비운다. */
+    public void leaveUniversity() {
+        this.university = null;
+        this.studyCredit = 0.0;
+        this.studyTarget = 0;
+        this.unpaidDays = 0;
+        this.tuitionDue = 0.0;
+        this.lodging = null;
+    }
+
+    /** 오늘 강의실에 앉았다 — 하루 한 번만 적립. */
+    public void creditStudyDay(long day) {
+        if (day != studyCreditedDay) {
+            studyCreditedDay = day;
+            studyCredit += 1.0;
+        }
+    }
+
+    public boolean satInClassToday(long day) {
+        return day == studyCreditedDay;
+    }
+
     public double getTuitionDue() {
         return tuitionDue;
     }
@@ -7107,7 +7256,8 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         if (getStage() != LifeStage.ADULT || homePos == null || isCaregiverBound()
-                || inPoorhouse() || FarmTicker.isPastor(this) || FarmTicker.isFullTimeTeacher(this)) {
+                || inPoorhouse() || FarmTicker.isPastor(this) || FarmTicker.isFullTimeTeacher(this)
+                || FarmTicker.isAcademic(this)) {
             // 자급 대상이 아니거나 부엌일 전담 — 무노동이 정상인 쪽(방랑자는 거처가 없다).
             // 경비대원도 뺀다: 낮에 아무것도 안 버는 것이 <b>설계</b>이므로(밤 경계가 노동이고
             // 수입은 봉급뿐) 매일 전원이 이 진단을 울려 진짜 신호를 덮는다. 목사(전업)도 같다.
@@ -8026,6 +8176,12 @@ public class MimicEntity extends PathfinderMob {
         tag.putInt("TenantNoShow", tenantNoShow);
         tag.putInt("Degree", degree);
         tag.putDouble("TuitionDue", tuitionDue);
+        if (university != null) {
+            tag.putLong("Univ", university.asLong());
+        }
+        tag.putDouble("StudyCredit", studyCredit);
+        tag.putInt("StudyTarget", studyTarget);
+        tag.putInt("Unpaid", unpaidDays);
         if (lodging != null) {
             tag.putLong("Lodging", lodging.asLong());
         }
@@ -8118,6 +8274,10 @@ public class MimicEntity extends PathfinderMob {
         tenantNoShow = tag.getInt("TenantNoShow");
         degree = tag.getInt("Degree");
         tuitionDue = tag.getDouble("TuitionDue");
+        university = tag.contains("Univ") ? BlockPos.of(tag.getLong("Univ")) : null;
+        studyCredit = tag.getDouble("StudyCredit");
+        studyTarget = tag.getInt("StudyTarget");
+        unpaidDays = tag.getInt("Unpaid");
         lodging = tag.contains("Lodging") ? BlockPos.of(tag.getLong("Lodging")) : null;
         lastPlayDay = tag.contains("PlayDay") ? tag.getLong("PlayDay") : -1L;
         lastVisitDay = tag.contains("VisitDay") ? tag.getLong("VisitDay") : -100L;

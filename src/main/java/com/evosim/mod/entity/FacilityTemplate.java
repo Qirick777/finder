@@ -157,6 +157,8 @@ public final class FacilityTemplate {
     /** 바깥 문(아래 칸)의 앵커 상대 위치 — 드나드는 경로의 경유점. 문 칸은 길찾기가 "열고 지나가는 칸"으로 인식하는
      *  실제 노드라 경로가 정확히 거기서 끝난다(문 앞 칸은 바깥 땅 높이와 어긋나 부분경로가 제자리에서 끝났다). */
     private final List<BlockPos> entryDoors;
+    /** 바깥 문마다 <b>바깥쪽 방향</b>(단위 축, 앵커 회전 적용). 점유 상자 안이라도 문 평면 바깥(현관·계단)은 실외다. */
+    private final List<BlockPos> entryOutward;
     private final int minX;
     private final int maxX;
     private final int minZ;
@@ -166,14 +168,15 @@ public final class FacilityTemplate {
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
                              List<BlockPos> seats, double reach, double halfX, double halfZ,
                              int[] box) {
-        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ, box, List.of(),
+        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ, box, List.of(), List.of(),
                 List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
                              List<BlockPos> seats, double reach, double halfX, double halfZ,
-                             int[] box, List<BlockPos> entryDoors, List<BlockPos> studentSeats, List<BlockPos> professorSeats,
+                             int[] box, List<BlockPos> entryDoors, List<BlockPos> entryOutward,
+                             List<BlockPos> studentSeats, List<BlockPos> professorSeats,
                              List<BlockPos> researchSeats, List<BlockPos> dormBeds,
                              List<BlockPos> wardBeds) {
         this.kind = kind;
@@ -186,6 +189,7 @@ public final class FacilityTemplate {
         this.halfX = halfX;
         this.halfZ = halfZ;
         this.entryDoors = entryDoors;
+        this.entryOutward = entryOutward;
         this.minX = box[0];
         this.maxX = box[1];
         this.minZ = box[2];
@@ -252,6 +256,36 @@ public final class FacilityTemplate {
     /** 바깥 문 칸(아래 칸, 앵커 상대). 경유점으로 쓴다. */
     public List<BlockPos> entryDoors() {
         return entryDoors;
+    }
+
+    /**
+     * 앵커 {@code at} 에 세웠을 때 (x,z) 가 <b>건물 실내</b>인가 — 점유 상자 안이면서 가장 가까운 바깥 문의 평면 안쪽.
+     * 실측(런 34 exitx): 현관(문 앞 처마 밑, 상자 안)을 실내로 보면 현관에 선 사람이 "밖으로 나가려고" 문으로 갔다가
+     * 직행 경로가 도로 현관 밖(북쪽 턱)으로 이끌어 문↔턱을 1400틱 왕복했다.
+     */
+    public boolean insideBuilding(BlockPos at, double x, double z) {
+        if (!boxCovers(at, x, z, 0.0)) {
+            return false;
+        }
+        int best = -1;
+        double bd = Double.MAX_VALUE;
+        for (int i = 0; i < entryDoors.size(); i++) {
+            BlockPos d = at.offset(entryDoors.get(i));
+            double dx = x - (d.getX() + 0.5);
+            double dz = z - (d.getZ() + 0.5);
+            double dd = dx * dx + dz * dz;
+            if (dd < bd) {
+                bd = dd;
+                best = i;
+            }
+        }
+        if (best < 0) {
+            return true;
+        }
+        BlockPos d = at.offset(entryDoors.get(best));
+        BlockPos o = entryOutward.get(best);
+        double along = (x - (d.getX() + 0.5)) * o.getX() + (z - (d.getZ() + 0.5)) * o.getZ();
+        return along <= 0.5; // 문 평면 바깥(현관 쪽)이면 실외
     }
 
     /**
@@ -456,6 +490,7 @@ public final class FacilityTemplate {
         // (건물 밖 첫 칸), 다만 앞마당이 있는 도면에서도 성립하도록 일반화한 것뿐이다.
         List<BlockPos> steps = new ArrayList<>();
         List<BlockPos> entryDoors = new ArrayList<>();
+        List<BlockPos> entryOutward = new ArrayList<>();
         for (BlockPos d : doors) {
             BlockPos rel = d.subtract(anchor);
             if (rel.getY() != 0) {
@@ -498,6 +533,7 @@ public final class FacilityTemplate {
             if (step != null && !walled) {
                 steps.add(step);
                 entryDoors.add(new BlockPos(rel.getX(), 0, rel.getZ()));
+                entryOutward.add(new BlockPos(sx, 0, sz));
             }
         }
 
@@ -717,7 +753,7 @@ public final class FacilityTemplate {
 
         return Optional.of(new FacilityTemplate(kind, List.copyOf(pl), List.copyOf(carve),
                 List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz, box, List.copyOf(entryDoors),
-                List.copyOf(studentSeats), List.copyOf(professorSeats), List.copyOf(researchSeats),
+                List.copyOf(entryOutward), List.copyOf(studentSeats), List.copyOf(professorSeats), List.copyOf(researchSeats),
                 List.copyOf(dormBeds), List.copyOf(wardBeds)));
     }
 }

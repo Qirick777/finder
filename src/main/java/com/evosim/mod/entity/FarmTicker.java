@@ -5172,7 +5172,7 @@ public final class FarmTicker {
             return null;
         }
         var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
-        if (tpl.isEmpty() || tpl.get().boxCovers(e.pos, m.getX(), m.getZ(), 0.0)) {
+        if (tpl.isEmpty() || tpl.get().insideBuilding(e.pos, m.getX(), m.getZ())) {
             return null;
         }
         BlockPos best = null;

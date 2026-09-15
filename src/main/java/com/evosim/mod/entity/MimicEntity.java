@@ -435,8 +435,8 @@ public class MimicEntity extends PathfinderMob {
                 continue;
             }
             FacilityTemplate tpl = tplOpt.get();
-            boolean meIn = tpl.boxCovers(e.pos, getX(), getZ(), 0.0);
-            boolean targetIn = tpl.boxCovers(e.pos, target.getX() + 0.5, target.getZ() + 0.5, 0.0);
+            boolean meIn = tpl.insideBuilding(e.pos, getX(), getZ());
+            boolean targetIn = tpl.insideBuilding(e.pos, target.getX() + 0.5, target.getZ() + 0.5);
             if (meIn == targetIn) {
                 continue;
             }

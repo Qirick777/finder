@@ -87,7 +87,9 @@ public class MimicProfessorGoal extends Goal {
 
     @Override
     public void start() {
-        mob.setVisitAnchor(spot);
+        // 리시 앵커는 문 앞부터(학생 goal 과 같은 이유 — 건물 안 자리를 앵커로 두면 리시가 담장에 붙인다)
+        BlockPos hop0 = mob.level() instanceof ServerLevel sl0 ? FarmTicker.entryFor(sl0, mob) : null;
+        mob.setVisitAnchor(hop0 != null ? hop0 : spot);
         anchored = true;
         mob.setActivity(lecture ? "강의" : "연구");
         probe = 0;

@@ -84,12 +84,39 @@ public class MimicLeashGoal extends Goal {
         return mob.blockPosition().distSqr(anchor) > inner * inner; // 60% 안까지 복귀해야 종료
     }
 
+    private BlockPos lastPos;
+    private int stuck;
+
+    @Override
+    public void start() {
+        lastPos = mob.blockPosition();
+        stuck = 0;
+    }
+
     @Override
     public void tick() {
         BlockPos anchor = mob.roamAnchor();
         if (anchor != null) {
             mob.getLookControl().setLookAt(anchor.getX() + 0.5, anchor.getY() + 1.0, anchor.getZ() + 0.5);
             mob.getNavigation().moveTo(anchor.getX() + 0.5, anchor.getY(), anchor.getZ() + 0.5, 1.0);
+        }
+        // <b>정체 진단</b> — 리시는 다른 goal 을 선점한 채 도는데, 앵커가 벽 너머(건물 안 자리)이거나 문 뒤에 갇히면
+        // 그 자리에서 하루 종일 서 있고 아무 로그도 안 남는다(실측: 교수가 담장에 붙어 굶어 교체, 집 문 뒤 정지).
+        // 600틱 무진전마다 한 줄 — 앵커·거리·경로 상태를 남겨 "왜 못 가는가"가 읽히게 한다.
+        BlockPos now = mob.blockPosition();
+        if (now.equals(lastPos)) {
+            if (++stuck % 600 == 0 && anchor != null) {
+                var path = mob.getNavigation().createPath(anchor, 0);
+                com.evosim.mod.log.SimEvents.event(mob, "리시정체", String.format(
+                        "내 @%d,%d y%d · 앵커 @%d,%d y%d · 거리 %.0f · %d틱 무진전 · 네비%s · %s", now.getX(), now.getZ(), now.getY(),
+                        anchor.getX(), anchor.getZ(), anchor.getY(), Math.sqrt(now.distSqr(anchor)), stuck,
+                        mob.getNavigation().isDone() ? "끝남" : "진행",
+                        path == null ? "경로없음" : path.canReach() ? "도달가능" : String.format("부분경로(종점 @%d,%d)",
+                                path.getEndNode() == null ? 0 : path.getEndNode().x, path.getEndNode() == null ? 0 : path.getEndNode().z)));
+            }
+        } else {
+            stuck = 0;
+            lastPos = now;
         }
     }
 }

@@ -5575,7 +5575,25 @@ public final class FarmTicker {
                         // "성인 부재 3일 방치"로 죽었다. 통학(64 안)은 밤에 집에 있으므로 그대로 둔다.
                         continue;
                     }
-                    BlockPos bed = uv.pos.offset(tpl.dormBeds().get(lodgers));
+                    // 빈 침대를 고른다 — "현재 기숙생 수" 번째 침대는 누가 중퇴해 번호가 밀리면 남의 침대가 된다
+                    // (실측 런 34: 두 학생이 @-28,-70 한 침대). 재학생이 쥔 침대를 빼고 첫 빈자리.
+                    java.util.Set<Long> taken = new java.util.HashSet<>();
+                    for (MimicEntity st : students) {
+                        if (st.getLodging() != null) {
+                            taken.add(st.getLodging().asLong());
+                        }
+                    }
+                    BlockPos bed = null;
+                    for (BlockPos rel : tpl.dormBeds()) {
+                        BlockPos cand = uv.pos.offset(rel);
+                        if (!taken.contains(cand.asLong())) {
+                            bed = cand;
+                            break;
+                        }
+                    }
+                    if (bed == null) {
+                        break;
+                    }
                     admit(level, uv, tpl, a, bed, Math.sqrt(a.getHomePos().distSqr(uv.pos)), day);
                     students.add(a);
                     lodgers++;

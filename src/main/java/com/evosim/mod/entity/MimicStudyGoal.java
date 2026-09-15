@@ -73,7 +73,12 @@ public class MimicStudyGoal extends Goal {
         stuck = 0;
         lastPos = mob.blockPosition();
         lastGo = null;
-        mob.setWorkAnchor(seat);
+        // 리시 앵커는 <b>문 앞</b>부터 — 시작 직후 리시(2)가 이 goal 을 선점해 앵커로 끌고 가는데, 앵커가 건물 안 좌석이면
+        // 담장의 가장 가까운 점에 붙어 하루 종일 못 들어간다(실측 런 34: 서쪽 75블록 거처의 교수·학생이 착석 0, 굶어 교체).
+        // 무대 월드에서 됐던 것은 문이 있는 쪽에서 접근했기 때문이다.
+        BlockPos hop0 = mob.level() instanceof net.minecraft.server.level.ServerLevel sl0
+                ? FarmTicker.entryFor(sl0, mob) : null;
+        mob.setWorkAnchor(hop0 != null ? hop0 : seat);
         anchored = true;
         mob.setActivity("수업");
         probe = 0;

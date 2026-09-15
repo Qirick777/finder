@@ -409,9 +409,12 @@ public class MimicEntity extends PathfinderMob {
             if (meIn == targetIn) {
                 continue;
             }
+            // 경유점은 <b>문 칸</b>이다. 문 앞 칸은 바깥 땅과 높이가 어긋나 경로가 제자리에서 끝났고, 2.5블록 문턱 언저리에서
+            // 경유/직행이 매 틱 뒤집혀 한 발도 못 뗐다(실측 exitx: 현관 @10,-87 에서 표적이 @12,-88 ↔ 집으로 번갈아).
+            // 문 칸은 실제 노드라 정확히 거기서 끝나고, 3블록 안이면 직행이라 뒤집힘이 없다.
             BlockPos best = null;
             double bd = Double.MAX_VALUE;
-            for (BlockPos rel : tpl.doorSteps()) {
+            for (BlockPos rel : tpl.entryDoors()) {
                 BlockPos p = e.pos.offset(rel);
                 double d = blockPosition().distSqr(p);
                 if (d < bd) {
@@ -424,7 +427,7 @@ public class MimicEntity extends PathfinderMob {
             }
             double dx = getX() - (best.getX() + 0.5);
             double dz = getZ() - (best.getZ() + 0.5);
-            return dx * dx + dz * dz <= 6.25 ? null : best;
+            return dx * dx + dz * dz <= 9.0 ? null : best;
         }
         return null;
     }

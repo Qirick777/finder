@@ -5177,7 +5177,7 @@ public final class FarmTicker {
         }
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
-        for (BlockPos rel : tpl.get().doorSteps()) {
+        for (BlockPos rel : tpl.get().entryDoors()) { // 문 칸 — 문 앞 칸은 높이가 어긋나 경로가 제자리에서 끝난다
             BlockPos p = e.pos.offset(rel);
             double d = m.blockPosition().distSqr(p);
             if (d < bd) {

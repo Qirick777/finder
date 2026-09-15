@@ -115,7 +115,7 @@ public class MimicProfessorGoal extends Goal {
     private boolean nearHop(BlockPos hop) {
         double dx = mob.getX() - (hop.getX() + 0.5);
         double dz = mob.getZ() - (hop.getZ() + 0.5);
-        return dx * dx + dz * dz <= 6.25;
+        return dx * dx + dz * dz <= 9.0; // 문 칸 기준 3블록 — 경유/직행이 문턱에서 뒤집히지 않게
     }
 
     @Override

@@ -154,6 +154,9 @@ public final class FacilityTemplate {
     /** 앵커 기준 점유 열의 실제 범위(비대칭). 종이 건물 중앙에 없는 도면(대학: 종이 z −8, 건물은 z +34 까지)은
      *  반폭만으로 재면 건물이 실제보다 배 가까이 크게 잡혀 자리가 영영 안 나온다 — 실측(런 32 사본 d16):
      *  대학이 "도면 41×69" 로 후보 828개 전부 집에 막혔다. 실제 크기는 41×43 이다. */
+    /** 바깥 문(아래 칸)의 앵커 상대 위치 — 드나드는 경로의 경유점. 문 칸은 길찾기가 "열고 지나가는 칸"으로 인식하는
+     *  실제 노드라 경로가 정확히 거기서 끝난다(문 앞 칸은 바깥 땅 높이와 어긋나 부분경로가 제자리에서 끝났다). */
+    private final List<BlockPos> entryDoors;
     private final int minX;
     private final int maxX;
     private final int minZ;
@@ -163,14 +166,14 @@ public final class FacilityTemplate {
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
                              List<BlockPos> seats, double reach, double halfX, double halfZ,
                              int[] box) {
-        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ, box,
+        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ, box, List.of(),
                 List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
                              List<BlockPos> seats, double reach, double halfX, double halfZ,
-                             int[] box, List<BlockPos> studentSeats, List<BlockPos> professorSeats,
+                             int[] box, List<BlockPos> entryDoors, List<BlockPos> studentSeats, List<BlockPos> professorSeats,
                              List<BlockPos> researchSeats, List<BlockPos> dormBeds,
                              List<BlockPos> wardBeds) {
         this.kind = kind;
@@ -182,6 +185,7 @@ public final class FacilityTemplate {
         this.reach = reach;
         this.halfX = halfX;
         this.halfZ = halfZ;
+        this.entryDoors = entryDoors;
         this.minX = box[0];
         this.maxX = box[1];
         this.minZ = box[2];
@@ -243,6 +247,11 @@ public final class FacilityTemplate {
      */
     public List<BlockPos> doorSteps() {
         return doorSteps;
+    }
+
+    /** 바깥 문 칸(아래 칸, 앵커 상대). 경유점으로 쓴다. */
+    public List<BlockPos> entryDoors() {
+        return entryDoors;
     }
 
     /**
@@ -446,6 +455,7 @@ public final class FacilityTemplate {
         // 마을 길이 그 앞마당에 와서 닿는 모양이다. 거처의 진입 칸 규칙과 뜻이 같고
         // (건물 밖 첫 칸), 다만 앞마당이 있는 도면에서도 성립하도록 일반화한 것뿐이다.
         List<BlockPos> steps = new ArrayList<>();
+        List<BlockPos> entryDoors = new ArrayList<>();
         for (BlockPos d : doors) {
             BlockPos rel = d.subtract(anchor);
             if (rel.getY() != 0) {
@@ -487,6 +497,7 @@ public final class FacilityTemplate {
             // 리시가 학생을 그 담장으로 끌고 가 "부분경로"로 굳는다(실측 무대 5: 서쪽 담 @-75 에 붙어 결석).
             if (step != null && !walled) {
                 steps.add(step);
+                entryDoors.add(new BlockPos(rel.getX(), 0, rel.getZ()));
             }
         }
 
@@ -705,7 +716,7 @@ public final class FacilityTemplate {
         }
 
         return Optional.of(new FacilityTemplate(kind, List.copyOf(pl), List.copyOf(carve),
-                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz, box,
+                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz, box, List.copyOf(entryDoors),
                 List.copyOf(studentSeats), List.copyOf(professorSeats), List.copyOf(researchSeats),
                 List.copyOf(dormBeds), List.copyOf(wardBeds)));
     }

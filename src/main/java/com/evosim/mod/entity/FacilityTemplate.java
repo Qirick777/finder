@@ -56,7 +56,9 @@ public final class FacilityTemplate {
         BARRACKS("막사"),
         POORHOUSE("경비대"),
         WELL("우물"),
-        MILL("풍차");
+        MILL("풍차"),
+        UNIVERSITY("대학"),
+        HOSPITAL("병원");
 
         public final String label;
 
@@ -90,7 +92,18 @@ public final class FacilityTemplate {
          * 풍차 — 사용자 도면(home files/windmill.nbt, 11×15×8 · 실자재 333 · 종 1(y9 천장) · 문 1 ·
          * 통 10 · 건초 2). 밭 무리 한가운데 서서 반경 안 구획의 수확을 빻는다(Facilities.MILL_*).
          */
-        WINDMILL("windmill", "풍차", Group.MILL);
+        WINDMILL("windmill", "풍차", Group.MILL),
+        /**
+         * 대학(지식인 P1) — 사용자 도면 home files/univ.nbt(41·29·43 · 실자재 약 6.8천 · 종 1(중앙 탑) ·
+         * 문 25). 표지: 독서대 앞 참나무 계단 = 학생 좌석(33), 강의실 단상 계단 = 교수 강단(3),
+         * 양조기 옆 계단 = 연구 자리(3), 금블록 인접 흰 카펫 = 기숙 침대(12), 금블록은 설치 때 제거.
+         */
+        UNIVERSITY("univ", "대학", Group.UNIVERSITY),
+        /**
+         * 병원(지식인 P6) — 사용자 도면 home files/hospital.nbt(15·13·12 · 실자재 562 · 종 1 · 문 1).
+         * 표지: 침대 머리 = 병상(3), 양조기 옆 계단 = 의사 진료 자리(1).
+         */
+        HOSPITAL("hospital", "병원", Group.HOSPITAL);
 
         public final String design;
         public final String label;
@@ -129,6 +142,12 @@ public final class FacilityTemplate {
     private final List<BlockPos> groundCols;
     private final List<BlockPos> doorSteps;
     private final List<BlockPos> seats;
+    // ── 지식인 시설 표지(대학·병원) — 다른 종류는 빈 목록. 전부 앵커 상대 좌표. ──
+    private final List<BlockPos> studentSeats;
+    private final List<BlockPos> professorSeats;
+    private final List<BlockPos> researchSeats;
+    private final List<BlockPos> dormBeds;
+    private final List<BlockPos> wardBeds;
     private final double reach;
     private final double halfX;
     private final double halfZ;
@@ -136,6 +155,16 @@ public final class FacilityTemplate {
     private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
                              List<BlockPos> groundCols, List<BlockPos> doorSteps,
                              List<BlockPos> seats, double reach, double halfX, double halfZ) {
+        this(kind, plan, carve, groundCols, doorSteps, seats, reach, halfX, halfZ,
+                List.of(), List.of(), List.of(), List.of(), List.of());
+    }
+
+    private FacilityTemplate(Kind kind, List<Placement> plan, List<BlockPos> carve,
+                             List<BlockPos> groundCols, List<BlockPos> doorSteps,
+                             List<BlockPos> seats, double reach, double halfX, double halfZ,
+                             List<BlockPos> studentSeats, List<BlockPos> professorSeats,
+                             List<BlockPos> researchSeats, List<BlockPos> dormBeds,
+                             List<BlockPos> wardBeds) {
         this.kind = kind;
         this.plan = plan;
         this.carve = carve;
@@ -145,6 +174,36 @@ public final class FacilityTemplate {
         this.reach = reach;
         this.halfX = halfX;
         this.halfZ = halfZ;
+        this.studentSeats = studentSeats;
+        this.professorSeats = professorSeats;
+        this.researchSeats = researchSeats;
+        this.dormBeds = dormBeds;
+        this.wardBeds = wardBeds;
+    }
+
+    /** 대학 학생 좌석(독서대 앞 계단, 33) — 앵커 상대. 다른 종류는 빈 목록. */
+    public List<BlockPos> studentSeats() {
+        return studentSeats;
+    }
+
+    /** 대학 교수 강단(강의실 단상 계단, 3). */
+    public List<BlockPos> professorSeats() {
+        return professorSeats;
+    }
+
+    /** 연구 자리(양조기 옆 계단, 대학 3) — 병원에서는 의사 진료 자리(1). */
+    public List<BlockPos> researchSeats() {
+        return researchSeats;
+    }
+
+    /** 기숙 침대(금블록 인접 흰 카펫, 12). */
+    public List<BlockPos> dormBeds() {
+        return dormBeds;
+    }
+
+    /** 병상(침대 머리, 3). */
+    public List<BlockPos> wardBeds() {
+        return wardBeds;
     }
 
     public Kind kind() {
@@ -240,6 +299,11 @@ public final class FacilityTemplate {
         List<BlockPos> doors = new ArrayList<>();
         List<BlockPos> lecterns = new ArrayList<>();
         List<BlockPos> carpets = new ArrayList<>();
+        List<BlockPos> floorStairs = new ArrayList<>();   // 참나무 계단(아래 반) — 의자 후보
+        List<BlockPos> brewing = new ArrayList<>();
+        List<BlockPos> golds = new ArrayList<>();
+        List<BlockPos> bedHeads = new ArrayList<>();
+        boolean knowledge = kind.group == Group.UNIVERSITY || kind.group == Group.HOSPITAL;
         int minY = Integer.MAX_VALUE;
         for (int i = 0; i < blocksTag.size(); i++) {
             CompoundTag b = blocksTag.getCompound(i);
@@ -260,6 +324,18 @@ public final class FacilityTemplate {
                 lecterns.add(pos);
             } else if (state.is(Blocks.WHITE_CARPET)) {
                 carpets.add(pos);
+            } else if (state.is(Blocks.OAK_STAIRS)
+                    && state.getValue(net.minecraft.world.level.block.StairBlock.HALF)
+                            == net.minecraft.world.level.block.state.properties.Half.BOTTOM) {
+                floorStairs.add(pos);
+            } else if (state.is(Blocks.BREWING_STAND)) {
+                brewing.add(pos);
+            } else if (state.is(Blocks.GOLD_BLOCK)) {
+                golds.add(pos);
+            } else if (state.getBlock() instanceof net.minecraft.world.level.block.BedBlock
+                    && state.getValue(net.minecraft.world.level.block.BedBlock.PART)
+                            == net.minecraft.world.level.block.state.properties.BedPart.HEAD) {
+                bedHeads.add(pos);
             }
         }
         if (bell == null && !kind.centerAnchor) {
@@ -292,7 +368,9 @@ public final class FacilityTemplate {
         double hz = 0.0;
         for (var e : byPos.entrySet()) {
             BlockPos rel = e.getKey().subtract(anchor);
-            if (e.getValue().isAir()) {
+            // 금블록은 호실 구분 표지일 뿐이다(사용자 지시) — 설치 때 없앤다(빈 칸으로).
+            boolean marker = knowledge && e.getValue().is(Blocks.GOLD_BLOCK);
+            if (e.getValue().isAir() || marker) {
                 if (rel.getY() >= 0) {
                     carve.add(rel); // 처마 밑 여백까지 파면 건물 둘레에 해자가 생긴다(거처와 같은 이유)
                 }
@@ -359,7 +437,7 @@ public final class FacilityTemplate {
         // 밀치기만 하는 것은 학교 자리 배분에서 이미 겪은 일이다. 두 칸은 덩어리 안에서 가장 먼
         // 대각 끝을 골라 서로 붙지 않게 한다.
         List<BlockPos> seats = new ArrayList<>();
-        if (!carpets.isEmpty()) {
+        if (!carpets.isEmpty() && !knowledge) { // 대학·병원의 카펫은 침대·깔개라 아래 별도 규칙으로 읽는다
             java.util.Set<BlockPos> pool = new java.util.HashSet<>(carpets);
             java.util.Set<BlockPos> seen = new java.util.HashSet<>();
             List<List<BlockPos>> clumps = new ArrayList<>();
@@ -414,8 +492,77 @@ public final class FacilityTemplate {
             }
         }
 
+        // ── 지식인 시설 표지(대학·병원) — 계획서 1.2 ─────────────────────────────────
+        List<BlockPos> studentSeats = new ArrayList<>();
+        List<BlockPos> professorSeats = new ArrayList<>();
+        List<BlockPos> researchSeats = new ArrayList<>();
+        List<BlockPos> dormBeds = new ArrayList<>();
+        List<BlockPos> wardBeds = new ArrayList<>();
+        if (knowledge) {
+            java.util.Set<BlockPos> lset = new java.util.HashSet<>(lecterns);
+            java.util.Set<BlockPos> bset = new java.util.HashSet<>(brewing);
+            java.util.Set<BlockPos> gset = new java.util.HashSet<>(golds);
+            BlockPos[] four = {new BlockPos(1, 0, 0), new BlockPos(-1, 0, 0), new BlockPos(0, 0, 1), new BlockPos(0, 0, -1)};
+            for (BlockPos st : floorStairs) {
+                if (st.getY() != anchor.getY()) {
+                    continue; // 바닥층 계단만 — 지붕 계단은 의자가 아니다
+                }
+                boolean nearLectern = false;
+                boolean nearBrew = false;
+                for (BlockPos d : four) {
+                    nearLectern |= lset.contains(st.offset(d));
+                    nearBrew |= bset.contains(st.offset(d));
+                }
+                if (nearLectern) {
+                    studentSeats.add(st.subtract(anchor));
+                } else if (nearBrew) {
+                    researchSeats.add(st.subtract(anchor));
+                } else {
+                    // 교수 강단 — 독서대에 안 붙었지만 강의실 안(가장 가까운 독서대까지 4칸 이내)
+                    int best = Integer.MAX_VALUE;
+                    for (BlockPos lc : lecterns) {
+                        best = Math.min(best, Math.max(Math.abs(lc.getX() - st.getX()), Math.abs(lc.getZ() - st.getZ())));
+                    }
+                    if (best <= 4) {
+                        professorSeats.add(st.subtract(anchor));
+                    }
+                }
+            }
+            for (BlockPos c : carpets) {
+                for (BlockPos d : four) {
+                    if (gset.contains(c.offset(d))) {
+                        dormBeds.add(c.subtract(anchor));
+                        break;
+                    }
+                }
+            }
+            for (BlockPos b : bedHeads) {
+                wardBeds.add(b.subtract(anchor));
+            }
+            java.util.Comparator<BlockPos> order = java.util.Comparator
+                    .comparingInt((BlockPos q) -> q.getZ()).thenComparingInt(BlockPos::getX);
+            studentSeats.sort(order);
+            professorSeats.sort(order);
+            researchSeats.sort(order);
+            dormBeds.sort(order);
+            wardBeds.sort(order);
+            if (kind.group == Group.UNIVERSITY) {
+                if (studentSeats.isEmpty() || professorSeats.isEmpty() || researchSeats.isEmpty() || dormBeds.isEmpty()) {
+                    throw new IllegalStateException(kind.design + ": 대학 표지 부족 — 학생 " + studentSeats.size()
+                            + " 교수 " + professorSeats.size() + " 연구 " + researchSeats.size() + " 기숙 " + dormBeds.size());
+                }
+                seats.addAll(studentSeats); // 일반 자리 = 학생 좌석(보고·호환)
+            } else {
+                if (wardBeds.isEmpty() || researchSeats.isEmpty()) {
+                    throw new IllegalStateException(kind.design + ": 병원 표지 부족 — 병상 " + wardBeds.size()
+                            + " 진료 자리 " + researchSeats.size());
+                }
+                seats.addAll(wardBeds); // 일반 자리 = 병상
+            }
+        }
+
         // ── 자리 ② 독서대 앞(학교) ────────────────────────────────────────────────────
-        for (BlockPos lc : lecterns) {
+        for (BlockPos lc : knowledge ? List.<BlockPos>of() : lecterns) {
             BlockPos rel = lc.subtract(anchor);
             for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
                 BlockPos cand = new BlockPos(rel.getX() + d[0], rel.getY(), rel.getZ() + d[1]);
@@ -494,6 +641,8 @@ public final class FacilityTemplate {
         }
 
         return Optional.of(new FacilityTemplate(kind, List.copyOf(pl), List.copyOf(carve),
-                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz));
+                List.copyOf(cols), List.copyOf(steps), List.copyOf(seats), far, hx, hz,
+                List.copyOf(studentSeats), List.copyOf(professorSeats), List.copyOf(researchSeats),
+                List.copyOf(dormBeds), List.copyOf(wardBeds)));
     }
 }

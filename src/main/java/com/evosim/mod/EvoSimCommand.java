@@ -111,6 +111,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
                 .then(Commands.literal("facilities").executes(EvoSimCommand::facilities))
                 .then(Commands.literal("facility").executes(EvoSimCommand::facilityDeeds))
+                .then(Commands.literal("bptest").executes(EvoSimCommand::blueprintTest))
                 .then(Commands.literal("goals").executes(EvoSimCommand::goalsReport))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
                 .then(Commands.literal("topdown")
@@ -5539,6 +5540,48 @@ public final class EvoSimCommand {
      * 1채로 잡힌다 — 거처에서 승격 이사 직후를 붕괴로 오독했던 것과 같은 종류의 실수를
      * 반대 방향으로 저지르는 셈이다.
      */
+    /**
+     * {@code evosim bptest} — 대학·병원 도면 표지 검사(지식인 P1). 회전 4방 × 대칭 2 모두에서
+     * 표지 수가 같아야 한다(회전으로 좌석이 사라지면 부지 방향에 따라 정원이 달라진다).
+     */
+    private static int blueprintTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int fails = 0;
+        for (FacilityTemplate.Kind k : new FacilityTemplate.Kind[] {
+                FacilityTemplate.Kind.UNIVERSITY, FacilityTemplate.Kind.HOSPITAL}) {
+            for (byte rot = 0; rot < 4; rot++) {
+                for (boolean mir : new boolean[] {false, true}) {
+                    String line;
+                    boolean ok;
+                    try {
+                        var t = FacilityTemplate.of(level, k, rot, mir).orElseThrow();
+                        boolean goldLeft = t.plan().stream().anyMatch(p -> p.state().is(net.minecraft.world.level.block.Blocks.GOLD_BLOCK));
+                        if (k == FacilityTemplate.Kind.UNIVERSITY) {
+                            ok = t.studentSeats().size() == 33 && t.professorSeats().size() == 3
+                                    && t.researchSeats().size() == 3 && t.dormBeds().size() == 12
+                                    && !goldLeft && !t.doorSteps().isEmpty();
+                        } else {
+                            ok = t.wardBeds().size() == 3 && t.researchSeats().size() == 1 && !t.doorSteps().isEmpty();
+                        }
+                        line = String.format("%s rot%d%s — 학생 %d 강단 %d 연구 %d 기숙 %d 병상 %d 금블록잔존 %b 문 %d 자재 %d 반폭 %.1f×%.1f",
+                                k.label, rot, mir ? "m" : "", t.studentSeats().size(), t.professorSeats().size(),
+                                t.researchSeats().size(), t.dormBeds().size(), t.wardBeds().size(), goldLeft,
+                                t.doorSteps().size(), t.plan().size(), t.halfX(), t.halfZ());
+                    } catch (Exception ex) {
+                        ok = false;
+                        line = k.label + " rot" + rot + (mir ? "m" : "") + " — 예외 " + ex.getMessage();
+                    }
+                    if (!ok) {
+                        fails++;
+                    }
+                    tell(ctx.getSource(), (ok ? "§a[O]§r " : "§c[X]§r ") + line);
+                }
+            }
+        }
+        tell(ctx.getSource(), "§e[도면검사]§r 실패 " + fails + "건");
+        return fails == 0 ? 1 : 0;
+    }
+
     /** {@code evosim facility} — 시설 한 채씩 문서 전문(땅 문서 화면과 같은 문장)을 채팅에 찍는다(UI P4). */
     private static int facilityDeeds(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();

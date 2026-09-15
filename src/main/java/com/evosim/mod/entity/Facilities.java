@@ -891,6 +891,16 @@ public final class Facilities {
     /** 개수 상한 눈금 — 마을 밭 이 칸마다 하나까지(우물의 16채당 하나와 같은 꼴). */
     public static final int MILL_TILES_PER_MILL = 150;
     /** 제분 산출 배율 — 반경 안 구획 수확이 장부에 저장될 때 이만큼 는다(가루로 저장 → 손실 감소). */
+    // ── 대학·병원(지식인 체계, 계획서) ─────────────────────────────────────────────
+    /** 대학 착공비 — 추후 '성' 다음으로 비싼 건물(도면 실자재 6.8천 × 0.045 ≈ 307 과 일치). */
+    public static final double UNIVERSITY_COST = 300.0;
+    /** 병원 착공비(계획서 확정값). */
+    public static final double HOSPITAL_COST = 120.0;
+    /** 교수 1명당 학생 슬롯(사용자 지시) — 교수 3이면 33, 강의실 좌석 33이 상한. */
+    public static final int STUDENTS_PER_PROFESSOR = 11;
+    /** 교수 정원 상한 — 강단 3. */
+    public static final int PROFESSOR_CAP = 3;
+
     public static final double MILL_BONUS = 0.20;
     /** 그 증분 중 풍차 주인이 가져가는 몫(제분세 = 방앗세). 나머지는 밭 쪽(지대·소작 몫·자영). */
     public static final double MILL_TOLL_SHARE = 0.25;

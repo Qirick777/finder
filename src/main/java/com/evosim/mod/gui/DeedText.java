@@ -293,6 +293,18 @@ public final class DeedText {
             case POORHOUSE -> ls.add("정원 " + seats + " · " + guardsLine(sl, e.pos, living));
             case WINDMILL -> ls.add(String.format("제분 보너스 %.0f%% · 제분세 몫 %.0f%%",
                     Facilities.MILL_BONUS * 100.0, Facilities.MILL_TOLL_SHARE * 100.0));
+            case UNIVERSITY -> {
+                var t = FacilityTemplate.of(sl, e.kind, e.rotation, e.mirrored);
+                ls.add(String.format("학생 좌석 %d · 강단 %d · 연구 %d · 기숙 %d (교수 1명당 %d석)",
+                        t.map(x -> x.studentSeats().size()).orElse(0), t.map(x -> x.professorSeats().size()).orElse(0),
+                        t.map(x -> x.researchSeats().size()).orElse(0), t.map(x -> x.dormBeds().size()).orElse(0),
+                        Facilities.STUDENTS_PER_PROFESSOR));
+            }
+            case HOSPITAL -> {
+                var t = FacilityTemplate.of(sl, e.kind, e.rotation, e.mirrored);
+                ls.add(String.format("병상 %d · 진료 자리 %d", t.map(x -> x.wardBeds().size()).orElse(0),
+                        t.map(x -> x.researchSeats().size()).orElse(0)));
+            }
             default -> {
                 if (seats > 0) {
                     ls.add("자리 " + seats);

@@ -5072,6 +5072,9 @@ public final class FarmTicker {
             }
             if (sr[1] > 0.0 && doc != null && doc.getHomePos() != null) {
                 larders.set(doc.getHomePos(), larders.get(doc.getHomePos()) + sr[1]);
+            } else if (sr[1] > 0.0) {
+                sr[2] += sr[1]; // 의사가 없으면 의사 몫도 주인에게 — 실측(무대 8): 의사 없는 병원의 진료비 절반이 허공에 사라졌다
+                sr[1] = 0.0;
             }
             if (sr[2] > 0.0) {
                 larders.set(owner.getHomePos(), larders.get(owner.getHomePos()) + sr[2]);

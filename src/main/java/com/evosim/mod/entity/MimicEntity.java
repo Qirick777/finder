@@ -283,7 +283,17 @@ public class MimicEntity extends PathfinderMob {
                 // 내려선 미믹이 다시 못 올라 1400틱 동안 뛰기만 했다(정밀위치 y 0.75 · 수직속도 0.25 · 수평속도 0). 뛰어서 오르는
                 // 바닐라 방식은 몸 방향이 이동 방향과 어긋나면(리시가 앵커를 바라보게 함) 수평 이동이 없어 실패한다.
                 // 평지 세계라 이제껏 드러나지 않았다. 계단 높이를 1.1 로 두어 뛰지 않고 딛게 한다(말과 같은 방식).
-                .add(net.minecraftforge.common.ForgeMod.STEP_HEIGHT_ADDITION.get(), 0.5D);
+                .add(net.minecraftforge.common.ForgeMod.STEP_HEIGHT_ADDITION.get(), 0.0D);
+    }
+
+    /**
+     * 계단 높이 1.1 — 한 칸 턱을 <b>뛰지 않고 딛는다.</b> 속성(step_height_addition)만 올리면 이동 제어는 여전히
+     * 바닐라 maxUpStep(0.6)과 견줘 뛰기를 택하고, 공중에서는 딛기 보정이 안 걸려 턱 옆면에 부딪히며 수평 속도를 잃고
+     * 되떨어진다(실측: 속성 0.5 뒤에도 정밀위치 y 0.77 · 수직속도 −0.23 반복). 뛰기 판정 자체가 안 서게 여기서 올린다.
+     */
+    @Override
+    public float maxUpStep() {
+        return 1.1F;
     }
 
     /**

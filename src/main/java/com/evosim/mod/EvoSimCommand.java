@@ -5605,9 +5605,16 @@ public final class EvoSimCommand {
                     String p = path == null ? "경로없음" : path.canReach() ? "도달가능(" + path.getNodeCount() + "노드)"
                             : String.format("부분경로(종점 @%d,%d)", path.getEndNode() == null ? 0 : path.getEndNode().x,
                                     path.getEndNode() == null ? 0 : path.getEndNode().z);
-                    String c = cur == null ? "현재경로 없음" : String.format("현재경로 %d/%d 끝%s 표적 @%d,%d",
+                    String c = cur == null ? "현재경로 없음" : String.format("현재경로 %d/%d 끝%s 표적 @%d,%d 다음노드 %s",
                             cur.getNextNodeIndex(), cur.getNodeCount(), cur.isDone() ? "남" : "안남",
-                            cur.getTarget().getX(), cur.getTarget().getZ());
+                            cur.getTarget().getX(), cur.getTarget().getZ(),
+                            cur.getNextNodeIndex() < cur.getNodeCount()
+                                    ? String.format("@%d,%d y%d(%s)", cur.getNode(cur.getNextNodeIndex()).x,
+                                            cur.getNode(cur.getNextNodeIndex()).z, cur.getNode(cur.getNextNodeIndex()).y,
+                                            cur.getNode(cur.getNextNodeIndex()).type)
+                                    : "없음");
+                    c += String.format(" · 정밀위치 %.2f,%.2f,%.2f · 속도 %.3f,%.3f,%.3f", m.getX(), m.getY(), m.getZ(),
+                            m.getDeltaMovement().x, m.getDeltaMovement().y, m.getDeltaMovement().z);
                     double moved = Math.sqrt(bp.distSqr(origin));
                     detail[0] = String.format("t%d 내 @%d,%d y%d · 이동 %.0f · 바닥 %b · 충돌 %b · goal [%s] · 네비%s · %s · 집까지 %s · H %.2f",
                             tick[0], bp.getX(), bp.getZ(), bp.getY(), moved, m.onGround(), m.horizontalCollision, gs,

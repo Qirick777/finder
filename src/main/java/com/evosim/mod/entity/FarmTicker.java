@@ -5406,6 +5406,15 @@ public final class FarmTicker {
             int masters = 0;
             java.util.List<MimicEntity> keep = new java.util.ArrayList<>();
             for (MimicEntity st : students) {
+                if (st.isCaregiverBound()) {
+                    // 유아 돌봄 전담이 되면 학업을 접는다 — 실측(무대 6): 재학 중 출산한 학생이 육아(1)와 리시(2) 사이를
+                    // 오가며 하루 종일 집 앞에서 H 1.15→0.43 으로 굶었다. 등록금·기숙비만 나가고 출석은 0 이었다.
+                    com.evosim.mod.log.SimEvents.event(st, "중퇴", "유아 돌봄 전담 — 학업 중단");
+                    reg.note(uv, day, "중퇴(육아) — " + st.getIndividual().shortName());
+                    st.leaveUniversity();
+                    UNIV_SUM[1]++;
+                    continue;
+                }
                 if (st.getStage() != com.evosim.core.LifeStage.ADULT || st.getHomePos() == null) {
                     com.evosim.mod.log.SimEvents.event(st, "중퇴", "성년이 아니거나 거처 없음");
                     st.leaveUniversity();

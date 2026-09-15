@@ -34,8 +34,9 @@ public class MimicStudyGoal extends Goal {
 
     private boolean onDuty() {
         if (mob.getIndividual() == null || mob.getStage() != LifeStage.ADULT || mob.isFastSettle()
-                || mob.isBuilding() || mob.isCritical() || mob.isUnderThreat() || !mob.isStudent()) {
-            return false;
+                || mob.isBuilding() || mob.isCritical() || mob.isUnderThreat() || !mob.isStudent()
+                || mob.isCaregiverBound()) {
+            return false; // 돌봄 전담은 그날 결석 — 밤 정산이 중퇴로 정리한다
         }
         return Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) == Schedule.Phase.WORK;
     }

@@ -117,6 +117,13 @@ public final class EvoSimCommand {
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(ctx -> goalsReport(ctx, StringArgumentType.getString(ctx, "name")))))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
+                .then(Commands.literal("larder")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                        .then(Commands.argument("amount", IntegerArgumentType.integer(0, 100000))
+                                                .executes(ctx -> setLarder(ctx, IntegerArgumentType.getInteger(ctx, "x"),
+                                                        IntegerArgumentType.getInteger(ctx, "z"),
+                                                        IntegerArgumentType.getInteger(ctx, "amount")))))))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
                                 .executes(ctx -> topDown(ctx,
@@ -5515,6 +5522,33 @@ public final class EvoSimCommand {
      * <p>저장된 월드에서 <b>즉시</b> 돌릴 수 있어, 고치고 재는 주기가 초 단위가 된다.
      * 이 문제에서 25분짜리 런을 여섯 번 돌리며 매번 추측으로 다음 후보를 골랐다.
      */
+    /**
+     * <b>검증 전용</b> — 좌표에서 가장 가까운 등기 거처의 저장고를 그 양으로 둔다. 병원·대학 같은 큰 착공을
+     * 무대에서 만들 때 곳간 문턱을 넘기는 용도다. 관측 런에서는 쓰지 않는다.
+     */
+    private static int setLarder(CommandContext<CommandSourceStack> ctx, int x, int z, int amount) {
+        ServerLevel level = ctx.getSource().getLevel();
+        HomeStore homes = HomeStore.get(level);
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (BlockPos h : homes.positions()) {
+            double d = (h.getX() - x) * (double) (h.getX() - x) + (h.getZ() - z) * (double) (h.getZ() - z);
+            if (d < bd) {
+                bd = d;
+                best = h;
+            }
+        }
+        if (best == null) {
+            tell(ctx.getSource(), "등기 거처가 없다");
+            return 0;
+        }
+        double before = LarderStore.get(level).get(best);
+        LarderStore.get(level).set(best, amount);
+        tell(ctx.getSource(), String.format("§e[저장고]§r @%d,%d (%.0f블록) %.1f → %d", best.getX(), best.getZ(),
+                Math.sqrt(bd), before, amount));
+        return 1;
+    }
+
     private static int siteTest(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
         HomeStore homes = HomeStore.get(level);

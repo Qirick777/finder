@@ -53,6 +53,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import org.jetbrains.annotations.Nullable;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
@@ -112,7 +113,9 @@ public final class EvoSimCommand {
                 .then(Commands.literal("facilities").executes(EvoSimCommand::facilities))
                 .then(Commands.literal("facility").executes(EvoSimCommand::facilityDeeds))
                 .then(Commands.literal("bptest").executes(EvoSimCommand::blueprintTest))
-                .then(Commands.literal("goals").executes(EvoSimCommand::goalsReport))
+                .then(Commands.literal("goals").executes(EvoSimCommand::goalsReport)
+                        .then(Commands.argument("name", StringArgumentType.greedyString())
+                                .executes(ctx -> goalsReport(ctx, StringArgumentType.getString(ctx, "name")))))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
                 .then(Commands.literal("topdown")
                         .then(Commands.argument("radius", IntegerArgumentType.integer(16, 200))
@@ -6773,11 +6776,18 @@ public final class EvoSimCommand {
      * 찍으면 "왜 안 도는가"가 한 줄에서 읽힌다.
      */
     private static int goalsReport(CommandContext<CommandSourceStack> ctx) {
+        return goalsReport(ctx, null);
+    }
+
+    /** {@code evosim goals <이름조각>} — 소속 대원 대신 이름에 그 조각이 든 사람(학생·교수·의사 등)을 찍는다. */
+    private static int goalsReport(CommandContext<CommandSourceStack> ctx, @Nullable String nameFilter) {
         ServerLevel level = ctx.getSource().getLevel();
         int n = 0;
         for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
                 new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096),
-                e -> e.isAlive() && e.getIndividual() != null && e.inPoorhouse())) {
+                e -> e.isAlive() && e.getIndividual() != null
+                        && (nameFilter == null ? e.inPoorhouse()
+                                : e.getIndividual().fullName().contains(nameFilter)))) {
             StringBuilder gs = new StringBuilder();
             m.goalSelector.getRunningGoals().forEach(w -> {
                 if (gs.length() > 0) {
@@ -6794,10 +6804,18 @@ public final class EvoSimCommand {
                     gs.length() == 0 ? "없음" : gs.toString(), m.activity(),
                     ra == null ? "없음" : ra.getX() + "," + ra.getZ(),
                     ra == null ? 0.0 : Math.sqrt(bp.distSqr(ra)),
-                    m.debugBegLeft(), m.isCourtTravel(), m.isCritical(), m.isBuilding(), m.getGuardWage()));
+                    m.debugBegLeft(), m.isCourtTravel(), m.isCritical(), m.isBuilding(), m.getGuardWage())
+                    + (nameFilter == null ? "" : String.format(" 집=%s 기숙=%s 학생=%s 좌석=%s 강단=%s 단계=%s",
+                            m.getHomePos() == null ? "없음" : m.getHomePos().getX() + "," + m.getHomePos().getZ(),
+                            m.getLodging() == null ? "없음" : m.getLodging().getX() + "," + m.getLodging().getZ(),
+                            m.isStudent(), FarmTicker.studySeatOf(m) == null ? "없음"
+                                    : FarmTicker.studySeatOf(m).getX() + "," + FarmTicker.studySeatOf(m).getZ(),
+                            FarmTicker.podiumOf(m) == null ? "없음"
+                                    : FarmTicker.podiumOf(m).getX() + "," + FarmTicker.podiumOf(m).getZ(),
+                            m.getStage())));
             n++;
         }
-        tell(ctx.getSource(), "소속 대원 " + n + "명");
+        tell(ctx.getSource(), (nameFilter == null ? "소속 대원 " : "일치 ") + n + "명");
         return n;
     }
 

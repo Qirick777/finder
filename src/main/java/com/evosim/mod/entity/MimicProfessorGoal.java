@@ -17,6 +17,8 @@ public class MimicProfessorGoal extends Goal {
     private final MimicEntity mob;
     private BlockPos spot;
     private boolean lecture;
+    private long startedDay = -1L;
+    private int probe;
 
     public MimicProfessorGoal(MimicEntity mob) {
         this.mob = mob;
@@ -75,6 +77,13 @@ public class MimicProfessorGoal extends Goal {
     public void start() {
         mob.setVisitAnchor(spot);
         mob.setActivity(lecture ? "강의" : "연구");
+        probe = 0;
+        long day = SimTime.tick(mob.level()) / 24000L;
+        if (day != startedDay) {
+            startedDay = day;
+            com.evosim.mod.log.SimEvents.event(mob, lecture ? "강의" : "연구", String.format(
+                    "자리 @%d,%d 로 — 거리 %.0f", spot.getX(), spot.getZ(), Math.sqrt(mob.blockPosition().distSqr(spot))));
+        }
     }
 
     @Override
@@ -91,6 +100,15 @@ public class MimicProfessorGoal extends Goal {
         if (mob.blockPosition().distSqr(spot) > ARRIVE_SQ) {
             if (mob.getNavigation().isDone()) {
                 mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);
+            }
+            if (++probe % 600 == 0) {
+                var path = mob.getNavigation().createPath(spot, 0);
+                BlockPos bp = mob.blockPosition();
+                com.evosim.mod.log.SimEvents.event(mob, "강단진단", String.format(
+                        "내 @%d,%d y%d · 자리 @%d,%d y%d · 거리 %.0f · 네비%s · %s", bp.getX(), bp.getZ(), bp.getY(),
+                        spot.getX(), spot.getZ(), spot.getY(), Math.sqrt(bp.distSqr(spot)),
+                        mob.getNavigation().isDone() ? "끝남" : "진행",
+                        path == null ? "경로없음" : path.canReach() ? "도달가능" : "부분경로"));
             }
             return;
         }

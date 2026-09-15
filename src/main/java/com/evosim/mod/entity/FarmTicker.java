@@ -2450,7 +2450,8 @@ public final class FarmTicker {
         return 1.0;
     }
 
-    private static MimicEntity byIndividual(ServerLevel level, long indId) {
+    /** 개체 번호로 살아 있는 미믹을 세계 전체에서 찾는다(틱당 한 번 색인). 없으면 null. */
+    public static MimicEntity byIndividual(ServerLevel level, long indId) {
         long now = SimTime.tick(level);
         if (now != lookupTick) {
             lookupTick = now;

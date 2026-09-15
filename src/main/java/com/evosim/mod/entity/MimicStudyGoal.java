@@ -2,6 +2,7 @@ package com.evosim.mod.entity;
 
 import com.evosim.core.LifeStage;
 import com.evosim.core.Schedule;
+import com.evosim.mod.log.SimEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.goal.Goal;
 
@@ -20,6 +21,8 @@ public class MimicStudyGoal extends Goal {
     private BlockPos lastPos;
     private int stuck;
     private long gaveUpDay = -1L;
+    private long startedDay = -1L;
+    private int probe;
 
     public MimicStudyGoal(MimicEntity mob) {
         this.mob = mob;
@@ -58,6 +61,26 @@ public class MimicStudyGoal extends Goal {
         lastPos = mob.blockPosition();
         mob.setWorkAnchor(seat);
         mob.setActivity("수업");
+        probe = 0;
+        long day = SimTime.tick(mob.level()) / 24000L;
+        if (day != startedDay) {
+            startedDay = day;
+            SimEvents.event(mob, "등교", String.format("좌석 @%d,%d 로 — 거리 %.0f", seat.getX(), seat.getZ(),
+                    Math.sqrt(mob.blockPosition().distSqr(seat))));
+        }
+    }
+
+    /** 왜 못 닿는지를 값으로 남긴다 — 학교 goal 에서 추측이 여러 번 틀렸던 경험 그대로. */
+    private String diagnose() {
+        var nav = mob.getNavigation();
+        var path = nav.createPath(seat, 0);
+        String p = path == null ? "경로없음"
+                : String.format("%s(종점 @%d,%d 노드 %d)", path.canReach() ? "도달가능" : "부분경로",
+                        path.getEndNode() == null ? 0 : path.getEndNode().x,
+                        path.getEndNode() == null ? 0 : path.getEndNode().z, path.getNodeCount());
+        BlockPos bp = mob.blockPosition();
+        return String.format("내 @%d,%d y%d · 좌석 y%d · 거리 %.0f · 네비%s · %s", bp.getX(), bp.getZ(), bp.getY(),
+                seat.getY(), Math.sqrt(bp.distSqr(seat)), nav.isDone() ? "끝남" : "진행", p);
     }
 
     @Override
@@ -88,11 +111,15 @@ public class MimicStudyGoal extends Goal {
         if (mob.getNavigation().isDone()) {
             mob.getNavigation().moveTo(seat.getX() + 0.5, seat.getY(), seat.getZ() + 0.5, 1.0);
         }
+        if (++probe % 400 == 0) {
+            SimEvents.event(mob, "등교진단", diagnose());
+        }
         if (mob.blockPosition().equals(lastPos)) {
             if (++stuck >= STUCK_GIVE_UP) {
                 gaveUpDay = SimTime.tick(mob.level()) / 24000L;
                 com.evosim.mod.log.SimEvents.event(mob, "수업", String.format(
-                        "좌석 @%d,%d 에 닿지 못해 오늘 결석(%d틱 무진전)", seat.getX(), seat.getZ(), stuck));
+                        "좌석 @%d,%d 에 닿지 못해 오늘 결석(%d틱 무진전) — %s", seat.getX(), seat.getZ(), stuck,
+                        diagnose()));
                 seat = null;
             }
         } else {

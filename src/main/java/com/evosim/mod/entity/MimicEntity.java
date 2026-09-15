@@ -1252,6 +1252,13 @@ public class MimicEntity extends PathfinderMob {
         if (spouseId == 0L) {
             return false;
         }
+        // <b>세계 전체</b>에서 찾는다 — 종전의 내 주위 128 은 "떨어져 있음"을 "죽음"으로 읽었다.
+        // 실측(런 32 사본 d16~18): 대학이 서자 기숙 학생(집에서 160)·교수가 배우자와 128 넘게 떨어졌고,
+        // 그 남편에게 "본처 사망 → 둘째 부인 승계"가 하루 수십 번 찍히며 배우자 링크가 흔들렸다.
+        // 학교(통학 48)·경비(리시 32) 시절에는 안 드러났을 뿐, 규칙 자체가 거리와 생사를 섞고 있었다.
+        if (level() instanceof ServerLevel sl) {
+            return FarmTicker.byIndividual(sl, spouseId) != null;
+        }
         for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(128.0))) {
             if (m != this && m.isAlive() && m.getIndividual() != null
                     && m.getIndividual().id() == spouseId) {
@@ -3334,11 +3341,13 @@ public class MimicEntity extends PathfinderMob {
         if (followers >= Facilities.BARRACKS_MIN_FOLLOWERS) {
             larder = considerBarracks(sl, founder, followers, larder, adultNeed);
         }
-        if (followers >= com.evosim.core.University.MIN_FOLLOWERS) {
-            larder = considerUniversity(sl, founder, followers, larder, adultNeed);
-        }
+        // 병원이 대학보다 앞이다 — 값이 싸고(120 대 300) 유아를 살린다. 실측(런 32 사본 d16): 대학이
+        // 먼저 곳간 347 을 47 로 비워 병원이 못 섰고, 그날 밤 유아 셋이 "병원 없음"으로 죽었다.
         if (followers >= com.evosim.core.Hospital.MIN_FOLLOWERS) {
             larder = considerHospital(sl, founder, followers, larder, adultNeed);
+        }
+        if (followers >= com.evosim.core.University.MIN_FOLLOWERS) {
+            larder = considerUniversity(sl, founder, followers, larder, adultNeed);
         }
         if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;

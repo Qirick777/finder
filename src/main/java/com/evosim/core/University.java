@@ -22,7 +22,9 @@ public final class University {
     /** 통학 한계 — 이보다 멀면 기숙. */
     public static final double COMMUTE = 64.0;
     /** 기숙 한계 — 이보다 멀면 입학 불가. */
-    public static final double LODGE_RANGE = 192.0;
+    /** 기숙 입학 상한(블록). 길찾기 사거리(FOLLOW_RANGE 160)보다 짧아야 한다 — 실측(런 34 무대 10): 165블록 집의 학생이
+     *  기숙사로 가는 경로를 못 만들어(부분경로가 제자리에서 끝남) 4800틱 제자리에 서 있었다. */
+    public static final double LODGE_RANGE = 150.0;
     /** 임시 교수(석사 없을 때, 상급 학력) 급여. 석사 교수는 Degree.professorWage(3.5). */
     public static final double TEMP_PROFESSOR_WAGE = 2.5;
     /** 설립 자격 — 군주급 추종 가구·상급 학력 성년·초등학교. */

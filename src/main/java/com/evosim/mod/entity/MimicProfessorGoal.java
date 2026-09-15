@@ -17,6 +17,7 @@ public class MimicProfessorGoal extends Goal {
     private final MimicEntity mob;
     /** 이 goal 이 리시 앵커를 세워 둔 상태 — 선점 정지(stop)에서는 지우지 않고 자연 종료에서만 내린다. */
     private boolean anchored;
+    private BlockPos lastGo;
     private BlockPos spot;
     private boolean lecture;
     private long startedDay = -1L;
@@ -112,8 +113,13 @@ public class MimicProfessorGoal extends Goal {
             return;
         }
         if (mob.blockPosition().distSqr(spot) > ARRIVE_SQ) {
-            if (mob.getNavigation().isDone()) {
-                mob.getNavigation().moveTo(spot.getX() + 0.5, spot.getY(), spot.getZ() + 0.5, 1.0);
+            // 건물 밖이면 문 앞 칸을 먼저 밟는다(학생 goal 과 같은 이유). 리시 앵커도 그 칸.
+            BlockPos hop = mob.level() instanceof ServerLevel sl0 ? FarmTicker.entryFor(sl0, mob) : null;
+            BlockPos go = hop != null && mob.blockPosition().distSqr(hop) > ARRIVE_SQ ? hop : spot;
+            mob.setVisitAnchor(go);
+            if (mob.getNavigation().isDone() || !go.equals(lastGo)) {
+                mob.getNavigation().moveTo(go.getX() + 0.5, go.getY(), go.getZ() + 0.5, 1.0);
+                lastGo = go;
             }
             if (++probe % 600 == 0) {
                 var path = mob.getNavigation().createPath(spot, 0);

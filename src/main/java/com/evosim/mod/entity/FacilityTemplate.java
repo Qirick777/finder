@@ -463,14 +463,29 @@ public final class FacilityTemplate {
             int cap = Math.max(Math.abs(rel.getX()), Math.abs(rel.getZ())) + (int) Math.max(hx, hz)
                     + 2;
             BlockPos step = null;
+            boolean walled = false; // 나가는 길에 벽을 만나면 실내 문이다(기숙사 호실 문 등)
             for (int k = 1; k <= cap; k++) {
                 BlockPos cand = new BlockPos(rel.getX() + sx * k, 0, rel.getZ() + sz * k);
                 if (!cols.contains(cand)) {
                     step = cand;
                     break;
                 }
+                for (int dy = 0; dy <= 1; dy++) {
+                    BlockState at = byPos.get(new BlockPos(anchor.getX() + cand.getX(), anchor.getY() + dy,
+                            anchor.getZ() + cand.getZ()));
+                    if (at != null && !at.isAir() && !(at.getBlock() instanceof net.minecraft.world.level.block.DoorBlock)
+                            && !(at.getBlock() instanceof net.minecraft.world.level.block.CarpetBlock)) {
+                        walled = true;
+                    }
+                }
+                if (walled) {
+                    break;
+                }
             }
-            if (step != null) {
+            // <b>바깥 문만</b> 진입 칸이 된다. 대학 도면은 문이 25개인데 그중 24개가 호실·강의실 문이라,
+            // 그 문에서 바깥으로 곧장 나간 칸은 벽 너머의 허공이다 — 길을 그리로 내면 담장에 길이 닿고,
+            // 리시가 학생을 그 담장으로 끌고 가 "부분경로"로 굳는다(실측 무대 5: 서쪽 담 @-75 에 붙어 결석).
+            if (step != null && !walled) {
                 steps.add(step);
             }
         }

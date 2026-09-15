@@ -21,6 +21,7 @@ public class MimicStudyGoal extends Goal {
     private boolean anchored;
     private BlockPos seat;
     private BlockPos lastPos;
+    private BlockPos lastGo;
     private int stuck;
     private long gaveUpDay = -1L;
     private long startedDay = -1L;
@@ -70,6 +71,7 @@ public class MimicStudyGoal extends Goal {
     public void start() {
         stuck = 0;
         lastPos = mob.blockPosition();
+        lastGo = null;
         mob.setWorkAnchor(seat);
         anchored = true;
         mob.setActivity("수업");
@@ -122,8 +124,14 @@ public class MimicStudyGoal extends Goal {
             stuck = 0;
             return;
         }
-        if (mob.getNavigation().isDone()) {
-            mob.getNavigation().moveTo(seat.getX() + 0.5, seat.getY(), seat.getZ() + 0.5, 1.0);
+        // 건물 밖이면 문 앞 칸을 먼저 밟는다 — 담장의 가장 가까운 점에 붙어 굳지 않게. 리시 앵커도 그 칸.
+        BlockPos hop = mob.level() instanceof net.minecraft.server.level.ServerLevel sl
+                ? FarmTicker.entryFor(sl, mob) : null;
+        BlockPos go = hop != null && mob.blockPosition().distSqr(hop) > ARRIVE_SQ ? hop : seat;
+        mob.setWorkAnchor(go);
+        if (mob.getNavigation().isDone() || !go.equals(lastGo)) {
+            mob.getNavigation().moveTo(go.getX() + 0.5, go.getY(), go.getZ() + 0.5, 1.0);
+            lastGo = go;
         }
         if (++probe % 400 == 0) {
             SimEvents.event(mob, "등교진단", diagnose());

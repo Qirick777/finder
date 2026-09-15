@@ -4900,6 +4900,7 @@ public final class FarmTicker {
     private static void runHospitals(ServerLevel level, java.util.List<MimicEntity> everyone, long day) {
         DOCTORS.clear();
         CLINIC_OF.clear();
+        FACILITY_OF.entrySet().removeIf(en -> en.getValue().kind == FacilityTemplate.Kind.HOSPITAL);
         FacilityStore reg = FacilityStore.get(level);
         LarderStore larders = LarderStore.get(level);
         FarmStore fs = FarmStore.get(level);
@@ -4949,6 +4950,7 @@ public final class FarmTicker {
                 DOCTORS.add(hs.staffId);
                 if (!tpl.researchSeats().isEmpty()) {
                     CLINIC_OF.put(doc.getId(), hs.pos.offset(tpl.researchSeats().get(0)));
+                    FACILITY_OF.put(doc.getId(), hs);
                 }
                 if (hs.staffId != beforeDoc) {
                     reg.note(hs, day, String.format("의사 임명 — %s(학위 %s · 급여 %.1f · 회복률 %.0f%%)",
@@ -5147,6 +5149,38 @@ public final class FarmTicker {
     private static final java.util.Set<Long> PROFESSORS = new java.util.HashSet<>();
     /** 개체(entity id) → 오늘 강의실 좌석 / 강단 / 연구 자리. */
     private static final java.util.Map<Integer, BlockPos> STUDY_SEAT_OF = new java.util.HashMap<>();
+    /** 개체(entity id) → 오늘 드나드는 시설 등기(학생·교수·의사). 바깥에 있을 때 진입 칸을 고르는 데 쓴다. */
+    private static final java.util.Map<Integer, FacilityStore.Entry> FACILITY_OF = new java.util.HashMap<>();
+
+    /**
+     * <b>진입 칸</b> — 시설 건물 밖에 있으면 가장 가까운 바깥 문 앞 칸, 안에 있으면 null(곧장 자리로).
+     *
+     * <p>큰 건물(대학 41×43)은 자리를 향해 곧장 가면 담장의 가장 가까운 점에 붙어 굳는다 — 길찾기의
+     * 노드 예산이 건물을 빙 도는 길을 못 찾는다(실측 무대 5: 교수가 서쪽 담 @-75 에서 자리까지 3블록을
+     * 남기고 "부분경로"). 문으로 먼저 가고, 문 앞에서 자리로 간다.
+     */
+    @Nullable
+    public static BlockPos entryFor(ServerLevel level, MimicEntity m) {
+        FacilityStore.Entry e = FACILITY_OF.get(m.getId());
+        if (e == null) {
+            return null;
+        }
+        var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
+        if (tpl.isEmpty() || tpl.get().boxCovers(e.pos, m.getX(), m.getZ(), 0.0)) {
+            return null;
+        }
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (BlockPos rel : tpl.get().doorSteps()) {
+            BlockPos p = e.pos.offset(rel);
+            double d = m.blockPosition().distSqr(p);
+            if (d < bd) {
+                bd = d;
+                best = p;
+            }
+        }
+        return best;
+    }
     private static final java.util.Map<Integer, BlockPos> PODIUM_OF = new java.util.HashMap<>();
     private static final java.util.Map<Integer, BlockPos> LAB_OF = new java.util.HashMap<>();
     /** 대학 좌표 → 등기(새벽 갱신). */
@@ -5263,6 +5297,7 @@ public final class FarmTicker {
         ACADEMICS.clear();
         PROFESSORS.clear();
         STUDY_SEAT_OF.clear();
+        FACILITY_OF.entrySet().removeIf(en -> en.getValue().kind != FacilityTemplate.Kind.HOSPITAL);
         PODIUM_OF.clear();
         LAB_OF.clear();
         UNIV_ENTRY.clear();
@@ -5514,6 +5549,7 @@ public final class FarmTicker {
                 ACADEMICS.add(st.getIndividual().id());
                 if (si < tpl.studentSeats().size()) {
                     STUDY_SEAT_OF.put(st.getId(), uv.pos.offset(tpl.studentSeats().get(si++)));
+                    FACILITY_OF.put(st.getId(), uv);
                 }
                 if (st.getLodging() != null) {
                     usedBeds.add(st.getLodging().asLong());
@@ -5523,6 +5559,7 @@ public final class FarmTicker {
                 MimicEntity pf = profs.get(i);
                 if (i < tpl.professorSeats().size()) {
                     PODIUM_OF.put(pf.getId(), uv.pos.offset(tpl.professorSeats().get(i)));
+                    FACILITY_OF.put(pf.getId(), uv);
                 }
                 if (i < tpl.researchSeats().size()) {
                     LAB_OF.put(pf.getId(), uv.pos.offset(tpl.researchSeats().get(i)));

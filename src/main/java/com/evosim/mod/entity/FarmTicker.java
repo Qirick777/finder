@@ -4511,6 +4511,9 @@ public final class FarmTicker {
                         || FarmStore.get(level).ownedTiles(id) != 0 || m.getHomePos() == null
                         || m.getHomePos().equals(owner.getHomePos()) || PASTORS.contains(id)
                         || teachersToday.contains(id) || ACADEMICS.contains(id)
+                        // ACADEMICS 는 대학 정산(학교 정산 뒤)이 채우므로 여기서는 하루 늦다 — 개체 상태로 직접 본다.
+                        // 실측(무대 9): 석사 과정 학생이 전업 교사로도 임명돼 두 자리를 겸했다.
+                        || m.isStudent() || DOCTORS.contains(id) || PROFESSORS.contains(id)
                         || FarmStore.get(level).stewardOf(id) != 0L || FarmStore.get(level).overseerOf(id) != 0L
                         || POST_OF.containsKey(m.getId()) || m.inPoorhouse()) {
                     continue;

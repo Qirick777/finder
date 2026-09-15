@@ -351,6 +351,32 @@ public class MimicEntity extends PathfinderMob {
                 BlockPos via = MimicEntity.this.facilityGate(e.blockPosition());
                 return via != null ? super.createPath(via, 0) : super.createPath(e, accuracy);
             }
+
+            // <b>열린 뚜껑문은 벽이다.</b> 바닐라 길찾기는 뚜껑문 칸을 열림·닫힘 구분 없이 "지나갈 수 있음"(TRAPDOOR, 벌점 0)
+            // 으로 보는데, 열린 뚜껑문은 세워진 얇은 판이라 실제로는 못 지나간다. 도면은 책상·창틀에 열린 뚜껑문을
+            // 대학 45·교회 65·학교 37·집 10개씩 쓴다. 실측(런 34, evosim exitx): 연구실 책상 옆 칸에서 길찾기가
+            // 뚜껑문 칸으로 첫 걸음을 내고 미믹은 거기 부딪힌 채 1400틱 정지 — 교수가 그 자리에서 굶어 죽었고,
+            // 교회·집 안에서 "저장고 있음(귀가 우선)"인 채 굶어 죽던 정지도 같은 것으로 본다.
+            @Override
+            protected net.minecraft.world.level.pathfinder.PathFinder createPathFinder(int maxVisitedNodes) {
+                this.nodeEvaluator = new net.minecraft.world.level.pathfinder.WalkNodeEvaluator() {
+                    @Override
+                    public net.minecraft.world.level.pathfinder.BlockPathTypes getBlockPathType(
+                            net.minecraft.world.level.BlockGetter level, int x, int y, int z) {
+                        var t = super.getBlockPathType(level, x, y, z);
+                        if (t == net.minecraft.world.level.pathfinder.BlockPathTypes.TRAPDOOR) {
+                            BlockState st = level.getBlockState(new BlockPos(x, y, z));
+                            if (st.hasProperty(net.minecraft.world.level.block.TrapDoorBlock.OPEN)
+                                    && st.getValue(net.minecraft.world.level.block.TrapDoorBlock.OPEN)) {
+                                return net.minecraft.world.level.pathfinder.BlockPathTypes.BLOCKED;
+                            }
+                        }
+                        return t;
+                    }
+                };
+                this.nodeEvaluator.setCanPassDoors(true);
+                return new net.minecraft.world.level.pathfinder.PathFinder(this.nodeEvaluator, maxVisitedNodes);
+            }
         };
         nav.setCanOpenDoors(true);
         nav.setCanPassDoors(true);

@@ -117,6 +117,15 @@ public final class EvoSimCommand {
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(ctx -> goalsReport(ctx, StringArgumentType.getString(ctx, "name")))))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
+                .then(Commands.literal("exitx")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                        .then(Commands.argument("hx", IntegerArgumentType.integer())
+                                                .then(Commands.argument("hz", IntegerArgumentType.integer())
+                                                        .executes(ctx -> exitProbe(ctx, IntegerArgumentType.getInteger(ctx, "x"),
+                                                                IntegerArgumentType.getInteger(ctx, "z"),
+                                                                IntegerArgumentType.getInteger(ctx, "hx"),
+                                                                IntegerArgumentType.getInteger(ctx, "hz"))))))))
                 .then(Commands.literal("larder")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
                                 .then(Commands.argument("z", IntegerArgumentType.integer())
@@ -5547,6 +5556,88 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format("§e[저장고]§r @%d,%d (%.0f블록) %.1f → %d", best.getX(), best.getZ(),
                 Math.sqrt(bd), before, amount));
         return 1;
+    }
+
+    /**
+     * <b>검증 전용 — 탈출 진단.</b> (x,z) 에 성년 하나를 세우고 거처를 (hx,hz)(저장고 20)로 준 채 소지 0.5 로 둔다.
+     * 귀가 goal 이 즉시 집으로 가야 한다. 100틱마다 위치·바닥·충돌·실행 goal·경로 상태를 "탈출진단"으로 남기고,
+     * 출발점에서 12블록 넘게 벗어나면 PASS. 건물 안(대학·교회·집 문 뒤)에서 굶어 죽는 정지의 원인을 값으로 가르기 위한 것.
+     */
+    private static int exitProbe(CommandContext<CommandSourceStack> ctx, int x, int z, int hx, int hz) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        // 건물 <b>안</b>에 세워야 하므로 높이맵(지붕)이 아니라 그 열의 가장 낮은 설 수 있는 칸을 쓴다.
+        BlockPos origin = lowestFloor(level, x, z);
+        BlockPos home = lowestFloor(level, hx, hz);
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(origin), Sex.MALE);
+        if (m == null) {
+            tell(ctx.getSource(), "스폰 실패");
+            return 0;
+        }
+        m.setHomePos(home);
+        LarderStore.get(level).set(home, 20.0);
+        m.debugSetHolding(0.5);
+        int[] tick = {0};
+        Boolean[] verdict = {null};
+        String[] detail = {"..."};
+        LiveCheck.watch(ctx.getSource(), "exit_probe", 1500,
+                () -> detail[0],
+                () -> {
+                    if (verdict[0] != null) {
+                        return verdict[0];
+                    }
+                    tick[0]++;
+                    if (tick[0] % 100 != 0) {
+                        return false;
+                    }
+                    BlockPos bp = m.blockPosition();
+                    StringBuilder gs = new StringBuilder();
+                    m.goalSelector.getRunningGoals().forEach(w -> {
+                        if (gs.length() > 0) {
+                            gs.append('+');
+                        }
+                        gs.append(w.getGoal().getClass().getSimpleName().replace("Mimic", "").replace("Goal", ""));
+                    });
+                    var nav = m.getNavigation();
+                    var cur = nav.getPath();
+                    var path = nav.createPath(home, 0);
+                    String p = path == null ? "경로없음" : path.canReach() ? "도달가능(" + path.getNodeCount() + "노드)"
+                            : String.format("부분경로(종점 @%d,%d)", path.getEndNode() == null ? 0 : path.getEndNode().x,
+                                    path.getEndNode() == null ? 0 : path.getEndNode().z);
+                    String c = cur == null ? "현재경로 없음" : String.format("현재경로 %d/%d 끝%s 표적 @%d,%d",
+                            cur.getNextNodeIndex(), cur.getNodeCount(), cur.isDone() ? "남" : "안남",
+                            cur.getTarget().getX(), cur.getTarget().getZ());
+                    double moved = Math.sqrt(bp.distSqr(origin));
+                    detail[0] = String.format("t%d 내 @%d,%d y%d · 이동 %.0f · 바닥 %b · 충돌 %b · goal [%s] · 네비%s · %s · 집까지 %s · H %.2f",
+                            tick[0], bp.getX(), bp.getZ(), bp.getY(), moved, m.onGround(), m.horizontalCollision, gs,
+                            nav.isDone() ? "끝남" : "진행", c, p, m.getHolding());
+                    SimEvents.event(m, "탈출진단", detail[0]);
+                    if (moved > 12.0) {
+                        verdict[0] = true;
+                        SimEvents.event(m, "탈출진단", "PASS — 출발점에서 " + (int) moved + "블록 벗어남");
+                    } else if (tick[0] >= 1400) {
+                        verdict[0] = false;
+                        SimEvents.event(m, "탈출진단", "FAIL — 1400틱 동안 " + (int) moved + "블록");
+                    }
+                    return verdict[0] != null && verdict[0];
+                },
+                () -> m.discard());
+        tell(ctx.getSource(), String.format("탈출 진단 — @%d,%d(y%d) 에서 거처 @%d,%d(y%d) 로. 1500틱, 100틱마다 탈출진단 로그.",
+                origin.getX(), origin.getZ(), origin.getY(), home.getX(), home.getZ(), home.getY()));
+        return 1;
+    }
+
+    /** 열 (x,z) 에서 가장 낮은 "발 딛는 칸" — 아래 단단·자리 공기·머리 공기. 없으면 높이맵. */
+    private static BlockPos lowestFloor(ServerLevel level, int x, int z) {
+        for (int y = level.getMinBuildHeight() + 1; y < 60; y++) {
+            BlockPos p = new BlockPos(x, y, z);
+            if (!level.getBlockState(p.below()).isAir() && level.getBlockState(p.below()).isSolid()
+                    && level.getBlockState(p).isAir() && level.getBlockState(p.above()).isAir()) {
+                return p;
+            }
+        }
+        return groundAt(level, new Vec3(x + 0.5, 64, z + 0.5), 0, 0);
     }
 
     private static int siteTest(CommandContext<CommandSourceStack> ctx) {

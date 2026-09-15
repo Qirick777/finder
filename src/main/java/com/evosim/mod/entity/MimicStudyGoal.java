@@ -17,6 +17,8 @@ public class MimicStudyGoal extends Goal {
     private static final double ARRIVE_SQ = 2.25;
     private static final int STUCK_GIVE_UP = 600;
     private final MimicEntity mob;
+    /** 이 goal 이 리시 앵커를 세워 둔 상태 — 선점 정지(stop)에서는 지우지 않고 자연 종료에서만 내린다. */
+    private boolean anchored;
     private BlockPos seat;
     private BlockPos lastPos;
     private int stuck;
@@ -37,17 +39,26 @@ public class MimicStudyGoal extends Goal {
         return Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime()) == Schedule.Phase.WORK;
     }
 
+    /** 자연 종료 — 근무 밖·자리 없음이면 앵커를 내린다(리시 앵커가 거처/기숙사로 복원). */
+    private boolean release() {
+        if (anchored) {
+            mob.setWorkAnchor(null);
+            anchored = false;
+        }
+        return false;
+    }
+
     @Override
     public boolean canUse() {
         if (!onDuty()) {
-            return false;
+            return release();
         }
         long today = SimTime.tick(mob.level()) / 24000L;
         if (today == gaveUpDay) {
-            return false;
+            return release(); // 오늘은 결석 — 리시가 기숙사/거처로 데려가게 앵커를 내린다
         }
         seat = FarmTicker.studySeatOf(mob);
-        return seat != null;
+        return seat != null || release();
     }
 
     @Override
@@ -60,6 +71,7 @@ public class MimicStudyGoal extends Goal {
         stuck = 0;
         lastPos = mob.blockPosition();
         mob.setWorkAnchor(seat);
+        anchored = true;
         mob.setActivity("수업");
         probe = 0;
         long day = SimTime.tick(mob.level()) / 24000L;
@@ -85,7 +97,9 @@ public class MimicStudyGoal extends Goal {
 
     @Override
     public void stop() {
-        mob.setWorkAnchor(null);
+        // 앵커는 여기서 지우지 않는다 — 리시(2)가 호위를 인수하는 순간 stop 이 불리는데 그때 지우면 앵커가
+        // 거처로 돌아가 리시가 되끌고, 다시 이 goal 이 서는 줄다리기가 된다(밭일·등교 goal 의 stop 과 같은 경고).
+        // 실측(무대 4, d19): 학생이 집 근처(−22,−25)와 좌석 사이를 오가기만 하고 하루 종일 착석 0.
         seat = null;
     }
 

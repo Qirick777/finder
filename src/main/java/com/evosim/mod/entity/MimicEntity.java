@@ -402,10 +402,26 @@ public class MimicEntity extends PathfinderMob {
      * 내 위치와 표적이 큰 시설(대학) 점유 상자의 <b>안팎으로 갈릴 때</b> 먼저 밟을 문 앞 칸. 같은 쪽이면 null.
      * 문 앞 칸에 이미 붙어 있으면(수평 2.5블록) null — 거기서는 곧장 표적으로 낸다.
      */
+    /** 지금 향하는 문 칸(경유 중). 닿을 때까지 유지 — 문턱 언저리에서 경유/직행이 매 틱 뒤집히지 않게. */
+    @Nullable
+    private BlockPos gateTarget;
+
     @Nullable
     private BlockPos facilityGate(BlockPos target) {
         if (!(level() instanceof ServerLevel sl)) {
             return null;
+        }
+        // <b>이력.</b> 경유 중이면 문 칸 1.5블록 안에 닿을 때까지 그 문을 유지한다. 실측(exitx, 현관 옆 @9,-85): 문 칸까지
+        // 3.16블록이라 문턱(3.0)에 걸쳐 있어, 반 칸만 움직여도 경유↔직행이 뒤집혔다 — 턱을 올랐다가 직행 경로의 첫 노드
+        // (제 칸의 땅 높이)로 도로 내려서기를 1400틱 반복. 경유는 시작하면 끝까지 간다.
+        if (gateTarget != null) {
+            double gx = getX() - (gateTarget.getX() + 0.5);
+            double gz = getZ() - (gateTarget.getZ() + 0.5);
+            if (gx * gx + gz * gz <= 2.25) {
+                gateTarget = null; // 문에 닿았다 — 이제 곧장 표적으로
+                return null;
+            }
+            return gateTarget;
         }
         for (FacilityStore.Entry e : FacilityStore.get(sl).all()) {
             if (e.kind.group != FacilityTemplate.Group.UNIVERSITY) {
@@ -442,7 +458,11 @@ public class MimicEntity extends PathfinderMob {
             }
             double dx = getX() - (best.getX() + 0.5);
             double dz = getZ() - (best.getZ() + 0.5);
-            return dx * dx + dz * dz <= 9.0 ? null : best;
+            if (dx * dx + dz * dz <= 9.0) {
+                return null;
+            }
+            gateTarget = best;
+            return best;
         }
         return null;
     }

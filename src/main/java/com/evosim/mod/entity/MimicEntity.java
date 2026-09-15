@@ -278,7 +278,12 @@ public class MimicEntity extends PathfinderMob {
                 .add(Attributes.MOVEMENT_SPEED, BASE_SPEED)
                 .add(Attributes.FOLLOW_RANGE, 160.0D) // 경로 최대거리 — 리시반경32·구혼64·마실/이주96 커버(96×1.6). 전투는 Combat.detectionRange 별도
                 // 전투 시 doHurtTarget 이 공격력 속성을 읽으므로 반드시 등록(없으면 크래시).
-                .add(Attributes.ATTACK_DAMAGE, BASE_ATTACK);
+                .add(Attributes.ATTACK_DAMAGE, BASE_ATTACK)
+                // <b>한 칸 턱은 걸어 오른다.</b> 실측(런 34, evosim exitx): 시설 바닥은 지면보다 한 칸 높은데(기단), 현관 옆으로
+                // 내려선 미믹이 다시 못 올라 1400틱 동안 뛰기만 했다(정밀위치 y 0.75 · 수직속도 0.25 · 수평속도 0). 뛰어서 오르는
+                // 바닐라 방식은 몸 방향이 이동 방향과 어긋나면(리시가 앵커를 바라보게 함) 수평 이동이 없어 실패한다.
+                // 평지 세계라 이제껏 드러나지 않았다. 계단 높이를 1.1 로 두어 뛰지 않고 딛게 한다(말과 같은 방식).
+                .add(net.minecraftforge.common.ForgeMod.STEP_HEIGHT_ADDITION.get(), 0.5D);
     }
 
     /**

@@ -334,10 +334,73 @@ public class MimicEntity extends PathfinderMob {
      */
     @Override
     protected PathNavigation createNavigation(Level level) {
-        GroundPathNavigation nav = new GroundPathNavigation(this, level);
+        GroundPathNavigation nav = new GroundPathNavigation(this, level) {
+            // <b>큰 건물은 문을 거쳐 드나든다.</b> 안에서 밖(또는 밖에서 안)으로 가는 경로를 곧장 내면 길찾기가
+            // 벽까지의 부분경로를 내고 그 자리에서 굳는다 — 실측(런 34, evosim exitx): 대학 안 @-27,-94 에서
+            // 집(@-101,-37)까지 "부분경로(종점 @-29,-70 = 남쪽 기숙사 벽)" · 1400틱 무진전 · 교수가 굶어 죽음.
+            // 학교(21×18)에서는 안 드러났고 41×43 대학에서 드러났다. 문 앞 칸까지 먼저 가고, 거기서 다시 낸다.
+            // 어느 goal 이 부르든(리시·귀가·등교) 한 곳에서 잡는다.
+            @Override
+            public net.minecraft.world.level.pathfinder.Path createPath(BlockPos target, int accuracy) {
+                BlockPos via = MimicEntity.this.facilityGate(target);
+                return via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
+            }
+
+            @Override
+            public net.minecraft.world.level.pathfinder.Path createPath(net.minecraft.world.entity.Entity e, int accuracy) {
+                BlockPos via = MimicEntity.this.facilityGate(e.blockPosition());
+                return via != null ? super.createPath(via, 0) : super.createPath(e, accuracy);
+            }
+        };
         nav.setCanOpenDoors(true);
         nav.setCanPassDoors(true);
         return nav;
+    }
+
+    /**
+     * 내 위치와 표적이 큰 시설(대학) 점유 상자의 <b>안팎으로 갈릴 때</b> 먼저 밟을 문 앞 칸. 같은 쪽이면 null.
+     * 문 앞 칸에 이미 붙어 있으면(수평 2.5블록) null — 거기서는 곧장 표적으로 낸다.
+     */
+    @Nullable
+    private BlockPos facilityGate(BlockPos target) {
+        if (!(level() instanceof ServerLevel sl)) {
+            return null;
+        }
+        for (FacilityStore.Entry e : FacilityStore.get(sl).all()) {
+            if (e.kind.group != FacilityTemplate.Group.UNIVERSITY) {
+                continue;
+            }
+            if (Math.abs(e.pos.getX() - getX()) > 80 || Math.abs(e.pos.getZ() - getZ()) > 80) {
+                continue;
+            }
+            var tplOpt = FacilityTemplate.of(sl, e.kind, e.rotation, e.mirrored);
+            if (tplOpt.isEmpty()) {
+                continue;
+            }
+            FacilityTemplate tpl = tplOpt.get();
+            boolean meIn = tpl.boxCovers(e.pos, getX(), getZ(), 0.0);
+            boolean targetIn = tpl.boxCovers(e.pos, target.getX() + 0.5, target.getZ() + 0.5, 0.0);
+            if (meIn == targetIn) {
+                continue;
+            }
+            BlockPos best = null;
+            double bd = Double.MAX_VALUE;
+            for (BlockPos rel : tpl.doorSteps()) {
+                BlockPos p = e.pos.offset(rel);
+                double d = blockPosition().distSqr(p);
+                if (d < bd) {
+                    bd = d;
+                    best = p;
+                }
+            }
+            if (best == null) {
+                return null;
+            }
+            double dx = getX() - (best.getX() + 0.5);
+            double dz = getZ() - (best.getZ() + 0.5);
+            return dx * dx + dz * dz <= 6.25 ? null : best;
+        }
+        return null;
     }
 
     @Override

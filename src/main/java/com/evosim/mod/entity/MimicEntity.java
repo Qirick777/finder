@@ -3708,7 +3708,7 @@ public class MimicEntity extends PathfinderMob {
         BlockPos centre = studentCentre(sl, id, homePos);
         BlockPos site = facilitySite(sl, centre, tpl.get(), FarmTicker.followerHomesOf(id),
                 new GapSpec(reg, FacilityTemplate.Group.HOSPITAL, com.evosim.core.Hospital.MIN_GAP,
-                        0L, com.evosim.core.Hospital.MIN_GAP));
+                        0L, com.evosim.core.Hospital.MIN_GAP), com.evosim.core.Hospital.SITE_RADIUS);
         if (site == null) {
             SimEvents.event(founder, "병원", String.format(
                     "자리 없음 — 추종자%d · 거부 집%d 밭%d 물%d 낙차%d 간격%d", followers,
@@ -3907,7 +3907,8 @@ public class MimicEntity extends PathfinderMob {
             return "도면을 읽을 수 없다";
         }
         int radius = kind == FacilityTemplate.Kind.UNIVERSITY
-                ? com.evosim.core.University.SITE_RADIUS : Facilities.SEARCH_RADIUS;
+                ? com.evosim.core.University.SITE_RADIUS
+                : kind == FacilityTemplate.Kind.HOSPITAL ? com.evosim.core.Hospital.SITE_RADIUS : Facilities.SEARCH_RADIUS;
         BlockPos site = facilitySite(sl, from, tpl.get(), List.of(), null, radius);
         String where = site == null ? "자리 없음"
                 : String.format("@%d,%d (%.0f블록)", site.getX(), site.getZ(),

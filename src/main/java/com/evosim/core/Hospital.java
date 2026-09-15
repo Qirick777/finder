@@ -29,6 +29,10 @@ public final class Hospital {
     /** 설립 — 추종 가구 문턱, 같은 갈래 간격. */
     public static final int MIN_FOLLOWERS = 10;
     public static final double MIN_GAP = 96.0;
+    /** 부지 탐색 한계(블록). 학교 등은 64 인데, 시설이 여럿 선 마을(학교 2·교회·막사·대학·구빈원·우물)에서는
+     *  64 안에 다른 갈래 간격을 만족하는 자리가 없었다(실측 무대 7: 간격 거부 181 · 자리 없음). 반경 64 진료권 밖에
+     *  서더라도 없는 것보다 낫다. */
+    public static final int SITE_RADIUS = 96;
 
     /** 하루 회복 확률 — 의사 학위(0 무학위 의사 없음 취급, 1 학사 60%, 2 석사 80%). 의사 없음(-1) 30%. */
     public static double recoveryChance(int doctorDegree) {

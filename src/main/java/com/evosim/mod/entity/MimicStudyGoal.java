@@ -106,6 +106,15 @@ public class MimicStudyGoal extends Goal {
         seat = null;
     }
 
+
+    /** 문 앞 칸에 닿았나 — <b>수평</b> 2.5블록. 문 앞 칸은 도면 기준 높이라 바깥 땅과 한 칸 어긋날 수 있어
+     *  거리제곱에 높이를 넣으면 영영 못 닿는다(실측 무대 7: 현관 앞 2칸 @-32,-65 에서 하루 종일 정지). */
+    private boolean nearHop(BlockPos hop) {
+        double dx = mob.getX() - (hop.getX() + 0.5);
+        double dz = mob.getZ() - (hop.getZ() + 0.5);
+        return dx * dx + dz * dz <= 6.25;
+    }
+
     @Override
     public void tick() {
         if (seat == null) {
@@ -128,7 +137,7 @@ public class MimicStudyGoal extends Goal {
         // 건물 밖이면 문 앞 칸을 먼저 밟는다 — 담장의 가장 가까운 점에 붙어 굳지 않게. 리시 앵커도 그 칸.
         BlockPos hop = mob.level() instanceof net.minecraft.server.level.ServerLevel sl
                 ? FarmTicker.entryFor(sl, mob) : null;
-        BlockPos go = hop != null && mob.blockPosition().distSqr(hop) > ARRIVE_SQ ? hop : seat;
+        BlockPos go = hop != null && !nearHop(hop) ? hop : seat;
         mob.setWorkAnchor(go);
         if (mob.getNavigation().isDone() || !go.equals(lastGo)) {
             mob.getNavigation().moveTo(go.getX() + 0.5, go.getY(), go.getZ() + 0.5, 1.0);

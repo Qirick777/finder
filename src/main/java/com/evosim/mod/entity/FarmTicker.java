@@ -5403,21 +5403,41 @@ public final class FarmTicker {
             }
             students.sort(java.util.Comparator.comparingLong(m -> m.getIndividual().id()));
             double income = 0.0;
+            // 석사 과정 정원은 연구실 수다. 루프 안에서 세면 먼저 처리되는 졸업생이 뒤의 재학 석사를 못 보고
+            // 들어온다(실측 무대 7: 연구실 3에 석사 4). 재학 석사를 미리 센다 — 루프에서는 졸업·중퇴로 빠질 때 뺀다.
             int masters = 0;
+            for (MimicEntity m : students) {
+                if (m.getStudyTarget() == com.evosim.core.Degree.MASTER) {
+                    masters++;
+                }
+            }
+            java.util.Set<Long> infantHomes = new java.util.HashSet<>();
+            for (MimicEntity m : everyone) {
+                if (m.getStage() == com.evosim.core.LifeStage.INFANT && m.getHomePos() != null) {
+                    infantHomes.add(m.getHomePos().asLong());
+                }
+            }
             java.util.List<MimicEntity> keep = new java.util.ArrayList<>();
             for (MimicEntity st : students) {
+                boolean wasMaster = st.getStudyTarget() == com.evosim.core.Degree.MASTER;
                 if (st.isCaregiverBound()) {
                     // 유아 돌봄 전담이 되면 학업을 접는다 — 실측(무대 6): 재학 중 출산한 학생이 육아(1)와 리시(2) 사이를
                     // 오가며 하루 종일 집 앞에서 H 1.15→0.43 으로 굶었다. 등록금·기숙비만 나가고 출석은 0 이었다.
                     com.evosim.mod.log.SimEvents.event(st, "중퇴", "유아 돌봄 전담 — 학업 중단");
                     reg.note(uv, day, "중퇴(육아) — " + st.getIndividual().shortName());
                     st.leaveUniversity();
+                    if (wasMaster) {
+                        masters--;
+                    }
                     UNIV_SUM[1]++;
                     continue;
                 }
                 if (st.getStage() != com.evosim.core.LifeStage.ADULT || st.getHomePos() == null) {
                     com.evosim.mod.log.SimEvents.event(st, "중퇴", "성년이 아니거나 거처 없음");
                     st.leaveUniversity();
+                    if (wasMaster) {
+                        masters--;
+                    }
                     UNIV_SUM[1]++;
                     continue;
                 }
@@ -5441,6 +5461,9 @@ public final class FarmTicker {
                             com.evosim.core.University.dropout(st.getUnpaidDays()) ? " · 중퇴" : " (내일까지 유예)"));
                     if (com.evosim.core.University.dropout(st.getUnpaidDays())) {
                         st.leaveUniversity();
+                    if (wasMaster) {
+                        masters--;
+                    }
                         UNIV_SUM[1]++;
                         continue;
                     }
@@ -5465,18 +5488,21 @@ public final class FarmTicker {
                         com.evosim.mod.log.SimEvents.event(st, "졸업", "학사 취득 — 연구실 없어 수료(석사는 자리가 나면)");
                         reg.note(uv, day, "졸업(학사) — " + st.getIndividual().shortName());
                         st.leaveUniversity();
+                    if (wasMaster) {
+                        masters--;
+                    }
                         continue;
                     }
                     UNIV_SUM[3]++;
                     com.evosim.mod.log.SimEvents.event(st, "졸업", "석사 취득 — 교수·마름·지휘관·의사 자격");
                     reg.note(uv, day, "졸업(석사) — " + st.getIndividual().shortName());
                     st.leaveUniversity();
+                    if (wasMaster) {
+                        masters--;
+                    }
                     continue;
                 }
-                if (st.getStudyTarget() == com.evosim.core.Degree.MASTER) {
-                    masters++;
-                }
-                keep.add(st);
+                keep.add(st); // 재학 석사는 위에서 미리 셌다
             }
             students = keep;
             // ── ③ 신입 — 정원 안에서. 상급 학력 성년, 학위 미완, 곳간 조건, 겸직 없음, 192 이내.
@@ -5540,6 +5566,11 @@ public final class FarmTicker {
                 for (MimicEntity a : far) {
                     if (students.size() >= cap || lodgers >= tpl.dormBeds().size()) {
                         break;
+                    }
+                    if (infantHomes.contains(a.getHomePos().asLong())) {
+                        // 유아가 있는 집의 성인은 기숙 입학을 안 받는다 — 실측(무대 7): 기숙 학생 두 집에서 유아가
+                        // "성인 부재 3일 방치"로 죽었다. 통학(64 안)은 밤에 집에 있으므로 그대로 둔다.
+                        continue;
                     }
                     BlockPos bed = uv.pos.offset(tpl.dormBeds().get(lodgers));
                     admit(level, uv, tpl, a, bed, Math.sqrt(a.getHomePos().distSqr(uv.pos)), day);

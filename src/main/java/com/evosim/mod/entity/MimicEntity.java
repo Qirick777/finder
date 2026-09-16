@@ -486,7 +486,9 @@ public class MimicEntity extends PathfinderMob {
             } else {
                 double gx = getX() - (relayTarget.getX() + 0.5);
                 double gz = getZ() - (relayTarget.getZ() + 0.5);
-                if (gx * gx + gz * gz > 2.25) {
+                // 닿음 판정은 3블록 — 시설 문 칸이 마디일 때 경로가 문 앞 2.2블록에서 끝나 1.5블록 안에 영영 못 들었다
+                // (무대 시험 서→동: 교회 문 @-51,36 앞 @-53,37 에서 6000틱). RelayNet.via 의 "내 마디에 닿았다" 기준(3)과 같다.
+                if (gx * gx + gz * gz > 9.0) {
                     return relayTarget;
                 }
                 relayTarget = null; // 마디에 닿았다 — 다음 마디를 다시 묻는다
@@ -496,14 +498,13 @@ public class MimicEntity extends PathfinderMob {
         if (v != null) {
             relayTarget = v;
             relayFinal = target;
-            // 로그는 마디가 바뀔 때만 — goal 이 번갈아 부르면 같은 마디가 틱마다 찍혔다(런 38: 1157줄).
+            // 로그는 마디가 바뀔 때만 — goal 이 번갈아 부르면 같은 마디가 틱마다 찍혔다(런 38: 1157줄). 가까운 표적
+            // (경유 없음) 호출이 끼어도 마지막 기록을 지우지 않는다 — 지우면 같은 마디가 걸음마다 다시 찍힌다.
             if (relayLogged == null || relayLogged.getX() != v.getX() || relayLogged.getZ() != v.getZ()) {
                 relayLogged = v;
                 SimEvents.event(this, "이정표경유", String.format("마디 @%d,%d 로 (표적 @%d,%d · 직선 %.0f)",
                         v.getX(), v.getZ(), target.getX(), target.getZ(), Math.sqrt(blockPosition().distSqr(target))));
             }
-        } else {
-            relayLogged = null;
         }
         return v;
     }

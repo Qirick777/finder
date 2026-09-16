@@ -5521,30 +5521,57 @@ public final class FarmTicker {
             }
             if (!profs.isEmpty() && students.size() < cap) {
                 java.util.List<MimicEntity> pool = new java.util.ArrayList<>();
+                // <b>입학 깔때기 계측</b> — "학생이 왜 적은가"를 반경 탓인지 곳간·겸직 탓인지 값으로 가른다.
+                // [상급 성년, 이미 학생/학위완, 육아, 위급, 겸직(병사·마름·감독·목사·교사·교수·구빈원), 반경 밖, 연구실 없음, 곳간 부족, 후보]
+                int[] fun = new int[9];
                 for (MimicEntity a : adults) {
                     long aid = a.getIndividual().id();
-                    if (a.isStudent() || aid == uv.ownerId || a.getHomePos() == null
-                            || a.getStage() != com.evosim.core.LifeStage.ADULT || a.isCaregiverBound()
-                            || a.isCritical() || POST_OF.containsKey(a.getId()) || a.inPoorhouse()
+                    if (a.getStage() != com.evosim.core.LifeStage.ADULT || a.getHomePos() == null
+                            || a.schoolLevel() < com.evosim.core.Schooling.MAX_LEVEL || aid == uv.ownerId) {
+                        continue;
+                    }
+                    fun[0]++;
+                    if (a.isStudent() || a.getDegree() >= com.evosim.core.Degree.MASTER) {
+                        fun[1]++;
+                        continue;
+                    }
+                    if (a.isCaregiverBound()) {
+                        fun[2]++;
+                        continue;
+                    }
+                    if (a.isCritical()) {
+                        fun[3]++;
+                        continue;
+                    }
+                    if (POST_OF.containsKey(a.getId()) || a.inPoorhouse()
                             || fs.stewardOf(aid) != 0L || fs.overseerOf(aid) != 0L || PASTORS.contains(aid)
                             || FULLTIME_TEACHERS.contains(aid) || PROFESSORS.contains(aid)) {
+                        fun[4]++;
                         continue;
                     }
                     double dist = Math.sqrt(a.getHomePos().distSqr(uv.pos));
                     if (dist > com.evosim.core.University.LODGE_RANGE) {
+                        fun[5]++;
                         continue;
                     }
                     if (a.getDegree() == com.evosim.core.Degree.BACHELOR && masters >= tpl.researchSeats().size()) {
+                        fun[6]++;
                         continue; // 석사 과정은 연구실 자리만큼
                     }
                     double need = com.evosim.core.FoodEconomy.consumptionPerDay(a.getStage(),
                             com.evosim.core.Activity.MOVE, a.getIndividual(), false);
                     if (!com.evosim.core.University.canEnroll(a.schoolLevel(), a.getDegree(),
                             larders.get(a.getHomePos()), need)) {
+                        fun[7]++;
                         continue;
                     }
+                    fun[8]++;
                     pool.add(a);
                 }
+                com.evosim.mod.log.SimEvents.event(owner, "입학후보", String.format(
+                        "상급 성년 %d → 재학·석사 %d · 육아 %d · 위급 %d · 겸직 %d · 반경(%.0f) 밖 %d · 연구실 없음 %d · 곳간 부족 %d → 후보 %d (정원 %d · 재학 %d · 침대 %d/%d)",
+                        fun[0], fun[1], fun[2], fun[3], fun[4], com.evosim.core.University.LODGE_RANGE, fun[5], fun[6], fun[7],
+                        fun[8], cap, students.size(), lodgers, tpl.dormBeds().size()));
                 pool.sort(java.util.Comparator
                         .comparingInt((MimicEntity a) -> (com.evosim.core.Multipliers.brightGrade(a.getIndividual()) > 0
                                 || com.evosim.core.ExpressionResolver.isExpressed(a.getIndividual(), com.evosim.core.Trait.HERBALIST)

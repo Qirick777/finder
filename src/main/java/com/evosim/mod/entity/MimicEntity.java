@@ -1625,6 +1625,21 @@ public class MimicEntity extends PathfinderMob {
     private int shelterRests;
     private long shelterRestDay = Long.MIN_VALUE;
 
+    /** 무대용 — 오늘 한도를 다 쓴 것으로 친다(쉼터 경로를 기다리지 않고 바로 시험). 회복이 끝나면 풀린다. */
+    private boolean debugCapOnce;
+
+    public void debugFillHarvestCap() {
+        this.debugCapOnce = true;
+    }
+
+    public boolean isDebugCapped() {
+        return debugCapOnce;
+    }
+
+    public void clearDebugCap() {
+        this.debugCapOnce = false;
+    }
+
     public void setHarvestCapped(boolean v) {
         this.harvestCapped = v;
     }

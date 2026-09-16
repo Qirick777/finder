@@ -63,6 +63,9 @@ public class MimicShelterGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        if (mob.shelterRestsToday() >= Facilities.SHELTER_RECOVER_MAX) {
+            mob.clearDebugCap(); // 무대용 강제 한도 해제 — 회복을 마쳤으면 다시 일하게 둔다
+        }
         return seat != null && mob.isHarvestCapped()
                 && mob.shelterRestsToday() < Facilities.SHELTER_RECOVER_MAX
                 && !mob.isCritical() && !mob.isUnderThreat()

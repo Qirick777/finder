@@ -87,7 +87,7 @@ public class MimicFarmGoal extends Goal {
         // ("출근하면 수확 + 수확할 게 없어도 놀지 않고 작물관리"). 관리는 수확량·소득을
         // 만들지 않으므로 용량·쿼터가 지키려는 것(수취 상한·노년 지원 누수)은 그대로 지켜진다.
         boolean harvestBlocked = false;
-        if (harvestedToday >= dailyCap()) {
+        if (harvestedToday >= dailyCap() || mob.isDebugCapped()) {
             harvestBlocked = true; // 전담창 소진 — 수확은 끝, 관리는 가능
             // 쉼터 방아쇠 — "이 구획에서 한도를 다 쓴 일꾼이 있었다"를 지주가 밤에 읽는다.
             long capPlot = FarmTicker.assignedPlot(mob.getId());

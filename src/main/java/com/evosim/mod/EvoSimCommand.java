@@ -110,6 +110,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("signposts").executes(EvoSimCommand::signpostsReport))
                 .then(Commands.literal("shelters").executes(EvoSimCommand::sheltersReport))
                 .then(Commands.literal("shelterplant").executes(EvoSimCommand::shelterPlant))
+                .then(Commands.literal("capfill").executes(EvoSimCommand::capFill))
                 .then(Commands.literal("signauto").executes(EvoSimCommand::signAuto))
                 .then(Commands.literal("signbuild")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
@@ -5811,6 +5812,32 @@ public final class EvoSimCommand {
         tell(ctx.getSource(), String.format("경유 시험 — @%d,%d 에서 거처 @%d,%d(직선 %.0f) 로. 6000틱, 200틱마다 경유진단 로그.",
                 origin.getX(), origin.getZ(), home.getX(), home.getZ(), total));
         return 1;
+    }
+
+    /** 무대용 — 쉼터가 돌보는 구획의 소작들을 "오늘 한도 소진" 상태로 만든다(쉼터 경로를 바로 시험). */
+    private static int capFill(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        int n = 0;
+        StringBuilder who = new StringBuilder();
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096))) {
+            if (m.getIndividual() == null) {
+                continue;
+            }
+            long pid = FarmTicker.assignedPlot(m.getId());
+            if (pid == 0L || FarmTicker.shelterForWorker(level, m) == null) {
+                continue;
+            }
+            m.debugFillHarvestCap();
+            n++;
+            if (who.length() < 120) {
+                who.append(who.length() == 0 ? "" : ", ").append(m.getIndividual().shortName())
+                        .append("(구획").append(pid).append(" @").append(m.blockPosition().getX())
+                        .append(',').append(m.blockPosition().getZ()).append(')');
+            }
+        }
+        tell(ctx.getSource(), String.format("[쉼터무대] 한도 소진 처리 %d명 — %s", n, n == 0 ? "쉼터가 돌보는 구획에 배정된 소작이 없다" : who));
+        return n > 0 ? 1 : 0;
     }
 
     /** 무대용 — 가장 큰 구획 옆에 쉼터를 즉시 세운다(방아쇠·곳간 무시). 시공 경로가 아니라 회복 규칙을 본다. */

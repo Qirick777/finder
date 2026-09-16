@@ -119,7 +119,7 @@ public class MimicWatchGoal extends Goal {
                     if (gs.length() > 0) {
                         gs.append('+');
                     }
-                    gs.append(w.getGoal().getClass().getSimpleName()
+                    gs.append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName()
                             .replace("Mimic", "").replace("Goal", ""));
                 });
                 SimEvents.event(mob, "경계", String.format(

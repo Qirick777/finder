@@ -358,7 +358,13 @@ public class MimicEntity extends PathfinderMob {
             @Override
             public net.minecraft.world.level.pathfinder.Path createPath(BlockPos target, int accuracy) {
                 BlockPos via = MimicEntity.this.facilityGate(target);
-                return via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
+                if (!com.evosim.mod.perf.Perf.on) {
+                    return via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
+                }
+                long t0 = System.nanoTime();
+                var p = via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
+                com.evosim.mod.perf.Perf.path(System.nanoTime() - t0, p == null, p != null && !p.canReach());
+                return p;
             }
 
             @Override
@@ -475,53 +481,53 @@ public class MimicEntity extends PathfinderMob {
         // 돌봄·건축 중인 개체가 문 앞에서 영영 멈춘다. 발동 조건이 좁아 상시 점유 위험은 없다:
         // 바닐라 DoorInteractGoal 은 <b>실제로 벽에 부딪혔고</b>(horizontalCollision) 현재 경로의
         // 코앞(2.25블록)에 문이 있을 때만 켜진다. FloatGoal(0)은 JUMP 플래그라 충돌하지 않는다.
-        this.goalSelector.addGoal(0, new OpenDoorGoal(this, true)); // true = 지나간 뒤 닫는다
-        this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new MimicBuildGoal(this));     // 거처 건축(부지로 이동·머묾)
-        this.goalSelector.addGoal(1, new MimicParentingGoal(this)); // 유아 돌봄(거처 반경 구속)
-        this.goalSelector.addGoal(2, new MimicCombatGoal(this));    // 전투 진입/도망(§13-B)
+        this.goalSelector.addGoal(0, com.evosim.mod.perf.Perf.timed(new OpenDoorGoal(this, true))); // true = 지나간 뒤 닫는다
+        this.goalSelector.addGoal(0, com.evosim.mod.perf.Perf.timed(new FloatGoal(this)));
+        this.goalSelector.addGoal(1, com.evosim.mod.perf.Perf.timed(new MimicBuildGoal(this)));     // 거처 건축(부지로 이동·머묾)
+        this.goalSelector.addGoal(1, com.evosim.mod.perf.Perf.timed(new MimicParentingGoal(this))); // 유아 돌봄(거처 반경 구속)
+        this.goalSelector.addGoal(2, com.evosim.mod.perf.Perf.timed(new MimicCombatGoal(this)));    // 전투 진입/도망(§13-B)
         // 주둔 — 밭일(6)보다 앞이다. 군인은 전업이라 근무 시간에 밭·채집으로 새면 안 된다.
         // 리시(2)보다는 뒤라 반경 이탈 시 호위를 받는다(막사가 앵커라 막사로 데려다 준다).
-        this.goalSelector.addGoal(4, new MimicGarrisonGoal(this));
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicGarrisonGoal(this)));
         // 경비 — 주둔과 <b>같은 우선순위·같은 자리</b>에 둔다. 한 개체가 둘 다 걸리는 일은
         // 없다(군인은 막사 배속, 경비대원은 시설 소속이고 승격하면 소속이 풀린다). 밤 귀가(4)
         // 보다 <b>먼저 등록</b>해야 한다 — 같은 순위에서는 먼저 붙은 쪽이 MOVE 를 잡으므로,
         // 뒤에 두면 야간 경계가 매일 밤 귀가에 선점당해 한 번도 안 돈다.
-        this.goalSelector.addGoal(4, new MimicWatchGoal(this));
-        this.goalSelector.addGoal(2, new MimicLeashGoal(this));     // 활동반경 리시(앵커 복귀, 분산 방지)
-        this.goalSelector.addGoal(2, new MimicShareGoal(this));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicWatchGoal(this)));
+        this.goalSelector.addGoal(2, com.evosim.mod.perf.Perf.timed(new MimicLeashGoal(this)));     // 활동반경 리시(앵커 복귀, 분산 방지)
+        this.goalSelector.addGoal(2, com.evosim.mod.perf.Perf.timed(new MimicShareGoal(this)));     // 가족 나눔(가드①: 배우자 위급 > 노인 배달)
         // 노인 방문(ElderVisitGoal — 자식 집 배달·마실 육아)은 <b>등록하지 않는다</b>(인구 제동
         // 1단계): 노년은 은퇴라 goal 을 돌리지 않고, 자식 지원은 성년 부모의 밤 정산
         // (FarmTicker.supportChildren · ChildSupport)이 맡는다. 클래스는 기록으로 남긴다.
-        this.goalSelector.addGoal(3, new MimicReturnGoal(this));    // 식량 귀가: 넣으러/꺼내러(v2, 밥이 구애보다 먼저)
+        this.goalSelector.addGoal(3, com.evosim.mod.perf.Perf.timed(new MimicReturnGoal(this)));    // 식량 귀가: 넣으러/꺼내러(v2, 밥이 구애보다 먼저)
         // 구걸(3) — 복귀(3) <b>뒤</b>에 등록한다. 같은 우선순위에서는 먼저 등록된 쪽이 MOVE 를
         // 먼저 집으므로, 제 저장고에 꺼낼 것이 남았으면 남의 집에 손 벌리기 전에 집으로 간다.
-        this.goalSelector.addGoal(3, new MimicBegGoal(this));
-        this.goalSelector.addGoal(3, new MimicCourtshipGoal(this)); // 방랑자 구애(§10, 배회 시간)
-        this.goalSelector.addGoal(4, new MimicHomeGoal(this));      // 밤 귀가(§3, 취침·정산 대비)
-        this.goalSelector.addGoal(5, new MimicRestGoal(this));      // 취침(집에서 밤새 쉼)
-        this.goalSelector.addGoal(6, new MimicFarmGoal(this)); // 자기 밭 우선 — 채집(7)보다 엄격히 높아 실행 중 채집 선점
+        this.goalSelector.addGoal(3, com.evosim.mod.perf.Perf.timed(new MimicBegGoal(this)));
+        this.goalSelector.addGoal(3, com.evosim.mod.perf.Perf.timed(new MimicCourtshipGoal(this))); // 방랑자 구애(§10, 배회 시간)
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicHomeGoal(this)));      // 밤 귀가(§3, 취침·정산 대비)
+        this.goalSelector.addGoal(5, com.evosim.mod.perf.Perf.timed(new MimicRestGoal(this)));      // 취침(집에서 밤새 쉼)
+        this.goalSelector.addGoal(6, com.evosim.mod.perf.Perf.timed(new MimicFarmGoal(this))); // 자기 밭 우선 — 채집(7)보다 엄격히 높아 실행 중 채집 선점
         // 등하교(P5b) — 성년의 밭일과 <b>같은 층</b>이다. 소년에게 학교는 어른의 밭에 해당한다.
         // 채집(7)보다 앞: 등록된 소년은 학교에 가고, 못 간 소년만 채집·놀이로 내려간다
         // (계획서 1.8 "학교에 못 가는 소년은 기존대로 놀이 → 눈으로 구분된다").
-        this.goalSelector.addGoal(6, new MimicSchoolGoal(this));
-        this.goalSelector.addGoal(7, new MimicForageGoal(this));    // 노동 채집/사냥 배회(§4)
-        this.goalSelector.addGoal(8, new MimicPlayGoal(this));      // 배회 생활: 자녀 놀아주기(궁핍 채집이 항상 우선)
+        this.goalSelector.addGoal(6, com.evosim.mod.perf.Perf.timed(new MimicSchoolGoal(this)));
+        this.goalSelector.addGoal(7, com.evosim.mod.perf.Perf.timed(new MimicForageGoal(this)));    // 노동 채집/사냥 배회(§4)
+        this.goalSelector.addGoal(8, com.evosim.mod.perf.Perf.timed(new MimicPlayGoal(this)));      // 배회 생활: 자녀 놀아주기(궁핍 채집이 항상 우선)
         // 마실·교회를 <b>채집 위</b>로 올린다(9 → 6). 9 에서는 배회 시간에 채집(7)·놀이(8)에
         // 언제나 밀려 goal 자체가 돌지 않았다 — 실측: 교회 반경 안 29명·쿨다운 0명인데 방문
         // 0건, 이웃집 마실까지 0. 굶는 것을 막는 것은 우선순위가 아니라 goal 안의 여유
         // 조건(larderComfortable)이다: 먹을 것이 없으면 아예 나서지 않으므로 채집이 이긴다.
-        this.goalSelector.addGoal(4, new MimicProfessorGoal(this)); // 교수 — 낮 강단·배회 연구실(대학 P2)
-        this.goalSelector.addGoal(4, new MimicDoctorGoal(this));    // 의사 — 낮·배회 진료 자리(병원 P6)
-        this.goalSelector.addGoal(5, new MimicStudyGoal(this));     // 대학생 — 낮 강의실 좌석(대학 P2)
-        this.goalSelector.addGoal(4, new MimicTeacherGoal(this));   // 전업 교사 — 낮 강단 상주(지식인 P3)
-        this.goalSelector.addGoal(4, new MimicPastorGoal(this));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicProfessorGoal(this))); // 교수 — 낮 강단·배회 연구실(대학 P2)
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicDoctorGoal(this)));    // 의사 — 낮·배회 진료 자리(병원 P6)
+        this.goalSelector.addGoal(5, com.evosim.mod.perf.Perf.timed(new MimicStudyGoal(this)));     // 대학생 — 낮 강의실 좌석(대학 P2)
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicTeacherGoal(this)));   // 전업 교사 — 낮 강단 상주(지식인 P3)
+        this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicPastorGoal(this)));    // 목사 전업 — 낮·배회 교회 상주(교회 고도화)
         // 5: 배회 일과(마실·예배 6, 채집 7)보다 앞 — 같은 6이면 먼저 잡은 예배가 선교를 영영 막는다(런 30).
-        this.goalSelector.addGoal(5, new MimicMissionGoal(this));   // 선교 — 배회 시간 사슬 밖 가구 방문(교회 고도화)
-        this.goalSelector.addGoal(6, new MimicVisitGoal(this));     // 이웃 마실·교회 예배(조우 관문 경유)
-        this.goalSelector.addGoal(10, new WaterAvoidingRandomStrollGoal(this, 1.0D)); // 그 외 배회
-        this.goalSelector.addGoal(11, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(12, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(5, com.evosim.mod.perf.Perf.timed(new MimicMissionGoal(this)));   // 선교 — 배회 시간 사슬 밖 가구 방문(교회 고도화)
+        this.goalSelector.addGoal(6, com.evosim.mod.perf.Perf.timed(new MimicVisitGoal(this)));     // 이웃 마실·교회 예배(조우 관문 경유)
+        this.goalSelector.addGoal(10, com.evosim.mod.perf.Perf.timed(new WaterAvoidingRandomStrollGoal(this, 1.0D))); // 그 외 배회
+        this.goalSelector.addGoal(11, com.evosim.mod.perf.Perf.timed(new LookAtPlayerGoal(this, Player.class, 8.0F)));
+        this.goalSelector.addGoal(12, com.evosim.mod.perf.Perf.timed(new RandomLookAroundGoal(this)));
     }
 
     @Override
@@ -1685,7 +1691,13 @@ public class MimicEntity extends PathfinderMob {
 
     @Override
     public void tick() {
-        super.tick();
+        if (com.evosim.mod.perf.Perf.on && !level().isClientSide) {
+            long t0 = System.nanoTime();
+            super.tick();
+            com.evosim.mod.perf.Perf.mimicTick(System.nanoTime() - t0);
+        } else {
+            super.tick();
+        }
         if (!level().isClientSide) {
             trackJam();
             trackGoalChurn();
@@ -5603,7 +5615,7 @@ public class MimicEntity extends PathfinderMob {
                     if (goals.length() > 0) {
                         goals.append('+');
                     }
-                    goals.append(w.getGoal().getClass().getSimpleName()
+                    goals.append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName()
                             .replace("Mimic", "").replace("Goal", ""));
                 });
                 SimEvents.event(this, "위급방치", String.format(
@@ -6511,16 +6523,16 @@ public class MimicEntity extends PathfinderMob {
     /** 실행 중 최우선(낮은 번호) goal 의 한글 라벨 — 렌즈 카드 '행동' 라인(P1). 이동/전투류만. */
     public String currentActionLabel() {
         var best = this.goalSelector.getRunningGoals()
-                .filter(w -> !(w.getGoal() instanceof net.minecraft.world.entity.ai.goal.FloatGoal)
-                        && !(w.getGoal() instanceof net.minecraft.world.entity.ai.goal.LookAtPlayerGoal)
-                        && !(w.getGoal() instanceof net.minecraft.world.entity.ai.goal.RandomLookAroundGoal))
+                .filter(w -> !(com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof net.minecraft.world.entity.ai.goal.FloatGoal)
+                        && !(com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof net.minecraft.world.entity.ai.goal.LookAtPlayerGoal)
+                        && !(com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof net.minecraft.world.entity.ai.goal.RandomLookAroundGoal))
                 .min(java.util.Comparator.comparingInt(
                         net.minecraft.world.entity.ai.goal.WrappedGoal::getPriority))
                 .orElse(null);
         if (best == null) {
             return "대기";
         }
-        var g = best.getGoal();
+        var g = com.evosim.mod.perf.Perf.unwrap(best.getGoal());
         if (g instanceof MimicBuildGoal) {
             return "건축";
         }
@@ -7525,7 +7537,7 @@ public class MimicEntity extends PathfinderMob {
             if (goals.length() > 0) {
                 goals.append('+');
             }
-            goals.append(w.getGoal().getClass().getSimpleName()
+            goals.append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName()
                     .replace("Mimic", "").replace("Goal", ""));
         });
         SimEvents.event(this, "무노동", String.format(
@@ -7935,8 +7947,8 @@ public class MimicEntity extends PathfinderMob {
     /** 지금 걸음을 지시하는 goal 의 짧은 이름 — 밭 goal 이 활동을 안 적어 둔 경우의 대체. */
     private String topMoveGoalLabel() {
         for (var w : goalSelector.getRunningGoals().toList()) {
-            if (w.getGoal() instanceof RandomLookAroundGoal
-                    || w.getGoal() instanceof LookAtPlayerGoal
+            if (com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof RandomLookAroundGoal
+                    || com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof LookAtPlayerGoal
                     || !w.getGoal().getFlags()
                             .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
                 continue;
@@ -8019,8 +8031,8 @@ public class MimicEntity extends PathfinderMob {
             // MOVE 플래그만으로 걸렀더니 RandomLookAround 가 그대로 통과했다 — 이 빌드에서
             // 그 goal 의 플래그가 예상과 다르다는 뜻이다. 원인을 더 추측하지 않고 등록된 시선
             // goal 둘을 클래스로 명시 제외한다(MimicEntity 의 우선순위 11·12).
-            if (w.getGoal() instanceof RandomLookAroundGoal
-                    || w.getGoal() instanceof LookAtPlayerGoal
+            if (com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof RandomLookAroundGoal
+                    || com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof LookAtPlayerGoal
                     || !w.getGoal().getFlags()
                             .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
                 continue;
@@ -8055,7 +8067,7 @@ public class MimicEntity extends PathfinderMob {
      */
     public boolean isParentingRunning() {
         return goalSelector.getRunningGoals()
-                .anyMatch(w -> w.getGoal() instanceof MimicParentingGoal);
+                .anyMatch(w -> com.evosim.mod.perf.Perf.unwrap(w.getGoal()) instanceof MimicParentingGoal);
     }
 
     /**

@@ -117,6 +117,9 @@ public final class EvoSimCommand {
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(ctx -> goalsReport(ctx, StringArgumentType.getString(ctx, "name")))))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
+                .then(Commands.literal("profile").executes(ctx -> profile(ctx, "report"))
+                        .then(Commands.literal("on").executes(ctx -> profile(ctx, "on")))
+                        .then(Commands.literal("off").executes(ctx -> profile(ctx, "off"))))
                 .then(Commands.literal("exitx")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
                                 .then(Commands.argument("z", IntegerArgumentType.integer())
@@ -1954,7 +1957,7 @@ public final class EvoSimCommand {
                 for (var w : m.goalSelector.getAvailableGoals()) {
                     if (w.isRunning()) {
                         run.append(run.length() == 0 ? "" : "+")
-                                .append(w.getGoal().getClass().getSimpleName()
+                                .append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName()
                                         .replace("Mimic", "").replace("Goal", ""))
                                 .append('(').append(w.getPriority()).append(')');
                     }
@@ -2220,7 +2223,7 @@ public final class EvoSimCommand {
             for (var w : m.goalSelector.getAvailableGoals()) {
                 if (w.isRunning()) {
                     run.append(run.length() == 0 ? "" : " + ")
-                            .append(w.getGoal().getClass().getSimpleName())
+                            .append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName())
                             .append('(').append(w.getPriority()).append(')');
                 }
             }
@@ -5597,7 +5600,7 @@ public final class EvoSimCommand {
                         if (gs.length() > 0) {
                             gs.append('+');
                         }
-                        gs.append(w.getGoal().getClass().getSimpleName().replace("Mimic", "").replace("Goal", ""));
+                        gs.append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName().replace("Mimic", "").replace("Goal", ""));
                     });
                     var nav = m.getNavigation();
                     var cur = nav.getPath();
@@ -5645,6 +5648,29 @@ public final class EvoSimCommand {
             }
         }
         return groundAt(level, new Vec3(x + 0.5, 64, z + 0.5), 0, 0);
+    }
+
+    /** 연산 계측 — on 으로 켜고 잠시 뒤 profile 로 읽는다(읽으면 다시 0부터). */
+    private static int profile(CommandContext<CommandSourceStack> ctx, String what) {
+        switch (what) {
+            case "on" -> {
+                com.evosim.mod.perf.Perf.reset();
+                com.evosim.mod.perf.Perf.on = true;
+                tell(ctx.getSource(), "[계측] 시작");
+            }
+            case "off" -> {
+                com.evosim.mod.perf.Perf.on = false;
+                tell(ctx.getSource(), "[계측] 중지");
+            }
+            default -> {
+                float avg = ctx.getSource().getServer().getAverageTickTime();
+                for (String l : com.evosim.mod.perf.Perf.report(avg).split("\n")) {
+                    tell(ctx.getSource(), l);
+                }
+                com.evosim.mod.perf.Perf.reset();
+            }
+        }
+        return 1;
     }
 
     private static int siteTest(CommandContext<CommandSourceStack> ctx) {
@@ -6925,7 +6951,7 @@ public final class EvoSimCommand {
                 if (gs.length() > 0) {
                     gs.append('+');
                 }
-                gs.append(w.getGoal().getClass().getSimpleName().replace("Mimic", "").replace("Goal", ""));
+                gs.append(com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName().replace("Mimic", "").replace("Goal", ""));
             });
             var ph = com.evosim.core.Schedule.phaseAt(m.getIndividual(), level.getDayTime());
             BlockPos ra = m.debugRoamAnchor();

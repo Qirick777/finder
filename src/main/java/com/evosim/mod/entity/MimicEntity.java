@@ -362,13 +362,10 @@ public class MimicEntity extends PathfinderMob {
                 // <b>실패한 표적은 잠시 다시 내지 않는다.</b> 부분경로는 곧 끝나고, 리시·귀가처럼 매 틱 moveTo 를 부르는
                 // goal 은 그때마다 새 경로(최대 2560노드 탐색)를 다시 낸다 — 벽에 붙은 사람 한 명이 매 틱 A* 한 번이었다.
                 // 같은 표적이 실패·부분경로였으면 40틱(2초) 동안 null 을 돌려 서 있게 하고, 표적이 바뀌면 바로 낸다.
-                if (pathFailTarget != null && goal.equals(pathFailTarget) && tickCount - pathFailTick < PATH_RETRY_TICKS) {
-                    return null;
-                }
-                // <b>끝난 경로도 잠시 재사용한다.</b> moveTo(x,y,z) 는 정확도 1 로 경로를 내므로 표적 한 칸 옆(대각 2.2블록)에서
-                // "도착"으로 끝나는데, 밭일처럼 1.9블록 안을 요구하는 goal 은 그 자리에서 매 틱 같은 경로를 다시 냈다
-                // (계측: 낮 길찾기 10회/틱 중 대부분이 같은 표적 재계산). 같은 표적이면 10틱 동안 마지막 경로를 돌려준다.
-                if (pathCache != null && goal.equals(pathCacheGoal) && tickCount - pathCacheTick < PATH_CACHE_TICKS) {
+                // 같은 표적이 실패·부분경로였으면 간격 동안 <b>마지막 부분경로</b>를 그대로 돌려준다(null 이 아니라).
+                // 종전처럼 부분경로 끝까지는 가되 다시 계산하지 않는다. 간격은 실패가 거듭될수록 40→80→…→400틱으로 늘린다 —
+                // 내역 계측: 비싼 계산은 거의 전부 부분경로(건당 13~15ms, 탐색 예산 소진)였고 성공 경로는 1~2ms 였다.
+                if (pathFailTarget != null && goal.equals(pathFailTarget) && tickCount - pathFailTick < pathRetryTicks) {
                     return pathCache;
                 }
                 long t0 = com.evosim.mod.perf.Perf.on ? System.nanoTime() : 0L;
@@ -387,14 +384,18 @@ public class MimicEntity extends PathfinderMob {
                     }
                 }
                 if (p == null || !p.canReach()) {
+                    if (goal.equals(pathFailTarget)) {
+                        pathRetryTicks = Math.min(PATH_RETRY_MAX, pathRetryTicks * 2);
+                    } else {
+                        pathRetryTicks = PATH_RETRY_TICKS;
+                    }
                     pathFailTarget = goal;
                     pathFailTick = tickCount;
+                    pathCache = p;
                 } else {
                     pathFailTarget = null;
+                    pathCache = null;
                 }
-                pathCache = p;
-                pathCacheGoal = goal;
-                pathCacheTick = tickCount;
                 return p;
             }
 
@@ -427,7 +428,9 @@ public class MimicEntity extends PathfinderMob {
                     }
                 };
                 this.nodeEvaluator.setCanPassDoors(true);
-                return new net.minecraft.world.level.pathfinder.PathFinder(this.nodeEvaluator, maxVisitedNodes);
+                // 탐색 예산 상한 1200 — 바닐라는 FOLLOW_RANGE(160)×16 = 2560 노드까지 뒤지는데, 못 닿는 표적은 매번 그 예산을
+                // 다 쓰고 끝난다(내역 계측: 부분경로 건당 13~15ms). 성공 경로는 150블록도 수백 노드면 나온다(완주 건당 1~2ms).
+                return new net.minecraft.world.level.pathfinder.PathFinder(this.nodeEvaluator, Math.min(maxVisitedNodes, PATH_NODE_BUDGET));
             }
         };
         nav.setCanOpenDoors(true);
@@ -446,13 +449,13 @@ public class MimicEntity extends PathfinderMob {
     @Nullable
     private BlockPos pathFailTarget;
     private int pathFailTick;
+    private int pathRetryTicks = 40;
     private static final int PATH_RETRY_TICKS = 40;
+    private static final int PATH_RETRY_MAX = 400;
+    private static final int PATH_NODE_BUDGET = 1200;
+    /** 마지막 부분경로(실패 표적용) — 재시도 간격 동안 이걸 돌려준다. */
     @Nullable
     private net.minecraft.world.level.pathfinder.Path pathCache;
-    @Nullable
-    private BlockPos pathCacheGoal;
-    private int pathCacheTick;
-    private static final int PATH_CACHE_TICKS = 10;
 
     @Nullable
     private BlockPos facilityGate(BlockPos target) {

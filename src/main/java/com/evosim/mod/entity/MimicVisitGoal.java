@@ -360,7 +360,8 @@ public class MimicVisitGoal extends Goal {
                 continue;
             }
             if (e.pos.distSqr(mob.getHomePos())
-                    > Facilities.CHURCH_REACH * Facilities.CHURCH_REACH) {
+                    > Facilities.CHURCH_REACH * Facilities.CHURCH_REACH
+                    && !RelayNet.reaches(sl, mob.getHomePos(), e)) { // 이정표 망(교회 거리 2)
                 continue;
             }
             int cap = com.evosim.core.Church.visitCap(e.kind == FacilityTemplate.Kind.CHURCH,

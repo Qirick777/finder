@@ -220,6 +220,7 @@ public final class RoadPlanner {
             // 가로등 기둥 — 울타리라 통행을 막는다. 등은 길 바깥에 서지만, 나중에 나는 길이
             // 그 칸을 지나면 새 길 한복판에 기둥이 박힌다. 길이 알아서 비껴가게 둔다.
             ob.hard.addAll(LampPlanner.postColumns(sl));
+            ob.hard.addAll(SignpostPlanner.postColumns(sl)); // 이정표 기둥도 길이 비켜 간다
             // 가로수 밑동과 분수 몸통 — 가로등 기둥과 같은 이유로 막는다. 등기해 두지 않으면
             // 나중에 나는 길이 나무를 관통하거나 분수 한복판을 지난다. 나뭇잎은 머리 위라
             // 통행을 막지 않으므로 <b>밑동 한 칸</b>만 넣는다(기둥과 같은 취급).

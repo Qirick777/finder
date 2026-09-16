@@ -213,7 +213,8 @@ public final class LampPlanner {
         java.util.Arrays.fill(REJ, 0);
 
         // 후보 = 중심선 칸. 자리값 = <b>유형가중 × 어둠</b>(클래스 주석 참조).
-        java.util.Map<Long, Integer> lit = lampDist(roads, lamps);
+        SignpostStore signposts = SignpostStore.get(sl);
+        java.util.Map<Long, Integer> lit = lampDist(roads, lamps, signposts.all());
         List<double[]> cand = new ArrayList<>(); // {−점수, −실제어둠, x, z}
         for (int[] c : roads.all()) {
             int x = c[0];
@@ -244,8 +245,8 @@ public final class LampPlanner {
         for (double[] c : cand) {
             int x = (int) c[2];
             int z = (int) c[3];
-            if (lamps.nearest(x, z) < SPACING) {
-                continue; // 이 근방은 이미 밝다 — 기둥 자리를 따져 볼 것도 없다
+            if (Math.min(lamps.nearest(x, z), signposts.nearest(x, z)) < SPACING) {
+                continue; // 이 근방은 이미 밝다(가로등이든 이정표든) — 기둥 자리를 따져 볼 것도 없다
             }
             if (--budget < 0) {
                 return null;
@@ -280,10 +281,19 @@ public final class LampPlanner {
      * @return 칸 → 걸음 수. 표에 없는 칸은 {@link #DARK_CAP} 이상(=최대 어둠)이다.
      */
     public static java.util.Map<Long, Integer> lampDist(RoadStore roads, LampStore lamps) {
+        return lampDist(roads, lamps, List.of());
+    }
+
+    public static java.util.Map<Long, Integer> lampDist(RoadStore roads, LampStore lamps,
+                                                        List<SignpostStore.Post> signposts) {
         java.util.Map<Long, Integer> d = new java.util.HashMap<>();
         java.util.ArrayDeque<Long> q = new java.util.ArrayDeque<>();
         Set<Long> cells = roads.raw();
-        for (BlockPos b : lamps.all()) {
+        List<BlockPos> lit = new ArrayList<>(lamps.all());
+        for (SignpostStore.Post p : signposts) {
+            lit.add(p.base()); // 이정표의 랜턴은 가로등과 같은 높이(지면+5)라 같은 등이다
+        }
+        for (BlockPos b : lit) {
             for (int dx = -2; dx <= 2; dx++) {
                 for (int dz = -2; dz <= 2; dz++) {
                     long k = RoadStore.key(b.getX() + dx, b.getZ() + dz);
@@ -369,7 +379,7 @@ public final class LampPlanner {
             REJ[1]++;
             return false;
         }
-        if (lamps.nearest(px, pz) < SPACING) {
+        if (lamps.nearest(px, pz) < SPACING || SignpostStore.get(sl).nearest(px, pz) < SPACING) {
             REJ[2]++;
             return false;
         }

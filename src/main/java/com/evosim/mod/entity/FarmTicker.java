@@ -4585,7 +4585,8 @@ public final class FarmTicker {
                     SCHOOL_MISS[0]++; // 계측만 — 이제 자격은 준다
                 }
                 if (b.getHomePos().distSqr(sc.pos)
-                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE) {
+                        > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE
+                        && !RelayNet.reaches(level, b.getHomePos(), sc)) { // 이정표 망(학교 거리 1)으로 닿으면 자격
                     SCHOOL_MISS[2]++;
                     continue;
                 }
@@ -4856,7 +4857,7 @@ public final class FarmTicker {
                 continue;
             }
             double d = Math.sqrt(e.pos.distSqr(home));
-            if (com.evosim.core.Hospital.inReach(d) && d < bd) {
+            if ((com.evosim.core.Hospital.inReach(d) || RelayNet.reaches(level, home, e)) && d < bd) {
                 bd = d;
                 best = e;
             }
@@ -5550,8 +5551,8 @@ public final class FarmTicker {
                         continue;
                     }
                     double dist = Math.sqrt(a.getHomePos().distSqr(uv.pos));
-                    if (dist > com.evosim.core.University.LODGE_RANGE) {
-                        fun[5]++;
+                    if (dist > com.evosim.core.University.LODGE_RANGE && !RelayNet.reaches(level, a.getHomePos(), uv)) {
+                        fun[5]++; // 직선 150 밖이어도 이정표 망(대학 거리 3)으로 닿으면 후보
                         continue;
                     }
                     if (a.getDegree() == com.evosim.core.Degree.BACHELOR && masters >= tpl.researchSeats().size()) {
@@ -7312,6 +7313,12 @@ public final class FarmTicker {
         runHospitals(level, everyone, day);
         supportChildren(level, everyone, day);
         realmReport(level, everyone, day);
+        RelayNet.dirty(); // 오늘 등기·말소를 반영해 표를 다시 만들고 표지판 글씨를 맞춘다
+        int signs = SignpostPlanner.relabelAll(level);
+        if (signs > 0) {
+            com.evosim.mod.log.SimEvents.note(level, "이정표", String.format("경로표 갱신 — 이정표 %d기 · 표지판 %d장 · 마디 %d",
+                    SignpostStore.get(level).size(), signs, RelayNet.nodes(level).size()));
+        }
     }
 
     /**

@@ -107,6 +107,18 @@ public final class EvoSimCommand {
                 .then(Commands.literal("feud").executes(EvoSimCommand::feudReport))
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
+                .then(Commands.literal("signposts").executes(EvoSimCommand::signpostsReport))
+                .then(Commands.literal("signauto").executes(EvoSimCommand::signAuto))
+                .then(Commands.literal("relaytest")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                        .then(Commands.argument("hx", IntegerArgumentType.integer())
+                                                .then(Commands.argument("hz", IntegerArgumentType.integer())
+                                                        .executes(ctx -> relayTest(ctx,
+                                                                IntegerArgumentType.getInteger(ctx, "x"),
+                                                                IntegerArgumentType.getInteger(ctx, "z"),
+                                                                IntegerArgumentType.getInteger(ctx, "hx"),
+                                                                IntegerArgumentType.getInteger(ctx, "hz"))))))))
                 .then(Commands.literal("farmshape").executes(EvoSimCommand::farmShape))
                 .then(Commands.literal("allegiance").executes(EvoSimCommand::allegiance))
                 .then(Commands.literal("bondtest").executes(EvoSimCommand::bondTest))
@@ -5659,6 +5671,141 @@ public final class EvoSimCommand {
     }
 
     /** 연산 계측 — on 으로 켜고 잠시 뒤 profile 로 읽는다(읽으면 다시 0부터). */
+    /** 무대용 — 추종자가 가장 많은 개체를 군주로 삼아 이정표 자리를 고르고 <b>즉시</b> 세워 등기·글씨까지 한다(시공 생략). */
+    private static int signAuto(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        MimicEntity lord = null;
+        int best = -1;
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096))) {
+            if (m.getIndividual() == null) {
+                continue;
+            }
+            int f = FarmTicker.followersOf(m.getIndividual().id());
+            if (f > best) {
+                best = f;
+                lord = m;
+            }
+        }
+        if (lord == null) {
+            tell(ctx.getSource(), "[이정표무대] 미믹 없음");
+            return 0;
+        }
+        var homes = FarmTicker.followerHomesOf(lord.getIndividual().id());
+        var site = com.evosim.mod.entity.SignpostPlanner.pickSite(level, homes);
+        if (site == null) {
+            tell(ctx.getSource(), String.format("[이정표무대] 군주 %s(추종자 %d · 가구 %d) — 자리 없음: %s",
+                    lord.getIndividual().shortName(), best, homes.size(), com.evosim.mod.entity.SignpostPlanner.lastReason));
+            return 0;
+        }
+        var pl = com.evosim.mod.entity.SignpostPlanner.plan(level, site.rot());
+        if (pl.isEmpty()) {
+            tell(ctx.getSource(), "[이정표무대] 도면 못 읽음");
+            return 0;
+        }
+        for (var p : pl.get()) {
+            level.setBlock(site.base().offset(p.rel()), p.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        com.evosim.mod.entity.SignpostStore.get(level).add(site.base(), site.rot(), site.road());
+        com.evosim.mod.entity.RoadPlanner.Obstacles.invalidate();
+        com.evosim.mod.entity.RelayNet.dirty();
+        int signs = com.evosim.mod.entity.SignpostPlanner.relabelAll(level);
+        tell(ctx.getSource(), String.format("[이정표무대] 군주 %s(추종자 %d · 가구 %d) — 세움 @%d,%d %s 길@%d,%d · 표지판 %d장 갱신",
+                lord.getIndividual().shortName(), best, homes.size(), site.base().getX(), site.base().getZ(), site.rot(),
+                site.road().getX(), site.road().getZ(), signs));
+        return 1;
+    }
+
+    /**
+     * 무대용 — 이정표 망 이동 시험. (x,z) 에 성년을 세우고 거처를 (hx,hz) 로 두어 귀가시키며 6000틱 동안 200틱마다
+     * '경유진단'(위치·집까지 거리·경유 마디·경로)을 남긴다. 집 8블록 안에 들면 PASS.
+     */
+    private static int relayTest(CommandContext<CommandSourceStack> ctx, int x, int z, int hx, int hz) {
+        ServerLevel level = ctx.getSource().getLevel();
+        LiveCheck.cancelAll();
+        SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
+        BlockPos origin = lowestFloor(level, x, z);
+        BlockPos home = lowestFloor(level, hx, hz);
+        MimicEntity m = spawnAdult(level, Vec3.atBottomCenterOf(origin), Sex.MALE);
+        if (m == null) {
+            tell(ctx.getSource(), "스폰 실패");
+            return 0;
+        }
+        m.setHomePos(home);
+        LarderStore.get(level).set(home, 20.0);
+        m.debugSetHolding(0.5);
+        int[] tick = {0};
+        Boolean[] verdict = {null};
+        String[] detail = {"..."};
+        double total = Math.sqrt(origin.distSqr(home));
+        LiveCheck.watch(ctx.getSource(), "relay_test", 6100,
+                () -> detail[0],
+                () -> {
+                    if (verdict[0] != null) {
+                        return verdict[0];
+                    }
+                    tick[0]++;
+                    if (tick[0] % 200 != 0) {
+                        return false;
+                    }
+                    BlockPos bp = m.blockPosition();
+                    var cur = m.getNavigation().getPath();
+                    String c = cur == null ? "현재경로 없음" : String.format("현재경로 %d/%d 표적 @%d,%d", cur.getNextNodeIndex(),
+                            cur.getNodeCount(), cur.getTarget().getX(), cur.getTarget().getZ());
+                    double left = Math.sqrt(bp.distSqr(home));
+                    BlockPos via = com.evosim.mod.entity.RelayNet.via(level, bp, home);
+                    detail[0] = String.format("t%d 내 @%d,%d · 집까지 %.0f/%.0f · 망 다음마디 %s · %s · H %.2f", tick[0],
+                            bp.getX(), bp.getZ(), left, total, via == null ? "직행" : "@" + via.getX() + "," + via.getZ(), c, m.getHolding());
+                    SimEvents.event(m, "경유진단", detail[0]);
+                    if (left <= 8.0) {
+                        verdict[0] = true;
+                        SimEvents.event(m, "경유진단", String.format("PASS — %d틱 만에 집 도착(출발 거리 %.0f)", tick[0], total));
+                    } else if (tick[0] >= 6000) {
+                        verdict[0] = false;
+                        SimEvents.event(m, "경유진단", String.format("FAIL — 6000틱 뒤 집까지 %.0f 남음", left));
+                    }
+                    return verdict[0] != null && verdict[0];
+                },
+                () -> m.discard());
+        tell(ctx.getSource(), String.format("경유 시험 — @%d,%d 에서 거처 @%d,%d(직선 %.0f) 로. 6000틱, 200틱마다 경유진단 로그.",
+                origin.getX(), origin.getZ(), home.getX(), home.getZ(), total));
+        return 1;
+    }
+
+    /** 이정표 보고 — 기수·마디·이정표마다 경로표(시설 종류 @좌표 거리 다음). 랜턴 유무로 완성 여부도 센다. */
+    private static int signpostsReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var posts = com.evosim.mod.entity.SignpostStore.get(level).all();
+        int lit = 0;
+        for (var p : posts) {
+            if (level.getBlockState(p.base().above(5)).is(net.minecraft.world.level.block.Blocks.LANTERN)) {
+                lit++;
+            }
+        }
+        var nodes = com.evosim.mod.entity.RelayNet.nodes(level);
+        int fac = 0;
+        for (var nd : nodes) {
+            if (nd.facility != null) {
+                fac++;
+            }
+        }
+        tell(ctx.getSource(), String.format("[이정표] 등기 %d기 · 완성(랜턴) %d기 · 마디 %d(시설 %d) · 상한 학교1 교회2 병원2 대학3",
+                posts.size(), lit, nodes.size(), fac));
+        for (var p : posts) {
+            StringBuilder sb = new StringBuilder();
+            for (var r : com.evosim.mod.entity.RelayNet.routes(level, p)) {
+                sb.append(sb.length() == 0 ? "" : " · ").append(r.facility().kind.label).append('@')
+                        .append(r.facility().pos.getX()).append(',').append(r.facility().pos.getZ())
+                        .append(" 거리").append(r.distance()).append(" 다음@").append(r.nextPos().getX()).append(',').append(r.nextPos().getZ());
+            }
+            tell(ctx.getSource(), String.format("  @%d,%d %s 길@%d,%d — %s", p.base().getX(), p.base().getZ(), p.rotation(),
+                    p.road().getX(), p.road().getZ(), sb.length() == 0 ? "표 없음" : sb));
+        }
+        return 1;
+    }
+
     /** 무대용 — 이정표 도면을 지면 칸(밑동)에 회전 rot 로 즉시 세우고 표지판에 글씨를 쓴 뒤 칸별로 보고한다. */
     private static int signTest(CommandContext<CommandSourceStack> ctx, int x, int z, int rot) {
         ServerLevel level = ctx.getSource().getLevel();
@@ -5679,7 +5826,9 @@ public final class EvoSimCommand {
                     net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                             | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
         }
-        int labeled = com.evosim.mod.entity.SignpostPlanner.label(level, base, r, new String[] {"학교", "교회"});
+        @SuppressWarnings("unchecked")
+        java.util.List<String>[] names = new java.util.List[] {java.util.List.of("학교", "병원"), java.util.List.of("교회")};
+        int labeled = com.evosim.mod.entity.SignpostPlanner.label(level, base, r, names);
         var arms = com.evosim.mod.entity.SignpostPlanner.arms(r);
         tell(ctx.getSource(), String.format("[이정표시험] 밑동 @%d,%d,%d 회전 %s · 칸 %d · 팔 %s/%s · 글씨 %d장",
                 x, gy, z, r, pl.get().size(), arms[0], arms[1], labeled));

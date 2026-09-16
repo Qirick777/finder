@@ -196,6 +196,7 @@ public class FacilityStore extends SavedData {
         Entry e = new Entry(pos, kind, rotation, mirrored, ownerId, day);
         e.spent = buildCost;
         all.add(e);
+        RelayNet.dirty(); // 새 마디 — 이정표 경로표를 다시 만든다
         note(e, day, String.format("착공 — 건축비 %.0f", buildCost));
         return e;
     }

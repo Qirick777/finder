@@ -167,6 +167,15 @@ public class MimicEntity extends PathfinderMob {
     private int lampReachTicks;
     /** 착공한 틱 — 완성 로그에 걸린 시간을 적어, "순간이동이 아니다"를 로그만으로 검증하게 한다. */
     private long lampStartTick;
+    /** 세우는 중인 이정표 — 밑동·회전·옆 길 칸(가로등과 같은 시공 방식, 등기는 착공 때). */
+    @Nullable
+    private BlockPos signSite;
+    private net.minecraft.world.level.block.Rotation signRot = net.minecraft.world.level.block.Rotation.NONE;
+    @Nullable
+    private BlockPos signRoad;
+    private int signStep;
+    private int signReachTicks;
+    private long signStartTick;
     @Nullable
     private BlockPos buildTargetPos = null;     // 지금 걸어가 설치할 다음 블록(연출용, 저장 안 함)
     private int buildReachTicks = 0;            // 현재 목표 접근 시도 누적(교착 방지 폴백용)
@@ -357,8 +366,11 @@ public class MimicEntity extends PathfinderMob {
             // 어느 goal 이 부르든(리시·귀가·등교) 한 곳에서 잡는다.
             @Override
             public net.minecraft.world.level.pathfinder.Path createPath(BlockPos target, int accuracy) {
-                BlockPos via = MimicEntity.this.facilityGate(target);
-                BlockPos goal = via != null ? via : target;
+                // 이정표 망 — 표적이 120 밖이면 다음 마디까지만 낸다(RELAY-PLAN §3). 그 다음에 문 경유를 본다.
+                BlockPos relay = MimicEntity.this.relayVia(target);
+                BlockPos hop = relay != null ? relay : target;
+                BlockPos via = MimicEntity.this.facilityGate(hop);
+                BlockPos goal = via != null ? via : hop;
                 // <b>실패한 표적은 잠시 다시 내지 않는다.</b> 부분경로는 곧 끝나고, 리시·귀가처럼 매 틱 moveTo 를 부르는
                 // goal 은 그때마다 새 경로(최대 2560노드 탐색)를 다시 낸다 — 벽에 붙은 사람 한 명이 매 틱 A* 한 번이었다.
                 // 같은 표적이 실패·부분경로였으면 40틱(2초) 동안 null 을 돌려 서 있게 하고, 표적이 바뀌면 바로 낸다.
@@ -401,6 +413,10 @@ public class MimicEntity extends PathfinderMob {
 
             @Override
             public net.minecraft.world.level.pathfinder.Path createPath(net.minecraft.world.entity.Entity e, int accuracy) {
+                BlockPos relay = MimicEntity.this.relayVia(e.blockPosition());
+                if (relay != null) {
+                    return createPath(e.blockPosition(), 0);
+                }
                 BlockPos via = MimicEntity.this.facilityGate(e.blockPosition());
                 return via != null ? super.createPath(via, 0) : super.createPath(e, accuracy);
             }
@@ -445,6 +461,42 @@ public class MimicEntity extends PathfinderMob {
     /** 지금 향하는 문 칸(경유 중). 닿을 때까지 유지 — 문턱 언저리에서 경유/직행이 매 틱 뒤집히지 않게. */
     @Nullable
     private BlockPos gateTarget;
+    /** 이정표 망 경유 — 지금 향하는 마디 칸과 그것을 계산한 표적. 저장 안 함(표가 결정적이라 다시 물으면 같다). */
+    @Nullable
+    private BlockPos relayTarget;
+    @Nullable
+    private BlockPos relayFinal;
+
+    /**
+     * 이정표 망의 다음 마디 — 표적이 {@link RelayNet#DIRECT} 밖이고 망이 이어지면 그 칸, 아니면 null(곧장).
+     * 한 구간은 닿을 때까지(1.5블록) 유지하고, 표적이 바뀌면 버린다. 새 구간을 잡을 때 '이정표경유'를 남긴다.
+     */
+    @Nullable
+    private BlockPos relayVia(BlockPos target) {
+        if (!(level() instanceof ServerLevel sl)) {
+            return null;
+        }
+        if (relayTarget != null) {
+            if (!target.equals(relayFinal)) {
+                relayTarget = null;
+            } else {
+                double gx = getX() - (relayTarget.getX() + 0.5);
+                double gz = getZ() - (relayTarget.getZ() + 0.5);
+                if (gx * gx + gz * gz > 2.25) {
+                    return relayTarget;
+                }
+                relayTarget = null; // 마디에 닿았다 — 다음 마디를 다시 묻는다
+            }
+        }
+        BlockPos v = RelayNet.via(sl, blockPosition(), target);
+        if (v != null) {
+            relayTarget = v;
+            relayFinal = target;
+            SimEvents.event(this, "이정표경유", String.format("마디 @%d,%d 로 (표적 @%d,%d · 직선 %.0f)",
+                    v.getX(), v.getZ(), target.getX(), target.getZ(), Math.sqrt(blockPosition().distSqr(target))));
+        }
+        return v;
+    }
     /** 마지막으로 실패·부분경로였던 표적과 그 틱 — 같은 표적 재시도 간격(연산 절약). */
     @Nullable
     private BlockPos pathFailTarget;
@@ -1549,7 +1601,7 @@ public class MimicEntity extends PathfinderMob {
     }
 
     public boolean isBuilding() {
-        return building || !paveTodo.isEmpty() || lampSite != null;
+        return building || !paveTodo.isEmpty() || lampSite != null || signSite != null;
     }
 
     /** 지금 길을 놓는 중인가 — 보고·검증용. */
@@ -1774,6 +1826,7 @@ public class MimicEntity extends PathfinderMob {
             buildTick();       // 거처 건축(짓는 연출) — 리더가 한 칸씩
             paveTick();        // 그 다음 단계 — 문 앞에서 마을 쪽으로 흙길을 놓는다
             lampTick();        // 또 그 다음 — 여유 있는 지주가 길가에 가로등을 세운다
+            signTick();        // 이정표 시공 — 군주가 길가에 세운다(망의 마디)
             // 이주 중 업힌 유아: 어미가 새 거처 반경에 들면 내려줌(도착).
             if (getStage() == LifeStage.INFANT && isPassenger()
                     && getVehicle() instanceof MimicEntity carrier && carrier.isHome()) {
@@ -3460,6 +3513,124 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
+    // ── 이정표 세우기(역참 대용 — 설계서 RELAY-PLAN.md) ───────────────────────
+
+    /**
+     * <b>이정표 시공</b> — 가로등과 같은 박자로 도면 순서대로 한 칸씩 놓는다. 밑동(rel y 0)은 지면 칸을 대신하므로
+     * 비어 있지 않아도 놓고, 그 위는 빈 칸에만 놓는다. 내가 서 있는 칸에는 놓지 않고 비켜선다(파묻힘 방지).
+     * 다 놓으면 경로표를 더럽히고 표지판에 그 표대로 글씨를 쓴다.
+     */
+    private void signTick() {
+        if (signSite == null || signRoad == null || !(level() instanceof ServerLevel sl)) {
+            return;
+        }
+        if (building || !paveTodo.isEmpty() || lampSite != null || isUnderThreat() || isCritical()) {
+            return; // 집·길·가로등·생존이 먼저
+        }
+        var pl = SignpostPlanner.plan(sl, signRot);
+        if (pl.isEmpty()) {
+            signSite = null;
+            signRoad = null;
+            return;
+        }
+        List<HomeTemplate.Placement> plan = pl.get();
+        if (signStep >= plan.size()) {
+            finishSignpost(sl);
+            return;
+        }
+        if (paveCooldown > 0) {
+            paveCooldown--;
+        }
+        HomeTemplate.Placement p = plan.get(signStep);
+        BlockPos target = signSite.offset(p.rel());
+        showShovel();
+        if (!withinReach(target)) {
+            signReachTicks++;
+            if (signReachTicks < PAVE_REACH_TIMEOUT) {
+                return;
+            }
+        }
+        if (paveCooldown > 0) {
+            return;
+        }
+        if (getBoundingBox().intersects(new AABB(target))) {
+            stepAside(target);
+            return;
+        }
+        boolean place = p.rel().getY() == 0 ? !sl.getBlockState(target).is(p.state().getBlock())
+                : sl.isEmptyBlock(target);
+        if (place) {
+            sl.setBlock(target, p.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+            swing(InteractionHand.MAIN_HAND);
+            SoundType st = p.state().getSoundType();
+            sl.playSound(null, target, st.getPlaceSound(), SoundSource.BLOCKS,
+                    (st.getVolume() + 1.0F) / 2.0F, st.getPitch() * 0.8F);
+        }
+        signStep++;
+        signReachTicks = 0;
+        paveCooldown = PAVE_INTERVAL;
+        if (signStep >= plan.size()) {
+            finishSignpost(sl);
+        }
+    }
+
+    private void finishSignpost(ServerLevel sl) {
+        BlockPos at = signSite;
+        net.minecraft.world.level.block.Rotation rot = signRot;
+        BlockPos road = signRoad;
+        signSite = null;
+        signRoad = null;
+        signStep = 0;
+        signReachTicks = 0;
+        clearBuildItem();
+        if (at != null && road != null) {
+            RelayNet.dirty();
+            int signs = SignpostPlanner.relabel(sl, new SignpostStore.Post(at, rot, road));
+            SimEvents.event(this, "이정표", String.format("완성 @%d,%d 회전 %s (이정표 %d기 · 표지판 %d장 · 착공부터 %d틱)",
+                    at.getX(), at.getZ(), rot, SignpostStore.get(sl).size(), signs, SimTime.tick(sl) - signStartTick));
+        }
+    }
+
+    /**
+     * <b>이정표를 세울 것인가</b> — 하루 1회, 가구 정산에서 군주(추종자가 가장 많은 식구)에게 묻는다.
+     *
+     * <p>방아쇠는 설계서 §1: 어느 마디(시설 문·이정표)에서도 96 넘게 떨어진 추종 가구가 있을 때. 값은
+     * {@link SignpostPlanner#COST} 이고 여유 문턱은 가로등과 같다. 자리·회전은 {@link SignpostPlanner#pickSite}
+     * 가 고른다(길 옆 2칸, 팔은 길과 나란히). 착공과 동시에 등기해 같은 날 겹치지 않게 한다.
+     */
+    private double considerSignpost(ServerLevel sl, MimicEntity founder, int followers, double larder,
+                                    double adultNeed) {
+        if (fastSettle || homePos == null || building || lampSite != null || signSite != null
+                || !paveTodo.isEmpty() || founder.getIndividual() == null) {
+            return larder;
+        }
+        double gate = SignpostPlanner.COST + HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        if (larder < gate) {
+            return larder; // 조용히 — 가로등과 달리 매일 보류를 남기면 시끄럽다(방아쇠 여부는 자리 없음 줄이 말해 준다)
+        }
+        SignpostPlanner.Site site = SignpostPlanner.pickSite(sl, FarmTicker.followerHomesOf(founder.getIndividual().id()));
+        if (site == null) {
+            if (!SignpostPlanner.lastReason.startsWith("추종 가구") && !SignpostPlanner.lastReason.startsWith("길 ")) {
+                SimEvents.event(founder, "이정표", String.format("자리 없음 — 추종자%d · %s", followers, SignpostPlanner.lastReason));
+            }
+            return larder;
+        }
+        SignpostStore.get(sl).add(site.base(), site.rot(), site.road());
+        RoadPlanner.Obstacles.invalidate();
+        signSite = site.base();
+        signRot = site.rot();
+        signRoad = site.road();
+        signStep = 0;
+        signReachTicks = 0;
+        signStartTick = SimTime.tick(sl);
+        SimEvents.event(this, "이정표", String.format("착공 @%d,%d 회전 %s · 길 칸 @%d,%d — 추종자%d · 값 %.0f (저장고 %.0f→%.0f)",
+                site.base().getX(), site.base().getZ(), site.rot(), site.road().getX(), site.road().getZ(),
+                followers, SignpostPlanner.COST, larder, larder - SignpostPlanner.COST));
+        return larder - SignpostPlanner.COST;
+    }
+
     /**
      * <b>가로등을 세울 것인가</b> — 하루 1회, 가구 정산에서 묻는다.
      *
@@ -3535,6 +3706,9 @@ public class MimicEntity extends PathfinderMob {
         }
         if (followers >= com.evosim.core.University.MIN_FOLLOWERS) {
             larder = considerUniversity(sl, founder, followers, larder, adultNeed);
+        }
+        if (followers >= Facilities.SCHOOL_MIN_FOLLOWERS) {
+            larder = considerSignpost(sl, founder, followers, larder, adultNeed); // 시설이 선 뒤에야 마디가 있다
         }
         if (followers < Facilities.SCHOOL_MIN_FOLLOWERS) {
             return larder;
@@ -4913,7 +5087,10 @@ public class MimicEntity extends PathfinderMob {
         if (paveTargetPos != null) {
             return paveTargetPos;
         }
-        return lampSite; // 가로등 시공 — 밑동으로 걸어간다(도면 칸은 전부 그 위 6칸 안)
+        if (lampSite != null) {
+            return lampSite; // 가로등 시공 — 밑동으로 걸어간다(도면 칸은 전부 그 위 6칸 안)
+        }
+        return signRoad; // 이정표 시공 — 옆 길 칸으로(기둥 칸은 돌이라 못 선다)
     }
 
     /** 가로등 도면에서 지금까지 놓은 칸 수 — 보고용. */
@@ -8605,6 +8782,12 @@ public class MimicEntity extends PathfinderMob {
             tag.putLong("LampSite", lampSite.asLong());
             tag.putInt("LampStep", lampStep);
         }
+        if (signSite != null && signRoad != null) {
+            tag.putLong("SignSite", signSite.asLong());
+            tag.putLong("SignRoad", signRoad.asLong());
+            tag.putByte("SignRot", (byte) signRot.ordinal());
+            tag.putInt("SignStep", signStep);
+        }
         if (individual != null) {
             tag.put("Individual", IndividualNbt.save(individual)); // 특성·육아·가계 지속(Phase 6)
         }
@@ -8696,6 +8879,10 @@ public class MimicEntity extends PathfinderMob {
         }
         lampSite = tag.contains("LampSite") ? BlockPos.of(tag.getLong("LampSite")) : null;
         lampStep = tag.getInt("LampStep");
+        signSite = tag.contains("SignSite") ? BlockPos.of(tag.getLong("SignSite")) : null;
+        signRoad = tag.contains("SignRoad") ? BlockPos.of(tag.getLong("SignRoad")) : null;
+        signRot = net.minecraft.world.level.block.Rotation.values()[tag.getByte("SignRot") & 3];
+        signStep = tag.getInt("SignStep");
         if (tag.contains("Individual")) {
             this.individual = IndividualNbt.load(tag.getCompound("Individual"));
             refreshStageAttributes(); // 성별 배율 등 재적용

@@ -7749,12 +7749,22 @@ public final class FarmTicker {
         // <b>고용 깔때기 계측</b> — "인구는 느는데 소작 고용이 안 는다"를 수요(게시 부족분) 탓인지
         // 공급(후보 고갈) 탓인지 값으로 가른다. 대학 입학 깔때기와 같은 문법이다.
         // [성인, 지주가구, 은퇴, 학자(학생·교수·의사), 병사, 목사, 전업교사, 경비대, 만족, 후보]
-        int[] jobFun = new int[10];
+        int[] jobFun = new int[11];
+        // 지주 거처 → 주인 id. 그 집에 사는 성인은 구획 순회에서 전원 후보에서 빠진다(가족 노동으로 본다).
+        java.util.Map<Long, Long> ownerByHome = new java.util.HashMap<>();
+        for (java.util.Map.Entry<Long, BlockPos> oe : ownerHomes.entrySet()) {
+            if (oe.getValue() != null) {
+                ownerByHome.put(oe.getValue().asLong(), oe.getKey());
+            }
+        }
         for (MimicEntity m : adults) {
             jobFun[0]++;
             long mid = m.getIndividual().id();
+            Long homeOwner = m.getHomePos() == null ? null : ownerByHome.get(m.getHomePos().asLong());
             if (store.ownedCount(mid) > 0 || store.stewardOf(mid) != 0L || store.overseerOf(mid) != 0L) {
                 jobFun[1]++;
+            } else if (homeOwner != null && !m.marriedTo(homeOwner)) {
+                jobFun[10]++; // 지주 집 비배우자 성인 — 제 집 밭은 수확 권한이 없고(주인·배우자만) 소작 후보에서도 빠진다
             } else if (m.getStage() == com.evosim.core.LifeStage.ELDER) {
                 jobFun[2]++;
             } else if (isAcademic(m)) {
@@ -7998,9 +8008,9 @@ public final class FarmTicker {
             }
         }
         com.evosim.mod.log.SimEvents.note(level, "고용", String.format(
-                "성인 %d → 지주·마름·감독 %d · 은퇴 %d · 학자 %d · 병사 %d · 목사 %d · 전업교사 %d · 경비대 %d · 만족 %d → 후보 %d"
+                "성인 %d → 지주·마름·감독 %d · 지주집 비배우자 %d · 은퇴 %d · 학자 %d · 병사 %d · 목사 %d · 전업교사 %d · 경비대 %d · 만족 %d → 후보 %d"
                         + " | 게시 %d구획 %d타일 · 충당 %d · 미충당 %d구획 %d타일 | 배정 %d명(상시 %d)",
-                jobFun[0], jobFun[1], jobFun[2], jobFun[3], jobFun[4], jobFun[5], jobFun[6], jobFun[7], jobFun[8], jobFun[9],
+                jobFun[0], jobFun[1], jobFun[10], jobFun[2], jobFun[3], jobFun[4], jobFun[5], jobFun[6], jobFun[7], jobFun[8], jobFun[9],
                 jobDemand[0], jobDemand[1], jobDemand[2], jobDemand[3], jobDemand[4], ASSIGNED.size(), permToday));
     }
 

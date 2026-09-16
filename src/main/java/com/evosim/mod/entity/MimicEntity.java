@@ -358,12 +358,33 @@ public class MimicEntity extends PathfinderMob {
             @Override
             public net.minecraft.world.level.pathfinder.Path createPath(BlockPos target, int accuracy) {
                 BlockPos via = MimicEntity.this.facilityGate(target);
-                if (!com.evosim.mod.perf.Perf.on) {
-                    return via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
+                BlockPos goal = via != null ? via : target;
+                // <b>실패한 표적은 잠시 다시 내지 않는다.</b> 부분경로는 곧 끝나고, 리시·귀가처럼 매 틱 moveTo 를 부르는
+                // goal 은 그때마다 새 경로(최대 2560노드 탐색)를 다시 낸다 — 벽에 붙은 사람 한 명이 매 틱 A* 한 번이었다.
+                // 같은 표적이 실패·부분경로였으면 40틱(2초) 동안 null 을 돌려 서 있게 하고, 표적이 바뀌면 바로 낸다.
+                if (pathFailTarget != null && goal.equals(pathFailTarget) && tickCount - pathFailTick < PATH_RETRY_TICKS) {
+                    return null;
                 }
-                long t0 = System.nanoTime();
+                // <b>끝난 경로도 잠시 재사용한다.</b> moveTo(x,y,z) 는 정확도 1 로 경로를 내므로 표적 한 칸 옆(대각 2.2블록)에서
+                // "도착"으로 끝나는데, 밭일처럼 1.9블록 안을 요구하는 goal 은 그 자리에서 매 틱 같은 경로를 다시 냈다
+                // (계측: 낮 길찾기 10회/틱 중 대부분이 같은 표적 재계산). 같은 표적이면 10틱 동안 마지막 경로를 돌려준다.
+                if (pathCache != null && goal.equals(pathCacheGoal) && tickCount - pathCacheTick < PATH_CACHE_TICKS) {
+                    return pathCache;
+                }
+                long t0 = com.evosim.mod.perf.Perf.on ? System.nanoTime() : 0L;
                 var p = via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
-                com.evosim.mod.perf.Perf.path(System.nanoTime() - t0, p == null, p != null && !p.canReach());
+                if (t0 != 0L) {
+                    com.evosim.mod.perf.Perf.path(System.nanoTime() - t0, p == null, p != null && !p.canReach());
+                }
+                if (p == null || !p.canReach()) {
+                    pathFailTarget = goal;
+                    pathFailTick = tickCount;
+                } else {
+                    pathFailTarget = null;
+                }
+                pathCache = p;
+                pathCacheGoal = goal;
+                pathCacheTick = tickCount;
                 return p;
             }
 
@@ -411,6 +432,17 @@ public class MimicEntity extends PathfinderMob {
     /** 지금 향하는 문 칸(경유 중). 닿을 때까지 유지 — 문턱 언저리에서 경유/직행이 매 틱 뒤집히지 않게. */
     @Nullable
     private BlockPos gateTarget;
+    /** 마지막으로 실패·부분경로였던 표적과 그 틱 — 같은 표적 재시도 간격(연산 절약). */
+    @Nullable
+    private BlockPos pathFailTarget;
+    private int pathFailTick;
+    private static final int PATH_RETRY_TICKS = 40;
+    @Nullable
+    private net.minecraft.world.level.pathfinder.Path pathCache;
+    @Nullable
+    private BlockPos pathCacheGoal;
+    private int pathCacheTick;
+    private static final int PATH_CACHE_TICKS = 10;
 
     @Nullable
     private BlockPos facilityGate(BlockPos target) {

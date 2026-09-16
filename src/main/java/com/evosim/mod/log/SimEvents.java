@@ -121,11 +121,21 @@ public final class SimEvents {
         if (!enabled) {
             return;
         }
+        // <b>값이 바뀔 때만</b> 찍는다 — 가구당 1분마다 같은 줄이 반복돼 런당 수십 MB 가 됐다. 저장고(정수)·구성·입출금이
+        // 지난 줄과 같으면 생략한다. 소지합은 매 순간 흔들리는 값이라 비교에서 뺀다(변화 시계열은 저장고·입출금이 담는다).
+        long sig = (long) Math.round(larder) * 1_000_003L + adults * 10_007L + boys * 1_009L + infants * 101L + elders * 11L
+                + deposited * 3_001L + withdrawn * 7_001L;
+        Long prev = HOUSEHOLD_SIG.put(home.asLong(), sig);
+        if (prev != null && prev == sig) {
+            return;
+        }
         note(lv, "가계", String.format(
                 "@%d,%d 저장고%.0f 가족%d(성%d·소%d·유%d·노%d) 소지합%.1f 하루소모%.1f 입금%d 인출%d",
                 home.getX(), home.getZ(), larder, adults + boys + infants + elders, adults, boys,
                 infants, elders, holdingSum, need, deposited, withdrawn));
     }
+
+    private static final java.util.Map<Long, Long> HOUSEHOLD_SIG = new java.util.HashMap<>();
 
     /** 인구 조사 — 상태 스냅샷 + <b>식량 통계</b>(저장고합·소지합·위급 수). 하루 1회 시계열. */
     public static void census(Level lv, Collection<MimicEntity> mimics) {

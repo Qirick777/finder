@@ -173,7 +173,21 @@ public class MimicFarmGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        return canUse();
+        // <b>5틱에 한 번만 다시 판정한다.</b> canUse 는 표적 탐색(모든 구획의 익은 타일 순회)·라벨 문자열·사유 로그까지
+        // 하는 무거운 판정인데 실행 중에는 매 틱 불렸다(계측: 낮 밭일 goal 이 미믹 시간의 62%, 그중 판정이 4할).
+        // 표적이 있는 동안은 5틱(0.25초) 뒤에 다시 보면 충분하다 — 수확 뒤 다음 표적을 잡는 것이 최대 0.25초 늦을 뿐이다.
+        if ((mob.tickCount + mob.getId()) % 5 != 0) {
+            return lastContinue;
+        }
+        lastContinue = canUse();
+        return lastContinue;
+    }
+
+    private boolean lastContinue = true;
+
+    @Override
+    public void start() {
+        lastContinue = true;
     }
 
     @Override

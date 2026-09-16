@@ -381,7 +381,9 @@ public class MimicEntity extends PathfinderMob {
                     return pathCache;
                 }
                 long t0 = com.evosim.mod.perf.Perf.on ? System.nanoTime() : 0L;
-                var p = via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
+                // 경유점(이정표 마디든 문 칸이든)이 있으면 <b>그 칸</b>으로 낸다 — 종전엔 문 칸만 보고 나머지는 원 표적으로
+                // 내서, 이정표 마디를 골라 놓고도 경로는 곧장 냈다(무대 시험: 현재경로 표적이 마디가 아니라 집이었다).
+                var p = goal != target ? super.createPath(goal, 0) : super.createPath(target, accuracy);
                 if (t0 != 0L) {
                     long dt = System.nanoTime() - t0;
                     com.evosim.mod.perf.Perf.path(dt, p == null, p != null && !p.canReach());

@@ -3604,6 +3604,20 @@ public class MimicEntity extends PathfinderMob {
         }
     }
 
+    /** 무대용 — 정한 자리로 이정표 착공 상태에 들어간다(등기·장부 차감 없음). 시공 경로(signTick)를 검증하기 위한 것. */
+    public void debugStartSignpost(ServerLevel sl, SignpostPlanner.Site site) {
+        SignpostStore.get(sl).add(site.base(), site.rot(), site.road());
+        RoadPlanner.Obstacles.invalidate();
+        signSite = site.base();
+        signRot = site.rot();
+        signRoad = site.road();
+        signStep = 0;
+        signReachTicks = 0;
+        signStartTick = SimTime.tick(sl);
+        SimEvents.event(this, "이정표", String.format("착공(무대) @%d,%d 회전 %s · 길 칸 @%d,%d",
+                site.base().getX(), site.base().getZ(), site.rot(), site.road().getX(), site.road().getZ()));
+    }
+
     /**
      * <b>이정표를 세울 것인가</b> — 하루 1회, 가구 정산에서 군주(추종자가 가장 많은 식구)에게 묻는다.
      *

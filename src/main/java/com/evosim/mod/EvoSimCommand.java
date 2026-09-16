@@ -109,6 +109,11 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("signposts").executes(EvoSimCommand::signpostsReport))
                 .then(Commands.literal("signauto").executes(EvoSimCommand::signAuto))
+                .then(Commands.literal("signbuild")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                        .executes(ctx -> signBuild(ctx, IntegerArgumentType.getInteger(ctx, "x"),
+                                                IntegerArgumentType.getInteger(ctx, "z"))))))
                 .then(Commands.literal("signplant")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
                                 .then(Commands.argument("z", IntegerArgumentType.integer())
@@ -5834,7 +5839,56 @@ public final class EvoSimCommand {
             }
             tell(ctx.getSource(), String.format("  @%d,%d %s 길@%d,%d — %s", p.base().getX(), p.base().getZ(), p.rotation(),
                     p.road().getX(), p.road().getZ(), sb.length() == 0 ? "표 없음" : sb));
+            var pl = com.evosim.mod.entity.SignpostPlanner.plan(level, p.rotation());
+            if (pl.isPresent()) {
+                for (var pc : pl.get()) {
+                    BlockPos at = p.base().offset(pc.rel());
+                    if (level.getBlockEntity(at) instanceof net.minecraft.world.level.block.entity.SignBlockEntity sign) {
+                        StringBuilder f = new StringBuilder();
+                        for (int i = 0; i < 4; i++) {
+                            String m = sign.getText(true).getMessage(i, false).getString();
+                            if (!m.isEmpty()) {
+                                f.append(f.length() == 0 ? "" : " | ").append(m);
+                            }
+                        }
+                        tell(ctx.getSource(), String.format("    표지판 %+d,%+d,%+d 앞면: %s", pc.rel().getX(), pc.rel().getY(),
+                                pc.rel().getZ(), f.length() == 0 ? "(빈 판)" : f));
+                    }
+                }
+            }
         }
+        return 1;
+    }
+
+    /** 무대용 — 추종자가 가장 많은 개체에게 (x,z) 옆 길가의 이정표를 <b>직접 짓게</b> 한다(시공 경로 검증). */
+    private static int signBuild(CommandContext<CommandSourceStack> ctx, int x, int z) {
+        ServerLevel level = ctx.getSource().getLevel();
+        MimicEntity lord = null;
+        int best = -1;
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096))) {
+            if (m.getIndividual() == null || m.isBuilding()) {
+                continue;
+            }
+            int f = FarmTicker.followersOf(m.getIndividual().id());
+            if (f > best) {
+                best = f;
+                lord = m;
+            }
+        }
+        if (lord == null) {
+            tell(ctx.getSource(), "[이정표무대] 미믹 없음");
+            return 0;
+        }
+        var site = com.evosim.mod.entity.SignpostPlanner.forceSite(level, x, z);
+        if (site == null) {
+            tell(ctx.getSource(), "[이정표무대] 자리 없음 — " + com.evosim.mod.entity.SignpostPlanner.lastReason);
+            return 0;
+        }
+        lord.debugStartSignpost(level, site);
+        tell(ctx.getSource(), String.format("[이정표무대] %s(추종자 %d, @%d,%d)에게 착공 @%d,%d %s 길@%d,%d — 걸어가 세우는지 '이정표' 로그로 본다",
+                lord.getIndividual().shortName(), best, lord.blockPosition().getX(), lord.blockPosition().getZ(),
+                site.base().getX(), site.base().getZ(), site.rot(), site.road().getX(), site.road().getZ()));
         return 1;
     }
 

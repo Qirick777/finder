@@ -117,7 +117,8 @@ public class MimicPlayGoal extends Goal {
         long myId = mob.getIndividual().id();
         MimicEntity best = null;
         double bd = Double.MAX_VALUE;
-        for (MimicEntity m : MimicIndex.near(mob.level(), mob.getBoundingBox().inflate(FIND_RANGE))) {
+        for (MimicEntity m : mob.level().getEntitiesOfClass(MimicEntity.class,
+                mob.getBoundingBox().inflate(FIND_RANGE))) {
             if (m == mob || !m.isAlive() || m.getIndividual() == null) {
                 continue;
             }

@@ -1414,7 +1414,8 @@ public class MimicEntity extends PathfinderMob {
             return 0;
         }
         int n = 0;
-        for (MimicEntity m : MimicIndex.near(level(), new net.minecraft.world.phys.AABB(homePos).inflate(48.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(homePos).inflate(48.0))) {
             if (m != this && m.isAlive()
                     && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)
                     && homePos.equals(m.getHomePos())) {
@@ -1436,7 +1437,7 @@ public class MimicEntity extends PathfinderMob {
         if (level() instanceof ServerLevel sl) {
             return FarmTicker.byIndividual(sl, spouseId) != null;
         }
-        for (MimicEntity m : MimicIndex.near(level(), getBoundingBox().inflate(128.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(128.0))) {
             if (m != this && m.isAlive() && m.getIndividual() != null
                     && m.getIndividual().id() == spouseId) {
                 return true;
@@ -1975,7 +1976,7 @@ public class MimicEntity extends PathfinderMob {
                 accountByOwner.merge(p.ownerId, p.account, Double::sum);
             }
         }
-        for (MimicEntity m : MimicIndex.near(level(), getBoundingBox().inflate(range))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(range))) {
             if (m == this || m.getIndividual() == null || m.isFemale() == isFemale()) {
                 continue;
             }
@@ -2242,7 +2243,8 @@ public class MimicEntity extends PathfinderMob {
         guest.adoptDesign(host.homeDesign, host.homeFacing, host.homeMirror);
         if (wasLoneOwner && guest.getIndividual() != null) {
             long gid = guest.getIndividual().id();
-            for (MimicEntity c : MimicIndex.near(sl, new net.minecraft.world.phys.AABB(guestOldHome).inflate(48.0))) {
+            for (MimicEntity c : sl.getEntitiesOfClass(MimicEntity.class,
+                    new net.minecraft.world.phys.AABB(guestOldHome).inflate(48.0))) {
                 if (c.isAlive() && c.getIndividual() != null
                         && (c.getStage() == LifeStage.INFANT || c.getStage() == LifeStage.BOY)
                         && guestOldHome.equals(c.getHomePos())
@@ -2488,7 +2490,7 @@ public class MimicEntity extends PathfinderMob {
         List<int[]> existing = new ArrayList<>();
         var box = new net.minecraft.world.phys.AABB(
                 new BlockPos(anchorX, blockPosition().getY(), anchorZ)).inflate(160.0);
-        for (MimicEntity m : MimicIndex.near(sl, box)) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, box)) {
             BlockPos h = m.getHomePos();
             if (h != null) {
                 existing.add(new int[] {h.getX(), h.getZ()});
@@ -2553,7 +2555,8 @@ public class MimicEntity extends PathfinderMob {
     }
 
     private static boolean anyResidentAt(ServerLevel sl, BlockPos home) {
-        for (MimicEntity m : MimicIndex.near(sl, new net.minecraft.world.phys.AABB(home).inflate(48.0))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(home).inflate(48.0))) {
             if (m.isAlive() && home.equals(m.getHomePos())) {
                 return true;
             }
@@ -4480,7 +4483,7 @@ public class MimicEntity extends PathfinderMob {
         FarmStore fs = FarmStore.get(sl);
         long best = 0L;
         int bestTiles = 0;
-        for (MimicEntity a : MimicIndex.near(sl, getBoundingBox().inflate(96.0))) {
+        for (MimicEntity a : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(96.0))) {
             if (a.getIndividual() == null || a.getStage() != LifeStage.ADULT
                     || a.getHomePos() == null || !a.getHomePos().equals(homePos)) {
                 continue;
@@ -4921,7 +4924,7 @@ public class MimicEntity extends PathfinderMob {
     /** 같은 거처를 함께 짓는 살아있는 구성원(나 포함) — id 순 정렬로 소유 판정 동률이 안정적. */
     private List<MimicEntity> buildCrew(ServerLevel sl) {
         List<MimicEntity> crew = new ArrayList<>();
-        for (MimicEntity m : MimicIndex.near(sl, getBoundingBox().inflate(24.0))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
             if (m.isAlive() && m.building && homePos.equals(m.getHomePos())) {
                 crew.add(m);
             }
@@ -5023,7 +5026,7 @@ public class MimicEntity extends PathfinderMob {
 
     /** 설치 예정 칸에 서 있는 다른 미믹을 바깥쪽으로 살짝 민다(질식 없는 비강제 해소). */
     private void nudgeOccupants(ServerLevel sl, BlockPos pos) {
-        for (MimicEntity m : MimicIndex.near(sl, new AABB(pos))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, new AABB(pos))) {
             if (m == this) {
                 continue;
             }
@@ -5098,7 +5101,7 @@ public class MimicEntity extends PathfinderMob {
 
     /** 그 칸에 나 아닌 다른 미믹이 있나(질식 방지 — 남을 파묻지 않음). */
     private boolean cellOccupiedByOther(ServerLevel sl, BlockPos pos) {
-        for (MimicEntity m : MimicIndex.near(sl, new AABB(pos))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, new AABB(pos))) {
             if (m != this && m.isAlive()) {
                 return true;
             }
@@ -5264,7 +5267,7 @@ public class MimicEntity extends PathfinderMob {
 
     /** 건축 완료 — 거처 구성원 전원 building 해제·손에 든 블럭 정리. */
     private void finishBuilding(ServerLevel sl) {
-        for (MimicEntity m : MimicIndex.near(sl, getBoundingBox().inflate(24.0))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(24.0))) {
             if (homePos.equals(m.getHomePos())) {
                 m.building = false;
                 m.clearBuildItem();
@@ -7150,7 +7153,8 @@ public class MimicEntity extends PathfinderMob {
             fam.add(this); // 방랑자 = 1인 가정(자급자족)
             return fam;
         }
-        for (MimicEntity m : MimicIndex.near(level(), new net.minecraft.world.phys.AABB(homePos).inflate(96.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(homePos).inflate(96.0))) {
             if (m.getIndividual() != null && homePos.equals(m.getHomePos())) {
                 fam.add(m);
             }
@@ -7180,7 +7184,8 @@ public class MimicEntity extends PathfinderMob {
     private Sex villageBalancedSex(ServerLevel sl, DeterministicRng rng) {
         int males = 0;
         int females = 0;
-        for (MimicEntity m : MimicIndex.near(sl, getBoundingBox().inflate(PERCEPTION_RANGE))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class,
+                getBoundingBox().inflate(PERCEPTION_RANGE))) {
             if (!m.isAlive() || m.getIndividual() == null || m.getSpouseId() != 0L
                     || m.getStage() == LifeStage.ELDER) {
                 continue;
@@ -7302,7 +7307,7 @@ public class MimicEntity extends PathfinderMob {
         // 뿌리였다. 가구 합산은 인지 반경(48) 내 동거 구성원 근사 — 원거리 이탈자는 오차 수용.
         double need = FoodEconomy.consumptionPerDay(getStage(), Activity.MOVE, individual, false);
         double neighborMax = 0.0;
-        for (MimicEntity m : MimicIndex.near(sl, getBoundingBox().inflate(48.0))) {
+        for (MimicEntity m : sl.getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(48.0))) {
             if (m != this && homePos != null && homePos.equals(m.getHomePos())
                     && m.getIndividual() != null && m.isAlive()) {
                 need += FoodEconomy.consumptionPerDay(
@@ -7975,7 +7980,7 @@ public class MimicEntity extends PathfinderMob {
     }
 
     private boolean adultNear() {
-        for (MimicEntity m : MimicIndex.near(level(), getBoundingBox().inflate(FEED_RADIUS))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(FEED_RADIUS))) {
             if (m != this && m.getIndividual() != null
                     && (m.getStage() == LifeStage.ADULT || m.getStage() == LifeStage.ELDER)) {
                 return true; // 노년도 돌봄 성인으로 인정 — 마실 육아(조부모)가 유효해지는 지점
@@ -8260,7 +8265,8 @@ public class MimicEntity extends PathfinderMob {
         if (individual.parentingCare() == ParentingClass.NEGLECTFUL) {
             return false; // 무시 = 자유 배회 → 채집 가능
         }
-        for (MimicEntity inf : MimicIndex.near(level(), getBoundingBox().inflate(20.0))) {
+        for (MimicEntity inf : level().getEntitiesOfClass(MimicEntity.class,
+                getBoundingBox().inflate(20.0))) {
             if (inf.getStage() != LifeStage.INFANT || !homePos.equals(inf.getHomePos())
                     || inf.getIndividual() == null) {
                 continue;
@@ -8303,7 +8309,8 @@ public class MimicEntity extends PathfinderMob {
         // 바로 아래 {@code distSqr(homePos) <= 256} 이 이미 <b>집 기준</b>이므로, 검색 상자만
         // 어긋나 있었다. 이 주석의 원래 의도("지정자가 이탈하면 <b>남은 쪽</b>이 재구속")도
         // 집 기준일 때 성립한다 — 남은 쪽은 집에 있기 때문이다.
-        for (MimicEntity m : MimicIndex.near(level(), new AABB(homePos).inflate(24.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class,
+                new AABB(homePos).inflate(24.0))) {
             if (m != this && m.isAlive() && m.getIndividual() != null
                     && m.getIndividual().id() == otherParentId
                     && m.getStage() == LifeStage.ADULT
@@ -8323,7 +8330,7 @@ public class MimicEntity extends PathfinderMob {
         if (homePos == null || individual == null) {
             return false;
         }
-        for (MimicEntity m : MimicIndex.near(level(), getBoundingBox().inflate(20.0))) {
+        for (MimicEntity m : level().getEntitiesOfClass(MimicEntity.class, getBoundingBox().inflate(20.0))) {
             if (m.getStage() == LifeStage.INFANT && homePos.equals(m.getHomePos())
                     && m.getIndividual() != null
                     && (m.getIndividual().parentAId() == individual.id()

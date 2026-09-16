@@ -138,7 +138,8 @@ public class ElderVisitGoal extends Goal {
         targetHasInfant = false;
         long myId = mob.getIndividual().id();
         Map<Long, Boolean> childHomes = new HashMap<>(); // homePos → 유아 존재
-        var all = MimicIndex.near(mob.level(), mob.getBoundingBox().inflate(SCAN_RANGE));
+        var all = mob.level().getEntitiesOfClass(MimicEntity.class,
+                mob.getBoundingBox().inflate(SCAN_RANGE));
         for (MimicEntity m : all) {
             if (m.getIndividual() == null || m.getHomePos() == null) {
                 continue;

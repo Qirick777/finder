@@ -485,7 +485,8 @@ public class MimicForageGoal extends Goal {
      */
     private boolean foreignGarden(BlockPos p) {
         BlockPos myHome = mob.getHomePos();
-        for (MimicEntity m : MimicIndex.near(mob.level(), new net.minecraft.world.phys.AABB(p).inflate(6.0))) {
+        for (MimicEntity m : mob.level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(p).inflate(6.0))) {
             BlockPos h = m.getHomePos();
             if (h != null && !h.equals(myHome) && h.distSqr(p) <= 25.0) {
                 return true;

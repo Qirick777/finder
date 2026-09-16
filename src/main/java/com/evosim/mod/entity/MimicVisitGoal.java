@@ -389,7 +389,8 @@ public class MimicVisitGoal extends Goal {
     private MimicEntity nearestAdultAt(BlockPos p) {
         MimicEntity best = null;
         double bd = Double.MAX_VALUE;
-        for (MimicEntity m : MimicIndex.near(mob.level(), new net.minecraft.world.phys.AABB(p).inflate(5.0))) {
+        for (MimicEntity m : mob.level().getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(p).inflate(5.0))) {
             if (m == mob || !m.isAlive() || m.getIndividual() == null
                     || (m.getStage() != LifeStage.ADULT && m.getStage() != LifeStage.ELDER)) {
                 continue;

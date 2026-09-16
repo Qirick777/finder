@@ -90,7 +90,8 @@ public class MimicShareGoal extends Goal {
     private MimicEntity findNeedy() {
         MimicEntity best = null;
         double bestDist = Double.MAX_VALUE;
-        for (MimicEntity m : MimicIndex.near(mob.level(), mob.getBoundingBox().inflate(SHARE_RANGE))) {
+        for (MimicEntity m : mob.level().getEntitiesOfClass(
+                MimicEntity.class, mob.getBoundingBox().inflate(SHARE_RANGE))) {
             if (m == mob || !m.isAlive() || m.getIndividual() == null || !m.isCritical()) {
                 continue;
             }

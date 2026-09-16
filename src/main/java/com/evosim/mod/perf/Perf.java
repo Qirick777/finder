@@ -37,6 +37,7 @@ public final class Perf {
         sinceNanos = System.nanoTime();
         mimicTickNs = mimicTicks = pathNs = pathCalls = pathPartial = pathNull = logNs = logLines = serverTicks = 0;
         GOALS.clear();
+        PATH_WHO.clear();
     }
 
     public static void serverTick() {
@@ -58,6 +59,20 @@ public final class Perf {
         } else if (partial) {
             pathPartial++;
         }
+    }
+
+    /** 비싼 경로 계산(≥0.5ms)의 내역 — 부른 goal · 부분경로 여부 · 거리 구간 → [건수, ns 합]. */
+    private static final Map<String, long[]> PATH_WHO = new HashMap<>();
+
+    public static void pathDetail(String caller, boolean partial, double dist, long ns) {
+        if (ns < 500_000L) {
+            return;
+        }
+        String d = dist < 16 ? "<16" : dist < 48 ? "16-48" : dist < 96 ? "48-96" : dist < 160 ? "96-160" : "160+";
+        String k = caller + (partial ? " 부분" : " 완주") + " " + d;
+        long[] a = PATH_WHO.computeIfAbsent(k, x -> new long[2]);
+        a[0]++;
+        a[1] += ns;
     }
 
     public static void log(long ns) {
@@ -88,6 +103,17 @@ public final class Perf {
         sb.append(String.format("  길찾기 %.2fms/틱 · 호출 %.1f/틱 · 부분경로 %.1f/틱 · 실패 %.1f/틱 · 호출당 %.3fms%n", pathNs / 1e6 / ticks,
                 pathCalls / ticks, pathPartial / ticks, pathNull / ticks, pathCalls == 0 ? 0.0 : pathNs / 1e6 / pathCalls));
         sb.append(String.format("  이벤트 로그 %.2fms/틱 · %.1f줄/틱%n", logNs / 1e6 / ticks, logLines / ticks));
+        List<Map.Entry<String, long[]>> who = new ArrayList<>(PATH_WHO.entrySet());
+        who.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+        sb.append("  비싼 경로(≥0.5ms) 내역 — 부른 goal · 결과 · 거리:\n");
+        int w = 0;
+        for (var r : who) {
+            if (w++ >= 8) {
+                break;
+            }
+            sb.append(String.format("   %-28s %.2fms/틱 · %.2f회/틱 · 건당 %.2fms%n", r.getKey(), r.getValue()[1] / 1e6 / ticks,
+                    r.getValue()[0] / ticks, r.getValue()[1] / 1e6 / r.getValue()[0]));
+        }
         List<Map.Entry<String, long[]>> rows = new ArrayList<>(GOALS.entrySet());
         rows.sort((a, b) -> Long.compare(b.getValue()[0] + b.getValue()[2] + b.getValue()[4],
                 a.getValue()[0] + a.getValue()[2] + a.getValue()[4]));

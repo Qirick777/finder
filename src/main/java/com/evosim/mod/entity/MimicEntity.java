@@ -374,7 +374,17 @@ public class MimicEntity extends PathfinderMob {
                 long t0 = com.evosim.mod.perf.Perf.on ? System.nanoTime() : 0L;
                 var p = via != null ? super.createPath(via, 0) : super.createPath(target, accuracy);
                 if (t0 != 0L) {
-                    com.evosim.mod.perf.Perf.path(System.nanoTime() - t0, p == null, p != null && !p.canReach());
+                    long dt = System.nanoTime() - t0;
+                    com.evosim.mod.perf.Perf.path(dt, p == null, p != null && !p.canReach());
+                    if (dt >= 500_000L) {
+                        String who = MimicEntity.this.goalSelector.getRunningGoals()
+                                .min(java.util.Comparator.comparingInt(net.minecraft.world.entity.ai.goal.WrappedGoal::getPriority))
+                                .map(wg -> com.evosim.mod.perf.Perf.unwrap(wg.getGoal()).getClass().getSimpleName()
+                                        .replace("Mimic", "").replace("Goal", ""))
+                                .orElse("없음");
+                        com.evosim.mod.perf.Perf.pathDetail(who, p != null && !p.canReach(),
+                                Math.sqrt(MimicEntity.this.blockPosition().distSqr(goal)), dt);
+                    }
                 }
                 if (p == null || !p.canReach()) {
                     pathFailTarget = goal;

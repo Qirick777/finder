@@ -615,6 +615,9 @@ public class MimicEntity extends PathfinderMob {
         this.goalSelector.addGoal(4, com.evosim.mod.perf.Perf.timed(new MimicHomeGoal(this)));      // 밤 귀가(§3, 취침·정산 대비)
         this.goalSelector.addGoal(5, com.evosim.mod.perf.Perf.timed(new MimicRestGoal(this)));      // 취침(집에서 밤새 쉼)
         this.goalSelector.addGoal(6, com.evosim.mod.perf.Perf.timed(new MimicFarmGoal(this))); // 자기 밭 우선 — 채집(7)보다 엄격히 높아 실행 중 채집 선점
+        // 쉼터 — 밭일(6) 바로 아래. 한도를 다 쓴 소작만 걸리므로 밭일과 다투지 않고, 채집(7)보다 위라
+        // "더 못 따니 쉬러 간다"가 "채집하러 간다"보다 먼저 온다(쉬면 그 밭에서 다시 딸 수 있으니까).
+        this.goalSelector.addGoal(6, com.evosim.mod.perf.Perf.timed(new MimicShelterGoal(this)));
         // 등하교(P5b) — 성년의 밭일과 <b>같은 층</b>이다. 소년에게 학교는 어른의 밭에 해당한다.
         // 채집(7)보다 앞: 등록된 소년은 학교에 가고, 못 간 소년만 채집·놀이로 내려간다
         // (계획서 1.8 "학교에 못 가는 소년은 기존대로 놀이 → 눈으로 구분된다").
@@ -1613,6 +1616,39 @@ public class MimicEntity extends PathfinderMob {
 
     public boolean isBuilding() {
         return building || !paveTodo.isEmpty() || lampSite != null || signSite != null;
+    }
+
+    // ── 소작농 쉼터(사용자 안) ────────────────────────────────────────────────
+    /** 오늘 하루 수확 한도를 다 썼나 — 밭일 goal 이 적고 쉼터 goal 이 읽는다(휘발). */
+    private boolean harvestCapped;
+    /** 오늘 쉼터에서 회복한 양(0~{@link Facilities#SHELTER_RECOVER_MAX}) — 휘발, 날이 바뀌면 0. */
+    private int shelterRests;
+    private long shelterRestDay = Long.MIN_VALUE;
+
+    public void setHarvestCapped(boolean v) {
+        this.harvestCapped = v;
+    }
+
+    public boolean isHarvestCapped() {
+        return harvestCapped;
+    }
+
+    /** 오늘 쉼터에서 되찾은 수확 한도. 날이 바뀌면 저절로 0이 된다. */
+    public int shelterRestsToday() {
+        if (level() instanceof ServerLevel sl && SimTime.tick(sl) / 24000L != shelterRestDay) {
+            shelterRestDay = SimTime.tick(sl) / 24000L;
+            shelterRests = 0;
+        }
+        return shelterRests;
+    }
+
+    /** 쉼터에서 한 박자 쉬었다 — 한도 1 회복. 상한에 닿으면 false. */
+    public boolean noteShelterRest() {
+        if (shelterRestsToday() >= Facilities.SHELTER_RECOVER_MAX) {
+            return false;
+        }
+        shelterRests++;
+        return true;
     }
 
     /** 지금 길을 놓는 중인가 — 보고·검증용. */
@@ -4561,6 +4597,87 @@ public class MimicEntity extends PathfinderMob {
         HomeTemplate.settleShapes(sl, cells); // 계단·울타리 모양 재도출(거처와 같은 마무리)
     }
 
+    /**
+     * <b>쉼터를 세울 것인가</b> — 하루 1회, 가구 정산에서 밭 가진 가구에게 묻는다.
+     *
+     * <p>방아쇠는 실측이다. 어제 이 구획에서 "하루 수확 용량 소진"이 났다면, 일꾼은 와 있는데 한도가
+     * 모자라 익은 것을 두고 선 것이다(런 38: 그런 장면이 455건, d16 이후에 몰림). 그때만 세운다 —
+     * 한도가 남아도는 밭에 오두막을 지어 봐야 값만 나간다. 구획이 {@link Facilities#SHELTER_MIN_TILES}
+     * 이상이어야 하므로 초반 작은 밭에는 서지 않고, 초반 고용은 지금 그대로다.
+     *
+     * <p>도면은 둘(shelter1·shelter2)이고 구획 번호로 갈라 마을이 한 가지 모양으로 도배되지 않게 한다.
+     */
+    private double considerShelter(ServerLevel sl, List<MimicEntity> fam, double larder,
+                                   double adultNeed, boolean newDay) {
+        if (!newDay || fastSettle || homePos == null || building || lampSite != null
+                || signSite != null || !paveTodo.isEmpty() || individual == null) {
+            return larder;
+        }
+        FarmStore fs = FarmStore.get(sl);
+        FacilityStore reg = FacilityStore.get(sl);
+        // 가구가 가진 구획 중 "어제 한도가 터졌고 아직 쉼터가 없는" 가장 큰 것.
+        FarmStore.Plot want = null;
+        long ownerId = 0L;
+        for (MimicEntity m : fam) {
+            if (m.getIndividual() == null || !homePos.equals(m.getHomePos())) {
+                continue;
+            }
+            long id = m.getIndividual().id();
+            for (FarmStore.Plot p : fs.all().values()) {
+                if (p.ownerId != id || p.tiles.length < Facilities.SHELTER_MIN_TILES
+                        || !FarmTicker.capHitYesterday(p.id) || FarmTicker.shelterFor(sl, p) != null) {
+                    continue;
+                }
+                if (want == null || p.tiles.length > want.tiles.length) {
+                    want = p;
+                    ownerId = id;
+                }
+            }
+        }
+        if (want == null) {
+            return larder;
+        }
+        double reserve = HomeTemplate.reserve(adultNeed) * HomeTemplate.SHOWOFF_FACTOR;
+        double gate = Facilities.SHELTER_COST + reserve;
+        if (larder < gate) {
+            if (com.evosim.mod.entity.SimTime.tick(sl) / 24000L % 3 == 0) {
+                SimEvents.event(this, "쉼터", String.format(
+                        "보류 — 구획 %d(%d타일) 한도 터짐 · 저장고 %.0f < 문턱 %.0f(건축 %.0f + 예비 %.0f)",
+                        want.id, want.tiles.length, larder, gate, Facilities.SHELTER_COST, reserve));
+            }
+            return larder;
+        }
+        FacilityTemplate.Kind kind = (want.id & 1L) == 0L
+                ? FacilityTemplate.Kind.SHELTER1 : FacilityTemplate.Kind.SHELTER2;
+        byte rot = (byte) getRandom().nextInt(4);
+        boolean mir = getRandom().nextBoolean();
+        var tpl = FacilityTemplate.of(sl, kind, rot, mir);
+        if (tpl.isEmpty()) {
+            return larder;
+        }
+        BlockPos site = facilitySite(sl, want.anchor, tpl.get(), List.of(want.anchor),
+                new GapSpec(reg, FacilityTemplate.Group.SHELTER, Facilities.SHELTER_MIN_GAP,
+                        0L, Facilities.SHELTER_MIN_GAP), Facilities.SHELTER_SITE_RADIUS);
+        if (site == null) {
+            SimEvents.event(this, "쉼터", String.format(
+                    "자리 없음 — 구획 %d(%d타일) · 거부 집%d 밭%d 물%d 낙차%d 간격%d", want.id, want.tiles.length,
+                    SITE_REJECT[0], SITE_REJECT[1], SITE_REJECT[2], SITE_REJECT[3], SITE_REJECT[4]));
+            return larder;
+        }
+        raiseFacility(sl, site, tpl.get());
+        reg.register(site, kind, rot, mir, ownerId,
+                com.evosim.mod.entity.SimTime.tick(sl) / 24000L, Facilities.SHELTER_COST);
+        RoadPlanner.Obstacles.invalidate();
+        assignFacilityRoad(sl, site, tpl.get());
+        SimEvents.event(this, "쉼터", String.format(
+                "착공 @%d,%d 회전%d%s 도면=%s — 구획 %d(%d타일 · 구획중심에서 %.0f) · 자리 %d · 회복 상한 %d"
+                        + " · 건축비 %.0f (저장고 %.0f→%.0f)",
+                site.getX(), site.getZ(), rot, mir ? "·반전" : "", kind.design, want.id, want.tiles.length,
+                Math.sqrt(site.distSqr(want.anchor)), tpl.get().seats().size(),
+                Facilities.SHELTER_RECOVER_MAX, Facilities.SHELTER_COST, larder, larder - Facilities.SHELTER_COST));
+        return larder - Facilities.SHELTER_COST;
+    }
+
     private double considerLamp(ServerLevel sl, List<MimicEntity> fam, double larder,
                                 double adultNeed, boolean newDay) {
         if (!newDay || fastSettle || homePos == null || building || lampSite != null
@@ -6305,6 +6422,7 @@ public class MimicEntity extends PathfinderMob {
         // 정산 마감·가계 기록 (베리·출산 반영 후의 저장고를 확정 저장).
         if (homePos != null) {
             larder = payUpkeep(sl, larder, newHomeDay);
+            larder = considerShelter(sl, fam, larder, adultNeed, newHomeDay); // 밭이 일손을 못 따라갈 때만
             larder = considerLamp(sl, fam, larder, adultNeed, newHomeDay);
             larder = considerFacility(sl, fam, larder, adultNeed, newHomeDay);
             if (newHomeDay && !fastSettle && homePos != null) {

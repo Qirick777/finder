@@ -108,6 +108,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("roads").executes(EvoSimCommand::roadsReport))
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("signposts").executes(EvoSimCommand::signpostsReport))
+                .then(Commands.literal("shelters").executes(EvoSimCommand::sheltersReport))
                 .then(Commands.literal("signauto").executes(EvoSimCommand::signAuto))
                 .then(Commands.literal("signbuild")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
@@ -5811,6 +5812,45 @@ public final class EvoSimCommand {
         return 1;
     }
 
+    /** 쉼터 보고 — 기수·자리·돌보는 구획·오늘 회복량. 도면 자리 판정과 실제 회복이 맞물리는지 본다. */
+    private static int sheltersReport(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var reg = FacilityStore.get(level);
+        int n = 0;
+        for (FacilityStore.Entry e : reg.all()) {
+            if (e.kind.group != FacilityTemplate.Group.SHELTER) {
+                continue;
+            }
+            n++;
+            var tpl = FacilityTemplate.of(level, e.kind, e.rotation, e.mirrored);
+            StringBuilder plots = new StringBuilder();
+            for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+                if (FarmTicker.shelterFor(level, p) == e) {
+                    plots.append(plots.length() == 0 ? "" : ",").append(p.id).append('(').append(p.tiles.length).append(')');
+                }
+            }
+            tell(ctx.getSource(), String.format("  쉼터 @%d,%d %s 회전%d%s · 자리 %d · 돌보는 구획 %s",
+                    e.pos.getX(), e.pos.getZ(), e.kind.design, e.rotation, e.mirrored ? "·반전" : "",
+                    tpl.map(t -> t.seats().size()).orElse(-1), plots.length() == 0 ? "없음" : plots));
+        }
+        int resting = 0;
+        int recovered = 0;
+        for (MimicEntity m : level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096))) {
+            if (m.getIndividual() == null) {
+                continue;
+            }
+            if (m.shelterRestsToday() > 0) {
+                resting++;
+                recovered += m.shelterRestsToday();
+            }
+        }
+        tell(ctx.getSource(), String.format("[쉼터] %d채 · 오늘 회복한 소작 %d명 · 회복 합 %d (1인 상한 %d · 값 %.0f · 구획 문턱 %d타일 · 반경 %.0f)",
+                n, resting, recovered, Facilities.SHELTER_RECOVER_MAX, Facilities.SHELTER_COST,
+                Facilities.SHELTER_MIN_TILES, Facilities.SHELTER_REACH));
+        return 1;
+    }
+
     /** 이정표 보고 — 기수·마디·이정표마다 경로표(시설 종류 @좌표 거리 다음). 랜턴 유무로 완성 여부도 센다. */
     private static int signpostsReport(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();
@@ -5984,6 +6024,14 @@ public final class EvoSimCommand {
         }
         tell(ctx.getSource(), "§e[부지시험 병원]§r "
                 + MimicEntity.probeFacilitySite(level, centre, FacilityTemplate.Kind.HOSPITAL, (byte) 0));
+        for (FacilityTemplate.Kind k : new FacilityTemplate.Kind[] {
+                FacilityTemplate.Kind.SHELTER1, FacilityTemplate.Kind.SHELTER2}) {
+            var t = FacilityTemplate.of(level, k, (byte) 0, false);
+            tell(ctx.getSource(), "§e[부지시험 " + k.design + "]§r 자리 "
+                    + t.map(v -> v.seats().size()).orElse(-1) + " · 문 "
+                    + t.map(v -> v.entryDoors().size()).orElse(-1) + " · "
+                    + MimicEntity.probeFacilitySite(level, centre, k, (byte) 0));
+        }
         return 1;
     }
 

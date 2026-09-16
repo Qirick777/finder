@@ -89,6 +89,14 @@ public class MimicFarmGoal extends Goal {
         boolean harvestBlocked = false;
         if (harvestedToday >= dailyCap()) {
             harvestBlocked = true; // 전담창 소진 — 수확은 끝, 관리는 가능
+            // 쉼터 방아쇠 — "이 구획에서 한도를 다 쓴 일꾼이 있었다"를 지주가 밤에 읽는다.
+            long capPlot = FarmTicker.assignedPlot(mob.getId());
+            if (capPlot != 0L) {
+                FarmTicker.noteCapHit(capPlot);
+            }
+            mob.setHarvestCapped(true);
+        } else {
+            mob.setHarvestCapped(false);
         }
         if (!urgent && mob.getStage() == LifeStage.ELDER && mob.elderQuotaMet()) {
             // 노년 노동의 단일 상한 = 쿼터(노년 확장 산출 ㉵) — 밭 수확도 addHarvest 로 dayGathered 에
@@ -722,6 +730,9 @@ public class MimicFarmGoal extends Goal {
                 // 남의 밭 = 소작 용량(밭 크기·마름 항, 상한 14) — FarmEconomy.tenantCapacity 참조.
                 c = FarmEconomy.tenantCapacity(mob.getIndividual(), mob.getStage(),
                         p.tiles.length, p.stewardId != 0L);
+                // 쉼터에서 쉰 만큼 한도가 돌아온다(소작만 — 쉼터는 일꾼의 자리다). 새벽 배정 장부는
+                // 쉼터가 덮는 구획에 SHELTER_RECOVER_MAX 를 미리 얹으므로, 다 쉬면 장부와 정확히 맞는다.
+                c += mob.shelterRestsToday();
                 if (com.evosim.core.ExpressionResolver.isExpressed(mob.getIndividual(),
                         com.evosim.core.Trait.HIRELING)) {
                     c += 1; // 품팔이 — 일꾼으로 유능

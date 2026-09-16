@@ -58,7 +58,8 @@ public final class FacilityTemplate {
         WELL("우물"),
         MILL("풍차"),
         UNIVERSITY("대학"),
-        HOSPITAL("병원");
+        HOSPITAL("병원"),
+        SHELTER("쉼터");
 
         public final String label;
 
@@ -103,7 +104,15 @@ public final class FacilityTemplate {
          * 병원(지식인 P6) — 사용자 도면 home files/hospital.nbt(15·13·12 · 실자재 562 · 종 1 · 문 1).
          * 표지: 침대 머리 = 병상(3), 양조기 옆 계단 = 의사 진료 자리(1).
          */
-        HOSPITAL("hospital", "병원", Group.HOSPITAL);
+        HOSPITAL("hospital", "병원", Group.HOSPITAL),
+        /**
+         * 소작농 쉼터 — 밭 옆 오두막. 하루 수확 한도를 다 쓴 소작이 여기 앉아 쉬면 한도가 조금씩 돌아온다.
+         * 사용자 도면 둘(shelter1 9·8·12, shelter2 12·8·10)은 실자재 345칸·카펫 14칸·문 1·종 1·통 4로
+         * 같아서 값과 정원이 같다. 자리는 구빈원과 같은 갈래(카펫 두 칸이 한 사람)로 읽어 7석 —
+         * 덩어리당 2석 규칙으로 읽으면 통 넷·랜턴 둘을 그린 건물이 두 명짜리가 된다.
+         */
+        SHELTER1("shelter1", "쉼터", Group.SHELTER),
+        SHELTER2("shelter2", "쉼터", Group.SHELTER);
 
         public final String design;
         public final String label;
@@ -577,7 +586,7 @@ public final class FacilityTemplate {
             for (List<BlockPos> comp : clumps) {
                 comp.sort(java.util.Comparator.comparingInt((BlockPos q) -> q.getX())
                         .thenComparingInt(BlockPos::getZ));
-                if (kind.group == Group.POORHOUSE) {
+                if (kind.group == Group.POORHOUSE || kind.group == Group.SHELTER) {
                     // <b>구빈원은 카펫 두 칸이 한 사람이다.</b> 막사 규칙(덩어리당 2명)을 그대로
                     // 쓰면 구빈원 도면(2×5 덩어리 둘, 카펫 20칸)이 <b>정원 4</b>가 된다 — 통이
                     // 20개 놓인 건물치고 터무니없이 작고, 구제 시설이 넷만 받으면 구걸을 대신할

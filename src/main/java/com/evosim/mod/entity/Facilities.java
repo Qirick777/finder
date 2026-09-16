@@ -286,6 +286,32 @@ public final class Facilities {
      */
     public static final double FACILITY_CROSS_GAP = 24.0;
 
+    // ── 소작농 쉼터(사용자 안) ────────────────────────────────────────────────
+    /**
+     * <b>왜 쉼터인가</b> — 후반에 밭이 비는 원인은 사람이 없어서만이 아니다. 실측(런 38): "코앞에 익은
+     * 타일이 있는데 안 딴다 — 사유: 하루 수확 용량 소진"이 455건이고 d16 이후에 몰렸으며, 멈춘 지점은
+     * 전부 13/13·14/14 상한이었다. 와 있는 일꾼이 한도를 다 써서 옆의 익은 것을 두고 서 있는 것이다.
+     * 밭 옆 오두막에서 쉬면 피로가 풀려 조금 더 딴다 — 하루 한도는 곧 체력의 대리값이므로 말이 된다.
+     *
+     * <p>값은 도면 실자재로 환산한다(구빈원과 같은 규칙): 0.045 × 345 = 15.5 → 16.
+     */
+    public static final double SHELTER_COST = 16.0;
+    /** 이만한 구획에만 선다 — 작은 밭 옆 오두막은 우습고, 초반 고용을 건드리지 않게 하는 문턱이기도 하다. */
+    public static final int SHELTER_MIN_TILES = 48;
+    /** 쉼터가 돌봐 주는 거리(구획 중심까지). 통근 한계(96)의 절반이라 "제 밭 옆"이 된다. */
+    public static final double SHELTER_REACH = 48.0;
+    /** 쉼터끼리의 최소 간격. */
+    public static final double SHELTER_MIN_GAP = 64.0;
+    /** 부지 탐색 반경(구획 중심 기준). */
+    public static final int SHELTER_SITE_RADIUS = 64;
+    /** 앉아 쉬는 박자 — 이만큼마다 한도가 1씩 돌아온다(점차 회복). */
+    public static final int SHELTER_REST_TICKS = 50;
+    /**
+     * 하루 회복 상한. 상한 14 기준 +29% — 격차를 메우되 넘지 않게 작게 잡는다. 너무 크게 잡으면
+     * 부족분이 통째로 덮여 "정원 초과"로 소작이 예약석에서 풀린다(고용이 도로 준다).
+     */
+    public static final int SHELTER_RECOVER_MAX = 4;
+
     /** 군인 1명이 지키는 추종 가구 수 — 정원 = min(막사 자리, 추종가구 ÷ 이 값). */
     public static final int HOUSEHOLDS_PER_SOLDIER = 4;
 

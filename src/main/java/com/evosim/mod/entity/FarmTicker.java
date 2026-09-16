@@ -1641,6 +1641,52 @@ public final class FarmTicker {
     private static final java.util.Map<Long, Integer> FOLLOWERS = new java.util.HashMap<>();
 
     /** 이 개체를 따르는 자가 몇인가 — 시설 착공 자격(이용자가 곧 수입)의 입력. */
+    // ── 소작농 쉼터 ──────────────────────────────────────────────────────────
+    /** 오늘 "하루 수확 한도 소진"이 나온 구획(밭일 goal 이 적는다). 어제치가 쉼터 착공의 방아쇠다. */
+    private static final java.util.Set<Long> CAP_HIT_TODAY = new java.util.HashSet<>();
+    private static final java.util.Set<Long> CAP_HIT_YDAY = new java.util.HashSet<>();
+
+    /** 밭일 goal — 이 구획에서 한도를 다 썼다. */
+    public static void noteCapHit(long plotId) {
+        if (plotId != 0L) {
+            CAP_HIT_TODAY.add(plotId);
+        }
+    }
+
+    /** 어제 이 구획에서 한도 소진이 있었나 — 쉼터를 세울 이유가 실제로 있었는가. */
+    public static boolean capHitYesterday(long plotId) {
+        return CAP_HIT_YDAY.contains(plotId);
+    }
+
+    /** 이 구획을 돌봐 주는 쉼터 — 구획 중심에서 {@link Facilities#SHELTER_REACH} 안. 없으면 null. */
+    @Nullable
+    public static FacilityStore.Entry shelterFor(ServerLevel level, FarmStore.Plot plot) {
+        if (plot == null) {
+            return null;
+        }
+        double r2 = Facilities.SHELTER_REACH * Facilities.SHELTER_REACH;
+        FacilityStore.Entry best = null;
+        double bd = Double.MAX_VALUE;
+        for (FacilityStore.Entry e : FacilityStore.get(level).all()) {
+            if (e.kind.group != FacilityTemplate.Group.SHELTER) {
+                continue;
+            }
+            double d = e.pos.distSqr(plot.anchor);
+            if (d <= r2 && d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    /** 이 미믹이 오늘 배정된 구획을 돌봐 주는 쉼터 — 없으면 null. */
+    @Nullable
+    public static FacilityStore.Entry shelterForWorker(ServerLevel level, MimicEntity m) {
+        long pid = assignedPlot(m.getId());
+        return pid == 0L ? null : shelterFor(level, FarmStore.get(level).get(pid));
+    }
+
     public static int followersOf(long id) {
         return FOLLOWERS.getOrDefault(id, 0);
     }
@@ -7652,6 +7698,9 @@ public final class FarmTicker {
                                 || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
             m.updateMotivation(level);
         }
+        CAP_HIT_YDAY.clear();
+        CAP_HIT_YDAY.addAll(CAP_HIT_TODAY); // 쉼터 방아쇠 — 어제 한도를 다 쓴 구획
+        CAP_HIT_TODAY.clear();
         LAST_ASSIGNED.clear();
         LAST_ASSIGNED.putAll(ASSIGNED);
         ASSIGNED.clear();
@@ -7789,6 +7838,9 @@ public final class FarmTicker {
             int ownCap = effCap.getOrDefault(plot.id, 0);
             BlockPos ownerHome = ownerHomes.get(plot.ownerId);
             int need = com.evosim.core.FarmEconomy.shortfall(plot.tiles.length, ownCap);
+            // 쉼터가 돌보는 구획의 소작은 한도를 회복해 더 딴다 — 장부와 실제(MimicFarmGoal.dailyCap)를
+            // 같은 값으로 묶는다. 이 프로젝트가 반복해 밟은 함정이 "한 곳에서 재고 다른 곳에서 쓰는" 어긋남이다.
+            int shelterBonus = shelterFor(level, plot) != null ? Facilities.SHELTER_RECOVER_MAX : 0;
             // 예약석: 상시 소작은 슬롯 산식과 무관하게 매일 우선 배정(고용 진동 차단 — 계획 허점 2).
             // 통근 초과 이주·구획 소멸이면 관계 해제(F: 소작농 이주 미정의 보완).
             // <b>예약석에도 정원이 있다.</b>
@@ -7846,7 +7898,7 @@ public final class FarmTicker {
                 }
                 ASSIGNED.put(m.getId(), plot.id);
                 covered += com.evosim.core.FarmEconomy.tenantCapacity(m.getIndividual(), m.getStage(),
-                        plot.tiles.length, plot.stewardId != 0L); // 소작 용량(밭 크기·마름 항)
+                        plot.tiles.length, plot.stewardId != 0L) + shelterBonus; // 소작 용량(밭 크기·마름·쉼터)
             }
             if (need > 0) {
                 jobDemand[0]++;
@@ -7899,7 +7951,7 @@ public final class FarmTicker {
                 }
                 ASSIGNED.put(m.getId(), plot.id);
                 covered += com.evosim.core.FarmEconomy.tenantCapacity(m.getIndividual(), m.getStage(),
-                        plot.tiles.length, plot.stewardId != 0L); // 소작 용량(밭 크기·마름 항)
+                        plot.tiles.length, plot.stewardId != 0L) + shelterBonus; // 소작 용량(밭 크기·마름·쉼터)
                 // 연속 출근 카운터: 어제도 같은 밭이면 +1, 아니면 1 — PROMOTE_DAYS 도달 시 상시 승격
                 int streak = LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == plot.id
                         ? m.getTenantStreak() + 1 : 1;

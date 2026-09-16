@@ -109,6 +109,7 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("signposts").executes(EvoSimCommand::signpostsReport))
                 .then(Commands.literal("shelters").executes(EvoSimCommand::sheltersReport))
+                .then(Commands.literal("shelterplant").executes(EvoSimCommand::shelterPlant))
                 .then(Commands.literal("signauto").executes(EvoSimCommand::signAuto))
                 .then(Commands.literal("signbuild")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
@@ -5809,6 +5810,42 @@ public final class EvoSimCommand {
                 () -> m.discard());
         tell(ctx.getSource(), String.format("경유 시험 — @%d,%d 에서 거처 @%d,%d(직선 %.0f) 로. 6000틱, 200틱마다 경유진단 로그.",
                 origin.getX(), origin.getZ(), home.getX(), home.getZ(), total));
+        return 1;
+    }
+
+    /** 무대용 — 가장 큰 구획 옆에 쉼터를 즉시 세운다(방아쇠·곳간 무시). 시공 경로가 아니라 회복 규칙을 본다. */
+    private static int shelterPlant(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        FarmStore.Plot big = null;
+        for (FarmStore.Plot p : FarmStore.get(level).all().values()) {
+            if (p.ownerId != 0L && (big == null || p.tiles.length > big.tiles.length)) {
+                big = p;
+            }
+        }
+        if (big == null) {
+            tell(ctx.getSource(), "[쉼터무대] 밭이 없다");
+            return 0;
+        }
+        FacilityTemplate.Kind kind = (big.id & 1L) == 0L
+                ? FacilityTemplate.Kind.SHELTER1 : FacilityTemplate.Kind.SHELTER2;
+        var tpl = FacilityTemplate.of(level, kind, (byte) 0, false);
+        if (tpl.isEmpty()) {
+            tell(ctx.getSource(), "[쉼터무대] 도면 못 읽음");
+            return 0;
+        }
+        BlockPos site = MimicEntity.debugFacilitySite(level, big.anchor, tpl.get(),
+                com.evosim.mod.entity.Facilities.SHELTER_SITE_RADIUS);
+        if (site == null) {
+            tell(ctx.getSource(), "[쉼터무대] 자리 없음 — 구획 " + big.id);
+            return 0;
+        }
+        MimicEntity.debugRaiseFacility(level, site, tpl.get());
+        FacilityStore.get(level).register(site, kind, (byte) 0, false, big.ownerId,
+                com.evosim.mod.entity.SimTime.tick(level) / 24000L, Facilities.SHELTER_COST);
+        com.evosim.mod.entity.RoadPlanner.Obstacles.invalidate();
+        tell(ctx.getSource(), String.format("[쉼터무대] 구획 %d(%d타일 @%d,%d) 옆 @%d,%d 에 %s 세움 · 자리 %d · 구획중심에서 %.0f",
+                big.id, big.tiles.length, big.anchor.getX(), big.anchor.getZ(), site.getX(), site.getZ(),
+                kind.design, tpl.get().seats().size(), Math.sqrt(site.distSqr(big.anchor))));
         return 1;
     }
 

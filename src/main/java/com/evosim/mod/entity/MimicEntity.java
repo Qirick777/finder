@@ -4356,6 +4356,12 @@ public class MimicEntity extends PathfinderMob {
      * 탐색은 이용자 무게중심에서 고리를 넓히며 도는데, 그 중심이 구빈원 근처라 안쪽 고리만
      * 계속 후보로 나왔기 때문이다. 후보 단계에서 걸러야 탐색이 <b>더 먼 고리로 밀려난다</b>.
      */
+    /** 무대용 — 부지 고르기만 부른다(간격 조건 없음). */
+    @Nullable
+    public static BlockPos debugFacilitySite(ServerLevel sl, BlockPos from, FacilityTemplate tpl, int radius) {
+        return facilitySite(sl, from, tpl, List.of(from), null, radius);
+    }
+
     private record GapSpec(FacilityStore reg, FacilityTemplate.Group group,
                            double sameGap, long ownerId, double sameOwnerGap) {
     }

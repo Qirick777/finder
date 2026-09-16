@@ -15,7 +15,7 @@ public final class ModEntities {
             DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, EvoSimMod.MODID);
 
     public static final RegistryObject<EntityType<MimicEntity>> MIMIC = ENTITIES.register("mimic",
-            () -> EntityType.Builder.of(MimicEntity::new, MobCategory.CREATURE)
+            () -> EntityType.Builder.of(MimicEntity::new, MobCategory.MISC)
                     .sized(0.6F, 1.8F)          // 플레이어 크기(성년 기준). 단계별 축소는 getDimensions.
                     .clientTrackingRange(10)
                     .build("mimic"));

@@ -23,6 +23,26 @@ public final class Overseer {
         return tiles >= MIN_TILES;
     }
 
+    /**
+     * 감독관을 앉히려면 그 구획에 마름 말고도 이만큼의 상시 소작이 있어야 한다(후보 본인 포함).
+     * 감독관은 일꾼을 감독하는 자리라 감독할 소작이 없으면 자리 자체가 없다. 종전엔 72칸만 넘으면
+     * 소작 둘뿐인 밭에서도 하나를 감독관으로 빼내(마름까지 빼면 일꾼 0), 익은 밭이 매일 그대로 남았다
+     * (사용자 실측: 대학도 없는 마을에서 소작 없이 감독관만 늘어 익은 채 방치).
+     */
+    public static final int MIN_TENANTS = 3;
+    /** 감독관을 유지하려면 남은 상시 소작이 이만큼은 돼야 한다. 밑돌면 해임되어 다시 일꾼으로 돌아간다. */
+    public static final int KEEP_TENANTS = 2;
+
+    /** 임명 가능 — 구획 크기와 상시 소작 수(마름·감독관 제외, 후보 포함) 둘 다 문턱을 넘어야 한다. */
+    public static boolean canAppoint(int tiles, int permanentTenants) {
+        return needed(tiles) && permanentTenants >= MIN_TENANTS;
+    }
+
+    /** 유지 가능 — 구획이 여전히 크고 감독할 상시 소작이 남아 있어야 한다. */
+    public static boolean canKeep(int tiles, int permanentTenants) {
+        return needed(tiles) && permanentTenants >= KEEP_TENANTS;
+    }
+
     /** 후보 순위 점수 — 학위 우선(10점씩), 다음 관리등급. 같으면 호출부가 수율·근속·id 로 가른다. */
     public static int score(int degree, int manageGrade) {
         return Degree.clamp(degree) * 10 + Math.max(0, manageGrade);

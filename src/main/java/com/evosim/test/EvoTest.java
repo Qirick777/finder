@@ -3373,7 +3373,10 @@ public final class EvoTest {
                 && close(com.evosim.core.Hospital.INFANT_FEE, 1.5) && close(com.evosim.core.Hospital.VISIT_FEE, 1.0);
         report.add("hospital/병원", hp, "회복률 없음 30/학사 60/석사 80 · 사흘 초과 사망 · 반경 64 · 저체력 30% · 정산 반분/보전 · 의사 학위 필수 · 진료비 1.5/1.0",
                 hp ? "정상" : "어긋남");
-        report.add("farm/감독관문턱", ov, "72칸+ · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
+        ov = ov && com.evosim.core.Overseer.canAppoint(72, 3) && !com.evosim.core.Overseer.canAppoint(72, 2)
+                && !com.evosim.core.Overseer.canAppoint(71, 5) && com.evosim.core.Overseer.canKeep(72, 2)
+                && !com.evosim.core.Overseer.canKeep(72, 1);
+        report.add("farm/감독관문턱", ov, "72칸+ · 상시 소작 3명(유지 2명) · 순위 학위>관리등급 · 급여 지대 5%(정수, 이월 0.5) · 바닥 E×(1+학위) 상한 1",
                 ov ? "정상" : "어긋남");
         boolean steward = close(FarmEconomy.stewardWageMult(0, 0), 0.5)
                 && close(FarmEconomy.stewardWageMult(5, 0), 0.75)

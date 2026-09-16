@@ -7912,6 +7912,14 @@ public final class FarmTicker {
             if (plot.ownerId == 0L) {
                 continue;
             }
+            // 감독할 상시 소작 수(마름·감독관 본인 제외) — 일꾼이 없으면 감독관 자리도 없다(Overseer.MIN_TENANTS).
+            int tenants = 0;
+            for (MimicEntity a : adults) {
+                long aid = a.getIndividual().id();
+                if (a.getTenantFarm() == plot.id && aid != plot.stewardId && aid != plot.overseerId) {
+                    tenants++;
+                }
+            }
             if (plot.overseerId != 0L) {
                 MimicEntity ov = null;
                 for (MimicEntity a : adults) {
@@ -7923,6 +7931,8 @@ public final class FarmTicker {
                 String why = null;
                 if (!com.evosim.core.Overseer.needed(plot.tiles.length)) {
                     why = "구획 " + plot.tiles.length + "칸 < " + com.evosim.core.Overseer.MIN_TILES + " (마름 하나로 충분)";
+                } else if (!com.evosim.core.Overseer.canKeep(plot.tiles.length, tenants)) {
+                    why = "감독할 상시 소작 " + tenants + " < " + com.evosim.core.Overseer.KEEP_TENANTS + " — 일꾼으로 복귀";
                 } else if (ov == null) {
                     why = "부재(사망·노년)";
                 } else if (store.ownedCount(plot.overseerId) > 0) {
@@ -7934,10 +7944,10 @@ public final class FarmTicker {
                     store.overseerGone(level, plot.overseerId, why);
                 }
             }
-            if (plot.overseerId == 0L && com.evosim.core.Overseer.needed(plot.tiles.length)) {
+            if (plot.overseerId == 0L && com.evosim.core.Overseer.canAppoint(plot.tiles.length, tenants)) {
                 MimicEntity cand = store.overseerCandidate(level, plot);
                 if (cand != null) {
-                    store.appointOverseer(level, plot, cand);
+                    store.appointOverseer(level, plot, cand, tenants);
                     ASSIGNED.remove(cand.getId());
                 }
             }

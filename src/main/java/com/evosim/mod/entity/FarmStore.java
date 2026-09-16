@@ -527,7 +527,7 @@ public class FarmStore extends SavedData {
     }
 
     /** 감독관 임명 — 소작석에서 해방(마름과 같다). */
-    public void appointOverseer(ServerLevel level, Plot p, MimicEntity cand) {
+    public void appointOverseer(ServerLevel level, Plot p, MimicEntity cand, int tenants) {
         p.overseerId = cand.getIndividual().id();
         p.overseerSince = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         if (cand.getTenantFarm() != 0L) {
@@ -535,8 +535,8 @@ public class FarmStore extends SavedData {
         }
         setDirty();
         com.evosim.mod.log.SimEvents.event(cand, "감독관임명", String.format(
-                "구획 %d(%d칸) 감독관 — 학위 %s · 관리 g%d · 급여 지대 %.0f%% · 효율 바닥 %.2f",
-                p.id, p.tiles.length, com.evosim.core.Degree.name(cand.getDegree()),
+                "구획 %d(%d칸) 감독관 — 감독할 상시 소작 %d · 학위 %s · 관리 g%d · 급여 지대 %.0f%% · 효율 바닥 %.2f",
+                p.id, p.tiles.length, tenants - 1, com.evosim.core.Degree.name(cand.getDegree()),
                 com.evosim.core.Multipliers.manageAbilityGrade(cand.getIndividual()),
                 com.evosim.core.Overseer.WAGE_SHARE * 100.0,
                 com.evosim.core.Overseer.floor(com.evosim.core.FarmEconomy.manageEfficiency(

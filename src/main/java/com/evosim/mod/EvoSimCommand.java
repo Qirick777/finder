@@ -5837,10 +5837,13 @@ public final class EvoSimCommand {
             var st = level.getBlockState(at);
             String extra = "";
             if (level.getBlockEntity(at) instanceof net.minecraft.world.level.block.entity.SignBlockEntity sign) {
-                extra = " 앞[" + sign.getText(true).getMessage(1, false).getString() + " "
-                        + sign.getText(true).getMessage(2, false).getString() + "] 뒤["
-                        + sign.getText(false).getMessage(1, false).getString() + " "
-                        + sign.getText(false).getMessage(2, false).getString() + "]";
+                StringBuilder f = new StringBuilder();
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < 4; i++) {
+                    f.append(i == 0 ? "" : "|").append(sign.getText(true).getMessage(i, false).getString());
+                    b.append(i == 0 ? "" : "|").append(sign.getText(false).getMessage(i, false).getString());
+                }
+                extra = " 앞[" + f + "] 뒤[" + b + "]";
             }
             tell(ctx.getSource(), String.format("  %+d,%+d,%+d %s%s", p.rel().getX(), p.rel().getY(), p.rel().getZ(),
                     st.toString().replace("Block{minecraft:", "").replace("}", ""), extra));

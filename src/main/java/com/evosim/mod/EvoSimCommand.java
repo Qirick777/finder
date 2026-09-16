@@ -117,6 +117,7 @@ public final class EvoSimCommand {
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(ctx -> goalsReport(ctx, StringArgumentType.getString(ctx, "name")))))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
+                .then(Commands.literal("gridtest").executes(EvoSimCommand::gridTest))
                 .then(Commands.literal("profile").executes(ctx -> profile(ctx, "report"))
                         .then(Commands.literal("on").executes(ctx -> profile(ctx, "on")))
                         .then(Commands.literal("off").executes(ctx -> profile(ctx, "off"))))
@@ -5651,6 +5652,51 @@ public final class EvoSimCommand {
     }
 
     /** 연산 계측 — on 으로 켜고 잠시 뒤 profile 로 읽는다(읽으면 다시 0부터). */
+    /**
+     * 격자 색인 자가검사(무대용) — 살아 있는 미믹마다 반경 5·20·48·96·128 상자로 종전 방식
+     * {@code getEntitiesOfClass} 와 {@code MimicIndex.near} 를 나란히 돌려 집합이 같은지 센다.
+     * 죽어 가는 개체(isAlive=false)는 종전 방식에서만 나올 수 있으므로 비교 전에 뺀다.
+     */
+    private static int gridTest(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        double[] radii = {5.0, 20.0, 48.0, 96.0, 128.0};
+        int cases = 0;
+        int mismatch = 0;
+        long oldTotal = 0;
+        long newTotal = 0;
+        java.util.List<MimicEntity> all = level.getEntitiesOfClass(MimicEntity.class,
+                new net.minecraft.world.phys.AABB(-4096, -64, -4096, 4096, 320, 4096));
+        for (MimicEntity m : all) {
+            if (!m.isAlive()) {
+                continue;
+            }
+            for (double r : radii) {
+                net.minecraft.world.phys.AABB box = m.getBoundingBox().inflate(r);
+                java.util.Set<MimicEntity> a = new java.util.HashSet<>();
+                for (MimicEntity o : level.getEntitiesOfClass(MimicEntity.class, box)) {
+                    if (o.isAlive()) {
+                        a.add(o);
+                    }
+                }
+                java.util.Set<MimicEntity> b = new java.util.HashSet<>(
+                        com.evosim.mod.entity.MimicIndex.near(level, box));
+                cases++;
+                oldTotal += a.size();
+                newTotal += b.size();
+                if (!a.equals(b)) {
+                    mismatch++;
+                    if (mismatch <= 5) {
+                        tell(ctx.getSource(), String.format("[격자검사] 불일치 개체 %s 반경 %.0f: 종전 %d · 격자 %d",
+                                m.getIndividual() == null ? "?" : "#" + m.getIndividual().id(), r, a.size(), b.size()));
+                    }
+                }
+            }
+        }
+        tell(ctx.getSource(), String.format("[격자검사] 미믹 %d · 사례 %d · 불일치 %d · 합계 종전 %d / 격자 %d",
+                all.size(), cases, mismatch, oldTotal, newTotal));
+        return mismatch == 0 ? 1 : 0;
+    }
+
     private static int profile(CommandContext<CommandSourceStack> ctx, String what) {
         switch (what) {
             case "on" -> {

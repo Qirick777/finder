@@ -57,6 +57,13 @@ public class MimicShelterGoal extends Goal {
         if (sh == null) {
             return false;
         }
+        // <b>가까울 때만 간다.</b> 쉼터는 구획 중심에서 48 안이라 밭에서 일하던 사람은 늘 이 안에 있다.
+        // 거리 조건이 없으면 집·마실 나가 있던 소작이 한도 소진만으로 마을을 가로질러 걸어온다 —
+        // 무대 시험(강제 소진 18명)에서 100블록 넘게 떨어진 사람들이 그랬다.
+        double reach = Facilities.SHELTER_REACH + 16.0;
+        if (mob.blockPosition().distSqr(sh.pos) > reach * reach) {
+            return false;
+        }
         seat = freeSeat(sl, sh);
         return seat != null;
     }

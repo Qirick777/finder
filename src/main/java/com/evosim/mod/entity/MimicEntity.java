@@ -1763,6 +1763,9 @@ public class MimicEntity extends PathfinderMob {
                     FamilyLedger.get(sl0).register(individual, com.evosim.mod.entity.SimTime.tick(level()) / 24000L);
                 }
             }
+            if ((tickCount & 63) == 0) {
+                unburyTick();  // 블록 속에 파묻혔으면 기어 나온다(구 세이브·기존 파묻힘 구제)
+            }
             growthTick();
             observeTooYoung();
             attractZombies();  // 근처 좀비가 미믹을 공격 대상으로 삼게 함
@@ -4935,12 +4938,87 @@ public class MimicEntity extends PathfinderMob {
             nudgeOccupants(sl, p.pos()); // 파묻지 않되 살짝 밀어냄 — 마지막 칸에 동료가 계속 서 있으면
             return false;                // 완성 판정이 영영 안 나던 교착의 자연 해소를 가속
         }
+        if (getBoundingBox().intersects(new AABB(p.pos()))) {
+            // 내가 서 있는 칸 — 마인크래프트에서 사람이 선 자리에는 블록을 놓을 수 없다. 종전엔 자기 발밑
+            // 바닥·발치 벽을 그대로 놓아 건축자가 제 집 바닥에 파묻혔다(런 35 머독 d0~d16, 런 36 세 명,
+            // 모두 '건축완료' 직후 제자리에서 리시정체 → 경로 종점=내 위치). 한 걸음 비켜서고 다음 박자에 놓는다.
+            stepAside(p.pos());
+            return false;
+        }
         // UPDATE_KNOWN_SHAPE — 새 블록이 이웃 계단·울타리의 모양을 다시 계산시키면 완성된 집이
         // 도면과 달라진다(HomeTemplate.place 와 같은 이유).
         sl.setBlock(p.pos(), p.state(),
                 net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                         | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
         return true;
+    }
+
+    /**
+     * <b>파묻힘 탈출</b> — 발이 들어간 칸이 온전한 블록(바닥 판자·돌벽)이면 블록 속이다. 미믹은 질식 피해를
+     * 무시하므로 죽지도 못하고 영영 그 자리에 선다(길찾기 시작 노드가 막혀 경로 종점=내 위치). 사람이라면
+     * 기어 나오듯, 같은 기둥 위쪽 → 이웃 8칸 순으로 발·머리 두 칸이 비고 발밑이 받쳐 주는 자리를 찾아 옮긴다.
+     * 64틱마다 블록 한 번 읽는 값싼 검사라 정상 개체에는 비용이 없다.
+     */
+    private void unburyTick() {
+        if (!(level() instanceof ServerLevel sl) || isPassenger()) {
+            return;
+        }
+        BlockPos feet = blockPosition();
+        if (!sl.getBlockState(feet).isCollisionShapeFullBlock(sl, feet)) {
+            return;
+        }
+        BlockPos to = null;
+        for (int dy = 1; dy <= 3 && to == null; dy++) {
+            if (standable(sl, feet.above(dy))) {
+                to = feet.above(dy);
+            }
+        }
+        for (int r = 1; r <= 2 && to == null; r++) {
+            for (int dx = -r; dx <= r && to == null; dx++) {
+                for (int dz = -r; dz <= r && to == null; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) {
+                        continue;
+                    }
+                    for (int dy = 0; dy <= 2 && to == null; dy++) {
+                        BlockPos c = feet.offset(dx, dy, dz);
+                        if (standable(sl, c)) {
+                            to = c;
+                        }
+                    }
+                }
+            }
+        }
+        if (to == null) {
+            return;
+        }
+        BlockPos from = feet;
+        getNavigation().stop();
+        setPos(to.getX() + 0.5, to.getY(), to.getZ() + 0.5);
+        com.evosim.mod.log.SimEvents.event(this, "파묻힘탈출", String.format("@%d,%d,%d 속 → @%d,%d,%d (%s)",
+                from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ(),
+                sl.getBlockState(from).getBlock().getName().getString()));
+    }
+
+    /** 발·머리 칸이 비어 있고(충돌 없음) 발밑이 받쳐 주는 자리인가. */
+    private static boolean standable(ServerLevel sl, BlockPos feet) {
+        return sl.getBlockState(feet).getCollisionShape(sl, feet).isEmpty()
+                && sl.getBlockState(feet.above()).getCollisionShape(sl, feet.above()).isEmpty()
+                && !sl.getBlockState(feet.below()).getCollisionShape(sl, feet.below()).isEmpty();
+    }
+
+    /** 내가 설치 예정 칸 위에 서 있으면 칸 중심에서 바깥쪽으로 한 걸음 비켜선다(자기 파묻힘 방지). */
+    private void stepAside(BlockPos pos) {
+        double dx = getX() - (pos.getX() + 0.5);
+        double dz = getZ() - (pos.getZ() + 0.5);
+        double len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 0.05) {
+            double ang = getRandom().nextDouble() * Math.PI * 2.0;
+            dx = Math.cos(ang);
+            dz = Math.sin(ang);
+            len = 1.0;
+        }
+        getNavigation().stop();
+        push(dx / len * 0.3, 0.05, dz / len * 0.3);
     }
 
     /** 설치 예정 칸에 서 있는 다른 미믹을 바깥쪽으로 살짝 민다(질식 없는 비강제 해소). */

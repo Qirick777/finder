@@ -108,7 +108,8 @@ public class MimicLeashGoal extends Goal {
             if (++stuck % 600 == 0 && anchor != null) {
                 var path = mob.getNavigation().createPath(anchor, 0);
                 com.evosim.mod.log.SimEvents.event(mob, "리시정체", String.format(
-                        "내 @%d,%d y%d · 앵커 @%d,%d y%d · 거리 %.0f · %d틱 무진전 · 네비%s · %s", now.getX(), now.getZ(), now.getY(),
+                        "내 @%d,%d y%d(발칸 %s) · 앵커 @%d,%d y%d · 거리 %.0f · %d틱 무진전 · 네비%s · %s", now.getX(), now.getZ(), now.getY(),
+                        mob.level().getBlockState(now).getBlock().getName().getString(),
                         anchor.getX(), anchor.getZ(), anchor.getY(), Math.sqrt(now.distSqr(anchor)), stuck,
                         mob.getNavigation().isDone() ? "끝남" : "진행",
                         path == null ? "경로없음" : path.canReach() ? "도달가능" : String.format("부분경로(종점 @%d,%d)",

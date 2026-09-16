@@ -117,6 +117,14 @@ public final class EvoSimCommand {
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(ctx -> goalsReport(ctx, StringArgumentType.getString(ctx, "name")))))
                 .then(Commands.literal("sitetest").executes(EvoSimCommand::siteTest))
+                .then(Commands.literal("signtest")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                        .then(Commands.argument("rot", IntegerArgumentType.integer(0, 3))
+                                                .executes(ctx -> signTest(ctx,
+                                                        IntegerArgumentType.getInteger(ctx, "x"),
+                                                        IntegerArgumentType.getInteger(ctx, "z"),
+                                                        IntegerArgumentType.getInteger(ctx, "rot")))))))
                 .then(Commands.literal("profile").executes(ctx -> profile(ctx, "report"))
                         .then(Commands.literal("on").executes(ctx -> profile(ctx, "on")))
                         .then(Commands.literal("off").executes(ctx -> profile(ctx, "off"))))
@@ -5651,6 +5659,46 @@ public final class EvoSimCommand {
     }
 
     /** 연산 계측 — on 으로 켜고 잠시 뒤 profile 로 읽는다(읽으면 다시 0부터). */
+    /** 무대용 — 이정표 도면을 지면 칸(밑동)에 회전 rot 로 즉시 세우고 표지판에 글씨를 쓴 뒤 칸별로 보고한다. */
+    private static int signTest(CommandContext<CommandSourceStack> ctx, int x, int z, int rot) {
+        ServerLevel level = ctx.getSource().getLevel();
+        net.minecraft.world.level.block.Rotation r = net.minecraft.world.level.block.Rotation.values()[rot];
+        int gy = com.evosim.mod.entity.RoadPlanner.surfaceY(level, x, z);
+        if (gy == Integer.MIN_VALUE) {
+            tell(ctx.getSource(), "[이정표시험] 지면 없음");
+            return 0;
+        }
+        var pl = com.evosim.mod.entity.SignpostPlanner.plan(level, r);
+        if (pl.isEmpty()) {
+            tell(ctx.getSource(), "[이정표시험] 도면 못 읽음(signpost.nbt)");
+            return 0;
+        }
+        BlockPos base = new BlockPos(x, gy, z);
+        for (var p : pl.get()) {
+            level.setBlock(base.offset(p.rel()), p.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        int labeled = com.evosim.mod.entity.SignpostPlanner.label(level, base, r, new String[] {"학교", "교회"});
+        var arms = com.evosim.mod.entity.SignpostPlanner.arms(r);
+        tell(ctx.getSource(), String.format("[이정표시험] 밑동 @%d,%d,%d 회전 %s · 칸 %d · 팔 %s/%s · 글씨 %d장",
+                x, gy, z, r, pl.get().size(), arms[0], arms[1], labeled));
+        for (var p : pl.get()) {
+            BlockPos at = base.offset(p.rel());
+            var st = level.getBlockState(at);
+            String extra = "";
+            if (level.getBlockEntity(at) instanceof net.minecraft.world.level.block.entity.SignBlockEntity sign) {
+                extra = " 앞[" + sign.getText(true).getMessage(1, false).getString() + " "
+                        + sign.getText(true).getMessage(2, false).getString() + "] 뒤["
+                        + sign.getText(false).getMessage(1, false).getString() + " "
+                        + sign.getText(false).getMessage(2, false).getString() + "]";
+            }
+            tell(ctx.getSource(), String.format("  %+d,%+d,%+d %s%s", p.rel().getX(), p.rel().getY(), p.rel().getZ(),
+                    st.toString().replace("Block{minecraft:", "").replace("}", ""), extra));
+        }
+        return 1;
+    }
+
     private static int profile(CommandContext<CommandSourceStack> ctx, String what) {
         switch (what) {
             case "on" -> {

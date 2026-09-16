@@ -353,7 +353,7 @@ public final class SignpostPlanner {
             for (int[] off : offsets(runX, runZ)) {
                 int px = x + off[0];
                 int pz = z + off[1];
-                if (ok(sl, roads, lamps, posts, ob, farms, px, pz, cy, rot)) {
+                if (ok(sl, roads, lamps, posts, ob, farms, px, pz, cy, rot, false)) {
                     lastReason = "";
                     return new Site(new BlockPos(px, RoadPlanner.surfaceY(sl, px, pz), pz), rot,
                             new BlockPos(x, cy + 1, z));
@@ -361,6 +361,44 @@ public final class SignpostPlanner {
             }
         }
         lastReason = "자리 없음 — " + rejectSummary() + " · 미도달 " + unserved.size();
+        return null;
+    }
+
+    /** 무대용 — (x,z)에서 가장 가까운 길 칸부터 가까운 순으로 훑어 기하 검사만 통과하는 첫 자리(방아쇠·이정표 간격 무시). */
+    @Nullable
+    public static Site forceSite(ServerLevel sl, int x, int z) {
+        java.util.Arrays.fill(REJ, 0);
+        RoadStore roads = RoadStore.get(sl);
+        List<int[]> cells = new ArrayList<>(roads.all());
+        cells.sort(java.util.Comparator.comparingInt(c -> (c[0] - x) * (c[0] - x) + (c[1] - z) * (c[1] - z)));
+        LampStore lamps = LampStore.get(sl);
+        SignpostStore posts = SignpostStore.get(sl);
+        RoadPlanner.Obstacles ob = RoadPlanner.Obstacles.of(sl);
+        FarmStore farms = FarmStore.get(sl);
+        int budget = 60;
+        for (int[] c : cells) {
+            if (--budget < 0) {
+                break;
+            }
+            int cy = RoadPlanner.surfaceY(sl, c[0], c[1]);
+            if (cy == Integer.MIN_VALUE || posts.nearest(c[0], c[1]) < 8) {
+                continue;
+            }
+            boolean runX = roads.has(c[0] + 1, c[1]) || roads.has(c[0] - 1, c[1]);
+            boolean runZ = roads.has(c[0], c[1] + 1) || roads.has(c[0], c[1] - 1);
+            Rotation rot = runX && !runZ ? Rotation.NONE : (runZ && !runX ? Rotation.CLOCKWISE_90
+                    : (((c[0] + c[1]) & 1) == 0 ? Rotation.NONE : Rotation.CLOCKWISE_90));
+            for (int[] off : offsets(runX, runZ)) {
+                int px = c[0] + off[0];
+                int pz = c[1] + off[1];
+                if (ok(sl, roads, lamps, posts, ob, farms, px, pz, cy, rot, true)) {
+                    lastReason = "";
+                    return new Site(new BlockPos(px, RoadPlanner.surfaceY(sl, px, pz), pz), rot,
+                            new BlockPos(c[0], cy + 1, c[1]));
+                }
+            }
+        }
+        lastReason = "자리 없음 — " + rejectSummary();
         return null;
     }
 
@@ -383,7 +421,8 @@ public final class SignpostPlanner {
 
     /** 이 열에 기둥을 세워도 되는가 — 가로등과 같은 검사에 이정표·가로등 간격과 도면 자리 비움을 더한다. */
     private static boolean ok(ServerLevel sl, RoadStore roads, LampStore lamps, SignpostStore posts,
-                              RoadPlanner.Obstacles ob, FarmStore farms, int px, int pz, int cy, Rotation rot) {
+                              RoadPlanner.Obstacles ob, FarmStore farms, int px, int pz, int cy, Rotation rot,
+                              boolean ignoreSpacing) {
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 if (roads.has(px + dx, pz + dz)) {
@@ -396,7 +435,7 @@ public final class SignpostPlanner {
             REJ[1]++;
             return false;
         }
-        if (lamps.nearest(px, pz) < 4 || posts.nearest(px, pz) < SPACING * 0.75) {
+        if (lamps.nearest(px, pz) < 4 || (!ignoreSpacing && posts.nearest(px, pz) < SPACING * 0.75)) {
             REJ[2]++;
             return false;
         }

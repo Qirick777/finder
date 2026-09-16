@@ -466,6 +466,8 @@ public class MimicEntity extends PathfinderMob {
     private BlockPos relayTarget;
     @Nullable
     private BlockPos relayFinal;
+    @Nullable
+    private BlockPos relayLogged;
 
     /**
      * 이정표 망의 다음 마디 — 표적이 {@link RelayNet#DIRECT} 밖이고 망이 이어지면 그 칸, 아니면 null(곧장).
@@ -477,8 +479,8 @@ public class MimicEntity extends PathfinderMob {
             return null;
         }
         if (relayTarget != null) {
-            if (!target.equals(relayFinal)) {
-                relayTarget = null;
+            if (relayFinal == null || target.getX() != relayFinal.getX() || target.getZ() != relayFinal.getZ()) {
+                relayTarget = null; // 표적이 바뀌었다(goal 교체) — 높이 차는 같은 표적으로 본다
             } else {
                 double gx = getX() - (relayTarget.getX() + 0.5);
                 double gz = getZ() - (relayTarget.getZ() + 0.5);
@@ -492,8 +494,14 @@ public class MimicEntity extends PathfinderMob {
         if (v != null) {
             relayTarget = v;
             relayFinal = target;
-            SimEvents.event(this, "이정표경유", String.format("마디 @%d,%d 로 (표적 @%d,%d · 직선 %.0f)",
-                    v.getX(), v.getZ(), target.getX(), target.getZ(), Math.sqrt(blockPosition().distSqr(target))));
+            // 로그는 마디가 바뀔 때만 — goal 이 번갈아 부르면 같은 마디가 틱마다 찍혔다(런 38: 1157줄).
+            if (relayLogged == null || relayLogged.getX() != v.getX() || relayLogged.getZ() != v.getZ()) {
+                relayLogged = v;
+                SimEvents.event(this, "이정표경유", String.format("마디 @%d,%d 로 (표적 @%d,%d · 직선 %.0f)",
+                        v.getX(), v.getZ(), target.getX(), target.getZ(), Math.sqrt(blockPosition().distSqr(target))));
+            }
+        } else {
+            relayLogged = null;
         }
         return v;
     }

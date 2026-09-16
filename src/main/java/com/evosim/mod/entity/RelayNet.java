@@ -230,21 +230,41 @@ public final class RelayNet {
         if (tn == null) {
             tn = nearestNode(target, STATION_REACH, false);
         }
-        Node mn = nearestNode(me, STATION_REACH, false);
-        if (tn == null || mn == null) {
+        if (tn == null) {
             return null;
+        }
+        // 첫 마디 — 내게 가장 가까운 마디가 아니라 <b>나→마디 직선 + 마디→표적 홉×연결거리</b>가 가장 싼 마디.
+        // 실측(런 38): 등거리의 두 마디 사이에서 "가장 가까운 마디"가 걸음마다 뒤바뀌어 표적 반대쪽 마디로
+        // 되돌아갔다(루비 @2,-55: 서쪽 @-40,-42 ↔ 동쪽 @39,-28). 표적 쪽 홉이 작은 마디가 이기면 걸을수록
+        // 그 마디가 더 싸져 선택이 흔들리지 않는다.
+        Node mn = null;
+        double bc = Double.MAX_VALUE;
+        double reach2 = STATION_REACH * STATION_REACH;
+        for (Node nd : nodes) {
+            double d2 = nd.pos.distSqr(me);
+            if (d2 > reach2) {
+                continue;
+            }
+            int h = nd == tn ? 0 : hops[nd.index][tn.index];
+            if (h < 0) {
+                continue; // 그 마디에서는 표적 마디로 못 간다
+            }
+            double cost = Math.sqrt(d2) + h * LINK;
+            if (cost < bc) {
+                bc = cost;
+                mn = nd;
+            }
+        }
+        if (mn == null) {
+            return null; // 내 주변 96 안에 표적으로 이어지는 마디가 없다 — 곧장 시도(리시 정체 진단이 남는다)
         }
         if (mn == tn) {
             return me.distSqr(mn.pos) > 9.0 ? mn.pos : null;
         }
-        int nx = next[mn.index][tn.index];
-        if (nx < 0) {
-            return null; // 안 이어진 조각 — 곧장 시도(리시 정체 진단이 남는다)
-        }
         if (me.distSqr(mn.pos) > 9.0) {
             return mn.pos;
         }
-        return nodes.get(nx).pos;
+        return nodes.get(next[mn.index][tn.index]).pos;
     }
 
     /**

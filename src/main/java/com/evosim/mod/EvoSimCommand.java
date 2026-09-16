@@ -109,6 +109,11 @@ public final class EvoSimCommand {
                 .then(Commands.literal("lamps").executes(EvoSimCommand::lampsReport))
                 .then(Commands.literal("signposts").executes(EvoSimCommand::signpostsReport))
                 .then(Commands.literal("signauto").executes(EvoSimCommand::signAuto))
+                .then(Commands.literal("signplant")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                        .executes(ctx -> signPlant(ctx, IntegerArgumentType.getInteger(ctx, "x"),
+                                                IntegerArgumentType.getInteger(ctx, "z"))))))
                 .then(Commands.literal("relaytest")
                         .then(Commands.argument("x", IntegerArgumentType.integer())
                                 .then(Commands.argument("z", IntegerArgumentType.integer())
@@ -5671,6 +5676,33 @@ public final class EvoSimCommand {
     }
 
     /** 연산 계측 — on 으로 켜고 잠시 뒤 profile 로 읽는다(읽으면 다시 0부터). */
+    /** 무대용 — (x,z)에서 가장 가까운 길 칸 옆에 방아쇠·간격을 무시하고 이정표를 즉시 세워 등기·글씨까지 한다. */
+    private static int signPlant(CommandContext<CommandSourceStack> ctx, int x, int z) {
+        ServerLevel level = ctx.getSource().getLevel();
+        var site = com.evosim.mod.entity.SignpostPlanner.forceSite(level, x, z);
+        if (site == null) {
+            tell(ctx.getSource(), "[이정표무대] 자리 없음 — " + com.evosim.mod.entity.SignpostPlanner.lastReason);
+            return 0;
+        }
+        var pl = com.evosim.mod.entity.SignpostPlanner.plan(level, site.rot());
+        if (pl.isEmpty()) {
+            tell(ctx.getSource(), "[이정표무대] 도면 못 읽음");
+            return 0;
+        }
+        for (var p : pl.get()) {
+            level.setBlock(site.base().offset(p.rel()), p.state(),
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS
+                            | net.minecraft.world.level.block.Block.UPDATE_KNOWN_SHAPE);
+        }
+        com.evosim.mod.entity.SignpostStore.get(level).add(site.base(), site.rot(), site.road());
+        com.evosim.mod.entity.RoadPlanner.Obstacles.invalidate();
+        com.evosim.mod.entity.RelayNet.dirty();
+        int signs = com.evosim.mod.entity.SignpostPlanner.relabelAll(level);
+        tell(ctx.getSource(), String.format("[이정표무대] 세움 @%d,%d %s 길@%d,%d · 표지판 %d장 갱신",
+                site.base().getX(), site.base().getZ(), site.rot(), site.road().getX(), site.road().getZ(), signs));
+        return 1;
+    }
+
     /** 무대용 — 추종자가 가장 많은 개체를 군주로 삼아 이정표 자리를 고르고 <b>즉시</b> 세워 등기·글씨까지 한다(시공 생략). */
     private static int signAuto(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = ctx.getSource().getLevel();

@@ -2,6 +2,7 @@ package com.evosim.mod.entity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
@@ -51,15 +52,21 @@ public final class MimicIndex {
         return ALL;
     }
 
-    /** 중심에서 수평·수직 모두 {@code radius} 안(거리제곱 기준, 종전 AABB.inflate 와 같은 뜻)의 미믹. */
-    public static List<MimicEntity> near(ServerLevel level, double x, double y, double z, double radius) {
-        ensure(level);
+    /**
+     * 상자와 겹치는 미믹 — 종전 {@code getEntitiesOfClass(MimicEntity.class, box)} 와 같은 뜻(바운딩박스 교차).
+     * 칸 범위를 사방 1칸 더 잡아, 틱 시작 이후 칸 경계를 넘은 미믹도 놓치지 않는다.
+     * 서버 레벨이 아니면(클라이언트) 종전 방식으로 그대로 훑는다. 죽은(제거된) 미믹은 담지 않는다.
+     */
+    public static List<MimicEntity> near(Level level, AABB box) {
+        if (!(level instanceof ServerLevel sl)) {
+            return level.getEntitiesOfClass(MimicEntity.class, box);
+        }
+        ensure(sl);
         List<MimicEntity> out = new ArrayList<>();
-        int c0x = ((int) Math.floor(x - radius)) >> 4;
-        int c1x = ((int) Math.floor(x + radius)) >> 4;
-        int c0z = ((int) Math.floor(z - radius)) >> 4;
-        int c1z = ((int) Math.floor(z + radius)) >> 4;
-        AABB box = new AABB(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius);
+        int c0x = (((int) Math.floor(box.minX)) >> 4) - 1;
+        int c1x = (((int) Math.floor(box.maxX)) >> 4) + 1;
+        int c0z = (((int) Math.floor(box.minZ)) >> 4) - 1;
+        int c1z = (((int) Math.floor(box.maxZ)) >> 4) + 1;
         for (int cx = c0x; cx <= c1x; cx++) {
             for (int cz = c0z; cz <= c1z; cz++) {
                 List<MimicEntity> cell = CELLS.get(key(cx, cz));
@@ -67,7 +74,7 @@ public final class MimicIndex {
                     continue;
                 }
                 for (MimicEntity m : cell) {
-                    if (box.intersects(m.getBoundingBox())) {
+                    if (m.isAlive() && box.intersects(m.getBoundingBox())) {
                         out.add(m);
                     }
                 }
@@ -76,7 +83,12 @@ public final class MimicIndex {
         return out;
     }
 
+    /** 중심에서 수평·수직 모두 {@code radius} 안(바운딩박스 교차 기준, 종전 AABB.inflate 와 같은 뜻)의 미믹. */
+    public static List<MimicEntity> near(ServerLevel level, double x, double y, double z, double radius) {
+        return near(level, new AABB(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius));
+    }
+
     public static List<MimicEntity> near(ServerLevel level, BlockPos p, double radius) {
-        return near(level, p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5, radius);
+        return near(level, new AABB(p).inflate(radius));
     }
 }

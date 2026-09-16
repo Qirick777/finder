@@ -188,8 +188,7 @@ public class MimicCombatGoal extends Goal {
         if (!FarmTicker.isSoldier(mob)) {
             return best; // 병사가 아니면 사람과 싸우지 않는다 — 민간인끼리는 전투가 없다
         }
-        for (MimicEntity o : mob.level().getEntitiesOfClass(MimicEntity.class,
-                mob.getBoundingBox().inflate(range))) {
+        for (MimicEntity o : MimicIndex.near(mob.level(), mob.getBoundingBox().inflate(range))) {
             if (o == mob || !o.isAlive() || o.getIndividual() == null
                     || !FarmTicker.isSoldier(o) || !FarmTicker.hostileSoldiers(mob, o)) {
                 continue;
@@ -220,8 +219,7 @@ public class MimicCombatGoal extends Goal {
         if (!mob.inPoorhouse() || mob.getIndividual() == null) {
             return null;
         }
-        for (MimicEntity o : mob.level().getEntitiesOfClass(MimicEntity.class,
-                mob.getBoundingBox().inflate(range))) {
+        for (MimicEntity o : MimicIndex.near(mob.level(), mob.getBoundingBox().inflate(range))) {
             if (o == mob || !o.isAlive() || o.getIndividual() == null || !sameHouse(o)) {
                 continue;
             }

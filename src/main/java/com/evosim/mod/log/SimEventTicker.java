@@ -33,8 +33,10 @@ public final class SimEventTicker {
 
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) {
-            com.evosim.mod.perf.Perf.serverTick(); // 계측용 서버 틱 수(켜져 있을 때만 센다)
+        if (event.phase == TickEvent.Phase.START) {
+            com.evosim.mod.perf.Perf.serverTickStart();
+        } else {
+            com.evosim.mod.perf.Perf.serverTick(); // 계측용 서버 틱 수·시간(켜져 있을 때만 센다)
         }
         if (event.phase != TickEvent.Phase.END || !SimEvents.enabled()) {
             return;

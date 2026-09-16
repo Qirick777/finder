@@ -36,13 +36,27 @@ public final class Perf {
     public static void reset() {
         sinceNanos = System.nanoTime();
         mimicTickNs = mimicTicks = pathNs = pathCalls = pathPartial = pathNull = logNs = logLines = serverTicks = 0;
+        tickStartNs = tickSumNs = 0;
         GOALS.clear();
         PATH_WHO.clear();
+    }
+
+    private static long tickStartNs;
+    private static long tickSumNs;
+
+    /** 서버 틱 시작(START 단계) — 창 전체의 실제 틱 시간을 재기 위해. getAverageTickTime 은 최근 100틱 스냅샷이라 흔들린다. */
+    public static void serverTickStart() {
+        if (on) {
+            tickStartNs = System.nanoTime();
+        }
     }
 
     public static void serverTick() {
         if (on) {
             serverTicks++;
+            if (tickStartNs != 0L) {
+                tickSumNs += System.nanoTime() - tickStartNs;
+            }
         }
     }
 
@@ -98,8 +112,8 @@ public final class Perf {
         double sec = Math.max(1e-9, (System.nanoTime() - sinceNanos) / 1e9);
         double ticks = Math.max(1, serverTicks);
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("[계측] %.0f초 · 서버 %d틱(평균 틱 %.2fms) · 미믹 tick 합 %.2fms/틱(%d회/틱)%n", sec, serverTicks,
-                avgTickMs, mimicTickNs / 1e6 / ticks, (long) (mimicTicks / ticks)));
+        sb.append(String.format("[계측] %.0f초 · 서버 %d틱(창 평균 틱 %.2fms · 스냅샷 %.2fms) · 미믹 tick 합 %.2fms/틱(%d회/틱)%n", sec,
+                serverTicks, tickSumNs / 1e6 / ticks, avgTickMs, mimicTickNs / 1e6 / ticks, (long) (mimicTicks / ticks)));
         sb.append(String.format("  길찾기 %.2fms/틱 · 호출 %.1f/틱 · 부분경로 %.1f/틱 · 실패 %.1f/틱 · 호출당 %.3fms%n", pathNs / 1e6 / ticks,
                 pathCalls / ticks, pathPartial / ticks, pathNull / ticks, pathCalls == 0 ? 0.0 : pathNs / 1e6 / pathCalls));
         sb.append(String.format("  이벤트 로그 %.2fms/틱 · %.1f줄/틱%n", logNs / 1e6 / ticks, logLines / ticks));

@@ -7746,6 +7746,35 @@ public final class FarmTicker {
         market.sort(java.util.Comparator
                 .comparingInt((FarmStore.Plot p) -> -p.tiles.length)
                 .thenComparingLong(p -> p.id));
+        // <b>고용 깔때기 계측</b> — "인구는 느는데 소작 고용이 안 는다"를 수요(게시 부족분) 탓인지
+        // 공급(후보 고갈) 탓인지 값으로 가른다. 대학 입학 깔때기와 같은 문법이다.
+        // [성인, 지주가구, 은퇴, 학자(학생·교수·의사), 병사, 목사, 전업교사, 경비대, 만족, 후보]
+        int[] jobFun = new int[10];
+        for (MimicEntity m : adults) {
+            jobFun[0]++;
+            long mid = m.getIndividual().id();
+            if (store.ownedCount(mid) > 0 || store.stewardOf(mid) != 0L || store.overseerOf(mid) != 0L) {
+                jobFun[1]++;
+            } else if (m.getStage() == com.evosim.core.LifeStage.ELDER) {
+                jobFun[2]++;
+            } else if (isAcademic(m)) {
+                jobFun[3]++;
+            } else if (isSoldier(m)) {
+                jobFun[4]++;
+            } else if (isPastor(m)) {
+                jobFun[5]++;
+            } else if (isFullTimeTeacher(m)) {
+                jobFun[6]++;
+            } else if (m.inPoorhouse()) {
+                jobFun[7]++;
+            } else if (m.isSatisfiedToday() && !m.worksForTuition()) {
+                jobFun[8]++;
+            } else {
+                jobFun[9]++;
+            }
+        }
+        // [게시 구획, 게시 부족분 타일, 충당 타일, 미충당 구획, 미충당 타일]
+        int[] jobDemand = new int[5];
         for (FarmStore.Plot plot : market) {
             int ownCap = effCap.getOrDefault(plot.id, 0);
             BlockPos ownerHome = ownerHomes.get(plot.ownerId);
@@ -7809,7 +7838,12 @@ public final class FarmTicker {
                 covered += com.evosim.core.FarmEconomy.tenantCapacity(m.getIndividual(), m.getStage(),
                         plot.tiles.length, plot.stewardId != 0L); // 소작 용량(밭 크기·마름 항)
             }
+            if (need > 0) {
+                jobDemand[0]++;
+                jobDemand[1] += need;
+            }
             if (need <= 0 || covered >= need) {
+                jobDemand[2] += Math.min(covered, Math.max(0, need));
                 continue;
             }
             final BlockPos oh = ownerHome;
@@ -7875,6 +7909,11 @@ public final class FarmTicker {
                         m.setTenant(0L, streak);
                     }
                 }
+            }
+            jobDemand[2] += Math.min(covered, need);
+            if (covered < need) {
+                jobDemand[3]++;
+                jobDemand[4] += need - covered;
             }
         }
         // ── 마름 유지·임명(케이스 1, v1.3) — 배정과 독립 순회(부족분 0 구획도 임명 대상). ──
@@ -7952,6 +7991,17 @@ public final class FarmTicker {
                 }
             }
         }
+        int permToday = 0;
+        for (MimicEntity m : adults) {
+            if (m.getTenantFarm() != 0L) {
+                permToday++;
+            }
+        }
+        com.evosim.mod.log.SimEvents.note(level, "고용", String.format(
+                "성인 %d → 지주·마름·감독 %d · 은퇴 %d · 학자 %d · 병사 %d · 목사 %d · 전업교사 %d · 경비대 %d · 만족 %d → 후보 %d"
+                        + " | 게시 %d구획 %d타일 · 충당 %d · 미충당 %d구획 %d타일 | 배정 %d명(상시 %d)",
+                jobFun[0], jobFun[1], jobFun[2], jobFun[3], jobFun[4], jobFun[5], jobFun[6], jobFun[7], jobFun[8], jobFun[9],
+                jobDemand[0], jobDemand[1], jobDemand[2], jobDemand[3], jobDemand[4], ASSIGNED.size(), permToday));
     }
 
     /** 지주 가구 하루소모 — 본인 + 배우자(회차 21: 동거 성인 자녀 제외) + 동거 유아·소년.

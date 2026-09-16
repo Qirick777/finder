@@ -107,7 +107,7 @@ public class MimicShelterGoal extends Goal {
                     "쉼터 @%d,%d — 수확 한도 +1 (오늘 %d/%d · 구획 %d)", seat.getX(), seat.getZ(),
                     mob.shelterRestsToday(), Facilities.SHELTER_RECOVER_MAX,
                     FarmTicker.assignedPlot(mob.getId())));
-            mob.setHarvestCapped(false); // 한도가 돌아왔다 — 밭일 goal 이 다시 판단한다
+            // 상한까지 채우고 나간다 — 1 회복할 때마다 돌아가면 한 타일 따러 왕복하게 된다.
             if (sl.getRandom().nextInt(4) == 0) {
                 sl.playSound(null, mob.blockPosition(), net.minecraft.sounds.SoundEvents.VILLAGER_CELEBRATE,
                         net.minecraft.sounds.SoundSource.NEUTRAL, 0.3F, 1.2F);

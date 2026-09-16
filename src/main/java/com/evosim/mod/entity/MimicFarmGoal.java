@@ -95,6 +95,16 @@ public class MimicFarmGoal extends Goal {
                 FarmTicker.noteCapHit(capPlot);
             }
             mob.setHarvestCapped(true);
+            // <b>쉼터가 있으면 관리보다 회복이 먼저다.</b> 쉬면 그 밭에서 다시 딸 수 있으니 관리(산출 0)보다
+            // 이득이고, 여기서 true 를 돌려주면 밭일 goal 이 MOVE 를 쥔 채 관리로 들어가 같은 우선순위의
+            // 쉼터 goal 이 영영 못 뜬다(무대 시험: 한도 소진 11건에 휴식 0건). 자리가 없으면 쉼터 goal 이
+            // 스스로 안 뜨므로 다음 틱에 종전대로 관리로 간다.
+            if (mob.shelterRestsToday() < Facilities.SHELTER_RECOVER_MAX
+                    && mob.level() instanceof net.minecraft.server.level.ServerLevel shelterLv
+                    && FarmTicker.shelterForWorker(shelterLv, mob) != null) {
+                idleWhy("하루 수확 한도 소진 — 쉼터에서 회복");
+                return idle();
+            }
         } else {
             mob.setHarvestCapped(false);
         }

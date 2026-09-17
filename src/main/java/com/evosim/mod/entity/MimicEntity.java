@@ -6403,8 +6403,10 @@ public class MimicEntity extends PathfinderMob {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
                         - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출
                 long now = com.evosim.mod.entity.SimTime.tick(level());
+                // 쿨다운은 어미의 <b>신체</b>가 정한다(Reproduction.femaleCooldownDays) — 몸이 거칠고
+                // 튼튼하면 회복이 빠르고 빈약·병약하면 느리다. 판단 축(문턱)과 겹치지 않는 자리다.
                 boolean cooldownOk = now - mother.lastBirthTick
-                        >= (long) (Reproduction.FEMALE_COOLDOWN_DAYS * 24000L);
+                        >= (long) (Reproduction.femaleCooldownDays(mother.getIndividual()) * 24000L);
                 boolean underLimit = mother.childrenBorn
                         < Reproduction.birthLimit(mother.getIndividual(), father.getIndividual());
                 // 지역 과밀 상한(LOCAL_POP_CAP)은 폐기(지시) — 식량 압력이 자연 조절자:
@@ -7143,7 +7145,7 @@ public class MimicEntity extends PathfinderMob {
                 s.reproLack = (float) Math.max(0.0, s.reproNeed - larder);
                 // 시간 게이트(쿨다운) 잔여일 — 식량이 충족이어도 이 값이 남아 있으면 출산하지 않는다.
                 long since = com.evosim.mod.entity.SimTime.tick(sl) - mother.lastBirthTick;
-                long cdTicks = (long) (Reproduction.FEMALE_COOLDOWN_DAYS * 24000L);
+                long cdTicks = (long) (Reproduction.femaleCooldownDays(mother.getIndividual()) * 24000L);
                 s.reproCooldown = mother.childrenBorn == 0 ? 0.0F
                         : (float) Math.max(0.0, (cdTicks - since) / 24000.0);
             } else if (allMothersDone) {

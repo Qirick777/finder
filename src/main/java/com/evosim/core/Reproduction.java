@@ -83,8 +83,57 @@ public final class Reproduction {
         adj += (averse == 2 ? 6 : averse); // 둘 +6 / 한쪽 +1
         adj -= reckless; // 무모 — 준비량 감소
         adj += prudent;  // 신중 — 준비량 증가
+        // ── 판단 축(사용자 승인) — "얼마나 여유가 있어야 낳는가"를 특성이 가른다. ────────────
+        // 하층이 많이 낳는 이유와 상층이 많이 낳는 이유를 <b>다른 자리</b>에 둔다: 상층은 곳간이
+        // 넉넉해서 이 문턱을 저절로 넘고, 하층은 문턱 자체가 낮아 여유가 없어도 넘는다.
+        // 축의 본뜻에 맞는 넷만 고른다 — 무능·게으름(수확 축)·근시안(시야 축)·낭비선호(배우자 취향
+        // 축)는 낳는 판단과 무관하고, 안분지족·무욕은 오히려 멈추는 쪽이라 넣지 않는다.
+        adj -= 0.8 * has(a, Trait.IRRESPONSIBLE) + 0.8 * has(b, Trait.IRRESPONSIBLE);   // 무책임 — 뒷감당을 안 진다
+        adj -= 0.6 * has(a, Trait.PRESENT_ORIENTED) + 0.6 * has(b, Trait.PRESENT_ORIENTED); // 현재지향 — 내일의 굶주림을 할인한다
+        adj -= 0.4 * has(a, Trait.IMPULSIVE) + 0.4 * has(b, Trait.IMPULSIVE);           // 즉흥적 — 예비를 안 쌓고 벌인다
+        adj -= 0.2 * has(a, Trait.DEPENDENT) + 0.2 * has(b, Trait.DEPENDENT);           // 의탁 — 남이 도와주겠지
+        adj += 0.8 * has(a, Trait.OVER_RESPONSIBLE) + 0.8 * has(b, Trait.OVER_RESPONSIBLE);
+        adj += 0.6 * has(a, Trait.FUTURE_ORIENTED) + 0.6 * has(b, Trait.FUTURE_ORIENTED);
+        adj += 0.4 * has(a, Trait.PREPARED) + 0.4 * has(b, Trait.PREPARED);
+        // 아래로는 −3.0 에서 멈춘다 — 번식불호가 위로 +6 을 주는 것과 짝이 맞고, 문턱이 음수로
+        // 깊이 내려가 "곳간이 비어도 낳는다"가 되면 굶겨 죽이는 기계가 된다.
+        adj = Math.max(-3.0, adj);
         return Math.max(MIN_THRESHOLD, BASE_THRESHOLD + adj);
     }
+
+    /**
+     * <b>여성 출산 쿨다운</b> — 신체 축이 가른다(사용자 승인).
+     *
+     * <p>판단 축({@link #threshold})이 "여유가 얼마나 있어야 낳는가"를 정한다면, 이쪽은 "얼마나 자주
+     * 낳을 수 있는가"를 정한다. 두 축은 겹치지 않는다. 몸이 거칠고 튼튼하면 출산 회복이 빠르고,
+     * 빈약·병약하면 느리다는 생물학적 사유 그대로다.
+     *
+     * <p>단순무식은 <b>신체 축</b>이다(공격 +6%/등급 · 소모 +2.5%/등급 · 손재주·몰이 −0.25).
+     * 자주 낳되 더 먹고 덜 버는 셈이라 공짜가 아니다 — 비용이 이미 특성에 붙어 있다.
+     *
+     * @return 쿨다운 일수. 하한 {@link #COOLDOWN_MIN_DAYS} · 상한 {@link #COOLDOWN_MAX_DAYS}.
+     */
+    public static double femaleCooldownDays(Individual mother) {
+        if (mother == null) {
+            return FEMALE_COOLDOWN_DAYS;
+        }
+        double m = 1.0;
+        m -= 0.04 * ExpressionResolver.expressedGrade(mother, Trait.BRUTISH);
+        m += 0.03 * ExpressionResolver.expressedGrade(mother, Trait.REFINED);
+        m -= 0.03 * ExpressionResolver.expressedGrade(mother, Trait.TOUGH);
+        m += 0.03 * ExpressionResolver.expressedGrade(mother, Trait.FRAIL);
+        m -= 0.03 * ExpressionResolver.expressedGrade(mother, Trait.HARDY);
+        m += 0.04 * ExpressionResolver.expressedGrade(mother, Trait.SICKLY);
+        m -= 0.02 * ExpressionResolver.expressedGrade(mother, Trait.VIGOROUS);
+        m += 0.02 * ExpressionResolver.expressedGrade(mother, Trait.LISTLESS);
+        return Math.max(COOLDOWN_MIN_DAYS,
+                Math.min(COOLDOWN_MAX_DAYS, FEMALE_COOLDOWN_DAYS * m));
+    }
+
+    /** 쿨다운 하한 — 아무리 튼튼해도 이보다 자주는 못 낳는다. */
+    public static final double COOLDOWN_MIN_DAYS = 1.2;
+    /** 쿨다운 상한 — 아무리 약해도 이보다 드물지는 않다. */
+    public static final double COOLDOWN_MAX_DAYS = 5.0;
 
     /**
      * 출산 상한 (설계서 §6): 다산 여+2/남+1/둘+3, 난임 여−1/남−2/둘−3.

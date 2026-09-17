@@ -2541,6 +2541,29 @@ public final class EvoTest {
                             new FoodEconomy.Eater(man, LifeStage.ADULT, 0.2, true)))
                     && !FoodEconomy.anyStarvingHome(java.util.List.of(
                             new FoodEconomy.Eater(man, LifeStage.ADULT, 0.2, false))); // 밖 = 제외
+            // 판단 축(사용자 승인) — 무책임·현재지향·즉흥적·의탁은 문턱을 낮추고 과한책임·미래지향·
+            // 준비성은 올린다. 하한 −3.0(번식불호 +6 과 짝). 축 밖 특성(무능·게으름·근시안 등)은 무관.
+            com.evosim.core.Individual irr = graded(Sex.MALE, Trait.IRRESPONSIBLE, 3);
+            com.evosim.core.Individual ovr = graded(Sex.FEMALE, Trait.OVER_RESPONSIBLE, 3);
+            com.evosim.core.Individual plain = one(Sex.FEMALE);
+            double base = Reproduction.threshold(plain, one(Sex.MALE));
+            boolean axis = Reproduction.threshold(irr, plain) < base - 0.7
+                    && Reproduction.threshold(ovr, plain) > base + 0.7
+                    && Reproduction.threshold(irr, ovr) > Reproduction.threshold(irr, plain)
+                    && Reproduction.threshold(graded(Sex.MALE, Trait.INEPT, 5), plain) == base;
+            // 신체 축 — 쿨다운. 단순무식·튼튼·강건·활력은 줄이고 빈약·병약·무기력·섬세는 늘린다.
+            double cdBase = Reproduction.femaleCooldownDays(plain);
+            boolean body = cdBase == Reproduction.FEMALE_COOLDOWN_DAYS
+                    && Reproduction.femaleCooldownDays(graded(Sex.FEMALE, Trait.BRUTISH, 5)) < cdBase
+                    && Reproduction.femaleCooldownDays(graded(Sex.FEMALE, Trait.SICKLY, 5)) > cdBase
+                    && Reproduction.femaleCooldownDays(graded(Sex.FEMALE, Trait.BRUTISH, 5))
+                            >= Reproduction.COOLDOWN_MIN_DAYS
+                    && Reproduction.femaleCooldownDays(graded(Sex.FEMALE, Trait.SICKLY, 5))
+                            <= Reproduction.COOLDOWN_MAX_DAYS;
+            report.add("repro/판단축", axis, "무책임·현재지향·즉흥적·의탁 ↓ · 과한책임·미래지향·준비성 ↑ · 하한 −3 · 축 밖 특성 무관",
+                    axis ? "정상" : "어긋남");
+            report.add("repro/신체축", body, "쿨다운 2.5일 기준 — 단순무식·튼튼·강건·활력 ↓ / 빈약·병약·무기력·섬세 ↑ · 1.2~5.0일",
+                    body ? "정상" : "어긋남");
             report.add("food/번식", b, "(L−출산비용−하루소모)≥성년수+1 · 굶주림은 집 구성원만",
                     b ? "정상" : "어긋남");
         }

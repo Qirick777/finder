@@ -661,13 +661,20 @@ public class MimicFarmGoal extends Goal {
                 //   회계 항등식 불변: tShare + lift + base×fee == base.
                 //   mine ≥ 마름이면 lift = 0 → <b>현행과 완전히 동일</b>(재능 있는 평민 무손상).
                 double mineBase = FarmEconomy.TILE_YIELD_MULT * mine;
-                double tFull = FarmEconomy.tenantShare(base, tenantLarder, adultNeed);
+                // <b>신분이 곡선의 중간점을 옮긴다.</b> 같은 재산에서 농노가 더 떼이고 유생이 덜 떼인다.
+                // 기울기·하한·상한은 그대로라 기존 축적 제동 설계는 살아 있다.
+                double midDays = switch (TenantStatus.of(serverLevel(), mob)) {
+                    case SERF -> FarmEconomy.MID_DAYS_SERF;
+                    case SCHOLAR -> FarmEconomy.MID_DAYS_SCHOLAR;
+                    default -> FarmEconomy.MID_DAYS_FREE;
+                };
+                double tFull = FarmEconomy.tenantShare(base, tenantLarder, adultNeed, midDays);
                 double tShare = Math.min(tFull,
-                        FarmEconomy.tenantShare(mineBase, tenantLarder, adultNeed)); // E 미적용
+                        FarmEconomy.tenantShare(mineBase, tenantLarder, adultNeed, midDays)); // E 미적용
                 double lift = tFull - tShare;
                 double baseShare =
-                        (FarmEconomy.baseOwnerShare(base, tenantLarder, adultNeed) + lift) * e;
-                double excessShare = FarmEconomy.excessOwnerShare(base, tenantLarder, adultNeed) * e;
+                        (FarmEconomy.baseOwnerShare(base, tenantLarder, adultNeed, midDays) + lift) * e;
+                double excessShare = FarmEconomy.excessOwnerShare(base, tenantLarder, adultNeed, midDays) * e;
                 mob.addHarvest(tShare);
                 if (mob.getTenantFarm() == p.id) {
                     mob.resetTenantNoShow(); // 상시 밭에 실제로 나왔다

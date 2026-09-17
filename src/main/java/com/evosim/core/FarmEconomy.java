@@ -615,14 +615,37 @@ public final class FarmEconomy {
      * @param adultNeed 그 가구 <b>성인</b>의 명목 하루소모 합(자녀 제외)
      */
     public static double progressiveFee(double larder, double adultNeed) {
-        double mid = Math.max(1.0E-6, adultNeed) * WEALTH_MID_DAYS;
+        return progressiveFee(larder, adultNeed, WEALTH_MID_DAYS);
+    }
+
+    /**
+     * 신분별 누진 지대 — 곡선의 <b>중간점</b>만 옮긴다(사용자 승인).
+     *
+     * <p>같은 재산에서 누가 더 떼이는가를 이 한 값이 정한다. 농노는 중간점이 낮아 곳간이 조금만
+     * 차도 수취가 세진다(축적이 막혀 예속이 이어진다). 자유소작은 현행 그대로가 기준선이고,
+     * 유생은 중간점이 높아 여유를 지켜 재산을 모을 수 있다(사다리를 오른다).
+     * 기울기·하한·상한은 건드리지 않으므로 기존 축적 제동 설계가 그대로 산다.
+     */
+    public static double progressiveFee(double larder, double adultNeed, double midDays) {
+        double mid = Math.max(1.0E-6, adultNeed) * midDays;
         double x = Math.max(0.0, larder) - mid;
         return FEE_MIN + (FEE_MAX - FEE_MIN) / (1.0 + Math.exp(-FEE_CURVE_K * x));
     }
 
+    /** 농노의 중간점 — 낮을수록 일찍 수취가 세진다. */
+    public static final double MID_DAYS_SERF = 1.0;
+    /** 자유소작 — 현행 기준선({@link #WEALTH_MID_DAYS}). */
+    public static final double MID_DAYS_FREE = WEALTH_MID_DAYS;
+    /** 유생 — 여유를 지켜 사다리를 오른다. */
+    public static final double MID_DAYS_SCHOLAR = 2.5;
+
     /** 소작 몫 — 자산 누진. 아래 두 지주 몫과 합이 정확히 yield(회계 항등식). */
     public static double tenantShare(double yield, double larder, double adultNeed) {
-        return yield * (1.0 - progressiveFee(larder, adultNeed));
+        return tenantShare(yield, larder, adultNeed, WEALTH_MID_DAYS);
+    }
+
+    public static double tenantShare(double yield, double larder, double adultNeed, double midDays) {
+        return yield * (1.0 - progressiveFee(larder, adultNeed, midDays));
     }
 
     /**
@@ -630,7 +653,11 @@ public final class FarmEconomy {
      * (가난한 소작에게서는 확장 재원조차 적게 걷힌다). FEE 를 넘는 부분은 아래 초과분이 가져간다.
      */
     public static double baseOwnerShare(double yield, double larder, double adultNeed) {
-        return yield * Math.min(progressiveFee(larder, adultNeed), FEE);
+        return baseOwnerShare(yield, larder, adultNeed, WEALTH_MID_DAYS);
+    }
+
+    public static double baseOwnerShare(double yield, double larder, double adultNeed, double midDays) {
+        return yield * Math.min(progressiveFee(larder, adultNeed, midDays), FEE);
     }
 
     /**
@@ -639,7 +666,11 @@ public final class FarmEconomy {
      * 자산 누진이 되살린다.
      */
     public static double excessOwnerShare(double yield, double larder, double adultNeed) {
-        return yield * Math.max(0.0, progressiveFee(larder, adultNeed) - FEE);
+        return excessOwnerShare(yield, larder, adultNeed, WEALTH_MID_DAYS);
+    }
+
+    public static double excessOwnerShare(double yield, double larder, double adultNeed, double midDays) {
+        return yield * Math.max(0.0, progressiveFee(larder, adultNeed, midDays) - FEE);
     }
 
     public static double fee(int ownerTiles) {

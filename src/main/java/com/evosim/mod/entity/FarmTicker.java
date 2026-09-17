@@ -599,8 +599,12 @@ public final class FarmTicker {
             //    얻으면 조건이 깨져 0 으로 돌아간다. 이 역시 <b>기록만 한다.</b>
             for (MimicEntity m : everyone) {
                 long id = m.getIndividual().id();
+                // 학위자(유생)와 마름·감독관(관리)은 예속으로 세지 않는다 — 가난해도 농노로 떨어지지
+                // 않는다. 조선의 잔반이 제 손으로 농사를 지어도 신분은 양반이었던 자리다.
+                // (SocialRank 주석에 "무토지 마름과 소작이 둘 다 천민으로 묶인다"는 한계가 이미 적혀 있다.)
+                boolean exempt = !TenantStatus.of(level, m).countsBondage();
                 ledger.noteBondage(id,
-                        patrons.containsKey(id) && store.ownedTiles(id) == 0
+                        !exempt && patrons.containsKey(id) && store.ownedTiles(id) == 0
                                 && !FOLLOWERS.containsKey(id));
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
@@ -1642,6 +1646,9 @@ public final class FarmTicker {
 
     /** 이 개체를 따르는 자가 몇인가 — 시설 착공 자격(이용자가 곧 수입)의 입력. */
     // ── 소작농 쉼터 ──────────────────────────────────────────────────────────
+    /** 어제의 직역 신분 — 파생값이라 저장하지 않고, 바뀐 날에 전락·속량을 남기려고만 들고 있다. */
+    private static final java.util.Map<Long, TenantStatus> LAST_STATUS = new java.util.HashMap<>();
+
     /** 오늘 "하루 수확 한도 소진"이 나온 구획(밭일 goal 이 적는다). 어제치가 쉼터 착공의 방아쇠다. */
     private static final java.util.Set<Long> CAP_HIT_TODAY = new java.util.HashSet<>();
     private static final java.util.Set<Long> CAP_HIT_YDAY = new java.util.HashSet<>();
@@ -2014,7 +2021,8 @@ public final class FarmTicker {
             double larder = larders.get(home);
             double spare = com.evosim.core.Tribute.payable(
                     larder, familyDailyNeed(level, m, adults));
-            double due = com.evosim.core.Tribute.due(reached);
+            // 농노는 인두세를 내지 않는다 — 지대로 이미 다 낸다(자유소작은 몫이 크고 세금을 낸다).
+            double due = TenantStatus.of(level, m).isSerf() ? 0.0 : com.evosim.core.Tribute.due(reached);
             double pay = Math.min(due, spare);
             spare -= pay;
             double arrears = due - pay;
@@ -7862,7 +7870,9 @@ public final class FarmTicker {
                 if (m.getTenantFarm() != plot.id) {
                     continue;
                 }
-                if (m.blockPosition().distSqr(plot.anchor) > DISSOLVE_DIST * DISSOLVE_DIST) {
+                boolean serf = TenantStatus.of(level, m).isSerf();
+                if (!serf && m.blockPosition().distSqr(plot.anchor) > DISSOLVE_DIST * DISSOLVE_DIST) {
+                    // 농노는 제 뜻으로 떠나지 못한다 — 멀리 갔다고 관계가 풀리지 않는다(이동 제한).
                     m.setTenant(0L, 0);
                     com.evosim.mod.log.SimEvents.event(m, "소작해제", "원거리 이주(>128) — 관계 소멸");
                     continue;
@@ -7873,7 +7883,7 @@ public final class FarmTicker {
                     com.evosim.mod.log.SimEvents.event(m, "소작해제", "지주 전환 — 상시 명부 정리");
                     continue;
                 }
-                if (com.evosim.core.FarmEconomy.noShowRelease(m.getTenantNoShow())) {
+                if (!serf && com.evosim.core.FarmEconomy.noShowRelease(m.getTenantNoShow())) {
                     // 출근 불능(런 19 실측 수정) — 예약석은 출근하는 사람의 것. 못 오는 상시가 자리를
                     // 채운 것으로 계산되면 그 밭은 하루 종일 빈다(FarmEconomy.noShowRelease 주석).
                     int days = m.getTenantNoShow();
@@ -7940,7 +7950,10 @@ public final class FarmTicker {
             // 제거하고 스트릭을 결정론화한다(만족·이주·지주 전환은 기존 필터로 자연 이탈).
             final long pid = plot.id;
             cands.sort(java.util.Comparator
-                    .comparingInt((MimicEntity m) ->
+                    // <b>부역이 먼저다.</b> 농노 → 자유소작 → 유생 순으로 불려 나간다. 학위자는 일손이
+                    // 모자랄 때만 밭에 선다(배운 사람이 마지막에 투입된다).
+                    .comparingInt((MimicEntity m) -> TenantStatus.of(level, m).workOrder())
+                    .thenComparingInt(m ->
                             LAST_ASSIGNED.getOrDefault(m.getId(), 0L) == pid ? 0 : 1) // 재고용 우선
                     .thenComparingInt(m -> m.larderComfortable() ? 1 : 0) // 빈곤 우선
                     .thenComparingDouble(m -> m.blockPosition().distSqr(plot.anchor))
@@ -8059,6 +8072,46 @@ public final class FarmTicker {
                 permToday++;
             }
         }
+        // ── 신분 한 줄 + 전락·속량 기록 ─────────────────────────────────────────
+        // 신분은 저장하지 않으므로(파생) 어제 무엇이었는지만 기억해 바뀐 날에 사건을 남긴다.
+        int[] st = new int[TenantStatus.values().length];
+        double owedSum = 0.0;
+        int boundSum = 0;
+        int boundCnt = 0;
+        for (MimicEntity m : adults) {
+            TenantStatus now = TenantStatus.of(level, m);
+            st[now.ordinal()]++;
+            long id = m.getIndividual().id();
+            owedSum += AllegianceStore.get(level).owedOf(id);
+            int bd = AllegianceStore.get(level).boundDays(id);
+            if (bd > 0) {
+                boundSum += bd;
+                boundCnt++;
+            }
+            TenantStatus was = LAST_STATUS.put(id, now);
+            if (was != null && was != now) {
+                if (now == TenantStatus.SERF) {
+                    com.evosim.mod.log.SimEvents.event(m, "전락", String.format(
+                            "%s → 농노 — 빚 %.1f · 예속 %d일", was.label(),
+                            AllegianceStore.get(level).owedOf(id), bd));
+                } else if (was == TenantStatus.SERF) {
+                    String why = FarmStore.get(level).ownedCount(id) > 0 ? "제 밭을 얻음"
+                            : m.schoolLevel() >= TenantStatus.EDUCATED_FREE ? "학교 중급 수료"
+                            : isSoldier(m) ? "군역"
+                            : AllegianceStore.get(level).owedOf(id) <= 0.0 ? "빚 상환"
+                            : "예속 끊김";
+                    com.evosim.mod.log.SimEvents.event(m, "속량", String.format(
+                            "농노 → %s — %s (남은 빚 %.1f)", now.label(), why,
+                            AllegianceStore.get(level).owedOf(id)));
+                }
+            }
+        }
+        com.evosim.mod.log.SimEvents.note(level, "신분", String.format(
+                "지주 %d · 관리 %d · 유생 %d · 자유소작 %d · 농노 %d | 빚 합 %.0f · 예속자 %d명 평균 %.1f일",
+                st[TenantStatus.LANDOWNER.ordinal()], st[TenantStatus.MANAGER.ordinal()],
+                st[TenantStatus.SCHOLAR.ordinal()], st[TenantStatus.FREE.ordinal()],
+                st[TenantStatus.SERF.ordinal()], owedSum, boundCnt,
+                boundCnt == 0 ? 0.0 : (double) boundSum / boundCnt));
         com.evosim.mod.log.SimEvents.note(level, "고용", String.format(
                 "성인 %d → 지주·마름·감독 %d · 지주집 비배우자 %d · 은퇴 %d · 학자 %d · 병사 %d · 목사 %d · 전업교사 %d · 경비대 %d · 만족 %d → 후보 %d"
                         + " | 게시 %d구획 %d타일 · 충당 %d · 미충당 %d구획 %d타일 | 배정 %d명(상시 %d)",
@@ -8118,7 +8171,9 @@ public final class FarmTicker {
                 home = o.getHomePos();
             }
             double larder = home == null ? 0.0 : LarderStore.get(level).get(home);
-            double aid = Math.min(2.0, larder - com.evosim.core.FarmEconomy.INVEST_RESERVE);
+            // 몫이 적은 대신 굶지 않는다(쌍무성) — 농노는 상한이 높다.
+            double aidCap = TenantStatus.of(level, m).isSerf() ? 3.0 : 2.0;
+            double aid = Math.min(aidCap, larder - com.evosim.core.FarmEconomy.INVEST_RESERVE);
             // 자립심은 구휼을 받지 않는다 — 남의 곳간에 손 벌리느니 굶는다(신세를 안 져 추종도 안 됨).
             if (com.evosim.core.ExpressionResolver.isExpressed(m.getIndividual(),
                     com.evosim.core.Trait.SELF_RELIANT)) {
@@ -8133,8 +8188,11 @@ public final class FarmTicker {
                 com.evosim.mod.log.SimEvents.event(m, "구휼", String.format(
                         "영주 저장고 %d 나눔 — H %.2f (구획 %d)", units, m.getHolding(), plot.id));
                 // 신세 — 위급할 때 무상으로 받은 것. 갚을 필요는 없지만 추종 점수는 된다.
+                // <b>구휼의 절반은 빚이다.</b> 종전에는 전액이 은혜(forgiven)로만 잡혀 빚이 0이라,
+                // 아무리 자주 구제받아도 예속으로 이어지지 않았다 — 농노로 가는 입구가 닫혀 있었다.
+                // 영주가 먹여 준 만큼 신세를 지되, 그 절반은 갚아야 할 것으로 남는다.
                 AllegianceStore.get(level).record(m.getIndividual().id(), plot.ownerId,
-                        units * AllegianceStore.W_RELIEF, 0.0,
+                        units * AllegianceStore.W_RELIEF * 0.5, units * 0.5,
                         com.evosim.mod.entity.SimTime.tick(level) / 24000L);
             } else {
                 m.setTenant(0L, 0);

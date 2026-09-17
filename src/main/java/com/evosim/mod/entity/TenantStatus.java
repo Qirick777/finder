@@ -71,7 +71,11 @@ public enum TenantStatus {
         }
         // <b>벗어나는 길</b>(명세 §6) — 학교와 군역. 나머지 둘(상환·개간)은 조건이 저절로 깨진다:
         // 빚을 다 갚으면 owed 가 0 이 되고, 제 밭을 얻으면 위에서 지주로 빠진다.
-        if (m.schoolLevel() >= EDUCATED_FREE || FarmTicker.isSoldier(m)) {
+        // 군역만 면제다 — 복무 중에는 농노가 아니다(역사적으로 군복무가 면천의 길이었다).
+        // <b>학력 면제는 뺐다</b>(사용자 지시): 학력은 등교 일수를 3까지 자른 값이라 이틀만 다녀도
+        // 중급이 되어 신분을 공짜로 사 주는 문이었다. 학교는 이제 면제가 아니라 상환 가속으로 값을
+        // 한다(Tribute.repayShare — 학력 등급당 +3%).
+        if (FarmTicker.isSoldier(m)) {
             return FREE;
         }
         AllegianceStore lg = AllegianceStore.get(level);
@@ -80,12 +84,6 @@ public enum TenantStatus {
         }
         return FREE;
     }
-
-    /**
-     * 농노에서 풀려나는 학력 — 중급(2) 이상. 초급 하나로 풀면 학교가 선 마을에서 농노가 사라지고,
-     * 대학 학위만 인정하면 학교가 신분과 무관해진다. 중급은 <b>꾸준히 다녀야</b> 닿는 자리다.
-     */
-    public static final int EDUCATED_FREE = 2;
 
     /** 배정 순번 — 작을수록 먼저 불려 나간다. 농노가 부역으로 앞서고 유생이 맨 뒤다. */
     public int workOrder() {

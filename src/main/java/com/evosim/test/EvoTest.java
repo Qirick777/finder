@@ -2777,6 +2777,26 @@ public final class EvoTest {
                 && Polygyny.seesPower(ambitiousW)
                 && Polygyny.followerCharm(2) == 0 && Polygyny.followerCharm(3) == 1
                 && Polygyny.followerCharm(9) == 2 && Polygyny.followerCharm(27) == 3;
+        // 상환 속도(사용자 확정) — 능력은 여유의 크기로 이미 들어가니 여기서는 성향과 배움만 본다.
+        boolean rep = close(com.evosim.core.Tribute.repayShare(one(Sex.MALE), 0),
+                        com.evosim.core.Tribute.REPAY_SHARE)
+                && com.evosim.core.Tribute.repayShare(
+                        one(Sex.MALE, TraitInstance.of(Trait.AMBITIOUS)), 0)
+                        > com.evosim.core.Tribute.REPAY_SHARE
+                && com.evosim.core.Tribute.repayShare(
+                        one(Sex.MALE, TraitInstance.of(Trait.CONTENT)), 0)
+                        < com.evosim.core.Tribute.REPAY_SHARE
+                && com.evosim.core.Tribute.repayShare(one(Sex.MALE), 3)
+                        > com.evosim.core.Tribute.repayShare(one(Sex.MALE), 0)
+                && com.evosim.core.Tribute.repayShare(one(Sex.MALE,
+                        TraitInstance.of(Trait.AMBITIOUS), TraitInstance.of(Trait.SELF_MADE),
+                        TraitInstance.of(Trait.TENACIOUS)), 3) <= 0.45
+                && com.evosim.core.Tribute.repayShare(one(Sex.MALE,
+                        TraitInstance.of(Trait.CONTENT), TraitInstance.of(Trait.ASCETIC)), 0) >= 0.10
+                && com.evosim.core.Tribute.SEED_DEBT_DAYS > 0.0;
+        report.add("debt/상환속도", rep,
+                "야망가·자수성가·끈기 +5%씩 · 안분지족·무욕 −5%씩 · 학력 등급당 +3% · 0.10~0.45 · 종자빚 1.5일치",
+                rep ? "정상" : "어긋남");
         report.add("polygyny/끌림", pen && pull,
                 "기혼 감점 — 평화 0 · 의탁 절반 · 그 외 2 | 재산을 보는 눈 — 사치·욕심·야망가 · 세력은 욕심·야망가만(3/9/27)",
                 (pen && pull) ? "정상" : "어긋남");

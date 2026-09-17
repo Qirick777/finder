@@ -1646,6 +1646,10 @@ public final class FarmTicker {
 
     /** 이 개체를 따르는 자가 몇인가 — 시설 착공 자격(이용자가 곧 수입)의 입력. */
     // ── 소작농 쉼터 ──────────────────────────────────────────────────────────
+    private static AllegianceStore ledgerOf(ServerLevel level) {
+        return AllegianceStore.get(level);
+    }
+
     /** 어제의 직역 신분 — 파생값이라 저장하지 않고, 바뀐 날에 전락·속량을 남기려고만 들고 있다. */
     private static final java.util.Map<Long, TenantStatus> LAST_STATUS = new java.util.HashMap<>();
 
@@ -2028,7 +2032,8 @@ public final class FarmTicker {
             double arrears = due - pay;
             double prop = reached ? Math.min(com.evosim.core.Tribute.propertyTax(larder), spare) : 0.0;
             spare -= prop;
-            double repayCut = com.evosim.core.Tribute.repayment(spare, ledger.owedOf(id));
+            double repayCut = com.evosim.core.Tribute.repayment(spare, ledger.owedOf(id),
+                    com.evosim.core.Tribute.repayShare(m.getIndividual(), m.schoolLevel()));
             double moved = pay + prop + repayCut;
             if (prop > 0.0) {
                 TAX_SUM[4] += prop;
@@ -7991,8 +7996,17 @@ public final class FarmTicker {
                 if (m.getTenantFarm() == 0L) {
                     if (streak >= promoteDays(m)) {
                         m.setTenant(plot.id, streak);
+                        // <b>종자빚</b> — 주인이 종자·연장을 대 준다(Tribute.SEED_DEBT_DAYS).
+                        // 이것이 농노로 들어가는 기본 경로다. 한 번만 지운다 — 이미 빚이 있으면 더 얹지 않는다.
+                        double seed = 0.0;
+                        if (plot.ownerId != 0L && ledgerOf(level).owedOf(m.getIndividual().id()) <= 0.0) {
+                            seed = familyDailyNeed(level, m, adults) * com.evosim.core.Tribute.SEED_DEBT_DAYS;
+                            ledgerOf(level).record(m.getIndividual().id(), plot.ownerId,
+                                    0.0, seed, com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+                        }
                         com.evosim.mod.log.SimEvents.event(m, "상시소작", String.format(
-                                "%d일 연속 출근 — 구획 %d 예약석 승격", streak, plot.id));
+                                "%d일 연속 출근 — 구획 %d 예약석 승격%s", streak, plot.id,
+                                seed > 0.0 ? String.format(" · 종자빚 %.1f(주인이 종자·연장을 댄다)", seed) : ""));
                     } else {
                         m.setTenant(0L, streak);
                     }
@@ -8109,7 +8123,6 @@ public final class FarmTicker {
                             AllegianceStore.get(level).owedOf(id), bd));
                 } else if (was == TenantStatus.SERF) {
                     String why = FarmStore.get(level).ownedCount(id) > 0 ? "제 밭을 얻음"
-                            : m.schoolLevel() >= TenantStatus.EDUCATED_FREE ? "학교 중급 수료"
                             : isSoldier(m) ? "군역"
                             : AllegianceStore.get(level).owedOf(id) <= 0.0 ? "빚 상환"
                             : "예속 끊김";

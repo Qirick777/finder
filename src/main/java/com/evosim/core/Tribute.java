@@ -95,4 +95,51 @@ public final class Tribute {
     public static double repayment(double spare, double owed) {
         return Math.min(owed, spare * REPAY_SHARE);
     }
+
+    /**
+     * <b>갚는 속도</b> — 여유 중 상환에 돌리는 몫. 능력은 이미 여유의 크기로 들어가 있으므로
+     * 여기서는 <b>성향과 배움</b>만 본다.
+     *
+     * <p>야망가·자수성가·끈기는 빚을 지고는 못 사는 쪽이라 +5%씩, 안분지족·무욕은 여유가 생겨도
+     * 급할 것이 없어 −5%씩. 학력은 등급당 +3% — 셈이 밝으면 더 빨리 벗어난다. 학교가 신분을
+     * 공짜로 사 주지는 않되(면제 없음) 무의미해지지도 않는 자리다. 0.10~0.45 로 자른다.
+     */
+    public static double repayShare(Individual ind, int schoolLevel) {
+        if (ind == null) {
+            return REPAY_SHARE;
+        }
+        double r = REPAY_SHARE;
+        if (ExpressionResolver.isExpressed(ind, Trait.AMBITIOUS)) {
+            r += 0.05;
+        }
+        if (ExpressionResolver.isExpressed(ind, Trait.SELF_MADE)) {
+            r += 0.05;
+        }
+        if (ExpressionResolver.isExpressed(ind, Trait.TENACIOUS)) {
+            r += 0.05;
+        }
+        if (ExpressionResolver.isExpressed(ind, Trait.CONTENT)) {
+            r -= 0.05;
+        }
+        if (ExpressionResolver.isExpressed(ind, Trait.ASCETIC)) {
+            r -= 0.05;
+        }
+        r += 0.03 * Math.max(0, Math.min(3, schoolLevel));
+        return Math.max(0.10, Math.min(0.45, r));
+    }
+
+    /** 갚는 몫 — {@link #repayShare} 를 쓰는 형태. */
+    public static double repayment(double spare, double owed, double share) {
+        return Math.min(owed, Math.max(0.0, spare) * share);
+    }
+
+    /**
+     * <b>종자빚</b> — 상시 소작이 될 때 주인이 대 주는 종자·연장 값. 가구 하루소모의 이 배수.
+     *
+     * <p>중세 농노는 영주에게서 종자와 역축을 빌려 농사를 시작하고 수확에서 갚았다. 이것이
+     * 농노로 들어가는 기본 경로다 — 실측(런 43 d27): 예속자 46명 평균 10.4일인데 농노는 4명뿐이었고,
+     * 빠진 조건은 빚 하나였다(세금 체납 0건 · 구휼 23건뿐). 한 번만 지우고 반복해서 물리지 않는다 —
+     * 계속 물리면 영영 못 벗어난다.
+     */
+    public static final double SEED_DEBT_DAYS = 1.5;
 }

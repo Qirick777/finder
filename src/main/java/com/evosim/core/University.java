@@ -43,6 +43,16 @@ public final class University {
      */
     public static final int SITE_RADIUS = 128;
 
+    /**
+     * <b>연구실 하나가 받는 석사 수</b> — 교수 밑 조교 둘. 도면의 연구실 3석이면 동시 6명이다.
+     */
+    public static final int MASTERS_PER_LAB = 2;
+    /**
+     * 석사 진학의 <b>능력 문턱</b> — 명석이 발현했거나 관리등급이 이 값 이상. 자리가 아니라 자격이므로
+     * 못 넘은 자는 연구실이 비어 있어도 학사에서 멈추고, 넘은 자는 자리가 있는 한 모두 들어간다.
+     */
+    public static final int MASTER_ABILITY_GRADE = 2;
+
     /** 학생 정원 — 교수 1명당 11석(사용자 지시), 강의실 좌석이 상한. */
     public static int studentCap(int professors, int seats, int perProfessor) {
         return Math.max(0, Math.min(seats, professors * perProfessor));

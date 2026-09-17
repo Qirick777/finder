@@ -572,6 +572,12 @@ public class FarmStore extends SavedData {
         for (MimicEntity m : level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
                 e -> e.isAlive() && e.getIndividual() != null && e.getTenantFarm() == p.id)) {
             long id = m.getIndividual().id();
+            // <b>감독관은 대학 졸업자다</b>(사용자 확정). 종전에는 학위가 점수에만 들어가 자격이
+            // 아니었고, 실측(런 42)에서 임명 13건 중 12건이 무학위였다 — 학위 보너스를 곱하는
+            // 효율 바닥(Overseer.floor)이 0.01 로 죽어 있던 이유다. 학위자가 없으면 자리는 빈다.
+            if (com.evosim.core.Degree.clamp(m.getDegree()) < com.evosim.core.Degree.BACHELOR) {
+                continue;
+            }
             if (id == p.stewardId || ownedCount(id) > 0
                     || m.getStage() == com.evosim.core.LifeStage.ELDER
                     || com.evosim.mod.entity.FarmTicker.isSoldier(m)
@@ -815,11 +821,37 @@ public class FarmStore extends SavedData {
             double ownerFloor = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
                     ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId) + worked) : 0.0;
             double e = Math.max(Math.max(stewardE, ownerFloor), overseerFloor);
-            return e > 0.0 ? e : 1.0; // 양쪽 미로드 — 무penalty 폴백
+            return e > 0.0 ? Math.min(1.0, e + scholarLift(c, p)) : 1.0; // 양쪽 미로드 — 무penalty 폴백
         }
         double base = ownerEnt != null ? com.evosim.core.FarmEconomy.manageEfficiency(
                 ownerEnt.getIndividual(), workedUnstewarded(c, p.ownerId)) : 1.0;
-        return Math.max(base, overseerFloor);
+        return Math.min(1.0, Math.max(base, overseerFloor) + scholarLift(c, p));
+    }
+
+    /**
+     * <b>배운 사람이 밭에 있으면 밭이 낫다</b>(사용자 승인) — 이 구획의 상시 소작 중 학위자의 몫.
+     * 학사 +3% · 석사 +5%, 구획당 합 상한 +15%.
+     *
+     * <p>왜 필요한가: 대학이 배출한 학위자를 쓸 자리는 의사·교수·감독관뿐이라 실측(런 42)에서
+     * 어느 자리도 못 얻은 학위자가 20명이었다(성인의 14%). 그들에게 학위는 아무 값도 하지 않아
+     * 대학의 투자 회수가 <b>자리 수</b>에 묶여 있었다. 자리가 없어도 값을 하게 만든다 —
+     * 돌려짓기·거름을 아는 사람이 밭에 있는 것과 같다. 같은 밭에서 더 걷는 쪽이라 밭이 더 빨리
+     * 느는 부작용도 없다.
+     */
+    private static double scholarLift(Census c, Plot p) {
+        double lift = 0.0;
+        for (MimicEntity m : c.byId.values()) {
+            if (m.getTenantFarm() != p.id || m.getIndividual() == null) {
+                continue;
+            }
+            int d = com.evosim.core.Degree.clamp(m.getDegree());
+            if (d >= com.evosim.core.Degree.MASTER) {
+                lift += 0.05;
+            } else if (d >= com.evosim.core.Degree.BACHELOR) {
+                lift += 0.03;
+            }
+        }
+        return Math.min(0.15, lift);
     }
 
 

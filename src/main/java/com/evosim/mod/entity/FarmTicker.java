@@ -5609,9 +5609,22 @@ public final class FarmTicker {
                         fun[5]++; // 직선 150 밖이어도 이정표 망(대학 거리 3)으로 닿으면 후보
                         continue;
                     }
-                    if (a.getDegree() == com.evosim.core.Degree.BACHELOR && masters >= tpl.researchSeats().size()) {
-                        fun[6]++;
-                        continue; // 석사 과정은 연구실 자리만큼
+                    if (a.getDegree() == com.evosim.core.Degree.BACHELOR) {
+                        // <b>석사는 선착순이 아니라 자격이다</b>(사용자 확정).
+                        // 종전에는 자리 수가 곧 상한이라 먼저 온 학사가 막고 뒤에 온 수재가 못 들어갔다.
+                        // 이제 능력 문턱을 넘은 자만 들어가고, 못 넘으면 자리가 남아도 학사에서 멈춘다.
+                        // 실측(런 42): "연구실 없어 수료"가 27건 — 개나 소나 석사가 되지도, 수재가
+                        // 들어가지도 못하는 상태였다.
+                        boolean able = com.evosim.core.ExpressionResolver.isExpressed(
+                                        a.getIndividual(), com.evosim.core.Trait.BRIGHT)
+                                || com.evosim.core.Multipliers.manageAbilityGrade(a.getIndividual())
+                                        >= com.evosim.core.University.MASTER_ABILITY_GRADE;
+                        // 연구실 하나에 석사 둘 — 교수 밑 조교다.
+                        if (!able || masters >= tpl.researchSeats().size()
+                                * com.evosim.core.University.MASTERS_PER_LAB) {
+                            fun[6]++;
+                            continue;
+                        }
                     }
                     double need = com.evosim.core.FoodEconomy.consumptionPerDay(a.getStage(),
                             com.evosim.core.Activity.MOVE, a.getIndividual(), false);

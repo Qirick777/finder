@@ -34,6 +34,65 @@ public final class Polygyny {
     private Polygyny() {
     }
 
+    /**
+     * 이 여성이 기혼 후보에게 매기는 감점 — 기본 {@link #MARRIED_CHARM_PENALTY}.
+     *
+     * <p>축의 본뜻으로 가른다. <b>평화</b>는 자원경쟁 축에서 경쟁의 반대편이다. 경쟁하는 아내가
+     * 다른 아내를 용납하지 않는 것과 대칭으로, 다투지 않는 쪽은 이미 아내가 있다는 사실 자체를
+     * 꺼리지 않는다 — 감점이 사라진다. <b>의탁</b>은 자립을 포기하고 기댈 곳을 찾는 성향이라
+     * (대부 안 함 · 착공 문턱 ×1.5 · 신세 체감 ×1.25) 이미 선 집에 들어가는 것을 덜 꺼린다 — 절반.
+     * 둘 다 있으면 낮은 쪽(0)을 쓴다.
+     */
+    public static int marriedPenalty(Individual woman) {
+        if (woman == null) {
+            return MARRIED_CHARM_PENALTY;
+        }
+        Set<Trait> t = ExpressionResolver.expressedTraits(woman);
+        if (t.contains(Trait.PEACEFUL)) {
+            return 0;
+        }
+        if (t.contains(Trait.DEPENDENT)) {
+            return MARRIED_CHARM_PENALTY / 2;
+        }
+        return MARRIED_CHARM_PENALTY;
+    }
+
+    /**
+     * 상대의 <b>부와 세력</b>에 끌리는가 — 끌리면 그만큼 가점이 곱해진다(0이면 안 본다).
+     *
+     * <p><b>사치</b>는 제 소모가 30% 큰 성향이라 그 씀씀이를 감당해 줄 짝을 찾는다 — 재산을 본다.
+     * <b>욕심·야망가</b>는 더 가지려는 축이라 가진 자와 거느린 자에게 끌린다 — 재산과 추종자를 본다.
+     * 어느 쪽도 혼인 형태를 말하지 않는다. 부유한 기혼남이 감점을 이기는 것은 그 결과일 뿐이다.
+     */
+    public static int wealthPull(Individual woman) {
+        if (woman == null) {
+            return 0;
+        }
+        Set<Trait> t = ExpressionResolver.expressedTraits(woman);
+        int pull = 0;
+        if (t.contains(Trait.LUXURIOUS)) {
+            pull++;
+        }
+        if (t.contains(Trait.GREEDY) || t.contains(Trait.AMBITIOUS)) {
+            pull++;
+        }
+        return pull;
+    }
+
+    /** 욕심·야망가가 보는 <b>세력</b> 가점 — 추종자 수를 매력으로. 재산과 같은 계단(3·9·27). */
+    public static int followerCharm(int followers) {
+        return followers >= 27 ? 3 : followers >= 9 ? 2 : followers >= 3 ? 1 : 0;
+    }
+
+    /** 이 여성이 세력(추종자)을 매력으로 보는가 — 욕심·야망가만. */
+    public static boolean seesPower(Individual woman) {
+        if (woman == null) {
+            return false;
+        }
+        Set<Trait> t = ExpressionResolver.expressedTraits(woman);
+        return t.contains(Trait.GREEDY) || t.contains(Trait.AMBITIOUS);
+    }
+
     /** 이 아내가 추가 부인을 용납하지 않는가 — 인색·경쟁 보유 시 질투 게이트 발동. */
     public static boolean wifeObjects(Individual wife) {
         Set<Trait> t = ExpressionResolver.expressedTraits(wife);

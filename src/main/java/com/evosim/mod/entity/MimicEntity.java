@@ -2083,8 +2083,12 @@ public class MimicEntity extends PathfinderMob {
                 ? WORK_PERCEPT_BASE + lvl * WORK_PERCEPT_PER
                 : WANDER_PERCEPT_BASE + lvl * WANDER_PERCEPT_PER;
         // 부유선호일 때만, 구획 계정을 소유주별로 1회 집계(후보마다 전 구획 순회 O(후보×구획) 회피).
+        // 재산을 보는 눈 — 부유선호(취향)에 더해 사치(씀씀이를 감당할 짝)와 욕심·야망가(가진 자에게
+        // 끌림)도 상대의 잉여를 읽는다(Polygyny.wealthPull). 세 경우 모두 혼인 형태와는 무관한 사유다.
+        int wealthPull = ExpressionResolver.isExpressed(individual, Trait.PREF_WEALTH)
+                ? 1 + Polygyny.wealthPull(individual) : Polygyny.wealthPull(individual);
         Map<Long, Double> accountByOwner = null;
-        if (ExpressionResolver.isExpressed(individual, Trait.PREF_WEALTH)
+        if (wealthPull > 0
                 && level() instanceof ServerLevel psl) {
             accountByOwner = new HashMap<>();
             for (FarmStore.Plot p : FarmStore.get(psl).all().values()) {
@@ -2115,14 +2119,19 @@ public class MimicEntity extends PathfinderMob {
             }
             int charm = Multipliers.charmScore(individual, m.getIndividual())
                     + com.evosim.core.Degree.marriageCharm(m.getDegree()) // 학위 매력 +1/+3(계획서 1.5)
-                    - (marriedMale ? Polygyny.MARRIED_CHARM_PENALTY : 0); // 기혼 감점 — 독신 우선
+                    - (marriedMale ? Polygyny.marriedPenalty(individual) : 0); // 기혼 감점 — 평화 0 · 의탁 절반
             if (accountByOwner != null && level() instanceof ServerLevel sl) {
                 // 부유선호 — 상대의 잉여(저장고+밭 계정)를 매력으로. 부유한 기혼 지주는 감점 −2를
                 // 가점(최대 +3)으로 자연 상쇄 — 인위적 감점 해제 없이 부가 매력이 되는 경로.
                 double w = m.getHomePos() == null ? 0.0 : LarderStore.get(sl).get(m.getHomePos());
                 w += accountByOwner.getOrDefault(m.getIndividual().id(), 0.0);
                 charm += Multipliers.wealthCharm(w, FoodEconomy.consumptionPerDay(
-                        m.getStage(), Activity.MOVE, m.getIndividual(), false));
+                        m.getStage(), Activity.MOVE, m.getIndividual(), false)) * wealthPull;
+                if (Polygyny.seesPower(individual)) {
+                    // 욕심·야망가는 <b>거느린 수</b>도 본다 — 재산과 같은 계단(3·9·27).
+                    charm += Polygyny.followerCharm(
+                            FarmTicker.followersOf(m.getIndividual().id()));
+                }
             }
             // <b>구빈원 여성은 주인에게 기운다.</b>
             //

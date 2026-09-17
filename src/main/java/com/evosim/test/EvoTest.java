@@ -2756,6 +2756,31 @@ public final class EvoTest {
                 "질투(부유층 면제)·저장고 6일치 게이트(개간 임계보다 엄격히 위) — 상한 없음 · 기혼 감점 2",
                 (g1 && g2 && g3) ? "정상" : "어긋남");
 
+        // 기혼 감점의 갈림(사용자 확정) — 평화는 없애고 의탁은 절반. 경쟁의 반대편이 평화다.
+        Individual peaceful = one(Sex.FEMALE, TraitInstance.of(Trait.PEACEFUL));
+        Individual dependent = one(Sex.FEMALE, TraitInstance.of(Trait.DEPENDENT));
+        Individual luxurious = one(Sex.FEMALE, TraitInstance.of(Trait.LUXURIOUS));
+        Individual greedyW = one(Sex.FEMALE, TraitInstance.of(Trait.GREEDY));
+        Individual ambitiousW = one(Sex.FEMALE, TraitInstance.of(Trait.AMBITIOUS));
+        boolean pen = Polygyny.marriedPenalty(tolerant) == Polygyny.MARRIED_CHARM_PENALTY
+                && Polygyny.marriedPenalty(peaceful) == 0
+                && Polygyny.marriedPenalty(dependent) == Polygyny.MARRIED_CHARM_PENALTY / 2
+                && Polygyny.marriedPenalty(competitive) == Polygyny.MARRIED_CHARM_PENALTY;
+        // 부와 세력에 끌리는 눈 — 사치(씀씀이를 감당할 짝)·욕심·야망가(가진 자·거느린 자).
+        boolean pull = Polygyny.wealthPull(tolerant) == 0
+                && Polygyny.wealthPull(luxurious) == 1
+                && Polygyny.wealthPull(greedyW) == 1
+                && Polygyny.wealthPull(ambitiousW) == 1
+                && Polygyny.wealthPull(one(Sex.FEMALE, TraitInstance.of(Trait.LUXURIOUS),
+                        TraitInstance.of(Trait.GREEDY))) == 2
+                && !Polygyny.seesPower(luxurious) && Polygyny.seesPower(greedyW)
+                && Polygyny.seesPower(ambitiousW)
+                && Polygyny.followerCharm(2) == 0 && Polygyny.followerCharm(3) == 1
+                && Polygyny.followerCharm(9) == 2 && Polygyny.followerCharm(27) == 3;
+        report.add("polygyny/끌림", pen && pull,
+                "기혼 감점 — 평화 0 · 의탁 절반 · 그 외 2 | 재산을 보는 눈 — 사치·욕심·야망가 · 세력은 욕심·야망가만(3/9/27)",
+                (pen && pull) ? "정상" : "어긋남");
+
         // 부유·생산력 선호 — 잉여/벌이의 매력 환산(로그 문턱 3/9/27일 · 벌이 1.5/1.95/2.25)
         Individual prefY = one(Sex.FEMALE, TraitInstance.of(Trait.PREF_YIELD));
         boolean pw = Multipliers.wealthCharm(9.0, 3.0) == 1 && Multipliers.wealthCharm(27.0, 3.0) == 2

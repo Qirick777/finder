@@ -603,8 +603,12 @@ public final class FarmTicker {
                 // 않는다. 조선의 잔반이 제 손으로 농사를 지어도 신분은 양반이었던 자리다.
                 // (SocialRank 주석에 "무토지 마름과 소작이 둘 다 천민으로 묶인다"는 한계가 이미 적혀 있다.)
                 boolean exempt = !TenantStatus.of(level, m).countsBondage();
+                // <b>PATRON_OF 를 본다 — patrons 가 아니다.</b> 빚의 채권자를 주인으로 치는
+                // 보정은 바로 위에서 PATRON_OF 에만 얹힌다. 여기서 보정 전 지도를 읽고 있어서
+                // "빚만 있는 자"는 예속 일수가 한 번도 쌓이지 않았다 — 종자빚을 지고 구휼까지
+                // 받는 소작이 농노로 잡히지 않던 실측(런44 d12, 포피 머서#20)의 원인이다.
                 ledger.noteBondage(id,
-                        !exempt && patrons.containsKey(id) && store.ownedTiles(id) == 0
+                        !exempt && PATRON_OF.containsKey(id) && store.ownedTiles(id) == 0
                                 && !FOLLOWERS.containsKey(id));
             }
             collectTribute(level, ledger, larders, adults, everyone, patrons, day);
@@ -8418,8 +8422,23 @@ public final class FarmTicker {
                             ? m.getTenantStreak() + 1 : 1;
                     if (streak >= promoteDays(m)) {
                         m.setTenant(best.id, streak);
+                        // 종자빚 — 정상 경로와 같은 규칙. 여기에 없으면 긴급 경유로 승격한
+                        // 소작이 빚 없이 상시가 되어, 농노의 입구가 절반쯤 열린 채로 샌다.
+                        double seed = 0.0;
+                        if (best.ownerId != 0L && ledgerOf(level).owedOf(m.getIndividual().id()) <= 0.0) {
+                            // 이 경로엔 성인 목록이 없다 — 승격은 드문 사건이라 그 자리에서만 뽑는다.
+                            java.util.List<MimicEntity> kin = new java.util.ArrayList<>(
+                                    level.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                                            e -> e.isAlive() && e.getIndividual() != null
+                                                    && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                                            || e.getStage() == com.evosim.core.LifeStage.ELDER)));
+                            seed = familyDailyNeed(level, m, kin) * com.evosim.core.Tribute.SEED_DEBT_DAYS;
+                            ledgerOf(level).record(m.getIndividual().id(), best.ownerId,
+                                    0.0, seed, com.evosim.mod.entity.SimTime.tick(level) / 24000L);
+                        }
                         com.evosim.mod.log.SimEvents.event(m, "상시소작", String.format(
-                                "%d일 연속 출근(긴급 경유) — 구획 %d 예약석 승격", streak, best.id));
+                                "%d일 연속 출근(긴급 경유) — 구획 %d 예약석 승격%s", streak, best.id,
+                                seed > 0.0 ? String.format(" · 종자빚 %.1f(주인이 종자·연장을 댄다)", seed) : ""));
                     } else {
                         m.setTenant(0L, streak);
                     }

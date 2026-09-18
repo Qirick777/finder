@@ -25,6 +25,16 @@ public final class DeterministicRng {
         return random.nextBoolean();
     }
 
+    /** [0, 1) 실수 — 흩뿌리기 좌표처럼 연속값이 필요한 자리. */
+    public double nextDouble() {
+        return random.nextDouble();
+    }
+
+    /** 하위 생성기를 파생시킬 때 쓰는 시드 한 개. */
+    public long nextLong() {
+        return random.nextLong();
+    }
+
     /** [0, bound) 정수. */
     public int nextInt(int bound) {
         return random.nextInt(bound);

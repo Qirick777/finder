@@ -267,14 +267,22 @@ public final class EvoSimCommand {
                                     return 1;
                                 })))
                 .then(Commands.literal("obs")
-                        .executes(ctx -> obsStart(ctx, 6, false))
+                        .executes(ctx -> obsStart(ctx, 6, false, -1L))
                         .then(Commands.argument("pairs", IntegerArgumentType.integer(1, 20))
                                 .executes(ctx -> obsStart(ctx,
-                                        IntegerArgumentType.getInteger(ctx, "pairs"), false))
+                                        IntegerArgumentType.getInteger(ctx, "pairs"), false, -1L))
                                 // wild — 평민을 완전 랜덤 유전체로(고정 템플릿 아님). 특성 구동
                                 // 장치(대부·봉신·중소지주 축)는 이쪽으로 봐야 실제 분포가 보인다.
                                 .then(Commands.literal("wild").executes(ctx -> obsStart(ctx,
-                                        IntegerArgumentType.getInteger(ctx, "pairs"), true)))))
+                                        IntegerArgumentType.getInteger(ctx, "pairs"), true, -1L))
+                                        // 시드를 주면 초기 인구(유전체·배치·이름)가 완전히 재현된다.
+                                        // 변경 전후를 <b>같은 인구로</b> 비교하려면 이것이 있어야 한다.
+                                        .then(Commands.argument("seed",
+                                                com.mojang.brigadier.arguments.LongArgumentType.longArg(0))
+                                                .executes(ctx -> obsStart(ctx,
+                                                        IntegerArgumentType.getInteger(ctx, "pairs"), true,
+                                                        com.mojang.brigadier.arguments.LongArgumentType
+                                                                .getLong(ctx, "seed")))))))
                 .then(Commands.literal("checkall").executes(ctx -> stageCheckAll(ctx, false)))
                 .then(Commands.literal("checkall2").executes(ctx -> stageCheckAll(ctx, true)))
                 // ── 인구 통계·혈통 (관찰, 무대 아님) ──
@@ -569,9 +577,15 @@ public final class EvoSimCommand {
      * 관측 런 원클릭 조성 — 이벤트 로그 ON + 평민 부부 후보 pairs쌍 + 엘리트(야망+약초Ⅴ) 1명.
      * 이후는 전부 자연 경로: 짝→정착→정원→풀 고갈→개간→소작. AUDIT이 매일 1줄 채점 근거를 남긴다.
      */
-    private static int obsStart(CommandContext<CommandSourceStack> ctx, int pairs, boolean wild) {
+    private static int obsStart(CommandContext<CommandSourceStack> ctx, int pairs, boolean wild,
+                                long seed) {
         ServerLevel level = ctx.getSource().getLevel();
         Vec3 base = ctx.getSource().getPosition();
+        // 시드가 있으면 이 명령이 뽑는 모든 난수를 하나로 몬다 — 유전체·흩뿌리기 좌표·개체
+        // 번호(=이름)까지. 시드 없이 돌린 런끼리는 인구 자체가 달라 변경 전후 비교가 성립하지
+        // 않는다(런43·44 실측: 같은 명령인데 엘리트부터 평민 #1까지 전부 다른 개체였다).
+        obsRng = seed >= 0 ? new com.evosim.core.DeterministicRng(seed) : null;
+        obsSeq = 0;
         SimEvents.setEnabled(true, level.getServer().getServerDirectory().toPath());
         com.evosim.mod.entity.SimTime.setSkipEnabled(level, true); // 관측 가속 — 밤 스킵 ON
         for (int i = 0; i < pairs; i++) {
@@ -590,10 +604,13 @@ public final class EvoSimCommand {
         if (elite != null) {
             SimEvents.event(elite, "엘리트투입", "관측 런 시드 — " + CHAIN_ELITE_DESC);
         }
+        boolean seeded = obsRng != null;
+        obsRng = null; // 소환이 끝나면 해제 — 이후의 게임 난수까지 묶을 생각은 없다
         tell(ctx.getSource(), String.format(
-                "관측 런 시작: 평민 %d쌍(%s) + 엘리트 1명(%s) 소환, 이벤트 로그 ON. "
+                "관측 런 시작: 평민 %d쌍(%s%s) + 엘리트 1명(%s) 소환, 이벤트 로그 ON. "
                         + "매일 AUDIT 1줄 자동 기록 — 즉시 조회는 /evosim audit.",
-                pairs, wild ? "랜덤 유전체" : "고정 템플릿", CHAIN_ELITE_DESC));
+                pairs, wild ? "랜덤 유전체" : "고정 템플릿",
+                seeded ? String.format(" · 시드 %d 고정", seed) : "", CHAIN_ELITE_DESC));
         return pairs * 2 + 2;
     }
 
@@ -11756,22 +11773,45 @@ public final class EvoSimCommand {
         if (e == null) {
             return;
         }
-        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
-        Individual ind = Genetics.randomFirstGen(id, new DeterministicRng(level.random.nextLong()), sex);
+        long id = spawnId(level);
+        Individual ind = Genetics.randomFirstGen(id, new DeterministicRng(spawnSeed(level)), sex);
         e.setIndividual(ind);
         e.setStage(LifeStage.ADULT);
-        e.moveTo(pos.x, pos.y, pos.z, level.random.nextFloat() * 360f, 0f);
+        e.moveTo(pos.x, pos.y, pos.z, (float) (spawnDouble(level) * 360.0), 0f);
         e.finalizeSpawn(level, level.getCurrentDifficultyAt(e.blockPosition()),
                 MobSpawnType.COMMAND, null, null);
         level.addFreshEntity(e);
+    }
+
+    /**
+     * 관측 런 시드 — 설정된 동안 <b>소환이 뽑는 난수</b>가 전부 이 하나를 거친다. 소환이
+     * 끝나면 해제된다(게임 진행 난수까지 묶지는 않는다 — 그건 바닐라 AI 쪽이라 손이 닿지
+     * 않는다. 여기서 없애려는 변수는 "어떤 인구를 뽑았는가"다).
+     */
+    private static com.evosim.core.DeterministicRng obsRng = null;
+
+    /** 시드 런의 개체 번호를 순번으로 준다 — 번호가 곧 이름이라 이것까지 고정해야 재현된다. */
+    private static int obsSeq = 0;
+
+    private static long spawnId(ServerLevel level) {
+        return obsRng != null ? 1_000_000L + obsSeq++
+                : Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+    }
+
+    private static double spawnDouble(ServerLevel level) {
+        return obsRng != null ? obsRng.nextDouble() : level.random.nextDouble();
+    }
+
+    private static long spawnSeed(ServerLevel level) {
+        return obsRng != null ? obsRng.nextLong() : level.random.nextLong();
     }
 
     private static Vec3 scatter(ServerLevel level, Vec3 base) {
         // 지면 스냅 — 자연 지형(관측 런)에서 고정 y 흩뿌리기가 공중 스폰→추락사를 만들던 결함
         // 수정(실측: obs 14명 중 여성 전멸). heightmap으로 각 지점의 실지면에 내려 앉힌다.
         double r = 12.0;
-        double dx = (level.random.nextDouble() - 0.5) * r;
-        double dz = (level.random.nextDouble() - 0.5) * r;
+        double dx = (spawnDouble(level) - 0.5) * r;
+        double dz = (spawnDouble(level) - 0.5) * r;
         return Vec3.atBottomCenterOf(groundAt(level, base, dx, dz));
     }
 
@@ -11800,7 +11840,7 @@ public final class EvoSimCommand {
             return null;
         }
         // 서로 매력 3점(선호↔특성 일치) → 신중(여) 기준선도 통과해 짝 잘 형성.
-        long id = Math.abs((int) level.getGameTime()) + level.random.nextInt(1_000_000);
+        long id = spawnId(level);
         Individual ind = new Individual(id, sex, 0, 0, 1);
         // extra 로 오는 특성은 기본 부여를 건너뛴다(같은 특성 중복 인스턴스 방지 — 예: 엘리트
         // 재빠름Ⅴ가 기본 무등급 재빠름과 겹치면 등급 해석이 흔들림).

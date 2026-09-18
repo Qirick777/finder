@@ -8428,7 +8428,9 @@ public class MimicEntity extends PathfinderMob {
                             .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
                 continue;
             }
-            String n = w.getGoal().getClass().getSimpleName()
+            // 계측 껍데기를 벗기고 읽는다 — 모든 goal 은 Perf.timed 로 감싸 등록되므로
+            // 벗기지 않으면 이름이 전부 "Timed" 로 잡힌다(이름표·갈아타기 기록이 무의미해진다).
+            String n = com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName()
                     .replace("Mimic", "").replace("Goal", "");
             return switch (n) {
                 case "Farm" -> "밭일";
@@ -8512,7 +8514,9 @@ public class MimicEntity extends PathfinderMob {
                             .contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE)) {
                 continue;
             }
-            String n = w.getGoal().getClass().getSimpleName()
+            // 계측 껍데기를 벗기고 읽는다 — 모든 goal 은 Perf.timed 로 감싸 등록되므로
+            // 벗기지 않으면 이름이 전부 "Timed" 로 잡힌다(이름표·갈아타기 기록이 무의미해진다).
+            String n = com.evosim.mod.perf.Perf.unwrap(w.getGoal()).getClass().getSimpleName()
                     .replace("Mimic", "").replace("Goal", "");
             // 최상위(먼저 나오는) 하나만 — 이동을 실제로 지시하는 것이 그것이다.
             if (cur.isEmpty()) {

@@ -107,6 +107,67 @@ public final class FarmTicker {
         return ASSIGNED.getOrDefault(entityId, 0L);
     }
 
+    /**
+     * <b>오늘 이 소년이 밭에 서는가</b> — 가구 저장고가 하루소모에 못 미치면 선다.
+     *
+     * <p>손이 모자란 집이 아이까지 세우는 자리다. 신분을 보지 않는다 — 가난하면 나가는 것이지
+     * 농노 증서를 확인하고 나가는 게 아니고, 그래야 자유소작 빈농도 같은 처지에 놓인다.
+     * 마음이 {@link com.evosim.core.Happiness#RECOVERED} 위로 올라온 아이는 거둔다 — 굴레의
+     * 출구다.
+     *
+     * <p>소년은 <b>제 배정을 받지 않는다</b>. {@link #boyPlot} 으로 부모가 배정된 구획에
+     * 따라붙을 뿐이라, 새벽 배정 장부(ASSIGNED)와 고용 깔때기 수치는 그대로다. 지주 쪽에서도
+     * "일꾼을 하나 더 부른 것"이 아니라 "그 일꾼이 아이를 데려온 것"이라 지대 계산이 흔들리지
+     * 않는다.
+     */
+    public static boolean boyWorksToday(MimicEntity boy) {
+        if (boy == null || boy.getIndividual() == null || boy.getHomePos() == null
+                || !(boy.level() instanceof ServerLevel lv)) {
+            return false;
+        }
+        if (boy.getHappiness() >= com.evosim.core.Happiness.RECOVERED) {
+            return false; // 형편이 폈다 — 학교로 돌려보낸다
+        }
+        if (boyPlot(boy) == 0L) {
+            return false; // 따라붙을 부모의 밭이 없다
+        }
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>(
+                lv.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                        e -> e.isAlive() && e.getIndividual() != null
+                                && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                        || e.getStage() == com.evosim.core.LifeStage.ELDER)));
+        return LarderStore.get(lv).get(boy.getHomePos()) < familyDailyNeed(lv, boy, adults);
+    }
+
+    /** 소년 → (마지막 계산 틱, 구획). canUse 가 자주 부르므로 200틱 캐시를 둔다. */
+    private static final java.util.Map<Integer, long[]> BOY_PLOT_CACHE = new java.util.HashMap<>();
+
+    /** 소년이 따라붙을 구획 — 같은 집 성년 중 오늘 배정을 받은 첫 사람의 것. */
+    public static long boyPlot(MimicEntity boy) {
+        if (boy == null || boy.getHomePos() == null
+                || !(boy.level() instanceof ServerLevel lv)) {
+            return 0L;
+        }
+        long nowTick = com.evosim.mod.entity.SimTime.tick(lv);
+        long[] c = BOY_PLOT_CACHE.get(boy.getId());
+        if (c != null && nowTick - c[0] < 200L) {
+            return c[1];
+        }
+        long best = 0L;
+        for (MimicEntity a : lv.getEntities(com.evosim.mod.reg.ModEntities.MIMIC.get(),
+                e -> e.isAlive() && e.getIndividual() != null
+                        && boy.getHomePos().equals(e.getHomePos())
+                        && (e.getStage() == com.evosim.core.LifeStage.ADULT
+                                || e.getStage() == com.evosim.core.LifeStage.ELDER))) {
+            long pid = ASSIGNED.getOrDefault(a.getId(), 0L);
+            if (pid != 0L && (best == 0L || pid < best)) {
+                best = pid; // 결정론 — 구획 번호가 작은 쪽
+            }
+        }
+        BOY_PLOT_CACHE.put(boy.getId(), new long[] {nowTick, best});
+        return best;
+    }
+
     /** 오늘 자기 가구 밭에서 딴 칸 수(개체 id → 칸, 휘발) — 새벽에 어제 값으로 넘긴다. */
     private static final java.util.Map<Integer, Integer> SELF_HARVEST_TODAY = new java.util.HashMap<>();
     /** 어제 자기 가구 밭에서 딴 칸 수 — assignDawn 가구 몫(FarmEconomy.careBudget)의 입력. */
@@ -2118,14 +2179,15 @@ public final class FarmTicker {
     private static final double[] SCHOOL_SUM = new double[5];
 
     /**
-     * <b>등교하지 못한 사유</b> — [가구대표가 주인을 안 따름, 가구의 누구도 안 따름, 멀다, 자리없음].
+     * <b>등교하지 못한 사유</b> — [가구대표가 주인을 안 따름, 가구의 누구도 안 따름, 멀다,
+     * 자리없음, <b>밭일</b>].
      *
      * <p>등교 0 이 나왔을 때 <b>왜</b> 0 인지 보고가 스스로 말하게 한다. 이 세션에서 궁핍 0 ·
      * 학교 0채 · 밭 구멍이 전부 같은 이유로 헛돌았다 — 세면서 사유를 안 남기면 원인을 추측하게
      * 된다. 특히 앞의 두 칸은 서로 다른 가설을 가른다: 대표만 못 따르는 것인지(내 판정이
      * 좁은 것), 가구 전체가 안 따르는 것인지(정말 대상이 아닌 것).
      */
-    private static final int[] SCHOOL_MISS = new int[4];
+    private static final int[] SCHOOL_MISS = new int[5];
 
     public static int[] schoolMiss() {
         return SCHOOL_MISS.clone();
@@ -4651,6 +4713,14 @@ public final class FarmTicker {
                         > Facilities.COMMUTE_RANGE * Facilities.COMMUTE_RANGE
                         && !RelayNet.reaches(level, b.getHomePos(), sc)) { // 이정표 망(학교 거리 1)으로 닿으면 자격
                     SCHOOL_MISS[2]++;
+                    continue;
+                }
+                // <b>오늘 밭에 설 아이는 자리를 잡지 않는다.</b> 적립은 실제로 앉았을 때만
+                // 일어나므로(MimicEntity.creditSchoolDay) 밭에 나간 아이는 어차피 결석이고,
+                // 그 아이가 자리를 쥐고 있으면 앉을 아이가 못 들어간다. 자리를 비워 주는 편이
+                // 정직하다 — 굴레는 "자리를 빼앗겨서"가 아니라 "일하러 가서" 닫힌다.
+                if (b.getStage() == com.evosim.core.LifeStage.BOY && boyWorksToday(b)) {
+                    SCHOOL_MISS[4]++;
                     continue;
                 }
                 pick.add(b);
@@ -7374,6 +7444,77 @@ public final class FarmTicker {
      * 돈다 — 같은 틱 순서(onServerTick)에 두 정산의 day 표식이 오늘로 바뀌었는지로 확인한다.
      * 순서가 곧 규칙이다: 자식 지원은 모든 지출 뒤의 여유에서만 나가야 확장을 끊지 않는다.
      */
+    /**
+     * <b>행복도 정산</b> — 하루 한 번, 모든 지출이 끝난 뒤의 형편으로 마음을 고쳐 적는다.
+     *
+     * <p>깎는 쪽은 굶주림(오늘 소지 식량이 바닥났는가 · 피해 단계까지 갔는가)과 빚·예속이고,
+     * 채우는 쪽은 저장고와 배우자·쉼터다. 특성 보정은 {@link com.evosim.core.Happiness#step}
+     * 에서 건다 — 안분지족·무욕은 덜 괴롭고, 욕심·야망가는 덜 기쁘다.
+     *
+     * <p>매 틱이 아니라 밤에 한 번만 돈다. 이 값이 하는 일은 느린 것들(출산 문턱·아이 동원·
+     * 일손 배율)이라 하루 단위면 충분하고, 틱 비용을 얹을 이유가 없다.
+     */
+    private static void settleHappiness(ServerLevel level, java.util.List<MimicEntity> everyone, long day) {
+        AllegianceStore ledger = ledgerOf(level);
+        LarderStore larders = LarderStore.get(level);
+        java.util.List<MimicEntity> adults = new java.util.ArrayList<>();
+        for (MimicEntity m : everyone) {
+            if (m.getStage() == com.evosim.core.LifeStage.ADULT
+                    || m.getStage() == com.evosim.core.LifeStage.ELDER) {
+                adults.add(m);
+            }
+        }
+        int low = 0;
+        int pain = 0;
+        double sum = 0.0;
+        for (MimicEntity m : everyone) {
+            long id = m.getIndividual().id();
+            double down = 0.0;
+            double up = 0.0;
+            if (m.wasEmptyToday()) {
+                down += com.evosim.core.Happiness.D_EMPTY;
+            }
+            if (m.wasStarvingToday()) {
+                down += com.evosim.core.Happiness.D_STARVING;
+            }
+            double need = familyDailyNeed(level, m, adults);
+            if (ledger.owedOf(id) > need * com.evosim.core.Happiness.DEBT_DAYS) {
+                down += com.evosim.core.Happiness.D_DEBT;
+            }
+            if (ledger.boundDays(id) > 0) {
+                down += com.evosim.core.Happiness.D_BOUND;
+            }
+            double larder = m.getHomePos() == null ? 0.0 : larders.get(m.getHomePos());
+            double bar = need * com.evosim.core.Happiness.fedNeedMultiplier(m.getIndividual());
+            if (larder >= bar * 2.0) {
+                up += com.evosim.core.Happiness.D_FULL;
+            } else if (larder >= bar) {
+                up += com.evosim.core.Happiness.D_FED;
+            }
+            if (m.getSpouseId() != 0L && m.getHomePos() != null) {
+                up += com.evosim.core.Happiness.D_SPOUSE;
+            }
+            if (m.shelterRestsToday() > 0) {
+                up += com.evosim.core.Happiness.D_REST;
+            }
+            m.setHappiness(com.evosim.core.Happiness.step(
+                    m.getHappiness(), down, up, m.getIndividual()));
+            m.clearHungerMarks();
+            sum += m.getHappiness();
+            if (m.getHappiness() < com.evosim.core.Happiness.PAIN) {
+                pain++;
+            } else if (m.getHappiness() < com.evosim.core.Happiness.LOW) {
+                low++;
+            }
+        }
+        if (!everyone.isEmpty()) {
+            com.evosim.mod.log.SimEvents.note(level, "행복", String.format(
+                    "평균 %.2f · 저조(<%.2f) %d명 · 꺾임(<%.2f) %d명 / %d명",
+                    sum / everyone.size(), com.evosim.core.Happiness.LOW, low,
+                    com.evosim.core.Happiness.PAIN, pain, everyone.size()));
+        }
+    }
+
     private static void nightlyEpilogue(ServerLevel level) {
         long day = com.evosim.mod.entity.SimTime.tick(level) / 24000L;
         long tod = level.getDayTime() % 24000L;
@@ -7388,6 +7529,7 @@ public final class FarmTicker {
         infantIllness(level, everyone, day);
         runHospitals(level, everyone, day);
         supportChildren(level, everyone, day);
+        settleHappiness(level, everyone, day);
         realmReport(level, everyone, day);
         RelayNet.dirty(); // 오늘 등기·말소를 반영해 표를 다시 만들고 표지판 글씨를 맞춘다
         int signs = SignpostPlanner.relabelAll(level);

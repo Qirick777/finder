@@ -218,6 +218,17 @@ public class MimicEntity extends PathfinderMob {
     // 식량 경제 v2 (FoodEconomy): 개인 보유 H(배부름+소지 통합) + 거처 저장고 L(정수 입출금).
     private double holding = 1.5;               // H — 시작 1.5(밴드 [1,2) 안, 콜드스타트 완충)
     private int hungerGraceTicks = 0;           // H=0 지속 틱(아사 유예 클럭, NBT 저장 — B-4)
+    /**
+     * <b>행복도</b> 0.0~1.0 — 굶주림·빚·예속이 깎고 배부름·가족·휴식이 채운다. 밤 정산에서
+     * 하루 한 번만 갱신한다(틱 비용 0). 굶주림이 곧바로 체력을 깎던 것을 이 값이 받아 낸다:
+     * 오래 굶으면 먼저 마음이 꺾이고, 꺾인 뒤에야 몸이 상한다. 꺾인 동안은 일손이 둔해져
+     * 더 못 먹는다 — 가난이 스스로를 먹여 살리는 고리가 여기서 닫힌다.
+     */
+    private double happiness = com.evosim.core.Happiness.BASE;
+    /** 오늘 소지 식량이 0 이었던 적이 있는가(밤 정산에서 행복도로 환산하고 지운다). */
+    private boolean emptyToday = false;
+    /** 오늘 굶주림 피해 단계까지 갔는가. */
+    private boolean starvingToday = false;
     private int neglectTicks = 0;               // 집·저장고 있음인데 위급 유지 지속 틱(진단, 휘발)
     /** 위급방치 진단을 남기는 지속 틱 — 400틱(20초)이면 가족틱(1200) 한 번을 놓친 뒤다. */
     private static final int NEGLECT_REPORT_TICKS = 400;
@@ -6105,17 +6116,54 @@ public class MimicEntity extends PathfinderMob {
             return;
         }
         hungerGraceTicks += interval; // 틱 단위 누적(B-4) — NBT 저장으로 재로그인 리셋 방지
+        emptyToday = true;
         int grace = fastSettle ? FAST_STARVE_GRACE : FoodEconomy.GRACE_TICKS;
         if (hungerGraceTicks > grace) {
+            starvingToday = true;
+            // <b>마음이 먼저 꺾이고, 꺾인 뒤에 몸이 상한다.</b> 종전에는 유예를 넘는 순간부터
+            // 곧장 체력을 깎아 굶주림이 사실상 즉사 계단이었다. 이제 행복도가 그 충격을 받아
+            // 내고, 행복도가 Happiness.PAIN 아래로 내려간 뒤에야 피해가 들어간다. 그동안
+            // 일손이 둔해져(Happiness.workMultiplier) 더 못 먹으므로 공짜로 버티는 것은 아니다.
+            if (happiness >= com.evosim.core.Happiness.PAIN) {
+                if (hungerGraceTicks - interval <= grace) {
+                    SimEvents.event(this, "굶주림", String.format(
+                            "유예 %d틱 초과 → 행복도 하락 시작(현재 %.2f)", grace, happiness));
+                }
+                return;
+            }
             if (hungerGraceTicks - interval <= grace) {
                 SimEvents.event(this, "굶주림", "유예 " + grace + "틱 초과 → 피해 시작");
             }
             hurt(damageSources().starve(), fastSettle ? 2.0F : 0.5F); // 임시값, 게임 관찰로 확정
             if (isDeadOrDying()) {
                 StageObserver.record(getId(), "settle:starved");
-                SimEvents.event(this, "아사", "소지 식량 고갈 지속 → 굶어 죽음");
+                SimEvents.event(this, "아사", String.format(
+                        "소지 식량 고갈 지속 → 굶어 죽음 (행복도 %.2f)", happiness));
             }
         }
+    }
+
+    public double getHappiness() {
+        return happiness;
+    }
+
+    public void setHappiness(double v) {
+        this.happiness = com.evosim.core.Happiness.clamp(v);
+    }
+
+    /** 오늘 소지 식량이 바닥난 적이 있는가 — 밤 정산이 읽고 지운다. */
+    public boolean wasEmptyToday() {
+        return emptyToday;
+    }
+
+    /** 오늘 굶주림 피해 단계까지 갔는가 — 밤 정산이 읽고 지운다. */
+    public boolean wasStarvingToday() {
+        return starvingToday;
+    }
+
+    public void clearHungerMarks() {
+        emptyToday = false;
+        starvingToday = false;
     }
 
     /** 현재 상태 → 활동 강도(소모 배율). 전투 > 취침(위급이면 R6로 깨어 있어 제외) > 이동 > 대기. */
@@ -6410,7 +6458,10 @@ public class MimicEntity extends PathfinderMob {
             MimicEntity mother = nextMother(ordered, father);
             if (mother != null && mother.getIndividual() != null) {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
-                        - Reproduction.BASE_THRESHOLD; // 번식선호/불호 보정만 추출
+                        - Reproduction.BASE_THRESHOLD // 번식선호/불호 보정만 추출
+                        // 꺾인 부모는 재지 않는다 — 가진 게 없으니 따질 것도 없다.
+                        + com.evosim.core.Happiness.birthThresholdAdjust(
+                                father.getHappiness(), mother.getHappiness());
                 long now = com.evosim.mod.entity.SimTime.tick(level());
                 // 쿨다운은 어미의 <b>신체</b>가 정한다(Reproduction.femaleCooldownDays) — 몸이 거칠고
                 // 튼튼하면 회복이 빠르고 빈약·병약하면 느리다. 판단 축(문턱)과 겹치지 않는 자리다.
@@ -7145,7 +7196,9 @@ public class MimicEntity extends PathfinderMob {
         } else {
             if (father != null && mother != null) {
                 double adj = Reproduction.threshold(father.getIndividual(), mother.getIndividual())
-                        - Reproduction.BASE_THRESHOLD;
+                        - Reproduction.BASE_THRESHOLD
+                        + com.evosim.core.Happiness.birthThresholdAdjust(
+                                father.getHappiness(), mother.getHappiness());
                 // 소모 항은 <b>REPRO_NEED_DAYS 일치</b> — canReproduce 는 need×2 를 유보하는데
                 // 표시는 need×1 이라, 실제 문턱 18을 12로 보여 "충족인데 출산 안 함"이 났다
                 // (실측: 성인2·자녀0 표본 2590건 중 1124건이 12~17 구간에 정체 — 전부 오표시).
@@ -8901,6 +8954,7 @@ public class MimicEntity extends PathfinderMob {
         tag.putBoolean("FastCare", fastCare);
         tag.putDouble("Holding", holding);
         tag.putInt("HungerGrace", hungerGraceTicks); // 재로그인해도 아사 클럭 유지(B-4)
+        tag.putDouble("Happiness", happiness);
         tag.putLong("LastForage", lastForageSuccessTick);
         tag.putLong("SettledTick", settledTick);
         tag.putLong("TravelUntil", courtTravelUntil);
@@ -9005,6 +9059,8 @@ public class MimicEntity extends PathfinderMob {
         fastCare = tag.getBoolean("FastCare");
         holding = tag.contains("Holding") ? tag.getDouble("Holding") : 1.5; // 구 세이브 호환(시작값)
         hungerGraceTicks = tag.getInt("HungerGrace");
+        happiness = tag.contains("Happiness")
+                ? tag.getDouble("Happiness") : com.evosim.core.Happiness.BASE;
         lastForageSuccessTick = tag.getLong("LastForage"); // 0(구 세이브)이면 첫 틱에 now로 초기화
         settledTick = tag.getLong("SettledTick");
         courtTravelUntil = tag.getLong("TravelUntil");

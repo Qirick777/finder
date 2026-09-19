@@ -6432,9 +6432,9 @@ public final class EvoSimCommand {
             // 등교가 대상에 못 미치면 <b>왜</b>인지 말한다. 앞의 두 수가 서로 다른 가설을
             // 가른다 — 대표만 못 따르는가(판정이 좁은가), 가구 전체가 안 따르는가.
             tell(ctx.getSource(), String.format(
-                    "  못 간 사유 — 가구전체안따름%2$d · 통학초과%3$d · 자리없음%4$d"
+                    "  못 간 사유 — 가구전체안따름%2$d · 통학초과%3$d · 자리없음%4$d · 밭일%5$d"
                             + " (가구 연으로 자격 얻음%1$d — 그 뒤 거리에서 탈락 가능)",
-                    miss[0], miss[1], miss[2], miss[3]));
+                    miss[0], miss[1], miss[2], miss[3], miss[4]));
         }
         if (!near.isEmpty()) {
             int within = 0;

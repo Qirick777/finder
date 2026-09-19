@@ -408,6 +408,13 @@ public final class FarmEconomy {
     }
 
     public static int capacity(Individual ind, LifeStage stage) {
+        // <b>소년은 2칸 고정.</b> 배고픈 집에서만 밭에 서고(FarmTicker.boyWorksToday), 그때도
+        // 성년 기본(C_BASE 8)의 4분의 1만 딴다 — 제 입 값 남짓이라 굴레를 돌리기엔 충분하고
+        // 경제를 뒤집기엔 모자란 크기다. 부지런·게으름 배율은 태우지 않는다: 아이가 적게
+        // 하는 것은 성실함의 문제가 아니라 아이라서다.
+        if (stage == LifeStage.BOY) {
+            return BOY_CAPACITY;
+        }
         double c = C_BASE;
         if (ExpressionResolver.isExpressed(ind, Trait.DILIGENT)) {
             c *= 1.2;
@@ -419,6 +426,9 @@ public final class FarmEconomy {
         }
         return (int) Math.floor(c);
     }
+
+    /** 소년의 하루 수확 칸 — 성년 기본의 4분의 1. */
+    public static final int BOY_CAPACITY = 2;
 
     /** 부족 타일 = T − 가구 용량. 최소 일감 미만이면 0(게시 안 함 — 잔여는 익은 채 이월). */
     /**

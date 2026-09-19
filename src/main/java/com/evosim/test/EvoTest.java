@@ -2797,6 +2797,53 @@ public final class EvoTest {
         report.add("debt/상환속도", rep,
                 "야망가·자수성가·끈기 +5%씩 · 안분지족·무욕 −5%씩 · 학력 등급당 +3% · 0.10~0.45 · 종자빚 1.5일치",
                 rep ? "정상" : "어긋남");
+        // ── 행복도 — 굶주림이 몸 대신 마음을 먼저 깎는가, 꺾인 마음이 값을 치르는가 ──
+        Individual plainH = one(Sex.MALE);
+        Individual contentH = one(Sex.MALE, TraitInstance.of(Trait.CONTENT));
+        Individual greedyH = one(Sex.MALE, TraitInstance.of(Trait.GREEDY));
+        double downDay = com.evosim.core.Happiness.D_EMPTY + com.evosim.core.Happiness.D_STARVING;
+        boolean hStep = Math.abs(com.evosim.core.Happiness.step(0.6, downDay, 0.0, plainH)
+                        - (0.6 + downDay)) < 1e-9
+                // 안분지족은 덜 괴롭다(깎임 ×0.7) · 욕심은 덜 기쁘다(회복 ×0.7)
+                && Math.abs(com.evosim.core.Happiness.step(0.6, downDay, 0.0, contentH)
+                        - (0.6 + downDay * 0.7)) < 1e-9
+                && Math.abs(com.evosim.core.Happiness.step(0.6, 0.0,
+                        com.evosim.core.Happiness.D_FED, greedyH)
+                        - (0.6 + com.evosim.core.Happiness.D_FED * 0.7)) < 1e-9
+                && com.evosim.core.Happiness.step(0.05, -1.0, 0.0, plainH) == 0.0   // 하한
+                && com.evosim.core.Happiness.step(0.95, 0.0, 1.0, plainH) == 1.0;   // 상한
+        // 굶는 사흘 — 0.6 에서 시작해 PAIN(0.15) 아래로 내려가야 비로소 몸이 상한다
+        double h = com.evosim.core.Happiness.BASE;
+        int daysToPain = 0;
+        while (h >= com.evosim.core.Happiness.PAIN && daysToPain < 20) {
+            h = com.evosim.core.Happiness.step(h, downDay, 0.0, plainH);
+            daysToPain++;
+        }
+        boolean hGrace = daysToPain == 3;
+        boolean hWork = com.evosim.core.Happiness.workMultiplier(0.6) == 1.0
+                && com.evosim.core.Happiness.workMultiplier(0.25) == 0.85
+                && com.evosim.core.Happiness.workMultiplier(0.10) == 0.7;
+        boolean hBirth = com.evosim.core.Happiness.birthThresholdAdjust(0.6, 0.6) == 0.0
+                && com.evosim.core.Happiness.birthThresholdAdjust(0.1, 0.6) == -0.25
+                && com.evosim.core.Happiness.birthThresholdAdjust(0.1, 0.2) == -0.5;
+        report.add("happiness/굶주림", hStep && hGrace && hWork && hBirth,
+                "하루 −0.20(빈손+피해) · 0.6→PAIN 3일 · 안분지족 깎임×0.7 · 욕심 회복×0.7"
+                        + " · 일손 1.0/0.85/0.7 · 출산문턱 부모당 −0.25",
+                (hStep && hGrace && hWork && hBirth) ? "정상"
+                        : String.format("어긋남(step %s · %d일 · work %s · birth %s)",
+                                hStep, daysToPain, hWork, hBirth));
+        // 소년 노동 — 하루 2칸 고정, 부지런·게으름을 타지 않는다
+        boolean boyCap = FarmEconomy.capacity(one(Sex.MALE), com.evosim.core.LifeStage.BOY) == 2
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.DILIGENT)),
+                        com.evosim.core.LifeStage.BOY) == 2
+                && FarmEconomy.capacity(one(Sex.MALE, TraitInstance.of(Trait.LAZY)),
+                        com.evosim.core.LifeStage.BOY) == 2
+                && FarmEconomy.capacity(one(Sex.MALE), com.evosim.core.LifeStage.ADULT)
+                        == FarmEconomy.C_BASE;
+        report.add("happiness/소년노동", boyCap,
+                "소년 하루 2칸 고정(성년 8의 1/4) · 부지런·게으름 배율 안 탐",
+                boyCap ? "정상" : "어긋남");
+
         report.add("polygyny/끌림", pen && pull,
                 "기혼 감점 — 평화 0 · 의탁 절반 · 그 외 2 | 재산을 보는 눈 — 사치·욕심·야망가 · 세력은 욕심·야망가만(3/9/27)",
                 (pen && pull) ? "정상" : "어긋남");

@@ -353,9 +353,16 @@ public class MimicForageGoal extends Goal {
         idleWander(); // 채집물도 동물도 없으면 돌아다니며 탐색
     }
 
-    /** 단계 수확 배율 — 노년 0.5(노쇠). */
+    /**
+     * 단계 수확 배율 — 노년 0.5(노쇠) · 꺾인 마음 0.85/0.7.
+     *
+     * <p>행복도 항은 굴레의 두 번째 마디다. 굶어서 마음이 꺾이면 일손이 둔해지고, 둔해지면
+     * 더 못 먹는다. 굶주림이 즉사를 면하는 대신 여기서 값을 치른다
+     * ({@link com.evosim.core.Happiness#workMultiplier}).
+     */
     private double stageMult() {
-        return mob.getStage() == LifeStage.ELDER ? Elder.FORAGE_MULT : 1.0;
+        double m = mob.getStage() == LifeStage.ELDER ? Elder.FORAGE_MULT : 1.0;
+        return m * com.evosim.core.Happiness.workMultiplier(mob.getHappiness());
     }
 
     private void idleWander() {

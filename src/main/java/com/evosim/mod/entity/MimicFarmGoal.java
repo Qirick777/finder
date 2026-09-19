@@ -51,8 +51,16 @@ public class MimicFarmGoal extends Goal {
     @Override
     public boolean canUse() {
         if (mob.getIndividual() == null || mob.isFastSettle() || mob.isBuilding()
-                || mob.getStage() == LifeStage.INFANT || mob.getStage() == LifeStage.BOY
+                || mob.getStage() == LifeStage.INFANT
                 || mob.getStage() == LifeStage.ELDER) { // 노년 = 은퇴(밭일 없음, 인구 제동 1단계)
+            return false;
+        }
+        // <b>소년은 배고픈 집에서만 밭에 선다.</b> 저장고가 가구 하루소모에 못 미치면 손이
+        // 모자라 아이까지 세운다 — 소작 농가의 실제 모습이고, 가난이 교육을 끊는 굴레의
+        // 세 번째 마디다. 배부른 집 아이는 학교로 간다(Happiness.RECOVERED 위면 거둔다).
+        // 하루 수확은 2칸뿐이고(FarmEconomy.capacity) 제 배정도 받지 않는다 — 부모가 배정된
+        // 구획에 따라붙을 뿐이라 새벽 배정 장부도 고용 깔때기도 건드리지 않는다.
+        if (mob.getStage() == LifeStage.BOY && !FarmTicker.boyWorksToday(mob)) {
             return false;
         }
         // <b>경비대는 낮에 쉰다 — 밭일도 노동이다.</b> 채집 goal 에만 관문을 달았더니 실측에서
@@ -65,7 +73,7 @@ public class MimicFarmGoal extends Goal {
         // 위급 배정자는 시간표를 무시한다 — MimicForageGoal 이 위급 때 배회·밤을 무시하고 채집을
         // 강행하는 것과 같은 예외. 낮에 위급해진 무밭 성년은 FarmTicker.emergencyHire 가 그 자리에서
         // 배정하는데, 노동 시간이 이미 지났으면 그 배정이 다음 날까지 아무 소용이 없다(그 사이 아사).
-        boolean urgent = mob.isCritical() && FarmTicker.assignedPlot(mob.getId()) != 0L;
+        boolean urgent = mob.isCritical() && plotId() != 0L;
         if (!urgent
                 && Schedule.phaseAt(mob.getIndividual(), mob.level().getDayTime())
                         != Schedule.Phase.WORK) {
@@ -90,7 +98,7 @@ public class MimicFarmGoal extends Goal {
         if (harvestedToday >= dailyCap() || mob.isDebugCapped()) {
             harvestBlocked = true; // 전담창 소진 — 수확은 끝, 관리는 가능
             // 쉼터 방아쇠 — "이 구획에서 한도를 다 쓴 일꾼이 있었다"를 지주가 밤에 읽는다.
-            long capPlot = FarmTicker.assignedPlot(mob.getId());
+            long capPlot = plotId();
             if (capPlot != 0L) {
                 FarmTicker.noteCapHit(capPlot);
             }
@@ -114,7 +122,7 @@ public class MimicFarmGoal extends Goal {
             // 잔여 익은 타일은 부족분 게시 → 소작(2세대 일자리)으로 자연 이관.
             harvestBlocked = true;
         }
-        if (mob.isSatisfiedToday() && !mob.worksForTuition() && FarmTicker.assignedPlot(mob.getId()) == 0L) {
+        if (mob.isSatisfiedToday() && !mob.worksForTuition() && plotId() == 0L) {
             // 만족(M7)은 <b>출근 자체를 안 하는</b> 것이라 관리로도 넘기지 않는다 — 자기 밭
             // 노동 정지가 사다리 분화의 장치이고, 여기를 열면 만족한 지주가 계속 일하게 된다.
             idleWhy("만족 상태이고 배정 없음");
@@ -178,7 +186,7 @@ public class MimicFarmGoal extends Goal {
             mob.setFarmHasNoWork(true); // 채집 금지(농사 집중)를 풀어 준다
             return idle();
         }
-        if (FarmTicker.assignedPlot(mob.getId()) != 0L) {
+        if (plotId() != 0L) {
             mob.setActivity("대기(딸 것 없음)");
             idleWhy(why + " · 관리 자리도 없음");
             mob.setFarmHasNoWork(true); // 채집 금지(농사 집중)를 풀어 준다
@@ -244,7 +252,7 @@ public class MimicFarmGoal extends Goal {
         }
         lastTendWhyTick = now;
         BlockPos me = mob.blockPosition();
-        long assigned = FarmTicker.assignedPlot(mob.getId());
+        long assigned = plotId();
         long id = mob.getIndividual().id();
         for (FarmStore.Plot p : FarmStore.get(sl).all().values()) {
             if (p.anchor != null && me.distSqr(p.anchor) > 4096.0) {
@@ -353,7 +361,7 @@ public class MimicFarmGoal extends Goal {
      * 고용 관계가 아니라 그 밭에 이해가 걸린 사람의 일이다.
      */
     private long tendablePlot() {
-        long assigned = FarmTicker.assignedPlot(mob.getId());
+        long assigned = plotId();
         if (assigned != 0L) {
             return assigned;
         }
@@ -737,11 +745,22 @@ public class MimicFarmGoal extends Goal {
      * <b>남의 밭</b>에서만 +1(일꾼으로 유능, 자기 밭엔 없음). 밭 산출은 타일이 상한이라 총량은
      * 그대로이고 그 사람의 임금만 오른다.
      */
+    /**
+     * 이 개체가 오늘 일하는 구획 — 성년은 제 배정, <b>소년은 부모의 배정</b>을 따라간다.
+     *
+     * <p>소년에게 제 배정을 주지 않는 이유는 새벽 배정 장부와 고용 깔때기를 건드리지 않기
+     * 위해서다(FarmTicker.boyPlot 주석 참조).
+     */
+    private long plotId() {
+        return mob.getStage() == LifeStage.BOY
+                ? FarmTicker.boyPlot(mob) : FarmTicker.assignedPlot(mob.getId());
+    }
+
     private int dailyCap() {
         int c = FarmEconomy.capacity(mob.getIndividual(), mob.getStage());
         if (mob.getIndividual() != null
                 && mob.level() instanceof net.minecraft.server.level.ServerLevel sl) {
-            long pid = FarmTicker.assignedPlot(mob.getId());
+            long pid = plotId();
             FarmStore.Plot p = pid != 0L ? FarmStore.get(sl).get(pid) : null;
             if (p != null && p.ownerId != mob.getIndividual().id()) {
                 // 남의 밭 = 소작 용량(밭 크기·마름 항, 상한 14) — FarmEconomy.tenantCapacity 참조.
@@ -788,7 +807,7 @@ public class MimicFarmGoal extends Goal {
         }
         double careR = careRadius();
         long id = mob.getIndividual().id();
-        long assigned = FarmTicker.assignedPlot(mob.getId());
+        long assigned = plotId();
         FarmStore fs = FarmStore.get(sl);
         long newestMine = fs.newestOwnedPlot(id);
         long stewardPlot = fs.stewardOf(id);
